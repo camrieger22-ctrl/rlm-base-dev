@@ -6,3 +6,4 @@ AC-KLD-MATTER,ATTR-KLD-ECA-GB,,1313,,,,false,false,false,false,,,,,KLD Pathway E
 AC-KLD-MATTER,ATTR-KLD-REVIEW-GB,,562,,,,false,false,false,false,,,,,KLD Pathway Active Review GB,PC-KLD-PATHWAY,5,Active,,GB,
 AC-KLD-MATTER,ATTR-KLD-PM-HRS-MO,,11,,,,false,false,false,false,,,,,KLD Pathway PM Hours Per Month,PC-KLD-PATHWAY,6,Active,,h,
 AC-KLD-MATTER,ATTR-KLD-TECH-HRS-MO,,7,,,,false,false,false,false,,,,,KLD Pathway Tech Hours Per Month,PC-KLD-PATHWAY,7,Active,,h,
+AC-KLD-MATTER,ATTR-KLD-TERM-MONTHS,,12,,,,false,false,false,false,,,,,KLD Pathway Term Months,PC-KLD-PATHWAY,8,Active,,,

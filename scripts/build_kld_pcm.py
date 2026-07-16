@@ -274,6 +274,26 @@ def component_groups() -> list[list]:
     return rows
 
 
+# Demo defaults for Source Data = 1000 GB worked example (Standard Average Estimate).
+DEMO_SOURCE_GB = 1000
+DEMO_ECA_GB = 1313
+DEMO_REVIEW_GB = 562
+DEMO_PM_HRS_MO = 11
+DEMO_TECH_HRS_MO = 7
+DEMO_TERM_MONTHS = 12
+
+# Default Quantity when a pathway component is selected (still optional / editable).
+DEMO_QTY_BY_SKU = {
+    "KLD-STAGING": DEMO_SOURCE_GB,
+    "KLD-NEB-ECA-HOST": DEMO_ECA_GB,
+    "KLD-R1-ECA-HOST": DEMO_ECA_GB,
+    "KLD-NEB-REVIEW": DEMO_REVIEW_GB,
+    "KLD-R1-REVIEW": DEMO_REVIEW_GB,
+    "KLD-PS-PM": DEMO_PM_HRS_MO,
+    "KLD-PS-TECH": DEMO_TECH_HRS_MO,
+}
+
+
 def related_components() -> list[list]:
     rel = "Bundle to Bundle Component Relationship"
     rows = []
@@ -292,7 +312,8 @@ def related_components() -> list[list]:
         seq = 10
         for group, children in sections:
             for child in children:
-                rows.append(prc_row(path_sku, child, group, rel, False, 1, seq, True))
+                qty = DEMO_QTY_BY_SKU.get(child, 1)
+                rows.append(prc_row(path_sku, child, group, rel, False, qty, seq, True))
                 seq += 10
     return rows
 
@@ -484,13 +505,14 @@ def main() -> None:
         "AttributeDefinition.csv",
         ["Code", "DataType", "DefaultHelpText", "DefaultValue", "Description", "DeveloperName", "IsActive", "IsRequired", "Label", "Name", "Picklist.Name", "SourceSystemIdentifier", "UnitOfMeasure.UnitCode", "ValueDescription"],
         [
-            ["ATTR-KLD-SOURCE-GB", "Number", "Driver for staging quantity and downstream volume cascade.", "1000", "Source data volume in GB", "Source_Data_GB", "true", "false", "Source Data", "Source Data", "", "", "GB", ""],
+            ["ATTR-KLD-SOURCE-GB", "Number", "Driver for staging quantity and downstream volume cascade.", str(DEMO_SOURCE_GB), "Source data volume in GB", "Source_Data_GB", "true", "false", "Source Data", "Source Data", "", "", "GB", ""],
             ["ATTR-KLD-DECOMP-GB", "Number", "Source Data × (1 + 50% decompression).", "1500", "Decompressed volume after 50% decompression rate", "Decompression_GB", "true", "false", "Decompression Rate (50%)", "Decompression Rate (50%)", "", "", "GB", ""],
             ["ATTR-KLD-STORAGE-EXP-GB", "Number", "Decompression × (1 + 25% storage expansion).", "1875", "Expanded storage volume after 25% storage expansion rate", "Storage_Expansion_GB", "true", "false", "Storage Expansion Rate (25%)", "Storage Expansion Rate (25%)", "", "", "GB", ""],
-            ["ATTR-KLD-ECA-GB", "Number", "Storage Expansion × 70%. Drives ECA Hosting quantity / volume tier.", "1313", "ECA hosting volume (70% of storage expansion)", "ECA_Data_GB", "true", "false", "ECA Data (70%)", "ECA Data (70%)", "", "", "GB", ""],
-            ["ATTR-KLD-REVIEW-GB", "Number", "Storage Expansion × 30%. Drives Online Data Hosting (Review) quantity.", "562", "Active review volume (30% of storage expansion)", "Active_Review_GB", "true", "false", "Active Review (30%)", "Active Review (30%)", "", "", "GB", ""],
-            ["ATTR-KLD-PM-HRS-MO", "Number", "Project Management hours per month (estimate matrix).", "11", "PM hours per month for professional services estimate", "PM_Hours_Per_Month", "true", "false", "PM Hours Per Month", "PM Hours Per Month", "", "", "h", ""],
-            ["ATTR-KLD-TECH-HRS-MO", "Number", "Technical Support hours per month (estimate matrix).", "7", "Tech hours per month for professional services estimate", "Tech_Hours_Per_Month", "true", "false", "Tech Hours Per Month", "Tech Hours Per Month", "", "", "h", ""],
+            ["ATTR-KLD-ECA-GB", "Number", "Storage Expansion × 70%. ECA Hosting qty and volume tier use this GB (not Source Data).", str(DEMO_ECA_GB), "ECA hosting volume (70% of storage expansion)", "ECA_Data_GB", "true", "false", "ECA Data (70%)", "ECA Data (70%)", "", "", "GB", ""],
+            ["ATTR-KLD-REVIEW-GB", "Number", "Storage Expansion × 30%. Online Data Hosting (Review) qty and volume tier use this GB.", str(DEMO_REVIEW_GB), "Active review volume (30% of storage expansion)", "Active_Review_GB", "true", "false", "Active Review (30%)", "Active Review (30%)", "", "", "GB", ""],
+            ["ATTR-KLD-PM-HRS-MO", "Number", "From PM/Tech hours matrix (Hosting 500–1000 GB → 11). Est. = rate × hrs × term months.", str(DEMO_PM_HRS_MO), "PM hours per month for professional services estimate", "PM_Hours_Per_Month", "true", "false", "PM Hours Per Month", "PM Hours Per Month", "", "", "h", ""],
+            ["ATTR-KLD-TECH-HRS-MO", "Number", "From PM/Tech hours matrix (Hosting 500–1000 GB → 7). Est. = rate × hrs × term months.", str(DEMO_TECH_HRS_MO), "Tech hours per month for professional services estimate", "Tech_Hours_Per_Month", "true", "false", "Tech Hours Per Month", "Tech Hours Per Month", "", "", "h", ""],
+            ["ATTR-KLD-TERM-MONTHS", "Number", "Contract term used in estimate (GB/Month and hours/month × months).", str(DEMO_TERM_MONTHS), "Estimate contract term in months", "Term_Months", "true", "false", "Term Months", "Term Months", "", "", "", ""],
         ],
     )
     write_csv("AttributeCategory.csv", ["Code", "Description", "Name"], [["AC-KLD-MATTER", "", "Matter Estimate"]])
@@ -505,16 +527,18 @@ def main() -> None:
             ["AC-KLD-MATTER;ATTR-KLD-REVIEW-GB", "AC-KLD-MATTER", "ATTR-KLD-REVIEW-GB"],
             ["AC-KLD-MATTER;ATTR-KLD-PM-HRS-MO", "AC-KLD-MATTER", "ATTR-KLD-PM-HRS-MO"],
             ["AC-KLD-MATTER;ATTR-KLD-TECH-HRS-MO", "AC-KLD-MATTER", "ATTR-KLD-TECH-HRS-MO"],
+            ["AC-KLD-MATTER;ATTR-KLD-TERM-MONTHS", "AC-KLD-MATTER", "ATTR-KLD-TERM-MONTHS"],
         ],
     )
     write_csv("ProductClassificationAttr.csv", ["AttributeCategory.Code", "AttributeDefinition.Code", "AttributeNameOverride", "DefaultValue", "Description", "DisplayType", "HelpText", "IsHidden", "IsPriceImpacting", "IsReadOnly", "IsRequired", "MaximumCharacterCount", "MaximumValue", "MinimumCharacterCount", "MinimumValue", "Name", "ProductClassification.Code", "Sequence", "Status", "StepValue", "UnitOfMeasure.UnitCode", "ValueDescription"], [
-        ["AC-KLD-MATTER", "ATTR-KLD-SOURCE-GB", "", "1000", "", "", "", "false", "false", "false", "false", "", "", "", "", "KLD Pathway Source Data", "PC-KLD-PATHWAY", "1", "Active", "", "GB", ""],
+        ["AC-KLD-MATTER", "ATTR-KLD-SOURCE-GB", "", str(DEMO_SOURCE_GB), "", "", "", "false", "false", "false", "false", "", "", "", "", "KLD Pathway Source Data", "PC-KLD-PATHWAY", "1", "Active", "", "GB", ""],
         ["AC-KLD-MATTER", "ATTR-KLD-DECOMP-GB", "", "1500", "", "", "", "false", "false", "false", "false", "", "", "", "", "KLD Pathway Decompression GB", "PC-KLD-PATHWAY", "2", "Active", "", "GB", ""],
         ["AC-KLD-MATTER", "ATTR-KLD-STORAGE-EXP-GB", "", "1875", "", "", "", "false", "false", "false", "false", "", "", "", "", "KLD Pathway Storage Expansion GB", "PC-KLD-PATHWAY", "3", "Active", "", "GB", ""],
-        ["AC-KLD-MATTER", "ATTR-KLD-ECA-GB", "", "1313", "", "", "", "false", "false", "false", "false", "", "", "", "", "KLD Pathway ECA Data GB", "PC-KLD-PATHWAY", "4", "Active", "", "GB", ""],
-        ["AC-KLD-MATTER", "ATTR-KLD-REVIEW-GB", "", "562", "", "", "", "false", "false", "false", "false", "", "", "", "", "KLD Pathway Active Review GB", "PC-KLD-PATHWAY", "5", "Active", "", "GB", ""],
-        ["AC-KLD-MATTER", "ATTR-KLD-PM-HRS-MO", "", "11", "", "", "", "false", "false", "false", "false", "", "", "", "", "KLD Pathway PM Hours Per Month", "PC-KLD-PATHWAY", "6", "Active", "", "h", ""],
-        ["AC-KLD-MATTER", "ATTR-KLD-TECH-HRS-MO", "", "7", "", "", "", "false", "false", "false", "false", "", "", "", "", "KLD Pathway Tech Hours Per Month", "PC-KLD-PATHWAY", "7", "Active", "", "h", ""],
+        ["AC-KLD-MATTER", "ATTR-KLD-ECA-GB", "", str(DEMO_ECA_GB), "", "", "", "false", "false", "false", "false", "", "", "", "", "KLD Pathway ECA Data GB", "PC-KLD-PATHWAY", "4", "Active", "", "GB", ""],
+        ["AC-KLD-MATTER", "ATTR-KLD-REVIEW-GB", "", str(DEMO_REVIEW_GB), "", "", "", "false", "false", "false", "false", "", "", "", "", "KLD Pathway Active Review GB", "PC-KLD-PATHWAY", "5", "Active", "", "GB", ""],
+        ["AC-KLD-MATTER", "ATTR-KLD-PM-HRS-MO", "", str(DEMO_PM_HRS_MO), "", "", "", "false", "false", "false", "false", "", "", "", "", "KLD Pathway PM Hours Per Month", "PC-KLD-PATHWAY", "6", "Active", "", "h", ""],
+        ["AC-KLD-MATTER", "ATTR-KLD-TECH-HRS-MO", "", str(DEMO_TECH_HRS_MO), "", "", "", "false", "false", "false", "false", "", "", "", "", "KLD Pathway Tech Hours Per Month", "PC-KLD-PATHWAY", "7", "Active", "", "h", ""],
+        ["AC-KLD-MATTER", "ATTR-KLD-TERM-MONTHS", "", str(DEMO_TERM_MONTHS), "", "", "", "false", "false", "false", "false", "", "", "", "", "KLD Pathway Term Months", "PC-KLD-PATHWAY", "8", "Active", "", "", ""],
     ])
     write_csv("ProductAttributeDefinition.csv", ["AttributeCategory.Code", "AttributeDefinition.Code", "AttributeNameOverride", "DefaultValue", "Description", "DisplayType", "HelpText", "IsHidden", "IsPriceImpacting", "IsReadOnly", "IsRequired", "MaximumCharacterCount", "MaximumValue", "MinimumCharacterCount", "MinimumValue", "Name", "OverriddenProductAttributeDefinitionId", "Product2.StockKeepingUnit", "ProductClassificationAttribute.Name", "Sequence", "Status", "StepValue", "UnitOfMeasure.UnitCode", "ValueDescription"], [])
 
