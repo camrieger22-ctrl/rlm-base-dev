@@ -3,13 +3,13 @@
 > **Auto-generated** by `scripts/ai/generate_cci_reference.py` from `cumulusci.yml`.  
 > Do not edit manually — re-run the script after changing `cumulusci.yml`.
 
-**277 tasks** across **10 groups**.
+**271 tasks** across **10 groups**.
 
 ---
 
 ## Data Maintenance
 
-*9 task(s)*
+*8 task(s)*
 
 ### `delete_draft_billing_records`
 
@@ -20,18 +20,6 @@
 **Options:**
 
 - `path`: `scripts/apex/deleteDraftBillingRecords.apex`
-
----
-
-### `delete_kld_pricing_data`
-
-**Description:** Delete all Insert-operation records from the kld-pricing plan (CostBookEntry, PricebookEntry, PriceAdjustmentTier) in reverse plan order (children first). Shape-agnostic. Run before insert_kld_pricing_data for idempotent reloads.
-
-**Class:** `tasks.rlm_sfdmu.DeleteSFDMUData`
-
-**Options:**
-
-- `pathtoexportjson`: `datasets/sfdmu/kld/en-US/kld-pricing`
 
 ---
 
@@ -434,20 +422,7 @@
 
 ## Data Management - Idempotency
 
-*22 task(s)*
-
-### `test_kld_pricing_idempotency`
-
-**Description:** Idempotency test for kld-pricing (load twice from source, assert no new records).
-
-**Class:** `tasks.rlm_sfdmu.TestSFDMUIdempotency`
-
-**Options:**
-
-- `pathtoexportjson`: `datasets/sfdmu/kld/en-US/kld-pricing`
-- `use_extraction_roundtrip`: `False`
-
----
+*21 task(s)*
 
 ### `test_q3_billing_idempotency`
 
@@ -1075,7 +1050,7 @@
 
 ## Revenue Lifecycle Management
 
-*166 task(s)*
+*162 task(s)*
 
 ### `activate_agents`
 
@@ -1301,23 +1276,6 @@
 
 - `developer_name`: `RLM_SalesTransactionContext`
 - `plan_file`: `datasets/context_plans/PrmPricing/manifest.json`
-- `translate_plan`: `True`
-- `deactivate_before`: `False`
-- `activate`: `True`
-- `verify`: `True`
-
----
-
-### `apply_context_ramp_mode`
-
-**Description:** Adds RampMode__c (SalesTransactionItem) and GroupRampMode__c (SalesTransactionGroup) context attributes to the Sales Transaction context definition and maps them to QuoteLineItem.RLM_RampMode__c and QuoteLineGroup.RLM_RampMode__c (QuoteEntitiesMapping) and OrderItem.RLM_RampMode__c and OrderItemGroup.RLM_RampMode__c (OrderEntitiesMapping).
-
-**Class:** `tasks.rlm_context_service.ManageContextDefinition`
-
-**Options:**
-
-- `developer_name`: `RLM_SalesTransactionContext`
-- `plan_file`: `datasets/context_plans/RampMode/manifest.json`
 - `translate_plan`: `True`
 - `deactivate_before`: `False`
 - `activate`: `True`
@@ -2029,18 +1987,6 @@
 
 ---
 
-### `deploy_post_ramp_builder`
-
-**Description:** Deploy all Ramp Schedule Builder (Create Ramp Schedule V4) metadata under unpackaged/post_ramp_builder: RLM_RampMode__c (Picklist) on QuoteLineGroup, QuoteLineItem, OrderItemGroup, and OrderItem; RLM_UpliftPercent__c (Percent) on QuoteLineGroup only; Lightning Message Channel (RLM_RampScheduleChannel); Apex classes and test classes (RLM_RampScheduleFlowAction, RLM_RampScheduleService, RLM_RampScheduleValidator, RLM_RampScheduleRequest, RLM_RampScheduleResponse, RLM_RampScheduleFlowException, RLM_RampMigrationQueueable, RLM_RampScheduleStatusController, RLM_QuoteLineItemDiscountUpliftHandler, RLM_QuoteLineItemRampModeHandler, RLM_QuoteLineItemRampHandler, and test classes); RLM_QuoteLineItemRampTrigger trigger; six LWC bundles (rlmRampScheduleFlowModalAction, rlmRampScheduleForm, rlmRampScheduleTrialSection, rlmRampSchedulePreviewTable, rlmRampScheduleStatus, rlmRampRefreshPage); the RLM_Create_Ramp_Schedule_V4 screen flow; the Quote.RLM_Create_Ramp_Schedule_V4 quick action; and the RLM_RampSchedule permission set (grants FLS on all custom fields and class access for all production Apex classes).
-
-**Class:** `cumulusci.tasks.salesforce.Deploy`
-
-**Options:**
-
-- `path`: `unpackaged/post_ramp_builder`
-
----
-
 ### `deploy_pre`
 
 **Description:** Deploy Pre-deployment Metadata
@@ -2440,30 +2386,6 @@
 **Options:**
 
 - `pathtoexportjson`: `datasets/sfdmu/qb/en-US/qb-clm`
-
----
-
-### `insert_kld_pcm_data`
-
-**Description:** Insert KLDiscovery PCM data (37 products: matter pathways, hosting, forensics, eDiscovery AI, analytics, professional services). Requires distinct KLD-* SKUs; can load alongside QuantumBit when both qb and kld flags are enabled.
-
-**Class:** `tasks.rlm_sfdmu.LoadSFDMUData`
-
-**Options:**
-
-- `pathtoexportjson`: `datasets/sfdmu/kld/en-US/kld-pcm`
-
----
-
-### `insert_kld_pricing_data`
-
-**Description:** Insert KLDiscovery pricing into Standard Price Book (USD): pricebook entries, volume tiers for GB/month hosting, cost book entries. Run after insert_kld_pcm_data. Precede with delete_kld_pricing_data for idempotent reloads.
-
-**Class:** `tasks.rlm_sfdmu.LoadSFDMUData`
-
-**Options:**
-
-- `pathtoexportjson`: `datasets/sfdmu/kld/en-US/kld-pricing`
 
 ---
 
