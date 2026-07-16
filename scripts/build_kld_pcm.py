@@ -289,8 +289,9 @@ DEMO_QTY_BY_SKU = {
     "KLD-R1-ECA-HOST": DEMO_ECA_GB,
     "KLD-NEB-REVIEW": DEMO_REVIEW_GB,
     "KLD-R1-REVIEW": DEMO_REVIEW_GB,
-    "KLD-PS-PM": DEMO_PM_HRS_MO,
-    "KLD-PS-TECH": DEMO_TECH_HRS_MO,
+    # One-Time PS: hours/month × term (matches estimate Est. Price without needing quote term)
+    "KLD-PS-PM": DEMO_PM_HRS_MO * DEMO_TERM_MONTHS,
+    "KLD-PS-TECH": DEMO_TECH_HRS_MO * DEMO_TERM_MONTHS,
 }
 
 
@@ -530,14 +531,15 @@ def main() -> None:
             ["AC-KLD-MATTER;ATTR-KLD-TERM-MONTHS", "AC-KLD-MATTER", "ATTR-KLD-TERM-MONTHS"],
         ],
     )
+    # IsReadOnly=true for cascade/matrix outputs (CML KLDPathway drives them). Source + Term editable.
     write_csv("ProductClassificationAttr.csv", ["AttributeCategory.Code", "AttributeDefinition.Code", "AttributeNameOverride", "DefaultValue", "Description", "DisplayType", "HelpText", "IsHidden", "IsPriceImpacting", "IsReadOnly", "IsRequired", "MaximumCharacterCount", "MaximumValue", "MinimumCharacterCount", "MinimumValue", "Name", "ProductClassification.Code", "Sequence", "Status", "StepValue", "UnitOfMeasure.UnitCode", "ValueDescription"], [
         ["AC-KLD-MATTER", "ATTR-KLD-SOURCE-GB", "", str(DEMO_SOURCE_GB), "", "", "", "false", "false", "false", "false", "", "", "", "", "KLD Pathway Source Data", "PC-KLD-PATHWAY", "1", "Active", "", "GB", ""],
-        ["AC-KLD-MATTER", "ATTR-KLD-DECOMP-GB", "", "1500", "", "", "", "false", "false", "false", "false", "", "", "", "", "KLD Pathway Decompression GB", "PC-KLD-PATHWAY", "2", "Active", "", "GB", ""],
-        ["AC-KLD-MATTER", "ATTR-KLD-STORAGE-EXP-GB", "", "1875", "", "", "", "false", "false", "false", "false", "", "", "", "", "KLD Pathway Storage Expansion GB", "PC-KLD-PATHWAY", "3", "Active", "", "GB", ""],
-        ["AC-KLD-MATTER", "ATTR-KLD-ECA-GB", "", str(DEMO_ECA_GB), "", "", "", "false", "false", "false", "false", "", "", "", "", "KLD Pathway ECA Data GB", "PC-KLD-PATHWAY", "4", "Active", "", "GB", ""],
-        ["AC-KLD-MATTER", "ATTR-KLD-REVIEW-GB", "", str(DEMO_REVIEW_GB), "", "", "", "false", "false", "false", "false", "", "", "", "", "KLD Pathway Active Review GB", "PC-KLD-PATHWAY", "5", "Active", "", "GB", ""],
-        ["AC-KLD-MATTER", "ATTR-KLD-PM-HRS-MO", "", str(DEMO_PM_HRS_MO), "", "", "", "false", "false", "false", "false", "", "", "", "", "KLD Pathway PM Hours Per Month", "PC-KLD-PATHWAY", "6", "Active", "", "h", ""],
-        ["AC-KLD-MATTER", "ATTR-KLD-TECH-HRS-MO", "", str(DEMO_TECH_HRS_MO), "", "", "", "false", "false", "false", "false", "", "", "", "", "KLD Pathway Tech Hours Per Month", "PC-KLD-PATHWAY", "7", "Active", "", "h", ""],
+        ["AC-KLD-MATTER", "ATTR-KLD-DECOMP-GB", "", "1500", "", "", "", "false", "false", "true", "false", "", "", "", "", "KLD Pathway Decompression GB", "PC-KLD-PATHWAY", "2", "Active", "", "GB", ""],
+        ["AC-KLD-MATTER", "ATTR-KLD-STORAGE-EXP-GB", "", "1875", "", "", "", "false", "false", "true", "false", "", "", "", "", "KLD Pathway Storage Expansion GB", "PC-KLD-PATHWAY", "3", "Active", "", "GB", ""],
+        ["AC-KLD-MATTER", "ATTR-KLD-ECA-GB", "", str(DEMO_ECA_GB), "", "", "", "false", "false", "true", "false", "", "", "", "", "KLD Pathway ECA Data GB", "PC-KLD-PATHWAY", "4", "Active", "", "GB", ""],
+        ["AC-KLD-MATTER", "ATTR-KLD-REVIEW-GB", "", str(DEMO_REVIEW_GB), "", "", "", "false", "false", "true", "false", "", "", "", "", "KLD Pathway Active Review GB", "PC-KLD-PATHWAY", "5", "Active", "", "GB", ""],
+        ["AC-KLD-MATTER", "ATTR-KLD-PM-HRS-MO", "", str(DEMO_PM_HRS_MO), "", "", "", "false", "false", "true", "false", "", "", "", "", "KLD Pathway PM Hours Per Month", "PC-KLD-PATHWAY", "6", "Active", "", "h", ""],
+        ["AC-KLD-MATTER", "ATTR-KLD-TECH-HRS-MO", "", str(DEMO_TECH_HRS_MO), "", "", "", "false", "false", "true", "false", "", "", "", "", "KLD Pathway Tech Hours Per Month", "PC-KLD-PATHWAY", "7", "Active", "", "h", ""],
         ["AC-KLD-MATTER", "ATTR-KLD-TERM-MONTHS", "", str(DEMO_TERM_MONTHS), "", "", "", "false", "false", "false", "false", "", "", "", "", "KLD Pathway Term Months", "PC-KLD-PATHWAY", "8", "Active", "", "", ""],
     ])
     write_csv("ProductAttributeDefinition.csv", ["AttributeCategory.Code", "AttributeDefinition.Code", "AttributeNameOverride", "DefaultValue", "Description", "DisplayType", "HelpText", "IsHidden", "IsPriceImpacting", "IsReadOnly", "IsRequired", "MaximumCharacterCount", "MaximumValue", "MinimumCharacterCount", "MinimumValue", "Name", "OverriddenProductAttributeDefinitionId", "Product2.StockKeepingUnit", "ProductClassificationAttribute.Name", "Sequence", "Status", "StepValue", "UnitOfMeasure.UnitCode", "ValueDescription"], [])

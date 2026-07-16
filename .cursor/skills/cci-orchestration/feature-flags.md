@@ -3,7 +3,7 @@
 > **Auto-generated** by `scripts/ai/generate_cci_reference.py` from `cumulusci.yml`.  
 > Do not edit manually — re-run the script after changing `cumulusci.yml`.
 
-**41 feature flags**, **85 configuration values**, **36 YAML anchors** under `project.custom`.
+**42 feature flags**, **88 configuration values**, **36 YAML anchors** under `project.custom`.
 
 ---
 
@@ -26,13 +26,14 @@ Boolean flags that gate task/flow execution via `when:` clauses.
 | `clm_data` | `False` | 1 flow step(s) |
 | `collections` | `True` | 5 flow step(s) |
 | `commerce` | `False` | 2 flow step(s) |
-| `constraints` | `True` | 12 flow step(s) |
-| `constraints_data` | `True` | 8 flow step(s) |
+| `constraints` | `True` | 14 flow step(s) |
+| `constraints_data` | `True` | 10 flow step(s) |
 | `docgen` | `True` | 10 flow step(s) |
 | `dro` | `True` | 7 flow step(s) |
 | `einstein` | `True` | 3 flow step(s) |
 | `guidedselling` | `True` | 5 flow step(s) |
 | `inapp` | `False` | 4 flow step(s) |
+| `kld` | `False` | 5 flow step(s) |
 | `large_stx` | `False` | 5 flow step(s) |
 | `payments` | `True` | 8 flow step(s) |
 | `pde` | `False` | — |
@@ -175,6 +176,8 @@ Boolean flags that gate task/flow execution via `when:` clauses.
 - `prepare_constraints` step 10 → `import_cml`
 - `prepare_constraints` step 11 → `manage_expression_sets`
 - `prepare_constraints` step 12 → `manage_expression_sets`
+- `prepare_constraints` step 13 → `import_cml`
+- `prepare_constraints` step 14 → `manage_expression_sets`
 
 ### `constraints_data` (default: `True`)
 
@@ -186,6 +189,8 @@ Boolean flags that gate task/flow execution via `when:` clauses.
 - `prepare_constraints` step 10 → `import_cml`
 - `prepare_constraints` step 11 → `manage_expression_sets`
 - `prepare_constraints` step 12 → `manage_expression_sets`
+- `prepare_constraints` step 13 → `import_cml`
+- `prepare_constraints` step 14 → `manage_expression_sets`
 
 ### `docgen` (default: `True`)
 
@@ -230,6 +235,14 @@ Boolean flags that gate task/flow execution via `when:` clauses.
 - `prepare_inapp` step 1 → `deploy_post_inapp`
 - `prepare_inapp` step 2 → `assign_permission_sets`
 - `prepare_inapp` step 3 → `load_inapp_dataset`
+
+### `kld` (default: `False`)
+
+- `prepare_product_data` step 4 → `insert_kld_pcm_data`
+- `prepare_pricing_data` step 5 → `delete_kld_pricing_data`
+- `prepare_pricing_data` step 6 → `insert_kld_pricing_data`
+- `prepare_constraints` step 13 → `import_cml`
+- `prepare_constraints` step 14 → `manage_expression_sets`
 
 ### `large_stx` (default: `False`)
 
@@ -523,6 +536,9 @@ Non-boolean scalar values under `project.custom` used as YAML anchors for contex
 | `fulfillment_asset_context_default_mapping` | `FulfillAssetEntitiesMapping` |
 | `fulfillment_asset_context_name` | `RLM_FulfillmentAssetContext` |
 | `inapp_dataset` | `datasets/sfdmu/inapp` |
+| `kld_pathway_constraints_data_dir` | `datasets/constraints/kld/KLDPathway` |
+| `kld_pcm_dataset` | `datasets/sfdmu/kld/en-US/kld-pcm` |
+| `kld_pricing_dataset` | `datasets/sfdmu/kld/en-US/kld-pricing` |
 | `locale` | `en_US` |
 | `prm_pricing_procedure_plan_overlay` | `datasets/procedure_plan_overlays/prm_pricing.json` |
 | `prm_pricing_recipe_table_mappings` | `datasets/tooling/PricingRecipeTableMappings/prm_ngp_default.json` |

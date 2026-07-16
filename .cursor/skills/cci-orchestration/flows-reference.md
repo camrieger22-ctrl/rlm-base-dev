@@ -286,6 +286,12 @@ Create Self-Service Billing Portal community and optionally deploy site content.
 12. **task** `manage_expression_sets`  `when: project_config.project__custom__constraints_data and project_config.project__custom__qb`
    - `operation`: `activate_versions`
    - `version_full_names`: `Server2_V1,QuantumBitBundle_V1`
+13. **task** `import_cml`  `when: project_config.project__custom__constraints_data and project_config.project__custom__kld`
+   - `data_dir`: `datasets/constraints/kld/KLDPathway`
+   - `dataset_dirs`: `datasets/sfdmu/kld/en-US/kld-pcm`
+14. **task** `manage_expression_sets`  `when: project_config.project__custom__constraints_data and project_config.project__custom__kld`
+   - `operation`: `activate_versions`
+   - `version_full_names`: `KLDPathway_V1`
 
 ---
 

@@ -1,0 +1,101 @@
+// ============================================================================
+// KLDPathway — KLDiscovery matter pathway estimate cascade (API v67 / RLM 262)
+// ============================================================================
+// Applies to the three pathway bundles:
+//   Nebula ECA to Nebula Review / Nebula ECA to RelOne / RelOne ECA to RelOne
+//
+// Cascade (Source Data driver):
+//   Decompression (50%)     = Source × 1.50
+//   Storage Expansion (25%) = Decompression × 1.25
+//   ECA Data (70%)          = round(Storage Expansion × 0.70)
+//   Active Review (30%)     = Storage Expansion − ECA Data
+//
+// PM / Tech hours from Hosting matrix keyed on Source Data GB.
+// When Staging / ECA / Review / PS components are selected, quantities follow
+// the cascade (PS qty = hours/month × Term Months for One-Time estimate totals).
+// ============================================================================
+
+type Staging;
+type Nebula_ECA_Hosting;
+type Nebula_Review;
+type RelOne_ECA_Hosting;
+type RelOne_Review;
+type Project_Management;
+type Technical_Support;
+
+// Shared matter-estimate attributes (DeveloperNames match kld-pcm AttributeDefinition)
+type KLD_Pathway_Base : LineItem {
+    @(defaultValue = "1000", sequence = 1)
+    int Source_Data_GB;
+
+    @(configurable = false, defaultValue = "1500", sequence = 2)
+    int Decompression_GB = Source_Data_GB * 3 / 2;
+
+    @(configurable = false, defaultValue = "1875", sequence = 3)
+    int Storage_Expansion_GB = Decompression_GB * 5 / 4;
+
+    // round half up: (n*7 + 5) / 10  → Source 1000 ⇒ ECA 1313
+    @(configurable = false, defaultValue = "1313", sequence = 4)
+    int ECA_Data_GB = (Storage_Expansion_GB * 7 + 5) / 10;
+
+    @(configurable = false, defaultValue = "562", sequence = 5)
+    int Active_Review_GB = Storage_Expansion_GB - ECA_Data_GB;
+
+    // Hosting PM/Tech matrix (Collection-only bands deferred)
+    @(configurable = false, defaultValue = "11", sequence = 6)
+    int PM_Hours_Per_Month = (Source_Data_GB > 1000) ? 30 : ((Source_Data_GB > 500) ? 11 : ((Source_Data_GB > 200) ? 10 : ((Source_Data_GB > 100) ? 6 : ((Source_Data_GB > 50) ? 4 : ((Source_Data_GB > 0) ? 2 : 0)))));
+
+    @(configurable = false, defaultValue = "7", sequence = 7)
+    int Tech_Hours_Per_Month = (Source_Data_GB > 1000) ? 15 : ((Source_Data_GB > 500) ? 7 : ((Source_Data_GB > 200) ? 5 : ((Source_Data_GB > 100) ? 3 : ((Source_Data_GB > 50) ? 2 : ((Source_Data_GB > 0) ? 1 : 0)))));
+
+    @(defaultValue = "12", sequence = 8)
+    int Term_Months;
+
+    @(configurable = false, sequence = 9)
+    int PM_Total_Hours = PM_Hours_Per_Month * Term_Months;
+
+    @(configurable = false, sequence = 10)
+    int Tech_Total_Hours = Tech_Hours_Per_Month * Term_Months;
+}
+
+type KLD_PATH_NEB_NEB : KLD_Pathway_Base {
+    relation staging_nebneb : Staging[0..1];
+    relation eca_nebneb : Nebula_ECA_Hosting[0..1];
+    relation review_nebneb : Nebula_Review[0..1];
+    relation pm_nebneb : Project_Management[0..1];
+    relation tech_nebneb : Technical_Support[0..1];
+
+    preference(staging_nebneb[Staging] > 0 -> staging_nebneb[Staging] == Source_Data_GB);
+    preference(eca_nebneb[Nebula_ECA_Hosting] > 0 -> eca_nebneb[Nebula_ECA_Hosting] == ECA_Data_GB);
+    preference(review_nebneb[Nebula_Review] > 0 -> review_nebneb[Nebula_Review] == Active_Review_GB);
+    preference(pm_nebneb[Project_Management] > 0 -> pm_nebneb[Project_Management] == PM_Total_Hours);
+    preference(tech_nebneb[Technical_Support] > 0 -> tech_nebneb[Technical_Support] == Tech_Total_Hours);
+}
+
+type KLD_PATH_NEB_R1 : KLD_Pathway_Base {
+    relation staging_nebr1 : Staging[0..1];
+    relation eca_nebr1 : Nebula_ECA_Hosting[0..1];
+    relation review_nebr1 : RelOne_Review[0..1];
+    relation pm_nebr1 : Project_Management[0..1];
+    relation tech_nebr1 : Technical_Support[0..1];
+
+    preference(staging_nebr1[Staging] > 0 -> staging_nebr1[Staging] == Source_Data_GB);
+    preference(eca_nebr1[Nebula_ECA_Hosting] > 0 -> eca_nebr1[Nebula_ECA_Hosting] == ECA_Data_GB);
+    preference(review_nebr1[RelOne_Review] > 0 -> review_nebr1[RelOne_Review] == Active_Review_GB);
+    preference(pm_nebr1[Project_Management] > 0 -> pm_nebr1[Project_Management] == PM_Total_Hours);
+    preference(tech_nebr1[Technical_Support] > 0 -> tech_nebr1[Technical_Support] == Tech_Total_Hours);
+}
+
+type KLD_PATH_R1_R1 : KLD_Pathway_Base {
+    relation staging_r1r1 : Staging[0..1];
+    relation eca_r1r1 : RelOne_ECA_Hosting[0..1];
+    relation review_r1r1 : RelOne_Review[0..1];
+    relation pm_r1r1 : Project_Management[0..1];
+    relation tech_r1r1 : Technical_Support[0..1];
+
+    preference(staging_r1r1[Staging] > 0 -> staging_r1r1[Staging] == Source_Data_GB);
+    preference(eca_r1r1[RelOne_ECA_Hosting] > 0 -> eca_r1r1[RelOne_ECA_Hosting] == ECA_Data_GB);
+    preference(review_r1r1[RelOne_Review] > 0 -> review_r1r1[RelOne_Review] == Active_Review_GB);
+    preference(pm_r1r1[Project_Management] > 0 -> pm_r1r1[Project_Management] == PM_Total_Hours);
+    preference(tech_r1r1[Technical_Support] > 0 -> tech_r1r1[Technical_Support] == Tech_Total_Hours);
+}

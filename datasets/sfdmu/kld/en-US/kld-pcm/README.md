@@ -184,7 +184,7 @@ Defaults = **Source Data = 1,000 GB** worked example (PM/Tech from Hosting **500
 | Project Management | $195 × 11 × 12 | **$25,740.00** |
 | Technical Support | $175 × 7 × 12 | **$14,700.00** |
 
-Pathway component **default quantities** are pre-set to 1000 / 1313 / 562 / 11 / 7 for those lines. Auto-recalc from Source Data and attr→qty binding are still deferred.
+Pathway component **default quantities** are pre-set to 1000 / 1313 / 562 / **132** / **84** (PS = hrs/month × 12). Live cascade + qty binding when components are selected is provided by the **`KLDPathway` CML** model (`datasets/constraints/kld/KLDPathway`, imported when `constraints_data` + `kld`).
 
 ## Dependencies
 

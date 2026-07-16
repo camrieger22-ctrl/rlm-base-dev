@@ -566,6 +566,7 @@ project:
 
     kld_pcm_dataset: &kld_pcm_dataset "datasets/sfdmu/kld/en-US/kld-pcm"                                         # KLDiscovery product catalog
     kld_pricing_dataset: &kld_pricing_dataset "datasets/sfdmu/kld/en-US/kld-pricing"                               # KLDiscovery pricing (USD Standard Price Book)
+    kld_pathway_constraints_data_dir: &kld_pathway_constraints_data_dir "datasets/constraints/kld/KLDPathway"      # KLD pathway CML (estimate cascade + qty binding)
 
     procedure_plans_dataset: &procedure_plans_dataset "datasets/sfdmu/procedure-plans"                                 # Procedure Plan data (sections + options)
     prm_pricing_procedure_plan_overlay: &prm_pricing_procedure_plan_overlay "datasets/procedure_plan_overlays/prm_pricing.json" # PRM pricing Procedure Plan overlay
@@ -4425,6 +4426,18 @@ flows:
           # imported but left INACTIVE (deactivated in step 11) for A/B comparison.
           # See datasets/constraints/README.md.
           version_full_names: "Server2_V1,QuantumBitBundle_V1"
+      13:
+        task: import_cml
+        when: project_config.project__custom__constraints_data and project_config.project__custom__kld
+        options:
+          data_dir: *kld_pathway_constraints_data_dir
+          dataset_dirs: "datasets/sfdmu/kld/en-US/kld-pcm"
+      14:
+        task: manage_expression_sets
+        when: project_config.project__custom__constraints_data and project_config.project__custom__kld
+        options:
+          operation: activate_versions
+          version_full_names: "KLDPathway_V1"
 
   prepare_approvals:
     group: Revenue Lifecycle Management
