@@ -471,16 +471,26 @@ def main() -> None:
         [],
     )
 
-    # Thin attribute infrastructure for pathway estimate drivers
+    # Matter estimate assumptions (Standard Average Estimate template).
+    # Cascade for Source Data = 1000 GB (defaults below; quantity wiring TBD):
+    #   Decompression (50%)     = Source × 1.50           → 1,500 GB
+    #   Storage Expansion (25%) = Decompression × 1.25    → 1,875 GB
+    #   ECA Data (70%)          = Storage Expansion × 0.70 → 1,313 GB
+    #   Active Review (30%)     = Storage Expansion × 0.30 → 562 GB
+    # Staging est. qty = Source Data; ECA Hosting qty/tier uses ECA Data GB.
     write_csv("AttributePicklist.csv", ["Code", "DataType", "Description", "Name", "Status", "UnitOfMeasureId"], [])
     write_csv("AttributePicklistValue.csv", ["Code", "DisplayValue", "IsDefault", "Name", "Picklist.Name", "Sequence", "Status", "Value"], [])
     write_csv(
         "AttributeDefinition.csv",
         ["Code", "DataType", "DefaultHelpText", "DefaultValue", "Description", "DeveloperName", "IsActive", "IsRequired", "Label", "Name", "Picklist.Name", "SourceSystemIdentifier", "UnitOfMeasure.UnitCode", "ValueDescription"],
         [
-            ["ATTR-KLD-SOURCE-GB", "Number", "", "1000", "Estimated source data volume in GB", "Source_Data_GB", "true", "false", "Source Data (GB)", "Source Data GB", "", "", "GB", ""],
-            ["ATTR-KLD-ECA-PCT", "Number", "", "70", "Percent of expanded data in ECA hosting", "ECA_Data_Pct", "true", "false", "ECA Data %", "ECA Data Percent", "", "", "", ""],
-            ["ATTR-KLD-REVIEW-PCT", "Number", "", "30", "Percent of ECA data promoted to review", "Active_Review_Pct", "true", "false", "Active Review %", "Active Review Percent", "", "", "", ""],
+            ["ATTR-KLD-SOURCE-GB", "Number", "Driver for staging quantity and downstream volume cascade.", "1000", "Source data volume in GB", "Source_Data_GB", "true", "false", "Source Data", "Source Data", "", "", "GB", ""],
+            ["ATTR-KLD-DECOMP-GB", "Number", "Source Data × (1 + 50% decompression).", "1500", "Decompressed volume after 50% decompression rate", "Decompression_GB", "true", "false", "Decompression Rate (50%)", "Decompression Rate (50%)", "", "", "GB", ""],
+            ["ATTR-KLD-STORAGE-EXP-GB", "Number", "Decompression × (1 + 25% storage expansion).", "1875", "Expanded storage volume after 25% storage expansion rate", "Storage_Expansion_GB", "true", "false", "Storage Expansion Rate (25%)", "Storage Expansion Rate (25%)", "", "", "GB", ""],
+            ["ATTR-KLD-ECA-GB", "Number", "Storage Expansion × 70%. Drives ECA Hosting quantity / volume tier.", "1313", "ECA hosting volume (70% of storage expansion)", "ECA_Data_GB", "true", "false", "ECA Data (70%)", "ECA Data (70%)", "", "", "GB", ""],
+            ["ATTR-KLD-REVIEW-GB", "Number", "Storage Expansion × 30%. Drives Online Data Hosting (Review) quantity.", "562", "Active review volume (30% of storage expansion)", "Active_Review_GB", "true", "false", "Active Review (30%)", "Active Review (30%)", "", "", "GB", ""],
+            ["ATTR-KLD-PM-HRS-MO", "Number", "Project Management hours per month (estimate matrix).", "11", "PM hours per month for professional services estimate", "PM_Hours_Per_Month", "true", "false", "PM Hours Per Month", "PM Hours Per Month", "", "", "h", ""],
+            ["ATTR-KLD-TECH-HRS-MO", "Number", "Technical Support hours per month (estimate matrix).", "7", "Tech hours per month for professional services estimate", "Tech_Hours_Per_Month", "true", "false", "Tech Hours Per Month", "Tech Hours Per Month", "", "", "h", ""],
         ],
     )
     write_csv("AttributeCategory.csv", ["Code", "Description", "Name"], [["AC-KLD-MATTER", "", "Matter Estimate"]])
@@ -489,14 +499,22 @@ def main() -> None:
         ["$$AttributeCategory.Code$AttributeDefinition.Code", "AttributeCategory.Code", "AttributeDefinition.Code"],
         [
             ["AC-KLD-MATTER;ATTR-KLD-SOURCE-GB", "AC-KLD-MATTER", "ATTR-KLD-SOURCE-GB"],
-            ["AC-KLD-MATTER;ATTR-KLD-ECA-PCT", "AC-KLD-MATTER", "ATTR-KLD-ECA-PCT"],
-            ["AC-KLD-MATTER;ATTR-KLD-REVIEW-PCT", "AC-KLD-MATTER", "ATTR-KLD-REVIEW-PCT"],
+            ["AC-KLD-MATTER;ATTR-KLD-DECOMP-GB", "AC-KLD-MATTER", "ATTR-KLD-DECOMP-GB"],
+            ["AC-KLD-MATTER;ATTR-KLD-STORAGE-EXP-GB", "AC-KLD-MATTER", "ATTR-KLD-STORAGE-EXP-GB"],
+            ["AC-KLD-MATTER;ATTR-KLD-ECA-GB", "AC-KLD-MATTER", "ATTR-KLD-ECA-GB"],
+            ["AC-KLD-MATTER;ATTR-KLD-REVIEW-GB", "AC-KLD-MATTER", "ATTR-KLD-REVIEW-GB"],
+            ["AC-KLD-MATTER;ATTR-KLD-PM-HRS-MO", "AC-KLD-MATTER", "ATTR-KLD-PM-HRS-MO"],
+            ["AC-KLD-MATTER;ATTR-KLD-TECH-HRS-MO", "AC-KLD-MATTER", "ATTR-KLD-TECH-HRS-MO"],
         ],
     )
     write_csv("ProductClassificationAttr.csv", ["AttributeCategory.Code", "AttributeDefinition.Code", "AttributeNameOverride", "DefaultValue", "Description", "DisplayType", "HelpText", "IsHidden", "IsPriceImpacting", "IsReadOnly", "IsRequired", "MaximumCharacterCount", "MaximumValue", "MinimumCharacterCount", "MinimumValue", "Name", "ProductClassification.Code", "Sequence", "Status", "StepValue", "UnitOfMeasure.UnitCode", "ValueDescription"], [
-        ["AC-KLD-MATTER", "ATTR-KLD-SOURCE-GB", "", "1000", "", "", "", "false", "false", "false", "false", "", "", "", "", "KLD Pathway Source GB", "PC-KLD-PATHWAY", "1", "Active", "", "GB", ""],
-        ["AC-KLD-MATTER", "ATTR-KLD-ECA-PCT", "", "70", "", "", "", "false", "false", "false", "false", "", "100", "", "0", "KLD Pathway ECA Percent", "PC-KLD-PATHWAY", "2", "Active", "", "", ""],
-        ["AC-KLD-MATTER", "ATTR-KLD-REVIEW-PCT", "", "30", "", "", "", "false", "false", "false", "false", "", "100", "", "0", "KLD Pathway Review Percent", "PC-KLD-PATHWAY", "3", "Active", "", "", ""],
+        ["AC-KLD-MATTER", "ATTR-KLD-SOURCE-GB", "", "1000", "", "", "", "false", "false", "false", "false", "", "", "", "", "KLD Pathway Source Data", "PC-KLD-PATHWAY", "1", "Active", "", "GB", ""],
+        ["AC-KLD-MATTER", "ATTR-KLD-DECOMP-GB", "", "1500", "", "", "", "false", "false", "false", "false", "", "", "", "", "KLD Pathway Decompression GB", "PC-KLD-PATHWAY", "2", "Active", "", "GB", ""],
+        ["AC-KLD-MATTER", "ATTR-KLD-STORAGE-EXP-GB", "", "1875", "", "", "", "false", "false", "false", "false", "", "", "", "", "KLD Pathway Storage Expansion GB", "PC-KLD-PATHWAY", "3", "Active", "", "GB", ""],
+        ["AC-KLD-MATTER", "ATTR-KLD-ECA-GB", "", "1313", "", "", "", "false", "false", "false", "false", "", "", "", "", "KLD Pathway ECA Data GB", "PC-KLD-PATHWAY", "4", "Active", "", "GB", ""],
+        ["AC-KLD-MATTER", "ATTR-KLD-REVIEW-GB", "", "562", "", "", "", "false", "false", "false", "false", "", "", "", "", "KLD Pathway Active Review GB", "PC-KLD-PATHWAY", "5", "Active", "", "GB", ""],
+        ["AC-KLD-MATTER", "ATTR-KLD-PM-HRS-MO", "", "11", "", "", "", "false", "false", "false", "false", "", "", "", "", "KLD Pathway PM Hours Per Month", "PC-KLD-PATHWAY", "6", "Active", "", "h", ""],
+        ["AC-KLD-MATTER", "ATTR-KLD-TECH-HRS-MO", "", "7", "", "", "", "false", "false", "false", "false", "", "", "", "", "KLD Pathway Tech Hours Per Month", "PC-KLD-PATHWAY", "7", "Active", "", "h", ""],
     ])
     write_csv("ProductAttributeDefinition.csv", ["AttributeCategory.Code", "AttributeDefinition.Code", "AttributeNameOverride", "DefaultValue", "Description", "DisplayType", "HelpText", "IsHidden", "IsPriceImpacting", "IsReadOnly", "IsRequired", "MaximumCharacterCount", "MaximumValue", "MinimumCharacterCount", "MinimumValue", "Name", "OverriddenProductAttributeDefinitionId", "Product2.StockKeepingUnit", "ProductClassificationAttribute.Name", "Sequence", "Status", "StepValue", "UnitOfMeasure.UnitCode", "ValueDescription"], [])
 

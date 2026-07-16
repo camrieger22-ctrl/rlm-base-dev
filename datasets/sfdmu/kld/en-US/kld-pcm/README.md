@@ -28,11 +28,11 @@ Single SFDMU pass; 28 object entries; 6 excluded (empty placeholders).
 | 2  | AttributePicklistValue        | Upsert    | `Code`                                                                                                | 0 (excluded) |
 | 3  | UnitOfMeasureClass            | Upsert    | `Code`                                                                                                | 4       |
 | 4  | UnitOfMeasure                 | Upsert    | `UnitCode`                                                                                            | 11      |
-| 5  | AttributeDefinition           | Upsert    | `Code`                                                                                                | 3       |
+| 5  | AttributeDefinition           | Upsert    | `Code`                                                                                                | 7       |
 | 6  | AttributeCategory             | Upsert    | `Code`                                                                                                | 1       |
-| 7  | AttributeCategoryAttribute    | Upsert    | `AttributeCategory.Code;AttributeDefinition.Code`                                                     | 3       |
+| 7  | AttributeCategoryAttribute    | Upsert    | `AttributeCategory.Code;AttributeDefinition.Code`                                                     | 7       |
 | 8  | ProductClassification         | Upsert    | `Code`                                                                                                | 8       |
-| 9  | ProductClassificationAttr     | Upsert    | `Name`                                                                                                | 3       |
+| 9  | ProductClassificationAttr     | Upsert    | `Name`                                                                                                | 7       |
 | 10 | Product2                      | Upsert    | `StockKeepingUnit`                                                                                    | 37      |
 | 11 | ProductAttributeDefinition    | Upsert    | `AttributeDefinition.Code;Product2.StockKeepingUnit`                                                  | 0 (excluded) |
 | 12 | ProductSellingModel           | Upsert    | `Name;SellingModelType`                                                                               | 4       |
@@ -160,13 +160,22 @@ Pathway parents use `DoesBundlePriceIncludeChild = false` — children carry pri
 
 ## Matter estimate attributes (pathway classification)
 
-On `PC-KLD-PATHWAY`:
+On `PC-KLD-PATHWAY`, matching the Standard Average Estimate **Assumptions** block.
+Defaults below are the **Source Data = 1,000 GB** worked example (PM/Tech from the 500–1000 GB matrix).
 
-| Attribute | Default |
-|-----------|---------|
-| Source Data (GB) | 1000 |
-| ECA Data % | 70 |
-| Active Review % | 30 |
+| Attribute | Default | Notes |
+|-----------|---------|-------|
+| Source Data | 1000 GB | Driver; Staging est. quantity = this value |
+| Decompression Rate (50%) | 1500 GB | Source × 1.50 |
+| Storage Expansion Rate (25%) | 1875 GB | Decompression × 1.25 |
+| ECA Data (70%) | 1313 GB | Storage Expansion × 0.70 → ECA Hosting qty / volume tier |
+| Active Review (30%) | 562 GB | Storage Expansion × 0.30 → Online Data Hosting qty |
+| PM Hours Per Month | 11 | Professional Services estimate |
+| Tech Hours Per Month | 7 | Professional Services estimate |
+
+**Worked example (not yet auto-wired to line quantities):** Source 1,000 → Staging qty 1,000 @ $10/GB; ECA Data 1,313 lands in Nebula ECA Hosting tier (1,001–1,500) @ $2.30/GB-month; Active Review 562 lands in Nebula Review tier (501–1,000) @ $13.50/GB-month.
+
+Quantity / attribute-to-component wiring for the staged demo is deferred until the configurator flow is specified.
 
 ## Dependencies
 
