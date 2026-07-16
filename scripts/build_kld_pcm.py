@@ -129,6 +129,39 @@ AI_SKUS = [
     "KLD-AI-PII-REDACT",
 ]
 
+ANALYTICS_SKUS = [
+    "KLD-AN-ANALYTICS",
+    "KLD-AN-SUM",
+    "KLD-AN-SUM-MED",
+    "KLD-AN-XLAT",
+    "KLD-AN-TRANSCRIBE",
+]
+
+FORENSIC_SKUS = [
+    "KLD-FOR-COLL",
+    "KLD-FOR-RCOLL",
+    "KLD-FOR-DOWNTIME",
+    "KLD-RMDC-HR",
+    "KLD-RMDC-FLAT",
+    "KLD-RCMGR-PC",
+    "KLD-RCMGR-SRV",
+    "KLD-RCMGR-DECRYPT",
+    "KLD-FOR-ANALYSIS",
+    "KLD-TRAVEL-TIME",
+    "KLD-TRAVEL-EXP",
+]
+
+PS_SKUS = ["KLD-PS-PM", "KLD-PS-TECH"]
+MEDIA_SKUS = ["KLD-MED-HDD", "KLD-MED-FREIGHT"]
+
+# Pathway component groups — all optional (min=0) so reps can build from blank.
+# Sequence matches the Standard Average Estimate section order.
+PATHWAY_SUFFIX = {
+    "KLD-PATH-NEB-NEB": "NEBNEB",
+    "KLD-PATH-NEB-R1": "NEBR1",
+    "KLD-PATH-R1-R1": "R1R1",
+}
+
 # Category mapping: sku -> (catalog, category)
 CATEGORY_MAP = {
     "KLD-PATH-NEB-NEB": ("CAT-KLD-EDISC", "KLD-CAT-PATHWAY"),
@@ -214,26 +247,24 @@ def psmo_rows() -> list[list]:
 
 def component_groups() -> list[list]:
     rows = []
-    suffix_map = {
-        "KLD-PATH-NEB-NEB": "NEBNEB",
-        "KLD-PATH-NEB-R1": "NEBR1",
-        "KLD-PATH-R1-R1": "R1R1",
-    }
-    for path_sku, cfg in PATHWAYS.items():
-        sfx = suffix_map[path_sku]
+    for path_sku in PATHWAYS:
+        sfx = PATHWAY_SUFFIX[path_sku]
+        # (code, name, min, max, sequence) — all min=0 (optional sections)
         groups = [
-            (f"KLD-CG-{sfx}-STAGING", "Staging", 1, 1, 1),
-            (f"KLD-CG-{sfx}-ECA", "ECA Hosting", 1, 1, 2),
-            (f"KLD-CG-{sfx}-REVIEW", "Review Hosting", 1, 1, 3),
-            (f"KLD-CG-{sfx}-PS", "Professional Services", 0, 2, 4),
-            (f"KLD-CG-{sfx}-AI", "Optional AI", 0, 8, 5),
+            (f"KLD-CG-{sfx}-FORENS", "Forensic Collection & Analysis", 0, len(FORENSIC_SKUS), 1),
+            (f"KLD-CG-{sfx}-STAGING", "Staging", 0, 1, 2),
+            (f"KLD-CG-{sfx}-ECA", "ECA Hosting", 0, 1, 3),
+            (f"KLD-CG-{sfx}-REVIEW", "Online Data Hosting", 0, 1, 4),
+            (f"KLD-CG-{sfx}-AI", "Advanced Analytics / eDiscovery AI", 0, len(AI_SKUS) + len(ANALYTICS_SKUS), 5),
+            (f"KLD-CG-{sfx}-PS", "Professional Services", 0, len(PS_SKUS), 6),
+            (f"KLD-CG-{sfx}-MEDIA", "Media & Data Delivery", 0, len(MEDIA_SKUS), 7),
         ]
         for code, gname, mn, mx, order in groups:
             rows.append([
                 f"{code};{path_sku}",
                 code,
                 "",
-                mx if mx else "",
+                mx,
                 mn,
                 gname,
                 "",
@@ -246,26 +277,23 @@ def component_groups() -> list[list]:
 def related_components() -> list[list]:
     rel = "Bundle to Bundle Component Relationship"
     rows = []
-    suffix_map = {
-        "KLD-PATH-NEB-NEB": "NEBNEB",
-        "KLD-PATH-NEB-R1": "NEBR1",
-        "KLD-PATH-R1-R1": "R1R1",
-    }
     for path_sku, cfg in PATHWAYS.items():
-        sfx = suffix_map[path_sku]
-        core = [
-            ("KLD-STAGING", f"KLD-CG-{sfx}-STAGING", True, 1, 10),
-            (cfg["eca"], f"KLD-CG-{sfx}-ECA", True, 1, 20),
-            (cfg["review"], f"KLD-CG-{sfx}-REVIEW", True, 1, 30),
+        sfx = PATHWAY_SUFFIX[path_sku]
+        # All children optional (IsComponentRequired=false); qty editable.
+        sections: list[tuple[str, list[str]]] = [
+            (f"KLD-CG-{sfx}-FORENS", FORENSIC_SKUS),
+            (f"KLD-CG-{sfx}-STAGING", ["KLD-STAGING"]),
+            (f"KLD-CG-{sfx}-ECA", [cfg["eca"]]),
+            (f"KLD-CG-{sfx}-REVIEW", [cfg["review"]]),
+            (f"KLD-CG-{sfx}-AI", AI_SKUS + ANALYTICS_SKUS),
+            (f"KLD-CG-{sfx}-PS", PS_SKUS),
+            (f"KLD-CG-{sfx}-MEDIA", MEDIA_SKUS),
         ]
-        for child, group, required, qty, seq in core:
-            rows.append(prc_row(path_sku, child, group, rel, required, qty, seq, True))
-        for child, seq in [("KLD-PS-PM", 40), ("KLD-PS-TECH", 50)]:
-            rows.append(prc_row(path_sku, child, f"KLD-CG-{sfx}-PS", rel, False, 1, seq, True))
-        ai_seq = 60
-        for child in AI_SKUS:
-            rows.append(prc_row(path_sku, child, f"KLD-CG-{sfx}-AI", rel, False, 1, ai_seq, True))
-            ai_seq += 10
+        seq = 10
+        for group, children in sections:
+            for child in children:
+                rows.append(prc_row(path_sku, child, group, rel, False, 1, seq, True))
+                seq += 10
     return rows
 
 
@@ -408,7 +436,7 @@ def main() -> None:
     categories = [
         ("CAT-KLD-EDISC", "KLD-CAT-STAGING", "Staging", "true", 10),
         ("CAT-KLD-EDISC", "KLD-CAT-ECA", "ECA Hosting", "true", 20),
-        ("CAT-KLD-EDISC", "KLD-CAT-REVIEW", "Review Hosting", "true", 30),
+        ("CAT-KLD-EDISC", "KLD-CAT-REVIEW", "Online Data Hosting", "true", 30),
         ("CAT-KLD-EDISC", "KLD-CAT-SETUP", "Matter Setup", "true", 40),
         ("CAT-KLD-EDISC", "KLD-CAT-PATHWAY", "Matter Pathways", "true", 50),
         ("CAT-KLD-AI", "KLD-CAT-ECI", "Early Case Insight", "true", 10),

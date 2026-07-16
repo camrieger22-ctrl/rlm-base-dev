@@ -2,7 +2,7 @@
 
 SFDMU data plan for **KLDiscovery** Product Catalog Management (PCM). Creates the KLD eDiscovery product structure from internal estimate/SOW templates (Nebula ECA → Nebula/RelOne pathways, hosting, forensics, eDiscovery AI, analytics, and professional services).
 
-**Pricing is out of scope** — this plan defines product structure, UoMs, selling models, bundles, and qualifications only. Rate cards and tiered GB pricing belong in a future `kld-pricing` plan.
+**Pricing is out of scope here** — this plan defines product structure, UoMs, selling models, bundles, and qualifications only. Rate cards and tiered GB pricing live in `kld-pricing`.
 
 ## Source documents
 
@@ -40,8 +40,8 @@ Single SFDMU pass; 28 object entries; 6 excluded (empty placeholders).
 | 14 | ProductSellingModelOption     | Upsert    | `Product2.StockKeepingUnit;ProductSellingModel.Name;ProductSellingModel.SellingModelType`              | 41      |
 | 15 | ProductRampSegment            | Upsert    | `Product.StockKeepingUnit;ProductSellingModel.SellingModelType;SegmentType`                            | 0 (excluded) |
 | 16 | ProductRelationshipType       | Upsert    | `Name`                                                                                                | 1       |
-| 17 | ProductComponentGroup         | Upsert    | `Code`                                                                                                | 15      |
-| 18 | ProductRelatedComponent       | Upsert    | `ChildProductClassification.Code;ChildProduct.StockKeepingUnit;ParentProduct.StockKeepingUnit;ProductComponentGroup.Code;ProductRelationshipType.Name` | 39 |
+| 17 | ProductComponentGroup         | Upsert    | `Code`                                                                                                | 21      |
+| 18 | ProductRelatedComponent       | Upsert    | `ChildProductClassification.Code;ChildProduct.StockKeepingUnit;ParentProduct.StockKeepingUnit;ProductComponentGroup.Code;ProductRelationshipType.Name` | 93 |
 | 19 | ProductComponentGrpOverride   | Upsert    | `Name`                                                                                                | 0 (excluded) |
 | 20 | ProductRelComponentOverride   | Upsert    | `Name`                                                                                                | 0 (excluded) |
 | 21 | ProductCatalog                | Upsert    | `Code`                                                                                                | 5       |
@@ -63,7 +63,7 @@ Single SFDMU pass; 28 object entries; 6 excluded (empty placeholders).
 | `KLD-PATH-NEB-R1` | Nebula ECA to RelOne |
 | `KLD-PATH-R1-R1` | RelOne ECA to RelOne |
 
-Each pathway bundle includes required components: **Staging**, **ECA Hosting**, **Review Hosting**; optional **Professional Services** and **eDiscovery AI** modules.
+Each pathway bundle has **seven optional sections** (`MinBundleComponents = 0`) so configuration starts blank — reps select only the lines they need (typical working demo: Staging, ECA Hosting, Online Data Hosting, Professional Services, Media).
 
 ### Setup / staging / hosting
 
@@ -138,28 +138,25 @@ Each pathway bundle includes required components: **Staging**, **ECA Hosting**, 
 
 ## Pathway bundle structure
 
+All component groups are optional (`min=0`). Same section order on every pathway; ECA / Online Data Hosting SKUs differ by pathway.
+
 ```
-KLD-PATH-NEB-NEB
-  Staging (required)           → KLD-STAGING
-  ECA Hosting (required)       → KLD-NEB-ECA-HOST
-  Review Hosting (required)    → KLD-NEB-REVIEW
-  Professional Services (opt)  → KLD-PS-PM, KLD-PS-TECH
-  Optional AI (opt)            → KLD-AI-* (8 modules)
+KLD-PATH-NEB-NEB / NEB-R1 / R1-R1
+  1. Forensic Collection & Analysis (opt) → KLD-FOR-*, RMDC, RCMgr, Travel
+  2. Staging (opt)                        → KLD-STAGING
+  3. ECA Hosting (opt)                    → pathway ECA SKU
+  4. Online Data Hosting (opt)            → pathway Review SKU
+  5. Advanced Analytics / eDiscovery AI   → KLD-AI-* + KLD-AN-*
+  6. Professional Services (opt)          → KLD-PS-PM, KLD-PS-TECH
+  7. Media & Data Delivery (opt)          → KLD-MED-HDD, KLD-MED-FREIGHT
 
-KLD-PATH-NEB-R1
-  Staging → KLD-STAGING
-  ECA     → KLD-NEB-ECA-HOST
-  Review  → KLD-R1-REVIEW
-  (+ optional PS / AI)
-
-KLD-PATH-R1-R1
-  Staging → KLD-STAGING
-  ECA     → KLD-R1-ECA-HOST
-  Review  → KLD-R1-REVIEW
-  (+ optional PS / AI)
+Hosting SKUs by pathway:
+  NEB-NEB → KLD-NEB-ECA-HOST + KLD-NEB-REVIEW
+  NEB-R1  → KLD-NEB-ECA-HOST + KLD-R1-REVIEW
+  R1-R1   → KLD-R1-ECA-HOST  + KLD-R1-REVIEW
 ```
 
-Pathway parents use `DoesBundlePriceIncludeChild = false` — children carry pricing in a future plan.
+Pathway parents use `DoesBundlePriceIncludeChild = false` — children carry pricing in `kld-pricing`.
 
 ## Matter estimate attributes (pathway classification)
 

@@ -75,7 +75,8 @@ Delete + insert pattern (same as qb-pricing). Insert objects pre-cleared by `del
 | Category | Key rates |
 |----------|-----------|
 | Staging / setup | $10/GB |
-| Forensics | $350/hr onsite, $295/hr remote, $1,250 RMDC flat, $550/$850 RCMgr kits |
+| Forensics | $360/hr onsite, $295/hr remote, $1,250 RMDC flat, $550/$850 RCMgr kits |
+| Media | Hard Drive $199/each; Freight $0 (passthrough) |
 | eDiscovery AI | ECI $0.04/doc-run, Relevance/Privilege $0.30, PII Detect $0.20, Redact $0.35/page |
 | CaseBot | **$0.08/doc/quarter** (Evergreen - Quarterly) |
 | Analytics (placeholders) | Analytics $5/GB, Summarization $25/M chars, Medical $0.50/page, Translation $40/M chars, Transcription $15/hr |

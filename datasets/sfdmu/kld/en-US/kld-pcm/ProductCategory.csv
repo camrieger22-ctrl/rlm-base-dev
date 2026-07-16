@@ -1,7 +1,7 @@
 Catalog.Code,Code,Description,IsNavigational,Name,ParentCategory.Code,SortOrder
 CAT-KLD-EDISC,KLD-CAT-STAGING,,true,Staging,,10
 CAT-KLD-EDISC,KLD-CAT-ECA,,true,ECA Hosting,,20
-CAT-KLD-EDISC,KLD-CAT-REVIEW,,true,Review Hosting,,30
+CAT-KLD-EDISC,KLD-CAT-REVIEW,,true,Online Data Hosting,,30
 CAT-KLD-EDISC,KLD-CAT-SETUP,,true,Matter Setup,,40
 CAT-KLD-EDISC,KLD-CAT-PATHWAY,,true,Matter Pathways,,50
 CAT-KLD-AI,KLD-CAT-ECI,,true,Early Case Insight,,10

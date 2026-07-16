@@ -16,11 +16,11 @@ KLD-AN-SUM-MED;One-Time;USD,USD,true,false,Nebula AI Summarization (Medical),Sta
 KLD-AN-TRANSCRIBE;One-Time;USD,USD,true,false,KLD Transcription Service,Standard Price Book;true,KLD-AN-TRANSCRIBE,One-Time;OneTime,15.0
 KLD-AN-XLAT;One-Time;USD,USD,true,false,AI Translation,Standard Price Book;true,KLD-AN-XLAT,One-Time;OneTime,40.0
 KLD-FOR-ANALYSIS;One-Time;USD,USD,true,false,Forensic Analysis,Standard Price Book;true,KLD-FOR-ANALYSIS,One-Time;OneTime,450.0
-KLD-FOR-COLL;One-Time;USD,USD,true,false,Forensic Data Collection,Standard Price Book;true,KLD-FOR-COLL,One-Time;OneTime,350.0
+KLD-FOR-COLL;One-Time;USD,USD,true,false,Forensic Data Collection,Standard Price Book;true,KLD-FOR-COLL,One-Time;OneTime,360.0
 KLD-FOR-DOWNTIME;One-Time;USD,USD,true,false,Forensic Data Collection - Downtime,Standard Price Book;true,KLD-FOR-DOWNTIME,One-Time;OneTime,175.0
 KLD-FOR-RCOLL;One-Time;USD,USD,true,false,Remote Forensic Data Collection,Standard Price Book;true,KLD-FOR-RCOLL,One-Time;OneTime,295.0
 KLD-MED-FREIGHT;One-Time;USD,USD,true,false,Freight,Standard Price Book;true,KLD-MED-FREIGHT,One-Time;OneTime,0.0
-KLD-MED-HDD;One-Time;USD,USD,true,false,Hard Drive,Standard Price Book;true,KLD-MED-HDD,One-Time;OneTime,150.0
+KLD-MED-HDD;One-Time;USD,USD,true,false,Hard Drive,Standard Price Book;true,KLD-MED-HDD,One-Time;OneTime,199.0
 KLD-PS-PM;One-Time;USD,USD,true,false,Project Management,Standard Price Book;true,KLD-PS-PM,One-Time;OneTime,195.0
 KLD-PS-TECH;One-Time;USD,USD,true,false,Technical Support,Standard Price Book;true,KLD-PS-TECH,One-Time;OneTime,175.0
 KLD-RCMGR-DECRYPT;One-Time;USD,USD,true,false,RCMgr Drive Decryption,Standard Price Book;true,KLD-RCMGR-DECRYPT,One-Time;OneTime,200.0

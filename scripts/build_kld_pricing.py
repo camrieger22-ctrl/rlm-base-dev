@@ -66,7 +66,7 @@ REVIEW_TIERS = [
 FLAT_PBE: dict[tuple[str, str, str], float] = {
     ("KLD-STAGING", "One-Time", "OneTime"): 10.00,
     ("KLD-SETUP-MATTER-GB", "One-Time", "OneTime"): 10.00,
-    ("KLD-FOR-COLL", "One-Time", "OneTime"): 350.00,
+    ("KLD-FOR-COLL", "One-Time", "OneTime"): 360.00,
     ("KLD-FOR-RCOLL", "One-Time", "OneTime"): 295.00,
     ("KLD-FOR-DOWNTIME", "One-Time", "OneTime"): 175.00,
     ("KLD-RMDC-HR", "One-Time", "OneTime"): 295.00,
@@ -92,7 +92,7 @@ FLAT_PBE: dict[tuple[str, str, str], float] = {
     ("KLD-AN-TRANSCRIBE", "One-Time", "OneTime"): 15.00,
     ("KLD-PS-PM", "One-Time", "OneTime"): 195.00,
     ("KLD-PS-TECH", "One-Time", "OneTime"): 175.00,
-    ("KLD-MED-HDD", "One-Time", "OneTime"): 150.00,
+    ("KLD-MED-HDD", "One-Time", "OneTime"): 199.00,
     ("KLD-MED-FREIGHT", "One-Time", "OneTime"): 0.00,
 }
 
