@@ -13,6 +13,9 @@
 // PM / Tech hours from Hosting matrix keyed on Source Data GB.
 // When Staging / ECA / Review / PS components are selected, quantities follow
 // the cascade (PS qty = hours/month × Term Months for One-Time estimate totals).
+//
+// IMPORTANT: relation cardinality must allow GB/hour quantities (not [0..1]).
+// In CML, relation cardinality is the component quantity on the quote line.
 // ============================================================================
 
 type Staging;
@@ -58,44 +61,46 @@ type KLD_Pathway_Base : LineItem {
     int Tech_Total_Hours = Tech_Hours_Per_Month * Term_Months;
 }
 
+// High upper bound so GB / hour quantities can bind (e.g. Source 2000 → Staging 2000).
+// Components stay optional (min 0); qty binds only when selected (> 0).
 type KLD_PATH_NEB_NEB : KLD_Pathway_Base {
-    relation staging_nebneb : Staging[0..1];
-    relation eca_nebneb : Nebula_ECA_Hosting[0..1];
-    relation review_nebneb : Nebula_Review[0..1];
-    relation pm_nebneb : Project_Management[0..1];
-    relation tech_nebneb : Technical_Support[0..1];
+    relation staging_nebneb : Staging[0..999999];
+    relation eca_nebneb : Nebula_ECA_Hosting[0..999999];
+    relation review_nebneb : Nebula_Review[0..999999];
+    relation pm_nebneb : Project_Management[0..999999];
+    relation tech_nebneb : Technical_Support[0..999999];
 
-    preference(staging_nebneb[Staging] > 0 -> staging_nebneb[Staging] == Source_Data_GB);
-    preference(eca_nebneb[Nebula_ECA_Hosting] > 0 -> eca_nebneb[Nebula_ECA_Hosting] == ECA_Data_GB);
-    preference(review_nebneb[Nebula_Review] > 0 -> review_nebneb[Nebula_Review] == Active_Review_GB);
-    preference(pm_nebneb[Project_Management] > 0 -> pm_nebneb[Project_Management] == PM_Total_Hours);
-    preference(tech_nebneb[Technical_Support] > 0 -> tech_nebneb[Technical_Support] == Tech_Total_Hours);
+    constraint(staging_nebneb[Staging] > 0 -> staging_nebneb[Staging] == Source_Data_GB);
+    constraint(eca_nebneb[Nebula_ECA_Hosting] > 0 -> eca_nebneb[Nebula_ECA_Hosting] == ECA_Data_GB);
+    constraint(review_nebneb[Nebula_Review] > 0 -> review_nebneb[Nebula_Review] == Active_Review_GB);
+    constraint(pm_nebneb[Project_Management] > 0 -> pm_nebneb[Project_Management] == PM_Total_Hours);
+    constraint(tech_nebneb[Technical_Support] > 0 -> tech_nebneb[Technical_Support] == Tech_Total_Hours);
 }
 
 type KLD_PATH_NEB_R1 : KLD_Pathway_Base {
-    relation staging_nebr1 : Staging[0..1];
-    relation eca_nebr1 : Nebula_ECA_Hosting[0..1];
-    relation review_nebr1 : RelOne_Review[0..1];
-    relation pm_nebr1 : Project_Management[0..1];
-    relation tech_nebr1 : Technical_Support[0..1];
+    relation staging_nebr1 : Staging[0..999999];
+    relation eca_nebr1 : Nebula_ECA_Hosting[0..999999];
+    relation review_nebr1 : RelOne_Review[0..999999];
+    relation pm_nebr1 : Project_Management[0..999999];
+    relation tech_nebr1 : Technical_Support[0..999999];
 
-    preference(staging_nebr1[Staging] > 0 -> staging_nebr1[Staging] == Source_Data_GB);
-    preference(eca_nebr1[Nebula_ECA_Hosting] > 0 -> eca_nebr1[Nebula_ECA_Hosting] == ECA_Data_GB);
-    preference(review_nebr1[RelOne_Review] > 0 -> review_nebr1[RelOne_Review] == Active_Review_GB);
-    preference(pm_nebr1[Project_Management] > 0 -> pm_nebr1[Project_Management] == PM_Total_Hours);
-    preference(tech_nebr1[Technical_Support] > 0 -> tech_nebr1[Technical_Support] == Tech_Total_Hours);
+    constraint(staging_nebr1[Staging] > 0 -> staging_nebr1[Staging] == Source_Data_GB);
+    constraint(eca_nebr1[Nebula_ECA_Hosting] > 0 -> eca_nebr1[Nebula_ECA_Hosting] == ECA_Data_GB);
+    constraint(review_nebr1[RelOne_Review] > 0 -> review_nebr1[RelOne_Review] == Active_Review_GB);
+    constraint(pm_nebr1[Project_Management] > 0 -> pm_nebr1[Project_Management] == PM_Total_Hours);
+    constraint(tech_nebr1[Technical_Support] > 0 -> tech_nebr1[Technical_Support] == Tech_Total_Hours);
 }
 
 type KLD_PATH_R1_R1 : KLD_Pathway_Base {
-    relation staging_r1r1 : Staging[0..1];
-    relation eca_r1r1 : RelOne_ECA_Hosting[0..1];
-    relation review_r1r1 : RelOne_Review[0..1];
-    relation pm_r1r1 : Project_Management[0..1];
-    relation tech_r1r1 : Technical_Support[0..1];
+    relation staging_r1r1 : Staging[0..999999];
+    relation eca_r1r1 : RelOne_ECA_Hosting[0..999999];
+    relation review_r1r1 : RelOne_Review[0..999999];
+    relation pm_r1r1 : Project_Management[0..999999];
+    relation tech_r1r1 : Technical_Support[0..999999];
 
-    preference(staging_r1r1[Staging] > 0 -> staging_r1r1[Staging] == Source_Data_GB);
-    preference(eca_r1r1[RelOne_ECA_Hosting] > 0 -> eca_r1r1[RelOne_ECA_Hosting] == ECA_Data_GB);
-    preference(review_r1r1[RelOne_Review] > 0 -> review_r1r1[RelOne_Review] == Active_Review_GB);
-    preference(pm_r1r1[Project_Management] > 0 -> pm_r1r1[Project_Management] == PM_Total_Hours);
-    preference(tech_r1r1[Technical_Support] > 0 -> tech_r1r1[Technical_Support] == Tech_Total_Hours);
+    constraint(staging_r1r1[Staging] > 0 -> staging_r1r1[Staging] == Source_Data_GB);
+    constraint(eca_r1r1[RelOne_ECA_Hosting] > 0 -> eca_r1r1[RelOne_ECA_Hosting] == ECA_Data_GB);
+    constraint(review_r1r1[RelOne_Review] > 0 -> review_r1r1[RelOne_Review] == Active_Review_GB);
+    constraint(pm_r1r1[Project_Management] > 0 -> pm_r1r1[Project_Management] == PM_Total_Hours);
+    constraint(tech_r1r1[Technical_Support] > 0 -> tech_r1r1[Technical_Support] == Tech_Total_Hours);
 }
