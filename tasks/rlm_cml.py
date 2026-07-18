@@ -694,9 +694,10 @@ class ImportCML(CMLBaseTask):
                 inline = ", ".join(unique_tags)
             msg = (
                 f"{len(unique_tags)} ESC association(s) could not be resolved: {inline}. "
-                f"This usually means the product catalog (qb-pcm) has not been loaded or "
-                f"contains product names that don't match the constraint data plan. "
-                f"Reload qb-pcm data and retry."
+                f"This usually means the product catalog (PCM plan in dataset_dirs) has "
+                f"not been loaded, or Port Sequence / product names in the constraint "
+                f"plan don't match ProductRelatedComponent in the org. Reload PCM data "
+                f"(and align Port Sequence with org PRC Sequence) then retry."
             )
             if dry_run:
                 self.logger.error(msg)

@@ -1,14 +1,16 @@
 # kld-pcm Data Plan
 
-SFDMU data plan for **KLDiscovery** Product Catalog Management (PCM). Creates the KLD eDiscovery product structure from internal estimate/SOW templates (Nebula ECA → Nebula/RelOne pathways, hosting, forensics, eDiscovery AI, analytics, and professional services).
+SFDMU data plan for **KLDiscovery** Product Catalog Management (PCM). Creates the
+**Nebula ECA → RelOne** demo catalog from the Standard Average Estimate / SOW
+templates (hosting, forensics, eDiscovery AI, RelOne extenders, professional services).
 
 **Pricing is out of scope here** — this plan defines product structure, UoMs, selling models, bundles, and qualifications only. Rate cards and tiered GB pricing live in `kld-pricing`.
 
 ## Source documents
 
-- Standard Average Estimate (Nebula ECA to Nebula) Template — APRIL 2024/2026
+- Standard Average Estimate (Nebula ECA to RelOne) — APRIL 2026
 - US Subscription Work Order (Nebula) — Pricing A-La-Carte
-- SOW templates: Neb ECA→Nebula, Neb ECA→RelOne, RelOne ECA→RelOne
+- SOW template: Neb ECA→RelOne
 
 ## Regeneration
 
@@ -28,42 +30,40 @@ Single SFDMU pass; 28 object entries; 6 excluded (empty placeholders).
 | 2  | AttributePicklistValue        | Upsert    | `Code`                                                                                                | 0 (excluded) |
 | 3  | UnitOfMeasureClass            | Upsert    | `Code`                                                                                                | 4       |
 | 4  | UnitOfMeasure                 | Upsert    | `UnitCode`                                                                                            | 11      |
-| 5  | AttributeDefinition           | Upsert    | `Code`                                                                                                | 8       |
-| 6  | AttributeCategory             | Upsert    | `Code`                                                                                                | 1       |
-| 7  | AttributeCategoryAttribute    | Upsert    | `AttributeCategory.Code;AttributeDefinition.Code`                                                     | 8       |
+| 5  | AttributeDefinition           | Upsert    | `Code`                                                                                                | 14      |
+| 6  | AttributeCategory             | Upsert    | `Code`                                                                                                | 2       |
+| 7  | AttributeCategoryAttribute    | Upsert    | `AttributeCategory.Code;AttributeDefinition.Code`                                                     | 14      |
 | 8  | ProductClassification         | Upsert    | `Code`                                                                                                | 8       |
-| 9  | ProductClassificationAttr     | Upsert    | `Name`                                                                                                | 8       |
-| 10 | Product2                      | Upsert    | `StockKeepingUnit`                                                                                    | 37      |
-| 11 | ProductAttributeDefinition    | Upsert    | `AttributeDefinition.Code;Product2.StockKeepingUnit`                                                  | 0 (excluded) |
+| 9  | ProductClassificationAttr     | Upsert    | `Name`                                                                                                | 14      |
+| 10 | Product2                      | Upsert    | `StockKeepingUnit`                                                                                    | 39      |
+| 11 | ProductAttributeDefinition    | Upsert    | `AttributeDefinition.Code;Product2.StockKeepingUnit`                                                  | 6       |
 | 12 | ProductSellingModel           | Upsert    | `Name;SellingModelType`                                                                               | 4       |
 | 13 | ProrationPolicy               | Upsert    | `Name`                                                                                                | 1       |
-| 14 | ProductSellingModelOption     | Upsert    | `Product2.StockKeepingUnit;ProductSellingModel.Name;ProductSellingModel.SellingModelType`              | 41      |
+| 14 | ProductSellingModelOption     | Upsert    | `Product2.StockKeepingUnit;ProductSellingModel.Name;ProductSellingModel.SellingModelType`              | 42      |
 | 15 | ProductRampSegment            | Upsert    | `Product.StockKeepingUnit;ProductSellingModel.SellingModelType;SegmentType`                            | 0 (excluded) |
 | 16 | ProductRelationshipType       | Upsert    | `Name`                                                                                                | 1       |
-| 17 | ProductComponentGroup         | Upsert    | `Code`                                                                                                | 21      |
-| 18 | ProductRelatedComponent       | Upsert    | `ChildProductClassification.Code;ChildProduct.StockKeepingUnit;ParentProduct.StockKeepingUnit;ProductComponentGroup.Code;ProductRelationshipType.Name` | 93 |
+| 17 | ProductComponentGroup         | Upsert    | `Code`                                                                                                | 8       |
+| 18 | ProductRelatedComponent       | Upsert    | `ChildProductClassification.Code;ChildProduct.StockKeepingUnit;ParentProduct.StockKeepingUnit;ProductComponentGroup.Code;ProductRelationshipType.Name` | 37 |
 | 19 | ProductComponentGrpOverride   | Upsert    | `Name`                                                                                                | 0 (excluded) |
 | 20 | ProductRelComponentOverride   | Upsert    | `Name`                                                                                                | 0 (excluded) |
 | 21 | ProductCatalog                | Upsert    | `Code`                                                                                                | 5       |
 | 22 | ProductCategory               | Upsert    | `Code`                                                                                                | 14      |
-| 23 | ProductCategoryProduct        | Upsert    | `ProductCategory.Code;Product.StockKeepingUnit`                                                       | 37      |
+| 23 | ProductCategoryProduct        | Upsert    | `ProductCategory.Code;Product.StockKeepingUnit`                                                       | 39      |
 | 24 | ProductQualification          | Upsert    | `Name`                                                                                                | 0       |
 | 25 | ProductDisqualification       | (default) | `Name`                                                                                                | 0       |
 | 26 | ProductCategoryDisqual        | (default) | `Name`                                                                                                | 0       |
 | 27 | ProductCategoryQualification  | (default) | `Name`                                                                                                | 0       |
 | 28 | ProdtAttrScope                | (default) | `Name`                                                                                                | 0 (excluded) |
 
-## Product inventory (37)
+## Product inventory (39)
 
-### Pathway bundles — configuration shells (not priced)
+### Pathway bundle — configuration shell (not priced)
 
 | SKU | Name |
 |-----|------|
-| `KLD-PATH-NEB-NEB` | Nebula ECA to Nebula Review |
 | `KLD-PATH-NEB-R1` | Nebula ECA to RelOne |
-| `KLD-PATH-R1-R1` | RelOne ECA to RelOne |
 
-Each pathway bundle has **seven optional sections** (`MinBundleComponents = 0`) so configuration starts blank — reps select only the lines they need (typical working demo: Staging, ECA Hosting, Online Data Hosting, Professional Services, Media).
+Demo scope is **this pathway only**. Eight optional sections (`MinBundleComponents = 0`) so configuration starts blank — reps select only the lines they need (typical demo: Staging, ECA Hosting, Online Data Hosting, Extenders, Professional Services).
 
 ### Setup / staging / hosting
 
@@ -72,9 +72,8 @@ Each pathway bundle has **seven optional sections** (`MinBundleComponents = 0`) 
 | `KLD-SETUP-MATTER-GB` | Transactional Matter Set Up Fee | GB |
 | `KLD-STAGING` | Staging | GB |
 | `KLD-NEB-ECA-HOST` | Nebula ECA Hosting | GB-MO |
-| `KLD-NEB-REVIEW` | Nebula Review | GB-MO |
-| `KLD-R1-ECA-HOST` | RelOne ECA Hosting | GB-MO |
 | `KLD-R1-REVIEW` | RelOne Review | GB-MO |
+| `KLD-R1-COLD` | Cold Storage - No Access | GB-MO |
 
 ### Forensics & collection
 
@@ -107,15 +106,17 @@ Each pathway bundle has **seven optional sections** (`MinBundleComponents = 0`) 
 
 **Note:** An “ELEMENTS requires CORE” catalog dependency is **not** modelled with `ProductQualification` — that object is for eligibility in a **bundle parent/child** context (CORE and ELEMENTS are siblings under pathways). Enforce ELEMENTS→CORE later via configurator constraints if needed.
 
-### Analytics a-la-carte
+### Extenders (RelativityOne)
 
 | SKU | Name | UoM |
 |-----|------|-----|
-| `KLD-AN-ANALYTICS` | KLDiscovery Analytics | GB |
-| `KLD-AN-SUM` | Nebula AI Summarization | MCHARS |
-| `KLD-AN-SUM-MED` | Nebula AI Summarization (Medical) | PAGE |
-| `KLD-AN-XLAT` | AI Translation | MCHARS |
-| `KLD-AN-TRANSCRIBE` | KLD Transcription Service | ATRANS-HR |
+| `KLD-EXT-AIR-REVIEW` | RelativityOne - aiR for Review | DOC |
+| `KLD-EXT-AIR-PRIV` | RelativityOne - aiR for Privilege | DOC |
+| `KLD-EXT-XLAT` | RelativityOne Translate | DOC |
+| `KLD-EXT-CONTRACTS` | Relativity Contracts | DOC |
+| `KLD-EXT-PI-DETECT` | Relativity PI Detect | DOC-RUN |
+| `KLD-EXT-BREACH` | Relativity Data Breach Response | GB |
+| `KLD-EXT-CASE-STRAT` | Relativity aiR Case Strategy | EACH |
 
 ### Professional services & delivery
 
@@ -123,6 +124,9 @@ Each pathway bundle has **seven optional sections** (`MinBundleComponents = 0`) 
 |-----|------|-----|
 | `KLD-PS-PM` | Project Management | h |
 | `KLD-PS-TECH` | Technical Support | h |
+| `KLD-PS-AA-CONSULT` | Advanced Analytics Consulting | h |
+| `KLD-PS-CONSULT` | Consulting Services | h |
+| `KLD-PS-EXPERT` | Expert Testimony | h |
 | `KLD-MED-HDD` | Hard Drive | EACH |
 | `KLD-MED-FREIGHT` | Freight | USD |
 
@@ -138,41 +142,55 @@ Each pathway bundle has **seven optional sections** (`MinBundleComponents = 0`) 
 
 ## Pathway bundle structure
 
-All component groups are optional (`min=0`). Same section order on every pathway; ECA / Online Data Hosting SKUs differ by pathway.
+All component groups are optional (`min=0`).
 
 ```
-KLD-PATH-NEB-NEB / NEB-R1 / R1-R1
+KLD-PATH-NEB-R1 (Nebula ECA to RelOne)
   1. Forensic Collection & Analysis (opt) → KLD-FOR-*, RMDC, RCMgr, Travel
   2. Staging (opt)                        → KLD-STAGING
-  3. ECA Hosting (opt)                    → pathway ECA SKU
-  4. Online Data Hosting (opt)            → pathway Review SKU
-  5. Advanced Analytics / eDiscovery AI   → KLD-AI-* + KLD-AN-*
-  6. Professional Services (opt)          → KLD-PS-PM, KLD-PS-TECH
-  7. Media & Data Delivery (opt)          → KLD-MED-HDD, KLD-MED-FREIGHT
-
-Hosting SKUs by pathway:
-  NEB-NEB → KLD-NEB-ECA-HOST + KLD-NEB-REVIEW
-  NEB-R1  → KLD-NEB-ECA-HOST + KLD-R1-REVIEW
-  R1-R1   → KLD-R1-ECA-HOST  + KLD-R1-REVIEW
+  3. ECA Hosting (opt)                    → KLD-NEB-ECA-HOST
+  4. Online Data Hosting (opt)            → KLD-R1-REVIEW + KLD-R1-COLD
+  5. Extenders (opt)                      → KLD-EXT-* (RelativityOne extenders)
+  6. Advanced Analytics (opt)             → KLD-AI-* (eDiscovery AI)
+  7. Professional Services (opt)          → PM, Tech, AA Consulting, Consulting, Expert Testimony
+  8. Media & Data Delivery (opt)          → KLD-MED-HDD, KLD-MED-FREIGHT
 ```
 
-Pathway parents use `DoesBundlePriceIncludeChild = false` — children carry pricing in `kld-pricing`.
+Pathway parent uses `DoesBundlePriceIncludeChild = false` — children carry pricing in `kld-pricing`.
 
 ## Matter estimate attributes (pathway classification)
 
 On `PC-KLD-PATHWAY`, matching the Standard Average Estimate **Assumptions** block.
 Defaults = **Source Data = 1,000 GB** worked example (PM/Tech from Hosting **500–1000 GB** matrix).
 
-| Attribute | Default | Notes |
-|-----------|---------|-------|
-| Source Data | 1000 GB | Staging est. quantity |
-| Decompression Rate (50%) | 1500 GB | Source × 1.50 |
-| Storage Expansion Rate (25%) | 1875 GB | Decompression × 1.25 |
-| ECA Data (70%) | 1313 GB | Storage Expansion × 0.70 → ECA Hosting qty **and** volume tier |
-| Active Review (30%) | 562 GB | Storage Expansion × 0.30 → Review qty **and** volume tier |
-| PM Hours Per Month | 11 | Hosting 500–1000 GB matrix |
-| Tech Hours Per Month | 7 | Hosting 500–1000 GB matrix |
-| Term Months | 12 | Multiplier for GB/Month and hours/month lines |
+Editable assumption rates are separate attributes; derived GB volumes are read-only
+(CML `KLDPathway` recomputes them when rates change).
+
+| Attribute | Default | Editable | Notes |
+|-----------|---------|----------|-------|
+| Source Data | 1000 GB | Yes | Drives Staging `Billable_GB` |
+| Decompression Rate (%) | 50 | Yes | Assumption; feeds Decompression GB |
+| Storage Expansion Rate (%) | 25 | Yes | Assumption; feeds Storage Expansion GB |
+| ECA Data (%) | 70 | Yes | Share of Storage Expansion → ECA |
+| Active Review (%) | 30 | Yes | Share of Storage Expansion → Review |
+| Decompression GB | 1500 GB | No | Source × (1 + decomp%/100) |
+| Storage Expansion GB | 1875 GB | No | Decompression × (1 + expand%/100) |
+| ECA Data GB | 1313 GB | No | → ECA Hosting `Billable_GB` (tier input) |
+| Active Review GB | 562 GB | No | → Review `Billable_GB` |
+| PM Hours Per Month | 11 | No | Hosting 500–1000 GB matrix |
+| Tech Hours Per Month | 7 | No | Hosting 500–1000 GB matrix |
+| Term Months | 12 | Yes | Multiplier for Billable_Hours / estimate term |
+
+### Billable volume attributes (component classifications)
+
+| Classification | Attribute | Used by |
+|----------------|-----------|---------|
+| `PC-KLD-HOST` | `Billable_GB` (read-only; `IsPriceImpacting=false` until pricing overlay) | Staging, ECA, Review |
+| `PC-KLD-PS` | `Billable_Hours` (read-only; `IsPriceImpacting=false` until pricing overlay) | PM, Tech |
+
+Explicit `ProductAttributeDefinition` rows (7) materialize these onto the products.
+Classification attrs alone do **not** create PADs; missing PADs + price-impacting caused
+configurator NPE `productDetails is null` when selecting Staging.
 
 ### Worked example Est. Price (12-month term)
 
@@ -180,12 +198,14 @@ Defaults = **Source Data = 1,000 GB** worked example (PM/Tech from Hosting **500
 |------|------|------------|
 | Staging | $10 × 1,000 GB | **$10,000.00** |
 | Nebula ECA Hosting | $2.30 (tier on **ECA 1,313**) × 1,313 × 12 | **$36,238.80** |
-| Nebula Review | $13.50 (tier on **Review 562** → 501–1,000) × 562 × 12 | **$91,044.00** |
+| RelOne Review | $12.50 (tier on **Review 562** → 501–1,000) × 562 × 12 | **$84,300.00** |
 | Project Management | $195 × 11 × 12 | **$25,740.00** |
 | Technical Support | $175 × 7 × 12 | **$14,700.00** |
 
-Pathway component **default quantities** are pre-set to 1000 / 1313 / 562 / **132** / **84** (PS = hrs/month × 12). Live cascade + qty binding when components are selected is provided by the **`KLDPathway` CML** model (`datasets/constraints/kld/KLDPathway`, imported when `constraints_data` + `kld`).
-
+Pathway volume components use **Quantity = 1** (locked). CML `KLDPathway` syncs
+`Billable_GB` / `Billable_Hours` when the component is selected. List×qty pricing still
+sees qty=1 until a pricing-procedure overlay maps `Billable_*` into quantity or
+`ListPrice × Billable_*`.
 ## Dependencies
 
 - **Standalone** — does not require `qb-pcm`. Uses distinct `KLD-` / `CAT-KLD-` / `PC-KLD-` prefixes. Can load alongside QB when `kld=true` and `qb=true`.

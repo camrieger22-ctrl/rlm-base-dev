@@ -14,36 +14,24 @@ BLOB = OUT / "blobs" / "ESDV_KLDPathway_V1.ffxblob"
 REL = "Bundle to Bundle Component Relationship"
 
 # Stable fake Ids for portable import resolution (prefix-significant only).
+# Demo scope: Nebula ECA → RelOne only.
 PRODUCTS = [
-    ("01tKLD000000001AAA", "Nebula ECA to Nebula Review", "KLD_PATH_NEB_NEB"),
     ("01tKLD000000002AAA", "Nebula ECA to RelOne", "KLD_PATH_NEB_R1"),
-    ("01tKLD000000003AAA", "RelOne ECA to RelOne", "KLD_PATH_R1_R1"),
     ("01tKLD000000010AAA", "Staging", "Staging"),
     ("01tKLD000000011AAA", "Nebula ECA Hosting", "Nebula_ECA_Hosting"),
-    ("01tKLD000000012AAA", "Nebula Review", "Nebula_Review"),
-    ("01tKLD000000013AAA", "RelOne ECA Hosting", "RelOne_ECA_Hosting"),
     ("01tKLD000000014AAA", "RelOne Review", "RelOne_Review"),
     ("01tKLD000000020AAA", "Project Management", "Project_Management"),
     ("01tKLD000000021AAA", "Technical Support", "Technical_Support"),
 ]
 
 # Ports: (fake PRC Id, parent Name, child Name, port tag, sequence)
+# Sequences must match ProductRelatedComponent.Sequence in kld-pcm / the org.
 PORTS = [
-    ("0dSKLD000000101AAA", "Nebula ECA to Nebula Review", "Staging", "staging_nebneb", 120),
-    ("0dSKLD000000102AAA", "Nebula ECA to Nebula Review", "Nebula ECA Hosting", "eca_nebneb", 130),
-    ("0dSKLD000000103AAA", "Nebula ECA to Nebula Review", "Nebula Review", "review_nebneb", 140),
-    ("0dSKLD000000104AAA", "Nebula ECA to Nebula Review", "Project Management", "pm_nebneb", 280),
-    ("0dSKLD000000105AAA", "Nebula ECA to Nebula Review", "Technical Support", "tech_nebneb", 290),
     ("0dSKLD000000201AAA", "Nebula ECA to RelOne", "Staging", "staging_nebr1", 120),
     ("0dSKLD000000202AAA", "Nebula ECA to RelOne", "Nebula ECA Hosting", "eca_nebr1", 130),
     ("0dSKLD000000203AAA", "Nebula ECA to RelOne", "RelOne Review", "review_nebr1", 140),
-    ("0dSKLD000000204AAA", "Nebula ECA to RelOne", "Project Management", "pm_nebr1", 280),
-    ("0dSKLD000000205AAA", "Nebula ECA to RelOne", "Technical Support", "tech_nebr1", 290),
-    ("0dSKLD000000301AAA", "RelOne ECA to RelOne", "Staging", "staging_r1r1", 120),
-    ("0dSKLD000000302AAA", "RelOne ECA to RelOne", "RelOne ECA Hosting", "eca_r1r1", 130),
-    ("0dSKLD000000303AAA", "RelOne ECA to RelOne", "RelOne Review", "review_r1r1", 140),
-    ("0dSKLD000000304AAA", "RelOne ECA to RelOne", "Project Management", "pm_r1r1", 280),
-    ("0dSKLD000000305AAA", "RelOne ECA to RelOne", "Technical Support", "tech_r1r1", 290),
+    ("0dSKLD000000204AAA", "Nebula ECA to RelOne", "Project Management", "pm_nebr1", 310),
+    ("0dSKLD000000205AAA", "Nebula ECA to RelOne", "Technical Support", "tech_nebr1", 320),
 ]
 
 
@@ -66,7 +54,7 @@ def main() -> None:
     write_csv(
         OUT / "ExpressionSet.csv",
         ["ApiName", "Description", "ExpressionSetDefinitionId", "Id", "InterfaceSourceType", "Name", "ResourceInitializationType", "UsageType"],
-        [["KLDPathway", "KLDiscovery pathway estimate cascade + qty binding", "", "", "Constraint", "KLDPathway", "Off", "Constraint"]],
+        [["KLDPathway", "KLDiscovery Nebula ECA→RelOne estimate cascade", "", "", "Constraint", "KLDPathway", "Off", "Constraint"]],
     )
     write_csv(
         OUT / "ExpressionSetDefinitionVersion.csv",

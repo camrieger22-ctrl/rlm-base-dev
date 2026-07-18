@@ -15,15 +15,11 @@ PAS_KEY = f"{PAS};USD"
 PB = "Standard Price Book;true"
 
 PATHWAY_SKUS = {
-    "KLD-PATH-NEB-NEB",
     "KLD-PATH-NEB-R1",
-    "KLD-PATH-R1-R1",
 }
 
 HOSTING_SKUS = {
     "KLD-NEB-ECA-HOST",
-    "KLD-NEB-REVIEW",
-    "KLD-R1-ECA-HOST",
     "KLD-R1-REVIEW",
 }
 
@@ -46,27 +42,23 @@ ECA_TIERS = [
     (5001, None, 1.50),
 ]
 
-REVIEW_TIERS = [
-    (0, 250, 14.00),
-    (251, 500, 13.75),
-    (501, 1000, 13.50),
-    (1001, 2000, 13.25),
-    (2001, 3000, 13.00),
-    (3001, 4000, 12.75),
-    (4001, 5000, 12.50),
-    (5001, 6000, 12.25),
-    (6001, 7000, 12.00),
-    (7001, 8000, 11.75),
-    (8001, 9000, 11.50),
-    (9001, 10000, 11.25),
-    (10001, None, 11.25),
+# RelativityOne Online Data Hosting — Nebula ECA→RelOne estimate PDF (4/13/2026).
+RELONE_REVIEW_TIERS = [
+    (0, 500, 14.00),
+    (501, 1000, 12.50),
+    (1001, 2000, 12.00),
+    (2001, 4000, 11.50),
+    (4001, 6000, 11.00),
+    (6001, 8000, 10.50),
+    (8001, 10000, 10.00),
+    (10001, None, 9.00),
 ]
 
 # (sku, psm_name, psm_type) -> unit price USD — One-Time unless noted
 FLAT_PBE: dict[tuple[str, str, str], float] = {
     ("KLD-STAGING", "One-Time", "OneTime"): 10.00,
     ("KLD-SETUP-MATTER-GB", "One-Time", "OneTime"): 10.00,
-    ("KLD-FOR-COLL", "One-Time", "OneTime"): 360.00,
+    ("KLD-FOR-COLL", "One-Time", "OneTime"): 350.00,  # PDF; Downtime/Travel list ≈ 50% of this
     ("KLD-FOR-RCOLL", "One-Time", "OneTime"): 295.00,
     ("KLD-FOR-DOWNTIME", "One-Time", "OneTime"): 175.00,
     ("KLD-RMDC-HR", "One-Time", "OneTime"): 295.00,
@@ -85,27 +77,31 @@ FLAT_PBE: dict[tuple[str, str, str], float] = {
     ("KLD-AI-PII-DETECT", "One-Time", "OneTime"): 0.20,
     ("KLD-AI-PII-EXTRACT", "One-Time", "OneTime"): 1.05,
     ("KLD-AI-PII-REDACT", "One-Time", "OneTime"): 0.35,
-    ("KLD-AN-ANALYTICS", "One-Time", "OneTime"): 5.00,
-    ("KLD-AN-SUM", "One-Time", "OneTime"): 25.00,
-    ("KLD-AN-SUM-MED", "One-Time", "OneTime"): 0.50,
-    ("KLD-AN-XLAT", "One-Time", "OneTime"): 40.00,
-    ("KLD-AN-TRANSCRIBE", "One-Time", "OneTime"): 15.00,
+    ("KLD-EXT-AIR-REVIEW", "One-Time", "OneTime"): 0.15,
+    ("KLD-EXT-AIR-PRIV", "One-Time", "OneTime"): 0.15,
+    ("KLD-EXT-XLAT", "One-Time", "OneTime"): 1.00,
+    ("KLD-EXT-CONTRACTS", "One-Time", "OneTime"): 8.50,
+    ("KLD-EXT-PI-DETECT", "One-Time", "OneTime"): 0.95,
+    ("KLD-EXT-BREACH", "One-Time", "OneTime"): 165.00,
+    ("KLD-EXT-CASE-STRAT", "One-Time", "OneTime"): 2000.00,
+    ("KLD-R1-COLD", "Evergreen Monthly", "Evergreen"): 1.50,
+    ("KLD-R1-COLD", "Term Monthly", "TermDefined"): 1.50,
     ("KLD-PS-PM", "One-Time", "OneTime"): 195.00,
     ("KLD-PS-TECH", "One-Time", "OneTime"): 175.00,
+    ("KLD-PS-AA-CONSULT", "One-Time", "OneTime"): 350.00,
+    ("KLD-PS-CONSULT", "One-Time", "OneTime"): 395.00,
+    ("KLD-PS-EXPERT", "One-Time", "OneTime"): 525.00,
     ("KLD-MED-HDD", "One-Time", "OneTime"): 199.00,
     ("KLD-MED-FREIGHT", "One-Time", "OneTime"): 0.00,
 }
 
 PRODUCT_NAMES = {
-    "KLD-PATH-NEB-NEB": "Nebula ECA to Nebula Review",
     "KLD-PATH-NEB-R1": "Nebula ECA to RelOne",
-    "KLD-PATH-R1-R1": "RelOne ECA to RelOne",
     "KLD-STAGING": "Staging",
     "KLD-SETUP-MATTER-GB": "Transactional Matter Set Up Fee",
     "KLD-NEB-ECA-HOST": "Nebula ECA Hosting",
-    "KLD-NEB-REVIEW": "Nebula Review",
-    "KLD-R1-ECA-HOST": "RelOne ECA Hosting",
     "KLD-R1-REVIEW": "RelOne Review",
+    "KLD-R1-COLD": "Cold Storage - No Access",
     "KLD-FOR-COLL": "Forensic Data Collection",
     "KLD-FOR-RCOLL": "Remote Forensic Data Collection",
     "KLD-FOR-DOWNTIME": "Forensic Data Collection - Downtime",
@@ -125,13 +121,18 @@ PRODUCT_NAMES = {
     "KLD-AI-PII-DETECT": "eDiscovery AI - PII Detect",
     "KLD-AI-PII-EXTRACT": "eDiscovery AI - PII Extract",
     "KLD-AI-PII-REDACT": "eDiscovery AI - PII Redact",
-    "KLD-AN-ANALYTICS": "KLDiscovery Analytics",
-    "KLD-AN-SUM": "Nebula AI Summarization",
-    "KLD-AN-SUM-MED": "Nebula AI Summarization (Medical)",
-    "KLD-AN-XLAT": "AI Translation",
-    "KLD-AN-TRANSCRIBE": "KLD Transcription Service",
+    "KLD-EXT-AIR-REVIEW": "RelativityOne - aiR for Review",
+    "KLD-EXT-AIR-PRIV": "RelativityOne - aiR for Privilege",
+    "KLD-EXT-XLAT": "RelativityOne Translate",
+    "KLD-EXT-CONTRACTS": "Relativity Contracts",
+    "KLD-EXT-PI-DETECT": "Relativity PI Detect",
+    "KLD-EXT-BREACH": "Relativity Data Breach Response",
+    "KLD-EXT-CASE-STRAT": "Relativity aiR Case Strategy",
     "KLD-PS-PM": "Project Management",
     "KLD-PS-TECH": "Technical Support",
+    "KLD-PS-AA-CONSULT": "Advanced Analytics Consulting",
+    "KLD-PS-CONSULT": "Consulting Services",
+    "KLD-PS-EXPERT": "Expert Testimony",
     "KLD-MED-HDD": "Hard Drive",
     "KLD-MED-FREIGHT": "Freight",
 }
@@ -145,10 +146,10 @@ def write_csv(name: str, header: list[str], rows: list[list]) -> None:
 
 
 def tier_list_for_sku(sku: str) -> list[tuple[int, int | None, float]]:
-    if sku in ("KLD-NEB-ECA-HOST", "KLD-R1-ECA-HOST"):
+    if sku == "KLD-NEB-ECA-HOST":
         return ECA_TIERS
-    if sku in ("KLD-NEB-REVIEW", "KLD-R1-REVIEW"):
-        return REVIEW_TIERS
+    if sku == "KLD-R1-REVIEW":
+        return RELONE_REVIEW_TIERS
     return []
 
 

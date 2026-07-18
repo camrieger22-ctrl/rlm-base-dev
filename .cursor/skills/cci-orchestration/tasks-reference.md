@@ -2416,7 +2416,7 @@
 
 ### `insert_kld_pcm_data`
 
-**Description:** Insert KLDiscovery PCM data (37 products: matter pathways, hosting, forensics, eDiscovery AI, analytics, professional services). Requires distinct KLD-* SKUs; can load alongside QuantumBit when both qb and kld flags are enabled.
+**Description:** Insert KLDiscovery PCM data (39 products: Nebula ECA→RelOne pathway, hosting, forensics, eDiscovery AI, RelOne extenders, professional services). Requires distinct KLD-* SKUs; can load alongside QuantumBit when both qb and kld flags are enabled.
 
 **Class:** `tasks.rlm_sfdmu.LoadSFDMUData`
 

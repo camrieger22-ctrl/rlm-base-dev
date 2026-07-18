@@ -1,106 +1,81 @@
 // ============================================================================
-// KLDPathway — KLDiscovery matter pathway estimate cascade (API v67 / RLM 262)
+// KLDPathway — KLDiscovery Nebula ECA → RelOne estimate cascade (API v67 / RLM 262)
 // ============================================================================
-// Applies to the three pathway bundles:
-//   Nebula ECA to Nebula Review / Nebula ECA to RelOne / RelOne ECA to RelOne
+// Demo scope: KLD-PATH-NEB-R1 only.
 //
-// Cascade (Source Data driver):
-//   Decompression (50%)     = Source × 1.50
-//   Storage Expansion (25%) = Decompression × 1.25
-//   ECA Data (70%)          = round(Storage Expansion × 0.70)
-//   Active Review (30%)     = Storage Expansion − ECA Data
+// Architecture: volume lives on CHILD ATTRIBUTES (Billable_GB / Billable_Hours)
+// in PCM. Line Quantity stays 1 (relation cardinality [0..1]).
 //
-// PM / Tech hours from Hosting matrix keyed on Source Data GB.
-// When Staging / ECA / Review / PS components are selected, quantities follow
-// the cascade (PS qty = hours/month × Term Months for One-Time estimate totals).
+// Editable assumptions: Source_Data_GB, Decompression_Rate_Pct,
+// Storage_Expansion_Rate_Pct, ECA_Pct, Active_Review_Pct, Term_Months.
+// Derived GB/hours are read-only (configurable = false).
 //
-// IMPORTANT: relation cardinality must allow GB/hour quantities (not [0..1]).
-// In CML, relation cardinality is the component quantity on the quote line.
+// NOTE: Billable_* sync constraints are intentionally omitted for now.
+// Syncing child attrs from CML triggered Instant Pricing NPE:
+//   productDetails is null
+// Re-enable after pricing-procedure overlay + PCM cache refresh are proven.
 // ============================================================================
 
-type Staging;
-type Nebula_ECA_Hosting;
-type Nebula_Review;
-type RelOne_ECA_Hosting;
-type RelOne_Review;
-type Project_Management;
-type Technical_Support;
+type LineItem;
 
-// Shared matter-estimate attributes (DeveloperNames match kld-pcm AttributeDefinition)
-type KLD_Pathway_Base : LineItem {
+// Leaf component types (no attrs — PCM Billable_* still on the product).
+type Staging : LineItem;
+type Nebula_ECA_Hosting : LineItem;
+type RelOne_Review : LineItem;
+type Project_Management : LineItem;
+type Technical_Support : LineItem;
+
+// Matter-estimate attributes on Nebula ECA → RelOne (PC-KLD-PATHWAY).
+type KLD_PATH_NEB_R1 : LineItem {
     @(defaultValue = "1000", sequence = 1)
     int Source_Data_GB;
 
-    @(configurable = false, defaultValue = "1500", sequence = 2)
-    int Decompression_GB = Source_Data_GB * 3 / 2;
+    @(defaultValue = "50", sequence = 2)
+    int Decompression_Rate_Pct;
 
-    @(configurable = false, defaultValue = "1875", sequence = 3)
-    int Storage_Expansion_GB = Decompression_GB * 5 / 4;
+    @(defaultValue = "25", sequence = 3)
+    int Storage_Expansion_Rate_Pct;
 
-    // round half up: (n*7 + 5) / 10  → Source 1000 ⇒ ECA 1313
-    @(configurable = false, defaultValue = "1313", sequence = 4)
-    int ECA_Data_GB = (Storage_Expansion_GB * 7 + 5) / 10;
+    @(defaultValue = "70", sequence = 4)
+    int ECA_Pct;
 
-    @(configurable = false, defaultValue = "562", sequence = 5)
-    int Active_Review_GB = Storage_Expansion_GB - ECA_Data_GB;
+    @(defaultValue = "30", sequence = 5)
+    int Active_Review_Pct;
 
-    // Hosting PM/Tech matrix (Collection-only bands deferred)
-    @(configurable = false, defaultValue = "11", sequence = 6)
+    // Source × (1 + decomp%/100), integer truncation
+    @(configurable = false, defaultValue = "1500", sequence = 6)
+    int Decompression_GB = Source_Data_GB * (100 + Decompression_Rate_Pct) / 100;
+
+    @(configurable = false, defaultValue = "1875", sequence = 7)
+    int Storage_Expansion_GB = Decompression_GB * (100 + Storage_Expansion_Rate_Pct) / 100;
+
+    // ECA: round half-up so 1875×70% → 1313 (Standard Average Estimate).
+    // Review: truncate so 1875×30% → 562 (ECA + Review = Storage Expansion).
+    @(configurable = false, defaultValue = "1313", sequence = 8)
+    int ECA_Data_GB = (Storage_Expansion_GB * ECA_Pct + 50) / 100;
+
+    @(configurable = false, defaultValue = "562", sequence = 9)
+    int Active_Review_GB = Storage_Expansion_GB * Active_Review_Pct / 100;
+
+    @(configurable = false, defaultValue = "11", sequence = 10)
     int PM_Hours_Per_Month = (Source_Data_GB > 1000) ? 30 : ((Source_Data_GB > 500) ? 11 : ((Source_Data_GB > 200) ? 10 : ((Source_Data_GB > 100) ? 6 : ((Source_Data_GB > 50) ? 4 : ((Source_Data_GB > 0) ? 2 : 0)))));
 
-    @(configurable = false, defaultValue = "7", sequence = 7)
+    @(configurable = false, defaultValue = "7", sequence = 11)
     int Tech_Hours_Per_Month = (Source_Data_GB > 1000) ? 15 : ((Source_Data_GB > 500) ? 7 : ((Source_Data_GB > 200) ? 5 : ((Source_Data_GB > 100) ? 3 : ((Source_Data_GB > 50) ? 2 : ((Source_Data_GB > 0) ? 1 : 0)))));
 
-    @(defaultValue = "12", sequence = 8)
+    @(defaultValue = "12", sequence = 12)
     int Term_Months;
 
-    @(configurable = false, sequence = 9)
+    @(configurable = false, sequence = 13)
     int PM_Total_Hours = PM_Hours_Per_Month * Term_Months;
 
-    @(configurable = false, sequence = 10)
+    @(configurable = false, sequence = 14)
     int Tech_Total_Hours = Tech_Hours_Per_Month * Term_Months;
-}
 
-// High upper bound so GB / hour quantities can bind (e.g. Source 2000 → Staging 2000).
-// Components stay optional (min 0); qty binds only when selected (> 0).
-type KLD_PATH_NEB_NEB : KLD_Pathway_Base {
-    relation staging_nebneb : Staging[0..999999];
-    relation eca_nebneb : Nebula_ECA_Hosting[0..999999];
-    relation review_nebneb : Nebula_Review[0..999999];
-    relation pm_nebneb : Project_Management[0..999999];
-    relation tech_nebneb : Technical_Support[0..999999];
-
-    constraint(staging_nebneb[Staging] > 0 -> staging_nebneb[Staging] == Source_Data_GB);
-    constraint(eca_nebneb[Nebula_ECA_Hosting] > 0 -> eca_nebneb[Nebula_ECA_Hosting] == ECA_Data_GB);
-    constraint(review_nebneb[Nebula_Review] > 0 -> review_nebneb[Nebula_Review] == Active_Review_GB);
-    constraint(pm_nebneb[Project_Management] > 0 -> pm_nebneb[Project_Management] == PM_Total_Hours);
-    constraint(tech_nebneb[Technical_Support] > 0 -> tech_nebneb[Technical_Support] == Tech_Total_Hours);
-}
-
-type KLD_PATH_NEB_R1 : KLD_Pathway_Base {
-    relation staging_nebr1 : Staging[0..999999];
-    relation eca_nebr1 : Nebula_ECA_Hosting[0..999999];
-    relation review_nebr1 : RelOne_Review[0..999999];
-    relation pm_nebr1 : Project_Management[0..999999];
-    relation tech_nebr1 : Technical_Support[0..999999];
-
-    constraint(staging_nebr1[Staging] > 0 -> staging_nebr1[Staging] == Source_Data_GB);
-    constraint(eca_nebr1[Nebula_ECA_Hosting] > 0 -> eca_nebr1[Nebula_ECA_Hosting] == ECA_Data_GB);
-    constraint(review_nebr1[RelOne_Review] > 0 -> review_nebr1[RelOne_Review] == Active_Review_GB);
-    constraint(pm_nebr1[Project_Management] > 0 -> pm_nebr1[Project_Management] == PM_Total_Hours);
-    constraint(tech_nebr1[Technical_Support] > 0 -> tech_nebr1[Technical_Support] == Tech_Total_Hours);
-}
-
-type KLD_PATH_R1_R1 : KLD_Pathway_Base {
-    relation staging_r1r1 : Staging[0..999999];
-    relation eca_r1r1 : RelOne_ECA_Hosting[0..999999];
-    relation review_r1r1 : RelOne_Review[0..999999];
-    relation pm_r1r1 : Project_Management[0..999999];
-    relation tech_r1r1 : Technical_Support[0..999999];
-
-    constraint(staging_r1r1[Staging] > 0 -> staging_r1r1[Staging] == Source_Data_GB);
-    constraint(eca_r1r1[RelOne_ECA_Hosting] > 0 -> eca_r1r1[RelOne_ECA_Hosting] == ECA_Data_GB);
-    constraint(review_r1r1[RelOne_Review] > 0 -> review_r1r1[RelOne_Review] == Active_Review_GB);
-    constraint(pm_r1r1[Project_Management] > 0 -> pm_r1r1[Project_Management] == PM_Total_Hours);
-    constraint(tech_r1r1[Technical_Support] > 0 -> tech_r1r1[Technical_Support] == Tech_Total_Hours);
+    // Cardinality [0..1] = at most one line per port (Quantity stays 1 in PCM).
+    relation staging_nebr1 : Staging[0..1];
+    relation eca_nebr1 : Nebula_ECA_Hosting[0..1];
+    relation review_nebr1 : RelOne_Review[0..1];
+    relation pm_nebr1 : Project_Management[0..1];
+    relation tech_nebr1 : Technical_Support[0..1];
 }

@@ -7,7 +7,7 @@ CAT-KLD-EDISC,KLD-CAT-PATHWAY,,true,Matter Pathways,,50
 CAT-KLD-AI,KLD-CAT-ECI,,true,Early Case Insight,,10
 CAT-KLD-AI,KLD-CAT-RELEVANCE,,true,Relevance & Privilege,,20
 CAT-KLD-AI,KLD-CAT-PII,,true,PII Services,,30
-CAT-KLD-AI,KLD-CAT-ANALYTICS,,true,Analytics A-La-Carte,,40
+CAT-KLD-AI,KLD-CAT-EXTEND,,true,Extenders,,40
 CAT-KLD-FORENS,KLD-CAT-COLL,,true,Collection,,10
 CAT-KLD-FORENS,KLD-CAT-ANALYSIS,,true,Forensic Analysis,,20
 CAT-KLD-FORENS,KLD-CAT-TRAVEL,,true,Travel,,30

@@ -1,16 +1,6 @@
 Id,Name,ParentProductId,ParentProduct.Name,ChildProductId,ChildProduct.Name,ChildProductClassificationId,ChildProductClassification.Name,ProductRelationshipTypeId,ProductRelationshipType.Name,Sequence
-0dSKLD000000101AAA,PRC-KLD-000001,,Nebula ECA to Nebula Review,,Staging,,,,Bundle to Bundle Component Relationship,120
-0dSKLD000000102AAA,PRC-KLD-000002,,Nebula ECA to Nebula Review,,Nebula ECA Hosting,,,,Bundle to Bundle Component Relationship,130
-0dSKLD000000103AAA,PRC-KLD-000003,,Nebula ECA to Nebula Review,,Nebula Review,,,,Bundle to Bundle Component Relationship,140
-0dSKLD000000104AAA,PRC-KLD-000004,,Nebula ECA to Nebula Review,,Project Management,,,,Bundle to Bundle Component Relationship,280
-0dSKLD000000105AAA,PRC-KLD-000005,,Nebula ECA to Nebula Review,,Technical Support,,,,Bundle to Bundle Component Relationship,290
-0dSKLD000000201AAA,PRC-KLD-000006,,Nebula ECA to RelOne,,Staging,,,,Bundle to Bundle Component Relationship,120
-0dSKLD000000202AAA,PRC-KLD-000007,,Nebula ECA to RelOne,,Nebula ECA Hosting,,,,Bundle to Bundle Component Relationship,130
-0dSKLD000000203AAA,PRC-KLD-000008,,Nebula ECA to RelOne,,RelOne Review,,,,Bundle to Bundle Component Relationship,140
-0dSKLD000000204AAA,PRC-KLD-000009,,Nebula ECA to RelOne,,Project Management,,,,Bundle to Bundle Component Relationship,280
-0dSKLD000000205AAA,PRC-KLD-000010,,Nebula ECA to RelOne,,Technical Support,,,,Bundle to Bundle Component Relationship,290
-0dSKLD000000301AAA,PRC-KLD-000011,,RelOne ECA to RelOne,,Staging,,,,Bundle to Bundle Component Relationship,120
-0dSKLD000000302AAA,PRC-KLD-000012,,RelOne ECA to RelOne,,RelOne ECA Hosting,,,,Bundle to Bundle Component Relationship,130
-0dSKLD000000303AAA,PRC-KLD-000013,,RelOne ECA to RelOne,,RelOne Review,,,,Bundle to Bundle Component Relationship,140
-0dSKLD000000304AAA,PRC-KLD-000014,,RelOne ECA to RelOne,,Project Management,,,,Bundle to Bundle Component Relationship,280
-0dSKLD000000305AAA,PRC-KLD-000015,,RelOne ECA to RelOne,,Technical Support,,,,Bundle to Bundle Component Relationship,290
+0dSKLD000000201AAA,PRC-KLD-000001,,Nebula ECA to RelOne,,Staging,,,,Bundle to Bundle Component Relationship,120
+0dSKLD000000202AAA,PRC-KLD-000002,,Nebula ECA to RelOne,,Nebula ECA Hosting,,,,Bundle to Bundle Component Relationship,130
+0dSKLD000000203AAA,PRC-KLD-000003,,Nebula ECA to RelOne,,RelOne Review,,,,Bundle to Bundle Component Relationship,140
+0dSKLD000000204AAA,PRC-KLD-000004,,Nebula ECA to RelOne,,Project Management,,,,Bundle to Bundle Component Relationship,310
+0dSKLD000000205AAA,PRC-KLD-000005,,Nebula ECA to RelOne,,Technical Support,,,,Bundle to Bundle Component Relationship,320

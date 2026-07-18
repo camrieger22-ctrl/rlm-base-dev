@@ -51,43 +51,44 @@ Delete + insert pattern (same as qb-pricing). Insert objects pre-cleared by `del
 | 2 | ProrationPolicy | Update | 1 |
 | 3 | ProductSellingModel | Readonly | 4 |
 | 4 | AttributeDefinition | Readonly | 0 (excluded) |
-| 5 | Product2 | Readonly | 37 |
+| 5 | Product2 | Readonly | 39 |
 | 6 | CostBook | Upsert | 1 |
 | 7 | Pricebook2 | Upsert | 1 (Standard Price Book) |
-| 8 | PriceAdjustmentTier | Insert | 96 |
+| 8 | PriceAdjustmentTier | Insert | 38 |
 | 9 | PriceAdjustmentSchedule | Update | 3 |
 | 10 | AttributeBasedAdjRule | Upsert | 0 (excluded) |
 | 11 | AttributeAdjustmentCondition | Insert | 0 (excluded) |
 | 12 | AttributeBasedAdjustment | Insert | 0 (excluded) |
 | 13 | BundleBasedAdjustment | Insert | 0 (excluded) |
-| 14 | PricebookEntry | Insert | 41 |
+| 14 | PricebookEntry | Insert | 42 |
 | 15 | PricebookEntryDerivedPrice | Insert | 0 (excluded) |
-| 16 | CostBookEntry | Insert | 32 |
+| 16 | CostBookEntry | Insert | 36 |
 
 ## Rate card summary (USD)
 
-### Pathway bundles — $0
+### Pathway bundle — $0
 
-`KLD-PATH-NEB-NEB`, `KLD-PATH-NEB-R1`, `KLD-PATH-R1-R1` — configuration shells; children carry price.
+`KLD-PATH-NEB-R1` (Nebula ECA to RelOne) — configuration shell; children carry price.
 
 ### Flat list prices
 
 | Category | Key rates |
 |----------|-----------|
 | Staging / setup | $10/GB |
-| Forensics | $360/hr onsite, $295/hr remote, $1,250 RMDC flat, $550/$850 RCMgr kits |
+| Forensics | $350/hr onsite, $295/hr remote, Downtime/Travel Time list $175 (≈50% of onsite), $1,250 RMDC flat, $550/$850 RCMgr kits |
 | Media | Hard Drive $199/each; Freight $0 (passthrough) |
 | eDiscovery AI | ECI $0.04/doc-run, Relevance/Privilege $0.30, PII Detect $0.20, Redact $0.35/page |
 | CaseBot | **$0.08/doc/quarter** (Evergreen - Quarterly) |
-| Analytics (placeholders) | Analytics $5/GB, Summarization $25/M chars, Medical $0.50/page, Translation $40/M chars, Transcription $15/hr |
-| PS | PM $195/hr, Tech $175/hr |
+| Extenders | aiR Review/Privilege $0.15/doc, Translate $1/doc, Contracts $8.50/doc, PI Detect $0.95/doc-run, Breach $165/GB, Case Strategy $2,000/workspace |
+| Cold Storage | $1.50/GB-mo (Evergreen + Term Monthly) |
+| PS | PM $195/hr, Tech $175/hr, AA Consulting $350/hr, Consulting $395/hr, Expert Testimony $525/hr |
 | Pass-through | Travel expense, Freight $0 |
 
 ### Volume tiers — hosting (GB/month)
 
-**Nebula ECA + RelOne ECA** (mirrored): $2.50 (0–500 GB) down to $1.50 (5001+ GB) — 11 bands.
+**Nebula ECA Hosting**: $2.50 (0–500 GB) down to $1.50 (5001+ GB) — 11 bands.
 
-**Nebula Review + RelOne Review** (mirrored): $14.00 (0–250 GB) down to $11.25 (9001+ GB) — 13 bands (lower tiers extrapolated from estimate example at 562 GB → $13.50).
+**RelOne Review** (Nebula ECA→RelOne PDF): $14.00 (0–500), $12.50 (501–1,000), $12.00 (1,001–2,000), $11.50 (2,001–4,000), $11.00 (4,001–6,000), $10.50 (6,001–8,000), $10.00 (8,001–10,000), $9.00 (10,000.01+) — 8 bands.
 
 Implemented via `PriceAdjustmentTier` on **Standard Price Adjustment Tier** with `TierType = OverrideAmount` / `AdjustmentType = Override` (absolute $/GB per band). Base `PricebookEntry` uses tier-1 rate.
 
