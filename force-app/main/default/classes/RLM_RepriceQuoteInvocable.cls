@@ -18,6 +18,16 @@ public with sharing class RLM_RepriceQuoteInvocable {
     @TestVisible
     private static Boolean bypassPlatformCallForTest = false;
 
+    /** Test-only seam: when true, reprice() throws so the failure-notification
+     *  path can be exercised deterministically. Never set outside tests. */
+    @TestVisible
+    private static Boolean forceFailureForTest = false;
+
+    /** Test-only counter: number of owner failure-notifications sent this
+     *  transaction. Lets tests assert a silent failure was surfaced. */
+    @TestVisible
+    private static Integer failureNotificationsSent = 0;
+
     /** Flow-facing request: lets a record-triggered flow map a scalar quote Id. */
     public class Request {
         @InvocableVariable(label='Quote Id' description='Id of the quote to force-reprice.' required=true)
@@ -58,11 +68,67 @@ public with sharing class RLM_RepriceQuoteInvocable {
         public void execute(QueueableContext ctx) {
             // Skip quotes that no longer exist (e.g. a line delete that was part of a
             // full-quote cascade delete) so the reprice never throws on a missing record.
-            Set<Id> existingQuoteIds =
-                new Map<Id, Quote>([SELECT Id FROM Quote WHERE Id IN :quoteIds]).keySet();
-            for (Id quoteId : existingQuoteIds) {
-                reprice(quoteId);
+            // Load the owner so a failure can be surfaced to a human instead of dying
+            // silently in the async job.
+            Map<Id, Quote> quotesById = new Map<Id, Quote>([
+                SELECT Id, Name, OwnerId, Owner.Email
+                FROM Quote
+                WHERE Id IN :quoteIds
+            ]);
+            for (Quote q : quotesById.values()) {
+                try {
+                    reprice(q.Id);
+                } catch (Exception e) {
+                    // Isolate per quote: one failure must not abort repricing the rest,
+                    // and it must be made visible rather than swallowed.
+                    handleRepriceFailure(q, e);
+                }
             }
+        }
+    }
+
+    /**
+     * Surfaces a silent async reprice failure: logs an ERROR (for admins reviewing
+     * debug logs / Apex exception emails) and emails the quote owner with the error
+     * and remediation. Never throws — notification problems must not mask the
+     * original failure or fail the job.
+     */
+    @TestVisible
+    private static void handleRepriceFailure(Quote q, Exception e) {
+        Id quoteId = (q != null) ? q.Id : null;
+        String quoteName = (q != null && q.Name != null) ? q.Name : String.valueOf(quoteId);
+        System.debug(
+            LoggingLevel.ERROR,
+            'RLM_RepriceQuoteInvocable: automatic reprice failed for quote ' +
+            quoteId + ' (' + quoteName + '): ' + e.getMessage()
+        );
+        try {
+            String toAddress = (q != null && q.Owner != null) ? q.Owner.Email : null;
+            if (String.isBlank(toAddress)) {
+                toAddress = UserInfo.getUserEmail();
+            }
+            if (String.isBlank(toAddress)) {
+                return; // nowhere to send; the ERROR log above is the record of record
+            }
+            String recordLink = URL.getOrgDomainUrl().toExternalForm() + '/' + quoteId;
+            Messaging.SingleEmailMessage mail = new Messaging.SingleEmailMessage();
+            mail.setToAddresses(new List<String>{ toAddress });
+            mail.setSubject('Action needed: automatic reprice failed for quote ' + quoteName);
+            mail.setPlainTextBody(
+                'The automatic reprice for quote "' + quoteName + '" (' + quoteId + ') failed.\n\n' +
+                'Error: ' + e.getMessage() + '\n\n' +
+                'Prices on this quote may be stale, which will block order creation with a ' +
+                '"prices aren\'t updated" error. Open the quote and click "Reprice All", ' +
+                'then try again:\n' + recordLink + '\n'
+            );
+            Messaging.sendEmail(new List<Messaging.SingleEmailMessage>{ mail });
+            failureNotificationsSent++;
+        } catch (Exception notifyEx) {
+            System.debug(
+                LoggingLevel.ERROR,
+                'RLM_RepriceQuoteInvocable: failed to notify owner of reprice failure for quote ' +
+                quoteId + ': ' + notifyEx.getMessage()
+            );
         }
     }
 
@@ -70,6 +136,9 @@ public with sharing class RLM_RepriceQuoteInvocable {
     @TestVisible
     private static void reprice(Id quoteId) {
         RevSalesTrxn.GraphRequest graph = buildRepriceGraph(quoteId);
+        if (forceFailureForTest) {
+            throw new RepriceException('Forced failure for test: ' + quoteId);
+        }
         if (bypassPlatformCallForTest) {
             return;
         }

@@ -66,6 +66,33 @@ private class RLM_RepriceQuoteInvocableTest {
     }
 
     @isTest
+    static void repriceFailure_isSurfacedToOwner_notSwallowed() {
+        // A forced reprice failure inside the queueable must be caught, isolated,
+        // and surfaced to the quote owner (email + ERROR log) rather than dying
+        // silently in the async job.
+        Quote q = makeQuote();
+        RLM_RepriceQuoteInvocable.Request req = new RLM_RepriceQuoteInvocable.Request();
+        req.quoteId = q.Id;
+        RLM_RepriceQuoteInvocable.forceFailureForTest = true;
+        Test.startTest();
+        RLM_RepriceQuoteInvocable.repriceQuotes(new List<RLM_RepriceQuoteInvocable.Request>{ req });
+        Test.stopTest(); // queueable runs here; a forced failure must NOT propagate out
+        System.assert(RLM_RepriceQuoteInvocable.failureNotificationsSent >= 1,
+            'A silent reprice failure must be surfaced to the owner');
+    }
+
+    @isTest
+    static void handleRepriceFailure_neverThrows() {
+        // Notification problems must never mask the original failure. Passing a
+        // null quote exercises the defensive path (falls back to running-user email).
+        Test.startTest();
+        RLM_RepriceQuoteInvocable.handleRepriceFailure(
+            null, new RLM_RepriceQuoteInvocable.RepriceException('boom'));
+        Test.stopTest();
+        System.assert(true, 'handleRepriceFailure must not throw');
+    }
+
+    @isTest
     static void reprice_executorPath_isTolerant() {
         // Exercises the platform-executor call path for coverage. A bare test org may
         // not have pricing fully configured, so any executor outcome is acceptable here;
