@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Flow xmlns="http://soap.sforce.com/2006/04/metadata">
+    <actionCalls>
+        <name>Reprice_Synced_Quote</name>
+        <label>Reprice Synced Quote</label>
+        <locationX>176</locationX>
+        <locationY>276</locationY>
+        <actionName>RLM_RepriceQuoteInvocable</actionName>
+        <actionType>apex</actionType>
+        <flowTransactionModel>Automatic</flowTransactionModel>
+        <inputParameters>
+            <name>quoteId</name>
+            <value>
+                <elementReference>$Record.SyncedQuoteId</elementReference>
+            </value>
+        </inputParameters>
+        <nameSegment>RLM_RepriceQuoteInvocable</nameSegment>
+        <offset>0</offset>
+    </actionCalls>
+    <apiVersion>67.0</apiVersion>
+    <description>When a quote is synced to an Opportunity (SyncedQuoteId becomes populated), force-reprice that quote so pricing is current before Closed Won / order creation. Fires only on the transition to a populated SyncedQuoteId.</description>
+    <environments>Default</environments>
+    <interviewLabel>RLM Reprice Quote On Sync {!$Flow.CurrentDateTime}</interviewLabel>
+    <label>RLM Reprice Quote On Sync</label>
+    <processMetadataValues>
+        <name>BuilderType</name>
+        <value>
+            <stringValue>LightningFlowBuilder</stringValue>
+        </value>
+    </processMetadataValues>
+    <processMetadataValues>
+        <name>CanvasMode</name>
+        <value>
+            <stringValue>AUTO_LAYOUT_CANVAS</stringValue>
+        </value>
+    </processMetadataValues>
+    <processType>AutoLaunchedFlow</processType>
+    <runInMode>DefaultMode</runInMode>
+    <start>
+        <locationX>50</locationX>
+        <locationY>0</locationY>
+        <connector>
+            <targetReference>Reprice_Synced_Quote</targetReference>
+        </connector>
+        <doesRequireRecordChangedToMeetCriteria>true</doesRequireRecordChangedToMeetCriteria>
+        <filterLogic>and</filterLogic>
+        <filters>
+            <field>SyncedQuoteId</field>
+            <operator>IsNull</operator>
+            <value>
+                <booleanValue>false</booleanValue>
+            </value>
+        </filters>
+        <object>Opportunity</object>
+        <recordTriggerType>CreateAndUpdate</recordTriggerType>
+        <triggerType>RecordAfterSave</triggerType>
+    </start>
+    <status>Active</status>
+</Flow>

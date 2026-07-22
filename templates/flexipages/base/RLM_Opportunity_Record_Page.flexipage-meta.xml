@@ -568,7 +568,7 @@
             <componentInstance>
                 <componentInstanceProperties>
                     <name>flowArguments</name>
-                    <value>[{&quot;label&quot;:&quot;quoteId&quot;,&quot;dataType&quot;:&quot;String&quot;,&quot;supportsRecordId&quot;:false,&quot;value&quot;:&quot;{!Record.SyncedQuoteId}&quot;}]</value>
+                    <value>[{&quot;label&quot;:&quot;recordId&quot;,&quot;dataType&quot;:&quot;String&quot;,&quot;supportsRecordId&quot;:true,&quot;value&quot;:&quot;{!Record.Id}&quot;}]</value>
                 </componentInstanceProperties>
                 <componentInstanceProperties>
                     <name>flowLayout</name>
@@ -576,7 +576,7 @@
                 </componentInstanceProperties>
                 <componentInstanceProperties>
                     <name>flowName</name>
-                    <value>RLM_CreateOrdersFromQuote</value>
+                    <value>RLM_Opp_Create_Orders_Prompt</value>
                 </componentInstanceProperties>
                 <componentName>flowruntime:interview</componentName>
                 <identifier>rlm_close_won_create_order_flow</identifier>

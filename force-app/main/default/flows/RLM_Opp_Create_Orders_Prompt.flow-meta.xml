@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Flow xmlns="http://soap.sforce.com/2006/04/metadata">
+    <apiVersion>67.0</apiVersion>
+    <description>Launched inline from the Opportunity record page when Stage = Closed Won. Reliably receives the Opportunity Id via the recordId input, looks up the synced quote server-side, then delegates to the standard RLM Create Orders From Quote screen flow. Avoids the flexipage field-binding pitfall of passing SyncedQuoteId directly.</description>
+    <environments>Default</environments>
+    <interviewLabel>RLM Opp Create Orders Prompt {!$Flow.CurrentDateTime}</interviewLabel>
+    <label>RLM Opp Create Orders Prompt</label>
+    <processType>Flow</processType>
+    <runInMode>DefaultMode</runInMode>
+    <status>Active</status>
+    <start>
+        <locationX>176</locationX>
+        <locationY>0</locationY>
+        <connector>
+            <targetReference>Get_Opportunity</targetReference>
+        </connector>
+    </start>
+    <recordLookups>
+        <name>Get_Opportunity</name>
+        <label>Get Opportunity</label>
+        <locationX>176</locationX>
+        <locationY>134</locationY>
+        <assignNullValuesIfNoRecordsFound>false</assignNullValuesIfNoRecordsFound>
+        <connector>
+            <targetReference>Has_Synced_Quote</targetReference>
+        </connector>
+        <faultConnector>
+            <targetReference>Error_Screen</targetReference>
+        </faultConnector>
+        <filterLogic>and</filterLogic>
+        <filters>
+            <field>Id</field>
+            <operator>EqualTo</operator>
+            <value>
+                <elementReference>recordId</elementReference>
+            </value>
+        </filters>
+        <getFirstRecordOnly>true</getFirstRecordOnly>
+        <object>Opportunity</object>
+        <queriedFields>Id</queriedFields>
+        <queriedFields>SyncedQuoteId</queriedFields>
+        <storeOutputAutomatically>true</storeOutputAutomatically>
+    </recordLookups>
+    <decisions>
+        <name>Has_Synced_Quote</name>
+        <label>Has Synced Quote?</label>
+        <locationX>176</locationX>
+        <locationY>254</locationY>
+        <defaultConnector>
+            <targetReference>No_Quote_Screen</targetReference>
+        </defaultConnector>
+        <defaultConnectorLabel>No</defaultConnectorLabel>
+        <rules>
+            <name>Yes_Has_Quote</name>
+            <conditionLogic>and</conditionLogic>
+            <conditions>
+                <leftValueReference>Get_Opportunity.SyncedQuoteId</leftValueReference>
+                <operator>IsNull</operator>
+                <rightValue>
+                    <booleanValue>false</booleanValue>
+                </rightValue>
+            </conditions>
+            <connector>
+                <targetReference>Call_Create_Orders</targetReference>
+            </connector>
+            <label>Yes</label>
+        </rules>
+    </decisions>
+    <subflows>
+        <name>Call_Create_Orders</name>
+        <label>Call Create Orders From Quote</label>
+        <locationX>50</locationX>
+        <locationY>374</locationY>
+        <flowName>RLM_CreateOrdersFromQuote</flowName>
+        <inputAssignments>
+            <name>quoteId</name>
+            <value>
+                <elementReference>Get_Opportunity.SyncedQuoteId</elementReference>
+            </value>
+        </inputAssignments>
+    </subflows>
+    <screens>
+        <name>No_Quote_Screen</name>
+        <label>No Synced Quote</label>
+        <locationX>302</locationX>
+        <locationY>374</locationY>
+        <allowBack>false</allowBack>
+        <allowFinish>true</allowFinish>
+        <allowPause>false</allowPause>
+        <fields>
+            <name>No_Quote_Msg</name>
+            <fieldText>&lt;p&gt;This opportunity has no synced quote. Open the primary quote, use &lt;b&gt;Start Sync&lt;/b&gt;, then return here to create orders.&lt;/p&gt;</fieldText>
+            <fieldType>DisplayText</fieldType>
+        </fields>
+        <showFooter>true</showFooter>
+        <showHeader>false</showHeader>
+    </screens>
+    <screens>
+        <name>Error_Screen</name>
+        <label>Error</label>
+        <locationX>428</locationX>
+        <locationY>134</locationY>
+        <allowBack>false</allowBack>
+        <allowFinish>true</allowFinish>
+        <allowPause>false</allowPause>
+        <fields>
+            <name>Error_Msg</name>
+            <fieldText>&lt;p&gt;We couldn&apos;t create orders for this opportunity.&lt;/p&gt;&lt;p&gt;{!$Flow.FaultMessage}&lt;/p&gt;</fieldText>
+            <fieldType>DisplayText</fieldType>
+        </fields>
+        <showFooter>true</showFooter>
+        <showHeader>false</showHeader>
+    </screens>
+    <variables>
+        <name>recordId</name>
+        <dataType>String</dataType>
+        <isCollection>false</isCollection>
+        <isInput>true</isInput>
+        <isOutput>false</isOutput>
+    </variables>
+</Flow>

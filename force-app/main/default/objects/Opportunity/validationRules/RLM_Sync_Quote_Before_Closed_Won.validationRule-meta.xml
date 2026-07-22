@@ -2,10 +2,11 @@
 <ValidationRule xmlns="http://soap.sforce.com/2006/04/metadata">
     <fullName>RLM_Sync_Quote_Before_Closed_Won</fullName>
     <active>true</active>
-    <description>Blocks moving an Opportunity to Closed Won until a quote is synced (SyncedQuoteId populated). The synced quote is the source for the automated Create-Order-from-Quote prompt on the Opportunity record page.</description>
+    <description>Blocks the transition into Closed Won (new record or StageName change) unless a quote is synced (SyncedQuoteId populated). Scoped to the transition so it does not fire on later edits of a Closed Won opp, e.g. deleting its synced quote via a reset utility.</description>
     <errorConditionFormula>AND(
     ISPICKVAL(StageName, "Closed Won"),
-    ISBLANK(SyncedQuoteId)
+    ISBLANK(SyncedQuoteId),
+    OR(ISNEW(), ISCHANGED(StageName))
 )</errorConditionFormula>
     <errorMessage>Sync a quote to this opportunity before marking it Closed Won. Open the quote, use Start Sync, then close the opportunity.</errorMessage>
 </ValidationRule>

@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Flow xmlns="http://soap.sforce.com/2006/04/metadata">
+    <actionCalls>
+        <name>Reprice_Parent_Quote</name>
+        <label>Reprice Parent Quote</label>
+        <locationX>176</locationX>
+        <locationY>276</locationY>
+        <actionName>RLM_RepriceQuoteInvocable</actionName>
+        <actionType>apex</actionType>
+        <flowTransactionModel>Automatic</flowTransactionModel>
+        <inputParameters>
+            <name>quoteId</name>
+            <value>
+                <elementReference>$Record.QuoteId</elementReference>
+            </value>
+        </inputParameters>
+        <nameSegment>RLM_RepriceQuoteInvocable</nameSegment>
+        <offset>0</offset>
+    </actionCalls>
+    <apiVersion>67.0</apiVersion>
+    <description>Keeps a synced quote's pricing current when a line item is deleted after sync. Fires before a QuoteLineItem of a synced quote (Quote.IsSyncing = true) is deleted, and reprices the parent quote via RLM_RepriceQuoteInvocable. The invocable reprices asynchronously and skips the quote if it no longer exists (full-quote cascade delete).</description>
+    <environments>Default</environments>
+    <interviewLabel>RLM Reprice Quote On Line Delete {!$Flow.CurrentDateTime}</interviewLabel>
+    <label>RLM Reprice Quote On Line Delete</label>
+    <processMetadataValues>
+        <name>BuilderType</name>
+        <value>
+            <stringValue>LightningFlowBuilder</stringValue>
+        </value>
+    </processMetadataValues>
+    <processMetadataValues>
+        <name>CanvasMode</name>
+        <value>
+            <stringValue>AUTO_LAYOUT_CANVAS</stringValue>
+        </value>
+    </processMetadataValues>
+    <processType>AutoLaunchedFlow</processType>
+    <runInMode>DefaultMode</runInMode>
+    <start>
+        <locationX>50</locationX>
+        <locationY>0</locationY>
+        <connector>
+            <targetReference>Reprice_Parent_Quote</targetReference>
+        </connector>
+        <filterFormula>{!$Record.Quote.IsSyncing}</filterFormula>
+        <object>QuoteLineItem</object>
+        <recordTriggerType>Delete</recordTriggerType>
+        <triggerType>RecordBeforeDelete</triggerType>
+    </start>
+    <status>Active</status>
+</Flow>
