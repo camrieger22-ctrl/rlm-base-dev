@@ -3,7 +3,7 @@
 > **Auto-generated** by `scripts/ai/generate_cci_reference.py` from `cumulusci.yml`.  
 > Do not edit manually — re-run the script after changing `cumulusci.yml`.
 
-**41 feature flags**, **85 configuration values**, **36 YAML anchors** under `project.custom`.
+**42 feature flags**, **85 configuration values**, **36 YAML anchors** under `project.custom`.
 
 ---
 
@@ -24,6 +24,7 @@ Boolean flags that gate task/flow execution via `when:` clauses.
 | `calmdelete` | `True` | 1 flow step(s) |
 | `clm` | `True` | 4 flow step(s) |
 | `clm_data` | `False` | 1 flow step(s) |
+| `closewon` | `True` | 2 flow step(s) |
 | `collections` | `True` | 5 flow step(s) |
 | `commerce` | `False` | 2 flow step(s) |
 | `constraints` | `True` | 12 flow step(s) |
@@ -148,6 +149,11 @@ Boolean flags that gate task/flow execution via `when:` clauses.
 
 - `prepare_clm` step 1 → `insert_clm_data`
 
+### `closewon` (default: `True`)
+
+- `prepare_rlm_org` step 28 → `prepare_closewon`
+- `prepare_closewon` step 1 → `deploy_post_closewon`
+
 ### `collections` (default: `True`)
 
 - `prepare_rlm_org` step 14 → `prepare_collections`
@@ -226,7 +232,7 @@ Boolean flags that gate task/flow execution via `when:` clauses.
 
 ### `inapp` (default: `False`)
 
-- `prepare_rlm_org` step 30 → `prepare_inapp`
+- `prepare_rlm_org` step 31 → `prepare_inapp`
 - `prepare_inapp` step 1 → `deploy_post_inapp`
 - `prepare_inapp` step 2 → `assign_permission_sets`
 - `prepare_inapp` step 3 → `load_inapp_dataset`
@@ -252,7 +258,7 @@ Boolean flags that gate task/flow execution via `when:` clauses.
 
 ### `personas` (default: `True`)
 
-- `prepare_rlm_org` step 28 → `prepare_personas`
+- `prepare_rlm_org` step 29 → `prepare_personas`
 - `prepare_personas` step 1 → `set_personas_org_wide_defaults`
 - `prepare_personas` step 2 → `deploy_post_personas`
 - `prepare_personas` step 3 → `recalculate_personas_sales_rep_psg`
@@ -475,7 +481,7 @@ Boolean flags that gate task/flow execution via `when:` clauses.
 
 ### `ux` (default: `True`)
 
-- `prepare_rlm_org` step 29 → `prepare_ux`
+- `prepare_rlm_org` step 30 → `prepare_ux`
 - `prepare_ux` step 1 → `assemble_and_deploy_ux`
 - `prepare_ux` step 2 → `reorder_app_launcher`
 

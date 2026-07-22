@@ -3,7 +3,7 @@
 > **Auto-generated** by `scripts/ai/generate_cci_reference.py` from `cumulusci.yml`.  
 > Do not edit manually — re-run the script after changing `cumulusci.yml`.
 
-**271 tasks** across **10 groups**.
+**272 tasks** across **10 groups**.
 
 ---
 
@@ -1050,7 +1050,7 @@
 
 ## Revenue Lifecycle Management
 
-*162 task(s)*
+*163 task(s)*
 
 ### `activate_agents`
 
@@ -1851,6 +1851,18 @@
 **Options:**
 
 - `path`: `unpackaged/post_billing_ui`
+
+---
+
+### `deploy_post_closewon`
+
+**Description:** Deploy Close-Won order automation (RLM_Opp_Create_Orders_Prompt wrapper flow, RLM_Reprice_Quote_On_Sync / _On_Line_Change / _On_Line_Delete flows, RLM_RepriceQuoteInvocable Apex + test, RLM_Sync_Quote_Before_Closed_Won validation rule) from unpackaged/post_closewon.
+
+**Class:** `cumulusci.tasks.salesforce.Deploy`
+
+**Options:**
+
+- `path`: `unpackaged/post_closewon`
 
 ---
 

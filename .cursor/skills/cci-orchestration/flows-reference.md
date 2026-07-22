@@ -3,7 +3,7 @@
 > **Auto-generated** by `scripts/ai/generate_cci_reference.py` from `cumulusci.yml`.  
 > Do not edit manually — re-run the script after changing `cumulusci.yml`.
 
-**46 flows** across **5 groups**.
+**47 flows** across **5 groups**.
 
 ---
 
@@ -241,6 +241,16 @@ Create Self-Service Billing Portal community and optionally deploy site content.
 **Steps:**
 
 1. **task** `insert_clm_data`  `when: project_config.project__custom__clm and project_config.project__custom__clm_data`
+
+---
+
+### `prepare_closewon`
+
+Deploy the Close-Won order automation (order-creation prompt wrapper flow, auto-reprice flows, reprice invocable + test, and the sync-quote-before-Closed-Won validation rule). The Opportunity page flow embed ships separately via the `closewon` flexipage patch during prepare_ux.
+
+**Steps:**
+
+1. **task** `deploy_post_closewon`  `when: project_config.project__custom__closewon`
 
 ---
 
@@ -608,13 +618,14 @@ Deploy PRM pricing metadata and data (prm_pricing flag). Deactivates PRM express
 25. **flow** `prepare_revenue_settings`
 26. **flow** `prepare_pricing_discovery`
 27. **flow** `prepare_large_stx`  `when: project_config.project__custom__large_stx`
-28. **flow** `prepare_personas`  `when: project_config.project__custom__personas`
-29. **flow** `prepare_ux`  `when: project_config.project__custom__ux`
-30. **flow** `prepare_inapp`  `when: project_config.project__custom__inapp`
-31. **flow** `prepare_scratch`
-32. **flow** `refresh_all_decision_tables`
-33. **task** `rebuild_search_index`
-34. **flow** `stamp_git_commit`
+28. **flow** `prepare_closewon`  `when: project_config.project__custom__closewon`
+29. **flow** `prepare_personas`  `when: project_config.project__custom__personas`
+30. **flow** `prepare_ux`  `when: project_config.project__custom__ux`
+31. **flow** `prepare_inapp`  `when: project_config.project__custom__inapp`
+32. **flow** `prepare_scratch`
+33. **flow** `refresh_all_decision_tables`
+34. **task** `rebuild_search_index`
+35. **flow** `stamp_git_commit`
 
 ---
 

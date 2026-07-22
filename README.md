@@ -576,13 +576,14 @@ The project uses custom flags in `cumulusci.yml` under `project.custom` to contr
 | `guidedselling` | `true` | Use Guided Selling |
 | `procedureplans` | `true` | Use Procedure Plans |
 | `large_stx` | `false` | Deploy Large Sales Transaction metadata (large-deal reprice / preprocess / setup-quote) via `prepare_large_stx` at step 27 |
+| `closewon` | `true` | Deploy Close-Won order prompt + auto-reprice automation via `prepare_closewon` at step 28; Opportunity page embed via the `closewon` flexipage patch. See [Close-Won Order & Reprice Automation](docs/features/close-won-order-and-reprice-automation.md). |
 
 ### Deployment Flags
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `personas` | `true` | Deploy persona profiles + permission set groups and create the Sales Rep user via `prepare_personas` at step 28 |
-| `ux` | `true` | Assemble and deploy UX metadata (flexipages, layouts, apps, profiles, object bindings) via `prepare_ux` at step 29. Set `false` to skip all UX assembly — useful when testing feature deploys in isolation or debugging non-UX failures. See [Dynamic UX Assembly](docs/features/dynamic-ux-assembly.md). |
+| `personas` | `true` | Deploy persona profiles + permission set groups and create the Sales Rep user via `prepare_personas` at step 29 |
+| `ux` | `true` | Assemble and deploy UX metadata (flexipages, layouts, apps, profiles, object bindings) via `prepare_ux` at step 30. Set `false` to skip all UX assembly — useful when testing feature deploys in isolation or debugging non-UX failures. See [Dynamic UX Assembly](docs/features/dynamic-ux-assembly.md). |
 
 ## Custom Tasks
 
@@ -904,15 +905,16 @@ All flows belong to the **Revenue Lifecycle Management** group. The main orchest
 | 25 | `prepare_revenue_settings` | Always |
 | 26 | `prepare_pricing_discovery` | Always |
 | 27 | `prepare_large_stx` | `large_stx` |
-| 28 | `prepare_personas` | `personas` |
-| 29 | `prepare_ux` | `ux` |
-| 30 | `prepare_inapp` | `inapp` |
-| 31 | `prepare_scratch` | Always |
-| 32 | `refresh_all_decision_tables` | Always |
-| 33 | `rebuild_search_index` | Always |
-| 34 | `stamp_git_commit` | Always |
+| 28 | `prepare_closewon` | `closewon` |
+| 29 | `prepare_personas` | `personas` |
+| 30 | `prepare_ux` | `ux` |
+| 31 | `prepare_inapp` | `inapp` |
+| 32 | `prepare_scratch` | Always |
+| 33 | `refresh_all_decision_tables` | Always |
+| 34 | `rebuild_search_index` | Always |
+| 35 | `stamp_git_commit` | Always |
 
-> **Note:** "Always" means the flow/task runs as a step, but individual tasks inside each sub-flow may be gated by feature flags. Step 29 (`prepare_ux`) is gated by the `ux` flag (default `true`) and assembles all UX metadata — flexipages, layouts, applications, profiles, and object UX bindings — from `templates/` in a single late-stage deployment after all features are in place. Step 32 (`refresh_all_decision_tables`) refreshes all decision table caches. Step 33 (`rebuild_search_index`) rebuilds the Product Catalog (PCM) search index so the catalog is searchable after the build. Step 34 (`stamp_git_commit`) is always last.
+> **Note:** "Always" means the flow/task runs as a step, but individual tasks inside each sub-flow may be gated by feature flags. Step 30 (`prepare_ux`) is gated by the `ux` flag (default `true`) and assembles all UX metadata — flexipages, layouts, applications, profiles, and object UX bindings — from `templates/` in a single late-stage deployment after all features are in place. Step 33 (`refresh_all_decision_tables`) refreshes all decision table caches. Step 34 (`rebuild_search_index`) rebuilds the Product Catalog (PCM) search index so the catalog is searchable after the build. Step 35 (`stamp_git_commit`) is always last.
 
 ### Data Management flows
 

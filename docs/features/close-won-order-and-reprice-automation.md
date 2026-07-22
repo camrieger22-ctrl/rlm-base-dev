@@ -83,10 +83,19 @@ never throws, so a notification problem cannot mask the original failure.
 
 ## Deployment status
 
-As of this note, the Tier‑3 components are deployed ad hoc (direct
-`sf project deploy`) and are **not yet wired into `prepare_rlm_org`**.
-Productionizing them behind a feature flag + a `post_*` deploy step in
-`cumulusci.yml` is a tracked follow-up.
+Wired into the org build behind the `closewon` feature flag (default
+`true`):
+
+| Piece | Where |
+| --- | --- |
+| Feature flag | `project.custom.closewon` in `cumulusci.yml` |
+| Metadata bundle | `unpackaged/post_closewon/` (flows, Apex, validation rule) |
+| Deploy task | `deploy_post_closewon` |
+| Sub-flow | `prepare_closewon` (step 28 of `prepare_rlm_org`) |
+| Opportunity page embed | `templates/flexipages/patches/closewon/` (applied during `prepare_ux` only when `closewon` is true) |
+
+Set `closewon: false` to omit the automation from a build. The Tier‑1 /
+Tier‑2 renewal chain is unaffected either way.
 
 ## Verification
 

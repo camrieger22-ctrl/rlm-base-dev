@@ -102,6 +102,7 @@ project:
     calmdelete: true          # CALM Delete
     collections: true        # Collections tier (post_collections: flows, quick actions, timelines, omniUiCard, queue) + CollectionConsole UX. Opt-in; native CollectionsAndRecoveryPsl is always assigned.
     large_stx: false          # Large Sales Transaction
+    closewon: true            # Close-Won order prompt + auto-reprice (post_closewon: wrapper flow, reprice flows, invocable, validation rule) + Opportunity page flow embed (closewon flexipage patch)
 
     # ── Revenue Orchestration ──────────────────────────────────────────────────
     dro: true                 # Dynamic Revenue Orchestration
@@ -1343,6 +1344,13 @@ tasks:
     class_path: cumulusci.tasks.salesforce.Deploy
     options:
       path: unpackaged/post_large_stx
+
+  deploy_post_closewon:
+    group: Revenue Lifecycle Management
+    description: Deploy Close-Won order automation (RLM_Opp_Create_Orders_Prompt wrapper flow, RLM_Reprice_Quote_On_Sync / _On_Line_Change / _On_Line_Delete flows, RLM_RepriceQuoteInvocable Apex + test, RLM_Sync_Quote_Before_Closed_Won validation rule) from unpackaged/post_closewon.
+    class_path: cumulusci.tasks.salesforce.Deploy
+    options:
+      path: unpackaged/post_closewon
 
   deploy_post_commerce:
     description: Deploy Commerce Metadata (e.g. Commerce decision table flows)
@@ -3620,21 +3628,24 @@ flows:
         flow: prepare_large_stx
         when: project_config.project__custom__large_stx
       28:
+        flow: prepare_closewon
+        when: project_config.project__custom__closewon
+      29:
         flow: prepare_personas
         when: project_config.project__custom__personas
-      29:
+      30:
         flow: prepare_ux
         when: project_config.project__custom__ux
-      30:
+      31:
         flow: prepare_inapp
         when: project_config.project__custom__inapp
-      31:
-        flow: prepare_scratch
       32:
-        flow: refresh_all_decision_tables
+        flow: prepare_scratch
       33:
-        task: rebuild_search_index
+        flow: refresh_all_decision_tables
       34:
+        task: rebuild_search_index
+      35:
         flow: stamp_git_commit
 
   prepare_core:
@@ -3904,6 +3915,18 @@ flows:
       3:
         task: seed_large_deal_billing_treatment
         when: project_config.project__custom__large_stx and project_config.project__custom__billing
+
+  prepare_closewon:
+    group: Revenue Lifecycle Management
+    description: >
+      Deploy the Close-Won order automation (order-creation prompt wrapper flow,
+      auto-reprice flows, reprice invocable + test, and the sync-quote-before-Closed-Won
+      validation rule). The Opportunity page flow embed ships separately via the
+      `closewon` flexipage patch during prepare_ux.
+    steps:
+      1:
+        task: deploy_post_closewon
+        when: project_config.project__custom__closewon
 
   upsert_fulfillment_scope_cnfg:
     group: Revenue Lifecycle Management

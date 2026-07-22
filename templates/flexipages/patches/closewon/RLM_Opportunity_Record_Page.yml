@@ -1,0 +1,40 @@
+feature: closewon
+feature_flag: closewon
+# Adds the Close-Won "Create Order" prompt (RLM_Opp_Create_Orders_Prompt) to the
+# top of the Opportunity record page's main region, visible only when
+# StageName = Closed Won. Gated by the `closewon` feature flag; the wrapper flow
+# ships in unpackaged/post_closewon, so this embed must stay flag-scoped (a base
+# embed would break deploy on a closewon=false org where the flow is absent).
+patches:
+  - type: insert_after_xml
+    anchor: |-
+      <name>tabs</name>
+              <type>Facet</type>
+          </flexiPageRegions>
+          <flexiPageRegions>
+    xml: |
+      <itemInstances>
+          <componentInstance>
+              <componentInstanceProperties>
+                  <name>flowArguments</name>
+                  <value>[{"label":"recordId","dataType":"String","supportsRecordId":true,"value":"{!Record.Id}"}]</value>
+              </componentInstanceProperties>
+              <componentInstanceProperties>
+                  <name>flowLayout</name>
+                  <value>oneColumn</value>
+              </componentInstanceProperties>
+              <componentInstanceProperties>
+                  <name>flowName</name>
+                  <value>RLM_Opp_Create_Orders_Prompt</value>
+              </componentInstanceProperties>
+              <componentName>flowruntime:interview</componentName>
+              <identifier>rlm_close_won_create_order_flow</identifier>
+              <visibilityRule>
+                  <criteria>
+                      <leftValue>{!Record.StageName}</leftValue>
+                      <operator>EQUAL</operator>
+                      <rightValue>Closed Won</rightValue>
+                  </criteria>
+              </visibilityRule>
+          </componentInstance>
+      </itemInstances>
