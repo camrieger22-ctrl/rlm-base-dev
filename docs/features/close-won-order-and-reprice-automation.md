@@ -102,5 +102,9 @@ Tier‑2 renewal chain is unaffected either way.
 - Renewal chain (Tier 1–2) verified live: order activated → BillingSchedule
   generated → 1 asset assetized → renewal opportunity auto-created with the
   product line pulled in and a close date matching the asset's term end.
+- Amendment path (Tier 1–2) verified live against the same asset: `initiateAmendment`
+  (+1 quantity) → amendment quote → order → activate → asset state periods
+  split (qty 1 then qty 2) → **existing** renewal opportunity updated in place
+  (OLI quantity 1→2, amount $450→$900). No second renewal opp was created.
 - `RLM_RepriceQuoteInvocable` unit tests pass (reprice paths, deleted-quote
   skip, surfaced-failure path, never-throws guarantee).
