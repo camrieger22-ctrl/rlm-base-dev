@@ -6,6 +6,8 @@ import {
     unregisterRefreshHandler
 } from 'lightning/refresh';
 import getStudioPayload from '@salesforce/apex/RLM_AssetPriceHistoryController.getStudioPayload';
+import updateWorkingLineQuantity from '@salesforce/apex/RLM_AssetPriceHistoryController.updateWorkingLineQuantity';
+import { ShowToastEvent } from 'lightning/platformShowToastEvent';
 
 export default class RlmAmendmentStudio extends NavigationMixin(LightningElement) {
     quoteId;
@@ -15,10 +17,13 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
     workingLines = [];
     loaded = false;
     error;
+    saving = false;
+    draftQtyByLineId = {};
     _requestSeq = 0;
     _refreshHandlerId;
     _pageRefQuoteId;
     _recordId;
+
 
     @api
     get recordId() {
@@ -145,12 +150,26 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
         return this.workingLines && this.workingLines.length > 0;
     }
 
+    get isBusy() {
+        return this.isLoading || this.saving;
+    }
+
     get workingLineRows() {
-        return (this.workingLines || []).map((line, idx) => ({
-            ...line,
-            key: line.id || `line-${idx}`,
-            typeLabel: line.quoteActionType || 'Line'
-        }));
+        return (this.workingLines || []).map((line, idx) => {
+            const draft =
+                this.draftQtyByLineId[line.id] != null
+                    ? this.draftQtyByLineId[line.id]
+                    : line.quantity;
+            const dirty = Number(draft) !== Number(line.quantity);
+            return {
+                ...line,
+                key: line.id || `line-${idx}`,
+                typeLabel: line.quoteActionType || 'Line',
+                draftQuantity: draft,
+                isDirty: dirty,
+                updateDisabled: this.saving || !dirty
+            };
+        });
     }
 
     get impactDeltas() {
@@ -203,28 +222,103 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
         return Promise.resolve(true);
     }
 
+    handleQtyInput(event) {
+        const lineId = event.currentTarget.dataset.id;
+        const raw = event.detail?.value;
+        const n = raw === '' || raw == null ? null : Number(raw);
+        this.draftQtyByLineId = { ...this.draftQtyByLineId, [lineId]: n };
+    }
+
+    handleQtyStep(event) {
+        const lineId = event.currentTarget.dataset.id;
+        const delta = Number(event.currentTarget.dataset.delta);
+        const row = this.workingLineRows.find((r) => r.id === lineId);
+        if (!row) {
+            return;
+        }
+        const current = Number(row.draftQuantity);
+        const next = (Number.isFinite(current) ? current : 0) + delta;
+        this.draftQtyByLineId = {
+            ...this.draftQtyByLineId,
+            [lineId]: next > 0 ? next : 1
+        };
+    }
+
+    handleQtyApply(event) {
+        const lineId = event.currentTarget.dataset.id;
+        const row = this.workingLineRows.find((r) => r.id === lineId);
+        if (!row || !this.quoteId) {
+            return;
+        }
+        const qty = Number(row.draftQuantity);
+        if (!Number.isFinite(qty) || qty <= 0) {
+            this.dispatchEvent(
+                new ShowToastEvent({
+                    title: 'Invalid quantity',
+                    message: 'Enter a quantity greater than zero.',
+                    variant: 'error'
+                })
+            );
+            return;
+        }
+        this.saving = true;
+        this.error = undefined;
+        updateWorkingLineQuantity({
+            quoteId: this.quoteId,
+            lineItemId: lineId,
+            newQuantity: qty
+        })
+            .then((data) => {
+                this._applyPayload(data);
+                const nextDrafts = { ...this.draftQtyByLineId };
+                delete nextDrafts[lineId];
+                this.draftQtyByLineId = nextDrafts;
+                this.dispatchEvent(
+                    new ShowToastEvent({
+                        title: 'Quantity updated',
+                        message: 'Quote repriced and impact refreshed.',
+                        variant: 'success'
+                    })
+                );
+                this.dispatchEvent(new RefreshEvent());
+            })
+            .catch((e) => {
+                this.error = this._reduceError(e);
+                this.dispatchEvent(
+                    new ShowToastEvent({
+                        title: 'Update failed',
+                        message: this.error,
+                        variant: 'error'
+                    })
+                );
+            })
+            .finally(() => {
+                this.saving = false;
+            });
+    }
+
     handleOpenLineEditor() {
+        // Escape hatch only — scroll/focus is not available across page regions;
+        // keep a path to the classic Quote surface for advanced TLE work.
         if (!this.quoteId) {
             return;
         }
         this[NavigationMixin.Navigate]({
-            type: 'standard__recordPage',
+            type: 'standard__recordRelationshipPage',
             attributes: {
                 recordId: this.quoteId,
                 objectApiName: 'Quote',
+                relationshipApiName: 'QuoteLineItems',
                 actionName: 'view'
             }
         });
-    }
-
-    handleBackToQuote() {
-        this.handleOpenLineEditor();
     }
 
     _resolveQuoteId() {
         const next = this.recordId || this._pageRefQuoteId;
         if (next !== this.quoteId) {
             this.quoteId = next;
+            this.draftQtyByLineId = {};
             this._load();
         } else if (!this.loaded && next) {
             this._load();
@@ -250,10 +344,7 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
                 }
                 this.loaded = true;
                 this.error = undefined;
-                this.history = data.history;
-                this.workingLines = data.workingLines || [];
-                this.quoteNumber = data.quoteNumber;
-                this.quoteName = data.quoteName;
+                this._applyPayload(data);
             })
             .catch((e) => {
                 if (seq !== this._requestSeq) {
@@ -264,6 +355,13 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
                 this.history = undefined;
                 this.workingLines = [];
             });
+    }
+
+    _applyPayload(data) {
+        this.history = data.history;
+        this.workingLines = data.workingLines || [];
+        this.quoteNumber = data.quoteNumber;
+        this.quoteName = data.quoteName;
     }
 
     _deltaClass(value) {

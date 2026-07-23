@@ -6,20 +6,12 @@
                 <p class="studio-subtitle">{headerSubtitle}</p>
             </div>
             <div class="studio-header__actions">
-                <template if:true={hasQuote}>
-                    <lightning-button
-                        variant="neutral"
-                        label="Back to Quote"
-                        title="Return to the Quote record"
-                        onclick={handleBackToQuote}
-                        class="slds-m-right_x-small"
-                    ></lightning-button>
-                </template>
                 <lightning-button-icon
                     icon-name="utility:refresh"
                     alternative-text="Refresh studio"
                     title="Refresh"
                     onclick={handleRefresh}
+                    disabled={isBusy}
                 ></lightning-button-icon>
             </div>
         </header>
@@ -165,16 +157,10 @@
                     <section class="studio-panel studio-panel_center" aria-label="Working changes">
                         <div class="studio-panel__header">
                             <h2 class="studio-panel__title">Working changes</h2>
-                            <lightning-button
-                                variant="brand"
-                                label="Open line editor"
-                                title="Edit lines on the Quote (Transaction Line Editor escape hatch)"
-                                onclick={handleOpenLineEditor}
-                            ></lightning-button>
                         </div>
                         <div class="studio-panel__body">
                             <p class="slds-text-body_small slds-text-color_weak slds-m-bottom_small">
-                                Amendment Quote lines — commercial truth. Guided qty/add arrives in Phase 3; use Open line editor for edits now.
+                                Adjust quantity here — the amendment Quote reprices automatically and Impact updates. Add product arrives next.
                             </p>
                             <template if:true={hasWorkingLines}>
                                 <ul class="working-list">
@@ -184,15 +170,55 @@
                                                 <p class="working-row__name">{line.productName}</p>
                                                 <p class="working-row__meta">{line.typeLabel}</p>
                                             </div>
-                                            <div class="working-row__nums">
-                                                <span>
-                                                    Qty
-                                                    <lightning-formatted-number value={line.quantity} maximum-fraction-digits="0"></lightning-formatted-number>
-                                                </span>
-                                                <span>
-                                                    <lightning-formatted-number value={line.netUnitPrice} format-style="currency" currency-code="USD"></lightning-formatted-number>
+                                            <div class="working-row__editor">
+                                                <div class="qty-stepper" role="group" aria-label="Quantity">
+                                                    <lightning-button-icon
+                                                        icon-name="utility:dash"
+                                                        alternative-text="Decrease quantity"
+                                                        title="Decrease"
+                                                        data-id={line.id}
+                                                        data-delta="-1"
+                                                        onclick={handleQtyStep}
+                                                        disabled={isBusy}
+                                                    ></lightning-button-icon>
+                                                    <lightning-input
+                                                        type="number"
+                                                        min="1"
+                                                        step="1"
+                                                        value={line.draftQuantity}
+                                                        data-id={line.id}
+                                                        label="Quantity"
+                                                        variant="label-hidden"
+                                                        onchange={handleQtyInput}
+                                                        disabled={isBusy}
+                                                        class="qty-input"
+                                                    ></lightning-input>
+                                                    <lightning-button-icon
+                                                        icon-name="utility:add"
+                                                        alternative-text="Increase quantity"
+                                                        title="Increase"
+                                                        data-id={line.id}
+                                                        data-delta="1"
+                                                        onclick={handleQtyStep}
+                                                        disabled={isBusy}
+                                                    ></lightning-button-icon>
+                                                </div>
+                                                <lightning-button
+                                                    variant="brand"
+                                                    label="Update"
+                                                    title="Save quantity and reprice"
+                                                    data-id={line.id}
+                                                    onclick={handleQtyApply}
+                                                    disabled={line.updateDisabled}
+                                                ></lightning-button>
+                                                <p class="working-row__price">
+                                                    <lightning-formatted-number
+                                                        value={line.netUnitPrice}
+                                                        format-style="currency"
+                                                        currency-code="USD"
+                                                    ></lightning-formatted-number>
                                                     /u
-                                                </span>
+                                                </p>
                                             </div>
                                         </li>
                                     </template>
@@ -200,9 +226,17 @@
                             </template>
                             <template if:false={hasWorkingLines}>
                                 <p class="slds-text-body_small slds-text-color_weak">
-                                    No quote lines yet. Open the line editor to add or amend products.
+                                    No quote lines yet. Add-product in Studio is next; until then use Advanced line editor below.
                                 </p>
                             </template>
+                            <p class="slds-m-top_small">
+                                <lightning-button
+                                    variant="base"
+                                    label="Advanced line editor"
+                                    title="Escape hatch to classic Quote line tools"
+                                    onclick={handleOpenLineEditor}
+                                ></lightning-button>
+                            </p>
                         </div>
                     </section>
 

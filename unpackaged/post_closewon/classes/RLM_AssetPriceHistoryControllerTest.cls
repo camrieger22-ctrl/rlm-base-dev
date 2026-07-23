@@ -106,4 +106,32 @@ private class RLM_AssetPriceHistoryControllerTest {
         System.assertEquals('Studio Non-Amend Quote', payload.quoteName);
         System.assertNotEquals(null, payload.quoteNumber);
     }
+
+    @isTest
+    static void updateWorkingLineQuantity_rejectsInvalidQty() {
+        Account acct = new Account(Name = 'Qty Update Acct');
+        insert acct;
+        Opportunity opp = new Opportunity(
+            Name = 'Qty Update Opp',
+            AccountId = acct.Id,
+            StageName = 'Prospecting',
+            CloseDate = Date.today().addDays(30)
+        );
+        insert opp;
+        Quote q = new Quote(
+            Name = 'Qty Update Quote',
+            OpportunityId = opp.Id,
+            Pricebook2Id = Test.getStandardPricebookId(),
+            Status = 'Draft'
+        );
+        insert q;
+
+        Boolean threw = false;
+        try {
+            RLM_AssetPriceHistoryController.updateWorkingLineQuantity(q.Id, q.Id, 0);
+        } catch (AuraHandledException e) {
+            threw = true;
+        }
+        System.assertEquals(true, threw, 'Invalid quantity must raise AuraHandledException');
+    }
 }

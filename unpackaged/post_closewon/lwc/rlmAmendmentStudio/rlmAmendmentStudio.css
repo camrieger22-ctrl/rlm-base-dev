@@ -212,6 +212,29 @@
     color: #5c5c5c;
 }
 
+.working-row__editor {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.35rem;
+}
+
+.qty-stepper {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.qty-input {
+    width: 5.5rem;
+}
+
+.working-row__price {
+    margin: 0;
+    font-size: 0.75rem;
+    color: #5c5c5c;
+}
+
 .working-row__nums {
     display: flex;
     flex-direction: column;

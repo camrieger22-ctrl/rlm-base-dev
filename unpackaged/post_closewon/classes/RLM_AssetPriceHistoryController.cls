@@ -127,6 +127,54 @@ public with sharing class RLM_AssetPriceHistoryController {
     }
 
     /**
+     * Amendment Studio: update a working Quote Line Item quantity, force-reprice,
+     * and return a fresh studio payload. All commercial truth stays on the Quote.
+     */
+    @AuraEnabled
+    public static StudioPayload updateWorkingLineQuantity(Id quoteId, Id lineItemId, Decimal newQuantity) {
+        if (quoteId == null || quoteId.getSObjectType() != Quote.SObjectType) {
+            throw new AuraHandledException('Quote Id is required.');
+        }
+        if (lineItemId == null || lineItemId.getSObjectType() != QuoteLineItem.SObjectType) {
+            throw new AuraHandledException('Quote line Id is required.');
+        }
+        if (newQuantity == null || newQuantity <= 0) {
+            throw new AuraHandledException('Quantity must be greater than zero.');
+        }
+
+        Id qId = Id.valueOf(String.valueOf(quoteId));
+        Id liId = Id.valueOf(String.valueOf(lineItemId));
+
+        List<QuoteLineItem> lines = [
+            SELECT Id, QuoteId, Quantity
+            FROM QuoteLineItem
+            WHERE Id = :liId AND QuoteId = :qId
+            WITH USER_MODE
+            LIMIT 1
+        ];
+        if (lines.isEmpty()) {
+            throw new AuraHandledException('Quote line was not found on this quote.');
+        }
+
+        QuoteLineItem toUpdate = new QuoteLineItem(Id = liId, Quantity = newQuantity);
+        try {
+            update as user toUpdate;
+        } catch (DmlException e) {
+            throw new AuraHandledException(e.getDmlMessage(0));
+        }
+
+        try {
+            RLM_RepriceQuoteInvocable.repriceQuoteNow(qId);
+        } catch (RLM_RepriceQuoteInvocable.RepriceException e) {
+            throw new AuraHandledException(e.getMessage());
+        } catch (Exception e) {
+            throw new AuraHandledException('Reprice failed: ' + e.getMessage());
+        }
+
+        return getStudioPayload(qId);
+    }
+
+    /**
      * Not cacheable: amendment QuoteActions / AssetActions often land just after
      * the page first paints; a cached empty response would stick until hard reload.
      */

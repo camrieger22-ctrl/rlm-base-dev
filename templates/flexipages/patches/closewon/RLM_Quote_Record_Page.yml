@@ -1,8 +1,8 @@
 feature: closewon
 feature_flag: closewon
-# 1) Asset price history panel under highlights (amendment seller cockpit).
-# 2) Difference quoting field section on Details (Current / Proposed / Net Increase)
-#    so stamped RLM_Amend_* KPIs are visible without the LWC — and usable by DocGen.
+# 1) Amendment Studio full-bleed under highlights when OriginalActionType = Amend
+#    (primary AE workspace — no launcher bounce).
+# 2) Difference quoting field section on Details (Current / Proposed / Net Increase).
 #    Field sections support at most 2 columns — Current | Proposed+Net.
 #
 # Anchor must match ElementTree's post-indent serialization (see AssembleAndDeployUX
@@ -13,14 +13,15 @@ patches:
     xml: |
       <itemInstances>
           <componentInstance>
-              <componentName>rlmAmendmentStudioLauncher</componentName>
-              <identifier>rlm_amendment_studio_launcher</identifier>
-          </componentInstance>
-      </itemInstances>
-      <itemInstances>
-          <componentInstance>
-              <componentName>rlmAssetPriceHistory</componentName>
-              <identifier>rlm_asset_price_history</identifier>
+              <componentName>rlmAmendmentStudio</componentName>
+              <identifier>rlm_amendment_studio</identifier>
+              <visibilityRule>
+                  <criteria>
+                      <leftValue>{!Record.OriginalActionType}</leftValue>
+                      <operator>EQUAL</operator>
+                      <rightValue>Amend</rightValue>
+                  </criteria>
+              </visibilityRule>
           </componentInstance>
       </itemInstances>
 

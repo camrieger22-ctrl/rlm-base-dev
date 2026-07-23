@@ -132,6 +132,15 @@ public with sharing class RLM_RepriceQuoteInvocable {
         }
     }
 
+    /** Force-reprices a single quote synchronously. Throws RepriceException on failure.
+     *  Used by Amendment Studio after in-panel QLI edits (qty / discount). */
+    public static void repriceQuoteNow(Id quoteId) {
+        if (quoteId == null || quoteId.getSObjectType() != Quote.SObjectType) {
+            throw new RepriceException('Quote Id is required to reprice.');
+        }
+        reprice(quoteId);
+    }
+
     /** Force-reprices a single quote. Throws RepriceException on failure. */
     @TestVisible
     private static void reprice(Id quoteId) {
