@@ -1,0 +1,235 @@
+<template>
+    <lightning-card title="Asset price history" icon-name="standard:partner_marketing_budget">
+        <lightning-button-icon
+            slot="actions"
+            icon-name="utility:refresh"
+            alternative-text="Refresh price history"
+            title="Refresh"
+            onclick={handleRefresh}
+        ></lightning-button-icon>
+
+        <div class="slds-p-horizontal_medium slds-p-bottom_small">
+            <template if:true={isLoading}>
+                <div class="slds-align_absolute-center slds-p-around_medium">
+                    <lightning-spinner alternative-text="Loading price history" size="small"></lightning-spinner>
+                </div>
+            </template>
+
+            <template if:true={error}>
+                <div class="slds-text-color_error slds-text-body_small" role="alert">{error}</div>
+            </template>
+
+            <template if:false={isLoading}>
+                <template if:true={hasSummary}>
+                    <div class="slds-m-bottom_small">
+                        <p class="slds-text-title_caps slds-text-color_weak slds-m-bottom_xx-small">
+                            Current contract
+                            <template if:true={summary.assetName}> — {summary.assetName}</template>
+                        </p>
+                        <div class="slds-grid slds-wrap slds-gutters_small">
+                            <div class="slds-col slds-size_1-of-2 slds-medium-size_1-of-3 slds-large-size_1-of-5">
+                                <p class="slds-text-body_small slds-text-color_weak">Avg paid</p>
+                                <p class="slds-text-heading_small">
+                                    <lightning-formatted-number
+                                        value={summary.averagePaid}
+                                        format-style="currency"
+                                        currency-code="USD"
+                                    ></lightning-formatted-number>
+                                </p>
+                            </div>
+                            <div class="slds-col slds-size_1-of-2 slds-medium-size_1-of-3 slds-large-size_1-of-5">
+                                <p class="slds-text-body_small slds-text-color_weak">Avg discount</p>
+                                <p class="slds-text-heading_small">
+                                    <template if:true={summary.averageDiscountPercent}>
+                                        <lightning-formatted-number
+                                            value={summary.averageDiscountPercent}
+                                            maximum-fraction-digits="2"
+                                        ></lightning-formatted-number>%
+                                    </template>
+                                    <template if:false={summary.averageDiscountPercent}>—</template>
+                                </p>
+                            </div>
+                            <div class="slds-col slds-size_1-of-2 slds-medium-size_1-of-3 slds-large-size_1-of-5">
+                                <p class="slds-text-body_small slds-text-color_weak">Total qty</p>
+                                <p class="slds-text-heading_small">
+                                    <lightning-formatted-number
+                                        value={summary.totalQuantity}
+                                        maximum-fraction-digits="0"
+                                    ></lightning-formatted-number>
+                                </p>
+                            </div>
+                            <div class="slds-col slds-size_1-of-2 slds-medium-size_1-of-3 slds-large-size_1-of-5">
+                                <p class="slds-text-body_small slds-text-color_weak">MRR</p>
+                                <p class="slds-text-heading_small">
+                                    <lightning-formatted-number
+                                        value={summary.currentMrr}
+                                        format-style="currency"
+                                        currency-code="USD"
+                                    ></lightning-formatted-number>
+                                </p>
+                            </div>
+                            <div class="slds-col slds-size_1-of-2 slds-medium-size_1-of-3 slds-large-size_1-of-5">
+                                <p class="slds-text-body_small slds-text-color_weak">ARR</p>
+                                <p class="slds-text-heading_small">
+                                    <lightning-formatted-number
+                                        value={summary.currentArr}
+                                        format-style="currency"
+                                        currency-code="USD"
+                                    ></lightning-formatted-number>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
+                <template if:true={showAddProjection}>
+                    <div class="slds-box slds-box_x-small slds-theme_shade slds-m-bottom_small">
+                        <p class="slds-text-title_caps slds-m-bottom_xx-small">
+                            Proposed after this amendment
+                        </p>
+                        <p class="slds-text-body_small slds-text-color_weak slds-m-bottom_x-small">
+                            Adding
+                            <lightning-formatted-number
+                                value={projection.amendmentQuantity}
+                                maximum-fraction-digits="0"
+                            ></lightning-formatted-number>
+                            @ 
+                            <lightning-formatted-number
+                                value={projection.amendmentPaid}
+                                format-style="currency"
+                                currency-code="USD"
+                            ></lightning-formatted-number>
+                            (
+                            <lightning-formatted-number
+                                value={projection.amendmentDiscountPercent}
+                                maximum-fraction-digits="2"
+                            ></lightning-formatted-number>% off list)
+                        </p>
+                        <div class="slds-grid slds-wrap slds-gutters_small">
+                            <div class="slds-col slds-size_1-of-2 slds-medium-size_1-of-3 slds-large-size_1-of-5">
+                                <p class="slds-text-body_small slds-text-color_weak">Avg paid</p>
+                                <p class="slds-text-heading_small">
+                                    <lightning-formatted-number
+                                        value={projection.projected.averagePaid}
+                                        format-style="currency"
+                                        currency-code="USD"
+                                    ></lightning-formatted-number>
+                                </p>
+                                <p class="slds-text-body_small slds-text-color_weak">
+                                    Δ
+                                    <lightning-formatted-number
+                                        value={projection.deltaAveragePaid}
+                                        format-style="currency"
+                                        currency-code="USD"
+                                    ></lightning-formatted-number>
+                                </p>
+                            </div>
+                            <div class="slds-col slds-size_1-of-2 slds-medium-size_1-of-3 slds-large-size_1-of-5">
+                                <p class="slds-text-body_small slds-text-color_weak">Avg discount</p>
+                                <p class="slds-text-heading_small">
+                                    <lightning-formatted-number
+                                        value={projection.projected.averageDiscountPercent}
+                                        maximum-fraction-digits="2"
+                                    ></lightning-formatted-number>%
+                                </p>
+                                <p class="slds-text-body_small slds-text-color_weak">
+                                    Δ
+                                    <lightning-formatted-number
+                                        value={projection.deltaAverageDiscountPercent}
+                                        maximum-fraction-digits="2"
+                                    ></lightning-formatted-number> pts
+                                </p>
+                            </div>
+                            <div class="slds-col slds-size_1-of-2 slds-medium-size_1-of-3 slds-large-size_1-of-5">
+                                <p class="slds-text-body_small slds-text-color_weak">Total qty</p>
+                                <p class="slds-text-heading_small">
+                                    <lightning-formatted-number
+                                        value={projection.projected.totalQuantity}
+                                        maximum-fraction-digits="0"
+                                    ></lightning-formatted-number>
+                                </p>
+                                <p class="slds-text-body_small slds-text-color_weak">
+                                    Δ
+                                    <lightning-formatted-number
+                                        value={projection.deltaQuantity}
+                                        maximum-fraction-digits="0"
+                                    ></lightning-formatted-number>
+                                </p>
+                            </div>
+                            <div class="slds-col slds-size_1-of-2 slds-medium-size_1-of-3 slds-large-size_1-of-5">
+                                <p class="slds-text-body_small slds-text-color_weak">MRR</p>
+                                <p class="slds-text-heading_small">
+                                    <lightning-formatted-number
+                                        value={projection.projected.currentMrr}
+                                        format-style="currency"
+                                        currency-code="USD"
+                                    ></lightning-formatted-number>
+                                </p>
+                                <p class="slds-text-body_small slds-text-color_weak">
+                                    Δ
+                                    <lightning-formatted-number
+                                        value={projection.deltaMrr}
+                                        format-style="currency"
+                                        currency-code="USD"
+                                    ></lightning-formatted-number>
+                                </p>
+                            </div>
+                            <div class="slds-col slds-size_1-of-2 slds-medium-size_1-of-3 slds-large-size_1-of-5">
+                                <p class="slds-text-body_small slds-text-color_weak">ARR</p>
+                                <p class="slds-text-heading_small">
+                                    <lightning-formatted-number
+                                        value={projection.projected.currentArr}
+                                        format-style="currency"
+                                        currency-code="USD"
+                                    ></lightning-formatted-number>
+                                </p>
+                                <p class="slds-text-body_small slds-text-color_weak">
+                                    Δ
+                                    <lightning-formatted-number
+                                        value={projection.deltaArr}
+                                        format-style="currency"
+                                        currency-code="USD"
+                                    ></lightning-formatted-number>
+                                </p>
+                            </div>
+                        </div>
+                        <p class="slds-text-body_small slds-text-color_weak slds-m-top_x-small">
+                            {projection.message}
+                        </p>
+                    </div>
+                </template>
+
+                <template if:true={showParkedProjection}>
+                    <div class="slds-m-bottom_small">
+                        <p class="slds-text-body_small slds-text-color_weak">{projection.message}</p>
+                    </div>
+                </template>
+
+                <template if:true={showProjectionHint}>
+                    <div class="slds-m-bottom_small">
+                        <p class="slds-text-body_small slds-text-color_weak">{projection.message}</p>
+                    </div>
+                </template>
+
+                <template if:true={hasRows}>
+                    <lightning-datatable
+                        key-field="key"
+                        data={rows}
+                        columns={columns}
+                        hide-checkbox-column
+                        show-row-number-column="false"
+                    ></lightning-datatable>
+                    <p class="slds-text-body_small slds-text-color_weak slds-m-top_x-small">
+                        Prorated amount is the commercial total for that asset action (often for the remaining term), not a full-year list total.
+                    </p>
+                </template>
+
+                <template if:false={hasRows}>
+                    <p class="slds-text-body_small slds-text-color_weak">
+                        {message}
+                    </p>
+                </template>
+            </template>
+        </div>
+    </lightning-card>
+</template>

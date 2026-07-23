@@ -3,7 +3,7 @@
 > **Auto-generated** by `scripts/ai/generate_cci_reference.py` from `cumulusci.yml`.  
 > Do not edit manually — re-run the script after changing `cumulusci.yml`.
 
-**42 feature flags**, **85 configuration values**, **36 YAML anchors** under `project.custom`.
+**42 feature flags**, **85 configuration values**, **37 YAML anchors** under `project.custom`.
 
 ---
 
@@ -24,7 +24,7 @@ Boolean flags that gate task/flow execution via `when:` clauses.
 | `calmdelete` | `True` | 1 flow step(s) |
 | `clm` | `True` | 4 flow step(s) |
 | `clm_data` | `False` | 1 flow step(s) |
-| `closewon` | `True` | 2 flow step(s) |
+| `closewon` | `True` | 3 flow step(s) |
 | `collections` | `True` | 5 flow step(s) |
 | `commerce` | `False` | 2 flow step(s) |
 | `constraints` | `True` | 12 flow step(s) |
@@ -153,6 +153,7 @@ Boolean flags that gate task/flow execution via `when:` clauses.
 
 - `prepare_rlm_org` step 28 → `prepare_closewon`
 - `prepare_closewon` step 1 → `deploy_post_closewon`
+- `prepare_closewon` step 2 → `assign_permission_sets`
 
 ### `collections` (default: `True`)
 
@@ -707,6 +708,12 @@ These `project.custom` entries are YAML anchors (lists or maps) reused throughou
 *1 items:*
 
 - `RLM_CALM_SObject_Access`
+
+### `ps_closewon`
+
+*1 items:*
+
+- `RLM_CloseWon`
 
 ### `ps_constraints`
 

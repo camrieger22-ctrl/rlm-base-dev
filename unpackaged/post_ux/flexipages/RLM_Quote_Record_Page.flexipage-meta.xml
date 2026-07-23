@@ -86,6 +86,12 @@
         </itemInstances>
         <itemInstances>
             <componentInstance>
+                <componentName>rlmAssetPriceHistory</componentName>
+                <identifier>rlm_asset_price_history</identifier>
+            </componentInstance>
+        </itemInstances>
+        <itemInstances>
+            <componentInstance>
                 <componentInstanceProperties>
                     <name>hideUpdateButton</name>
                     <value>false</value>

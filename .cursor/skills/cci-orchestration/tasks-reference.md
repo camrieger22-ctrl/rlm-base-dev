@@ -1856,7 +1856,7 @@
 
 ### `deploy_post_closewon`
 
-**Description:** Deploy Close-Won order automation (RLM_Opp_Create_Orders_Prompt wrapper flow, RLM_Reprice_Quote_On_Sync / _On_Line_Change / _On_Line_Delete flows, RLM_RepriceQuoteInvocable Apex + test, RLM_Sync_Quote_Before_Closed_Won validation rule) from unpackaged/post_closewon.
+**Description:** Deploy Close-Won order automation (RLM_Opp_Create_Orders_Prompt wrapper flow, RLM_Reprice_Quote_On_Sync / _On_Line_Change / _On_Line_Delete flows, RLM_RepriceQuoteInvocable Apex + test, RLM_Sync_Quote_Before_Closed_Won validation rule, amendment asset price history LWC/Apex, Quote difference-quoting fields, RLM_CloseWon permission set) from unpackaged/post_closewon.
 
 **Class:** `cumulusci.tasks.salesforce.Deploy`
 

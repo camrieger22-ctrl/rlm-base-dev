@@ -1,0 +1,17 @@
+feature: closewon
+feature_flag: closewon
+# Adds the Asset price history panel to the Quote record page (amendment context).
+# Sellers see list vs historically paid (Asset Actions) while applying Discount % off list.
+#
+# Anchor must match ElementTree's post-indent serialization (see AssembleAndDeployUX
+# _apply_raw_xml_patch). Use an escaped string so YAML does not collapse relative indents.
+patches:
+  - type: insert_after_xml
+    anchor: "<identifier>force_highlightsPanel</identifier>\n            </componentInstance>\n        </itemInstances>"
+    xml: |
+      <itemInstances>
+          <componentInstance>
+              <componentName>rlmAssetPriceHistory</componentName>
+              <identifier>rlm_asset_price_history</identifier>
+          </componentInstance>
+      </itemInstances>

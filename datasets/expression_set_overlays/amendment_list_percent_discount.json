@@ -1,0 +1,148 @@
+{
+  "_comment": "Amendment / LastTransaction lines: apply ItemDiscountPercentage off ListPrice (not NetUnitPrice). Targets RLM_DefaultNearCorePricingProcedure. For experiments, import a disposable clone first and retarget expressionSetApiName; applying to shipped NearCore is intentional for the closewon amendment-discount fix.",
+  "expressionSetApiName": "RLM_DefaultNearCorePricingProcedure",
+  "versionApiName": "RLM_DefaultNearCorePricingProcedure_V1",
+  "addSteps": [
+    {
+      "failedMessageTokenMappings": [],
+      "hasNestedExplainability": false,
+      "name": "Applypercentagediscounttofflistforlasttransactionlines",
+      "noResultMessageTokenMappings": [],
+      "passedMessageTokenMappings": [],
+      "resultIncluded": false,
+      "shouldExposeConditionDetails": false,
+      "shouldExposeExecPathMsgOnly": true,
+      "shouldShowExplExternally": false,
+      "stepType": "ListGroup",
+      "placement": {
+        "afterStep": "Filterlineswithlasttransactionpricingandassignnettotalprice"
+      }
+    },
+    {
+      "advancedCondition": {
+        "conditionLogic": "1 AND 2",
+        "criteria": [
+          {
+            "operator": "Equals",
+            "sequenceNumber": 1,
+            "sourceFieldName": "ItemPricingSource",
+            "value": "'LastTransaction'",
+            "valueType": "Literal"
+          },
+          {
+            "operator": "IsNotNull",
+            "sequenceNumber": 2,
+            "sourceFieldName": "ItemDiscountPercentage"
+          }
+        ]
+      },
+      "failedMessageTokenMappings": [],
+      "hasNestedExplainability": false,
+      "name": "Filterlasttransactionlineswithpercentagediscount",
+      "noResultMessageTokenMappings": [],
+      "parentStep": "Applypercentagediscounttofflistforlasttransactionlines",
+      "passedMessageTokenMappings": [],
+      "resultIncluded": false,
+      "sequenceNumber": 1,
+      "shouldExposeConditionDetails": false,
+      "shouldExposeExecPathMsgOnly": true,
+      "shouldShowExplExternally": false,
+      "stepType": "AdvancedListFilter"
+    },
+    {
+      "actionType": "ManualDiscount",
+      "customElement": {
+        "parameters": [
+          {
+            "input": true,
+            "name": "AdjustmentType",
+            "output": false,
+            "type": "Parameter",
+            "value": "PercentageStringConstant"
+          },
+          {
+            "input": true,
+            "name": "AdjustmentValue",
+            "output": false,
+            "type": "Parameter",
+            "value": "ItemDiscountPercentage"
+          },
+          {
+            "input": true,
+            "name": "Quantity",
+            "output": false,
+            "type": "Parameter",
+            "value": "LineItemQuantity"
+          },
+          {
+            "input": true,
+            "name": "InputUnitPrice",
+            "output": false,
+            "type": "Parameter",
+            "value": "ListPrice"
+          },
+          {
+            "input": true,
+            "name": "HideWaterfall",
+            "output": false,
+            "type": "Literal",
+            "value": "false"
+          },
+          {
+            "input": true,
+            "name": "sectionCount",
+            "output": false,
+            "type": "Literal",
+            "value": "0"
+          },
+          {
+            "input": true,
+            "name": "selectedFunction",
+            "output": false,
+            "type": "Literal",
+            "value": "Get"
+          },
+          {
+            "input": true,
+            "name": "IsRealTime",
+            "output": false,
+            "type": "Literal",
+            "value": "false"
+          },
+          {
+            "input": false,
+            "name": "NetUnitPrice",
+            "output": true,
+            "type": "Parameter",
+            "value": "NetUnitPrice"
+          },
+          {
+            "input": false,
+            "name": "Subtotal",
+            "output": true,
+            "type": "Parameter",
+            "value": "ItemNetTotalPrice"
+          }
+        ]
+      },
+      "description": "Manual Discount",
+      "failedMessageTokenMappings": [],
+      "hasNestedExplainability": false,
+      "name": "Calculatenetunitpriceafterpercentagediscounttofflist",
+      "noResultMessageTokenMappings": [],
+      "parentStep": "Applypercentagediscounttofflistforlasttransactionlines",
+      "passedMessageTokenMappings": [],
+      "resultIncluded": false,
+      "sequenceNumber": 2,
+      "shouldExposeConditionDetails": false,
+      "shouldExposeExecPathMsgOnly": true,
+      "shouldShowExplExternally": false,
+      "stepType": "BusinessKnowledgeModel"
+    }
+  ],
+  "labels": {
+    "Applypercentagediscounttofflistforlasttransactionlines": "Apply percentage discount off list for last-transaction lines",
+    "Filterlasttransactionlineswithpercentagediscount": "Filter last-transaction lines with percentage discount",
+    "Calculatenetunitpriceafterpercentagediscounttofflist": "Calculate net unit price after percentage discount off list"
+  }
+}

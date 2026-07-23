@@ -246,11 +246,13 @@ Create Self-Service Billing Portal community and optionally deploy site content.
 
 ### `prepare_closewon`
 
-Deploy the Close-Won order automation (order-creation prompt wrapper flow, auto-reprice flows, reprice invocable + test, and the sync-quote-before-Closed-Won validation rule). The Opportunity page flow embed ships separately via the `closewon` flexipage patch during prepare_ux.
+Deploy the Close-Won order automation (order-creation prompt wrapper flow, auto-reprice flows, reprice invocable + test, sync-quote-before-Closed-Won validation rule, amendment asset price history LWC/Apex, Quote difference-quoting fields + RLM_CloseWon permission set). The Opportunity/Quote page embeds ship separately via the `closewon` flexipage patches during prepare_ux.
 
 **Steps:**
 
 1. **task** `deploy_post_closewon`  `when: project_config.project__custom__closewon`
+2. **task** `assign_permission_sets`  `when: project_config.project__custom__closewon`
+   - `api_names`: `['RLM_CloseWon']`
 
 ---
 

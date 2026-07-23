@@ -97,6 +97,28 @@ Wired into the org build behind the `closewon` feature flag (default
 Set `closewon: false` to omit the automation from a build. The Tier‑1 /
 Tier‑2 renewal chain is unaffected either way.
 
+## Amendment difference quoting (Current → Proposed → Net increase)
+
+Locked definitions (use these for UI, Quote fields, and future DocGen):
+
+| KPI | Definition |
+| --- | --- |
+| **Current spend (ARR)** | Σ(`NetUnitPrice` × `Quantity`) across Asset Action Source rows for assets on the amendment quote |
+| **Current MRR** | Current ARR ÷ 12 |
+| **Current qty** | Σ Asset Action Source `Quantity` on those rows |
+| **Proposed spend (ARR)** | Same formula after adding positive-qty amendment Quote Line Item(s) as an extra tranche |
+| **Proposed MRR / qty** | From the proposed rollup |
+| **Net increase** | Proposed − Current (ARR, MRR, and qty) |
+
+Decrease/cancel projection is parked; when no add projection exists, Proposed is stamped equal to Current and Net Increase is 0.
+
+| Piece | Location |
+| --- | --- |
+| Quote fields | `RLM_Amend_Current_*` / `RLM_Amend_Proposed_*` / `RLM_Amend_Net_Increase_*` (`ARR`, `MRR`, `Qty`) in `unpackaged/post_closewon/objects/Quote/fields/` |
+| Stamp | `RLM_AssetPriceHistoryController` on panel load/refresh |
+| Seller UI | `rlmAssetPriceHistory` — Current contract / Proposed / Impact (Δ) |
+| Pricing: Discount % off list on LastTransaction | Overlay `datasets/expression_set_overlays/amendment_list_percent_discount.json` |
+
 ## Verification
 
 - Renewal chain (Tier 1–2) verified live: order activated → BillingSchedule

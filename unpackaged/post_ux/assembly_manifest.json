@@ -1,5 +1,5 @@
 {
-  "assembled_at": "2026-07-22T20:12:48.127454Z",
+  "assembled_at": "2026-07-23T13:55:44.655543Z",
   "feature_flags": {
     "quantumbit": true,
     "billing": true,
@@ -502,6 +502,11 @@
           "feature": "personas",
           "patch_type": "insert_after_xml",
           "description": "insert XML after <identifier>runtime_sales_pathassistant_pathAssistant</identifier>"
+        },
+        {
+          "feature": "closewon",
+          "patch_type": "insert_after_xml",
+          "description": "insert XML after <identifier>force_highlightsPanel</identifier>"
         }
       ]
     },

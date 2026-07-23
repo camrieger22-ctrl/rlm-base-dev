@@ -356,6 +356,10 @@ project:
       # Large STX-specific permission sets
       - RLM_LargeSalesTransaction
 
+    ps_closewon: &ps_closewon
+      # Close-Won order automation + amendment difference-quoting
+      - RLM_CloseWon
+
     ps_inapp: &ps_inapp
       # In-App Learning framework permission set
       - RLM_Learning
@@ -1347,7 +1351,7 @@ tasks:
 
   deploy_post_closewon:
     group: Revenue Lifecycle Management
-    description: Deploy Close-Won order automation (RLM_Opp_Create_Orders_Prompt wrapper flow, RLM_Reprice_Quote_On_Sync / _On_Line_Change / _On_Line_Delete flows, RLM_RepriceQuoteInvocable Apex + test, RLM_Sync_Quote_Before_Closed_Won validation rule) from unpackaged/post_closewon.
+    description: Deploy Close-Won order automation (RLM_Opp_Create_Orders_Prompt wrapper flow, RLM_Reprice_Quote_On_Sync / _On_Line_Change / _On_Line_Delete flows, RLM_RepriceQuoteInvocable Apex + test, RLM_Sync_Quote_Before_Closed_Won validation rule, amendment asset price history LWC/Apex, Quote difference-quoting fields, RLM_CloseWon permission set) from unpackaged/post_closewon.
     class_path: cumulusci.tasks.salesforce.Deploy
     options:
       path: unpackaged/post_closewon
@@ -3920,13 +3924,19 @@ flows:
     group: Revenue Lifecycle Management
     description: >
       Deploy the Close-Won order automation (order-creation prompt wrapper flow,
-      auto-reprice flows, reprice invocable + test, and the sync-quote-before-Closed-Won
-      validation rule). The Opportunity page flow embed ships separately via the
-      `closewon` flexipage patch during prepare_ux.
+      auto-reprice flows, reprice invocable + test, sync-quote-before-Closed-Won
+      validation rule, amendment asset price history LWC/Apex, Quote difference-quoting
+      fields + RLM_CloseWon permission set). The Opportunity/Quote page embeds ship
+      separately via the `closewon` flexipage patches during prepare_ux.
     steps:
       1:
         task: deploy_post_closewon
         when: project_config.project__custom__closewon
+      2:
+        task: assign_permission_sets
+        when: project_config.project__custom__closewon
+        options:
+          api_names: *ps_closewon
 
   upsert_fulfillment_scope_cnfg:
     group: Revenue Lifecycle Management
