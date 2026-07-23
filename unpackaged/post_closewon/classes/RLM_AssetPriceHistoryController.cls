@@ -21,6 +21,10 @@ public with sharing class RLM_AssetPriceHistoryController {
         @AuraEnabled public Decimal quantity;
         @AuraEnabled public Datetime periodStart;
         @AuraEnabled public Datetime periodEnd;
+        /** Line ARR = net unit × qty (installed tranche or amend delta). */
+        @AuraEnabled public Decimal arr;
+        /** Line MRR = ARR / 12. */
+        @AuraEnabled public Decimal mrr;
     }
 
     public class HistorySummary {
@@ -61,14 +65,32 @@ public with sharing class RLM_AssetPriceHistoryController {
         @AuraEnabled public String message;
     }
 
-    /** Amendment Quote line item for the Studio Working Changes panel (Phase 2 read-only). */
+    /**
+     * Amendment Quote line for Studio Working Changes.
+     * quantity is the RLM delta on the QLI (0 when QuoteAction is No Change).
+     */
     public class WorkingLine {
         @AuraEnabled public Id id;
         @AuraEnabled public String productName;
         @AuraEnabled public Decimal quantity;
+        @AuraEnabled public Decimal listPrice;
         @AuraEnabled public Decimal netUnitPrice;
+        @AuraEnabled public Decimal discountPercent;
         @AuraEnabled public Decimal totalPrice;
         @AuraEnabled public String quoteActionType;
+        @AuraEnabled public Id quoteActionId;
+        @AuraEnabled public Id sourceAssetId;
+        /** Current installed qty from the source asset (when known). */
+        @AuraEnabled public Decimal installedQuantity;
+        /** Amendment service start (drives proration). */
+        @AuraEnabled public Date startDate;
+        /** Term end — platform-populated for amendments; read-only in Studio. */
+        @AuraEnabled public Date endDate;
+        /** This add's ARR contribution (qty × net), when qty > 0. */
+        @AuraEnabled public Decimal addArr;
+        @AuraEnabled public Decimal addMrr;
+        /** True when line is a catalog Add (hard-deletable). */
+        @AuraEnabled public Boolean isCatalogAdd;
     }
 
     public class StudioPayload {
@@ -101,52 +123,106 @@ public with sharing class RLM_AssetPriceHistoryController {
             payload.quoteNumber = q.QuoteNumber;
             payload.quoteName = q.Name;
         }
-        for (QuoteLineItem qli : [
+        Set<Id> sourceAssetIds = new Set<Id>();
+        List<QuoteLineItem> qlis = [
             SELECT
                 Id,
                 Quantity,
+                ListPrice,
                 NetUnitPrice,
+                Discount,
                 TotalPrice,
+                StartDate,
+                EndDate,
                 Product2.Name,
-                QuoteAction.Type
+                QuoteActionId,
+                QuoteAction.Type,
+                QuoteAction.SourceAssetId
             FROM QuoteLineItem
             WHERE QuoteId = :qId
             WITH USER_MODE
             ORDER BY CreatedDate ASC
-        ]) {
+        ];
+        for (QuoteLineItem qli : qlis) {
+            if (qli.QuoteAction != null && qli.QuoteAction.SourceAssetId != null) {
+                sourceAssetIds.add(qli.QuoteAction.SourceAssetId);
+            }
+        }
+        Map<Id, Decimal> installedByAsset = installedQuantityByAsset(sourceAssetIds);
+        for (QuoteLineItem qli : qlis) {
             WorkingLine line = new WorkingLine();
             line.id = qli.Id;
             line.productName = qli.Product2 != null ? qli.Product2.Name : 'Quote line';
             line.quantity = qli.Quantity;
+            line.listPrice = qli.ListPrice;
             line.netUnitPrice = qli.NetUnitPrice;
+            line.discountPercent = resolveDiscountPercent(
+                qli.Discount,
+                qli.ListPrice,
+                qli.NetUnitPrice
+            );
             line.totalPrice = qli.TotalPrice;
-            line.quoteActionType = qli.QuoteAction != null ? qli.QuoteAction.Type : null;
+            line.startDate = qli.StartDate;
+            line.endDate = qli.EndDate;
+            line.quoteActionId = qli.QuoteActionId;
+            if (qli.QuoteAction != null) {
+                line.quoteActionType = qli.QuoteAction.Type;
+                line.sourceAssetId = qli.QuoteAction.SourceAssetId;
+                line.isCatalogAdd = qli.QuoteAction.Type == 'Add';
+                if (line.sourceAssetId != null) {
+                    line.installedQuantity = installedByAsset.get(line.sourceAssetId);
+                }
+            } else {
+                line.isCatalogAdd = false;
+            }
+            if (qli.Quantity != null && qli.Quantity > 0 && qli.NetUnitPrice != null) {
+                line.addArr = qli.NetUnitPrice * qli.Quantity;
+                line.addMrr = line.addArr / 12;
+            } else {
+                line.addArr = 0;
+                line.addMrr = 0;
+            }
             payload.workingLines.add(line);
         }
         return payload;
     }
 
     /**
-     * Amendment Studio: update a working Quote Line Item quantity, force-reprice,
-     * and return a fresh studio payload. All commercial truth stays on the Quote.
+     * Amendment Studio: set amendment delta qty and/or list discount % and/or
+     * service start date on a working line. Flips QuoteAction No Change → Amend
+     * when needed, force-reprices via Place Sales Transaction, returns payload.
+     *
+     * EndDate is never written here — amendment term end stays platform-owned.
      */
     @AuraEnabled
-    public static StudioPayload updateWorkingLineQuantity(Id quoteId, Id lineItemId, Decimal newQuantity) {
+    public static StudioPayload updateWorkingLineQuantity(
+        Id quoteId,
+        Id lineItemId,
+        Decimal newQuantity,
+        Decimal discountPercent,
+        Date startDate
+    ) {
         if (quoteId == null || quoteId.getSObjectType() != Quote.SObjectType) {
             throw new AuraHandledException('Quote Id is required.');
         }
         if (lineItemId == null || lineItemId.getSObjectType() != QuoteLineItem.SObjectType) {
             throw new AuraHandledException('Quote line Id is required.');
         }
-        if (newQuantity == null || newQuantity <= 0) {
-            throw new AuraHandledException('Quantity must be greater than zero.');
+        if (newQuantity == null && discountPercent == null && startDate == null) {
+            throw new AuraHandledException('Provide a quantity, discount, and/or start date to update.');
+        }
+        if (newQuantity != null && newQuantity < 0) {
+            throw new AuraHandledException('Quantity cannot be negative.');
+        }
+        if (discountPercent != null && (discountPercent < 0 || discountPercent > 100)) {
+            throw new AuraHandledException('Discount percent must be between 0 and 100.');
         }
 
         Id qId = Id.valueOf(String.valueOf(quoteId));
         Id liId = Id.valueOf(String.valueOf(lineItemId));
 
         List<QuoteLineItem> lines = [
-            SELECT Id, QuoteId, Quantity
+            SELECT Id, QuoteId, Quantity, Discount, StartDate, QuoteActionId, QuoteAction.Type
             FROM QuoteLineItem
             WHERE Id = :liId AND QuoteId = :qId
             WITH USER_MODE
@@ -156,9 +232,21 @@ public with sharing class RLM_AssetPriceHistoryController {
             throw new AuraHandledException('Quote line was not found on this quote.');
         }
 
-        QuoteLineItem toUpdate = new QuoteLineItem(Id = liId, Quantity = newQuantity);
+        QuoteLineItem existing = lines[0];
+        String actionType = existing.QuoteAction != null ? existing.QuoteAction.Type : null;
+
         try {
-            update as user toUpdate;
+            if (newQuantity != null) {
+                applyAmendmentQuantity(existing, actionType, newQuantity);
+                actionType = newQuantity == 0 ? 'No Change' : 'Amend';
+            }
+            if (discountPercent != null) {
+                applyAmendmentDiscount(existing, actionType, discountPercent);
+                actionType = 'Amend';
+            }
+            if (startDate != null) {
+                applyAmendmentStartDate(existing, actionType, startDate);
+            }
         } catch (DmlException e) {
             throw new AuraHandledException(e.getDmlMessage(0));
         }
@@ -172,6 +260,564 @@ public with sharing class RLM_AssetPriceHistoryController {
         }
 
         return getStudioPayload(qId);
+    }
+
+    /**
+     * Remove a Working line from the amendment Quote.
+     * - QuoteAction Type = Add (catalog add-on): delete QLI + QuoteAction.
+     * - Amend / No Change (asset-backed): reset to No Change + qty 0 (do not delete).
+     */
+    @AuraEnabled
+    public static StudioPayload removeWorkingLine(Id quoteId, Id lineItemId) {
+        if (quoteId == null || quoteId.getSObjectType() != Quote.SObjectType) {
+            throw new AuraHandledException('Quote Id is required.');
+        }
+        if (lineItemId == null || lineItemId.getSObjectType() != QuoteLineItem.SObjectType) {
+            throw new AuraHandledException('Quote line Id is required.');
+        }
+        Id qId = Id.valueOf(String.valueOf(quoteId));
+        Id liId = Id.valueOf(String.valueOf(lineItemId));
+
+        List<QuoteLineItem> lines = [
+            SELECT Id, QuoteId, Quantity, QuoteActionId, QuoteAction.Type, QuoteAction.SourceAssetId
+            FROM QuoteLineItem
+            WHERE Id = :liId AND QuoteId = :qId
+            WITH USER_MODE
+            LIMIT 1
+        ];
+        if (lines.isEmpty()) {
+            throw new AuraHandledException('Quote line was not found on this quote.');
+        }
+
+        QuoteLineItem existing = lines[0];
+        String actionType = existing.QuoteAction != null ? existing.QuoteAction.Type : null;
+
+        try {
+            if (actionType == 'Add') {
+                Id actionId = existing.QuoteActionId;
+                delete as user existing;
+                if (actionId != null) {
+                    List<QuoteAction> actions = [
+                        SELECT Id
+                        FROM QuoteAction
+                        WHERE Id = :actionId
+                        WITH USER_MODE
+                        LIMIT 1
+                    ];
+                    if (!actions.isEmpty()) {
+                        delete as user actions;
+                    }
+                }
+            } else {
+                applyAmendmentQuantity(existing, actionType, 0);
+            }
+        } catch (DmlException e) {
+            throw new AuraHandledException(e.getDmlMessage(0));
+        }
+
+        try {
+            RLM_RepriceQuoteInvocable.repriceQuoteNow(qId);
+        } catch (RLM_RepriceQuoteInvocable.RepriceException e) {
+            throw new AuraHandledException(e.getMessage());
+        } catch (Exception e) {
+            throw new AuraHandledException('Line removed but reprice failed: ' + e.getMessage());
+        }
+        return getStudioPayload(qId);
+    }
+
+    /**
+     * Force-reprice the Quote (Place Sales Transaction) and refresh Studio payload.
+     * Used by Working Changes "Reprice" without changing line fields.
+     */
+    @AuraEnabled
+    public static StudioPayload repriceQuote(Id quoteId) {
+        if (quoteId == null || quoteId.getSObjectType() != Quote.SObjectType) {
+            throw new AuraHandledException('Quote Id is required.');
+        }
+        Id qId = Id.valueOf(String.valueOf(quoteId));
+        try {
+            RLM_RepriceQuoteInvocable.repriceQuoteNow(qId);
+        } catch (RLM_RepriceQuoteInvocable.RepriceException e) {
+            throw new AuraHandledException(e.getMessage());
+        } catch (Exception e) {
+            throw new AuraHandledException('Reprice failed: ' + e.getMessage());
+        }
+        return getStudioPayload(qId);
+    }
+
+    public class CatalogProductHit {
+        @AuraEnabled public Id pricebookEntryId;
+        @AuraEnabled public Id productId;
+        @AuraEnabled public String productName;
+        @AuraEnabled public Decimal listPrice;
+        @AuraEnabled public Id sellingModelId;
+        @AuraEnabled public String sellingModelName;
+        @AuraEnabled public String label;
+        /** True when returned as the default common-products rail (not a typed search). */
+        @AuraEnabled public Boolean isCommon;
+    }
+
+    /** Max rows for common-products rail and search results. */
+    @TestVisible
+    private static final Integer CATALOG_LIST_LIMIT = 40;
+
+    /**
+     * Hero / commonly sold QuantumBit SKUs — preferred when seeding the catalog rail.
+     * Missing SKUs in an org are skipped; popularity + alphabetical fill the rest.
+     */
+    @TestVisible
+    private static final List<String> COMMON_PRODUCT_SKUS = new List<String>{
+        'QB-GEN-AI-LIC',
+        'QB-DB',
+        'QB-CS',
+        'QB-COMPLETE',
+        'QB-BDL-ENTR',
+        'QB-BDL-STND',
+        'QB-BDL-CRTL',
+        'QB-SRV-AS',
+        'QB-TRN-FUND',
+        'QB-TRN-ESSNTLS',
+        'QB-TOKENS-PACK',
+        'QB-DB-TOKEN',
+        'QB-MTY-CMT',
+        'QB-QTY-CMT',
+        'QB-BDL-RAXS',
+        'QB-BDL-SRVC'
+    };
+
+    /**
+     * Catalog browse for Studio.
+     * - Blank / short (&lt; 2 chars) searchTerm → common products (curated SKUs +
+     *   frequently quoted products on this price book, filled alphabetically).
+     * - 2+ chars → name filter on the quote's price book.
+     */
+    @AuraEnabled(cacheable=true)
+    public static List<CatalogProductHit> searchCatalogProducts(Id quoteId, String searchTerm) {
+        if (quoteId == null || quoteId.getSObjectType() != Quote.SObjectType) {
+            return new List<CatalogProductHit>();
+        }
+        Id qId = Id.valueOf(String.valueOf(quoteId));
+        List<Quote> quotes = [
+            SELECT Id, Pricebook2Id
+            FROM Quote
+            WHERE Id = :qId
+            WITH USER_MODE
+            LIMIT 1
+        ];
+        if (quotes.isEmpty() || quotes[0].Pricebook2Id == null) {
+            return new List<CatalogProductHit>();
+        }
+        Id pricebookId = quotes[0].Pricebook2Id;
+        String trimmed = searchTerm == null ? '' : searchTerm.trim();
+        if (trimmed.length() < 2) {
+            return listCommonCatalogProducts(pricebookId);
+        }
+        return searchCatalogProductsByName(pricebookId, trimmed);
+    }
+
+    private static List<CatalogProductHit> searchCatalogProductsByName(
+        Id pricebookId,
+        String searchTerm
+    ) {
+        List<CatalogProductHit> hits = new List<CatalogProductHit>();
+        String term = '%' + searchTerm + '%';
+        for (PricebookEntry pbe : [
+            SELECT
+                Id,
+                UnitPrice,
+                Product2Id,
+                Product2.Name,
+                ProductSellingModelId,
+                ProductSellingModel.Name
+            FROM PricebookEntry
+            WHERE Pricebook2Id = :pricebookId
+                AND IsActive = TRUE
+                AND Product2.IsActive = TRUE
+                AND Product2.Name LIKE :term
+            WITH USER_MODE
+            ORDER BY Product2.Name ASC
+            LIMIT :CATALOG_LIST_LIMIT
+        ]) {
+            hits.add(toCatalogHit(pbe, false));
+        }
+        return hits;
+    }
+
+    /**
+     * Seed the left catalog rail: curated SKUs first, then products most often
+     * on Quote lines (with a PBE on this price book), then alphabetical fill.
+     */
+    private static List<CatalogProductHit> listCommonCatalogProducts(Id pricebookId) {
+        List<CatalogProductHit> hits = new List<CatalogProductHit>();
+        Set<Id> seenPbeIds = new Set<Id>();
+
+        // 1) Curated hero SKUs (stable demo / sales favorites).
+        Map<String, Integer> skuRank = new Map<String, Integer>();
+        for (Integer i = 0; i < COMMON_PRODUCT_SKUS.size(); i++) {
+            skuRank.put(COMMON_PRODUCT_SKUS[i], i);
+        }
+        List<PricebookEntry> curated = [
+            SELECT
+                Id,
+                UnitPrice,
+                Product2Id,
+                Product2.Name,
+                Product2.StockKeepingUnit,
+                Product2.ProductCode,
+                ProductSellingModelId,
+                ProductSellingModel.Name
+            FROM PricebookEntry
+            WHERE Pricebook2Id = :pricebookId
+                AND IsActive = TRUE
+                AND Product2.IsActive = TRUE
+                AND (
+                    Product2.StockKeepingUnit IN :COMMON_PRODUCT_SKUS
+                    OR Product2.ProductCode IN :COMMON_PRODUCT_SKUS
+                )
+            WITH USER_MODE
+            LIMIT :CATALOG_LIST_LIMIT
+        ];
+        curated.sort(new CatalogSkuRankComparator(skuRank));
+        for (PricebookEntry pbe : curated) {
+            if (seenPbeIds.contains(pbe.Id) || hits.size() >= CATALOG_LIST_LIMIT) {
+                break;
+            }
+            seenPbeIds.add(pbe.Id);
+            hits.add(toCatalogHit(pbe, true));
+        }
+
+        // 2) Frequently quoted products (org-wide) that are on this price book.
+        if (hits.size() < CATALOG_LIST_LIMIT) {
+            Set<Id> popularProductIds = new Set<Id>();
+            for (AggregateResult ar : [
+                SELECT Product2Id prodId, COUNT(Id) cnt
+                FROM QuoteLineItem
+                WHERE Product2Id != NULL
+                WITH USER_MODE
+                GROUP BY Product2Id
+                ORDER BY COUNT(Id) DESC
+                LIMIT 50
+            ]) {
+                popularProductIds.add((Id) ar.get('prodId'));
+            }
+            if (!popularProductIds.isEmpty()) {
+                for (PricebookEntry pbe : [
+                    SELECT
+                        Id,
+                        UnitPrice,
+                        Product2Id,
+                        Product2.Name,
+                        ProductSellingModelId,
+                        ProductSellingModel.Name
+                    FROM PricebookEntry
+                    WHERE Pricebook2Id = :pricebookId
+                        AND IsActive = TRUE
+                        AND Product2.IsActive = TRUE
+                        AND Product2Id IN :popularProductIds
+                        AND Id NOT IN :seenPbeIds
+                    WITH USER_MODE
+                    ORDER BY Product2.Name ASC
+                    LIMIT :CATALOG_LIST_LIMIT
+                ]) {
+                    if (hits.size() >= CATALOG_LIST_LIMIT) {
+                        break;
+                    }
+                    seenPbeIds.add(pbe.Id);
+                    hits.add(toCatalogHit(pbe, true));
+                }
+            }
+        }
+
+        // 3) Alphabetical fill so the rail is never sparse on a full price book.
+        if (hits.size() < CATALOG_LIST_LIMIT) {
+            Integer remaining = CATALOG_LIST_LIMIT - hits.size();
+            for (PricebookEntry pbe : [
+                SELECT
+                    Id,
+                    UnitPrice,
+                    Product2Id,
+                    Product2.Name,
+                    ProductSellingModelId,
+                    ProductSellingModel.Name
+                FROM PricebookEntry
+                WHERE Pricebook2Id = :pricebookId
+                    AND IsActive = TRUE
+                    AND Product2.IsActive = TRUE
+                    AND Id NOT IN :seenPbeIds
+                WITH USER_MODE
+                ORDER BY Product2.Name ASC
+                LIMIT :remaining
+            ]) {
+                seenPbeIds.add(pbe.Id);
+                hits.add(toCatalogHit(pbe, true));
+            }
+        }
+        return hits;
+    }
+
+    private static CatalogProductHit toCatalogHit(PricebookEntry pbe, Boolean isCommon) {
+        CatalogProductHit hit = new CatalogProductHit();
+        hit.pricebookEntryId = pbe.Id;
+        hit.productId = pbe.Product2Id;
+        hit.productName = pbe.Product2 != null ? pbe.Product2.Name : 'Product';
+        hit.listPrice = pbe.UnitPrice;
+        hit.sellingModelId = pbe.ProductSellingModelId;
+        hit.sellingModelName =
+            pbe.ProductSellingModel != null ? pbe.ProductSellingModel.Name : null;
+        hit.label = String.isNotBlank(hit.sellingModelName)
+            ? hit.productName + ' · ' + hit.sellingModelName
+            : hit.productName;
+        hit.isCommon = isCommon == true;
+        return hit;
+    }
+
+    /** Sort curated PBEs into COMMON_PRODUCT_SKUS order. */
+    private class CatalogSkuRankComparator implements Comparator<PricebookEntry> {
+        private final Map<String, Integer> skuRank;
+
+        CatalogSkuRankComparator(Map<String, Integer> skuRank) {
+            this.skuRank = skuRank;
+        }
+
+        public Integer compare(PricebookEntry a, PricebookEntry b) {
+            Integer ra = rankFor(a);
+            Integer rb = rankFor(b);
+            if (ra != rb) {
+                return ra < rb ? -1 : 1;
+            }
+            String na = a.Product2 != null ? a.Product2.Name : '';
+            String nb = b.Product2 != null ? b.Product2.Name : '';
+            return na.toLowerCase().compareTo(nb.toLowerCase());
+        }
+
+        private Integer rankFor(PricebookEntry pbe) {
+            if (pbe.Product2 == null) {
+                return 9999;
+            }
+            if (skuRank.containsKey(pbe.Product2.StockKeepingUnit)) {
+                return skuRank.get(pbe.Product2.StockKeepingUnit);
+            }
+            if (skuRank.containsKey(pbe.Product2.ProductCode)) {
+                return skuRank.get(pbe.Product2.ProductCode);
+            }
+            return 9999;
+        }
+    }
+
+    /**
+     * Add a catalog product as a new Quote line (QuoteAction Type = Add), then force-reprice.
+     * Used after the AE picks a product on a Studio draft "add line" row.
+     */
+    @AuraEnabled
+    public static StudioPayload addCatalogProductLine(Id quoteId, Id pricebookEntryId) {
+        if (quoteId == null || quoteId.getSObjectType() != Quote.SObjectType) {
+            throw new AuraHandledException('Quote Id is required.');
+        }
+        if (pricebookEntryId == null || pricebookEntryId.getSObjectType() != PricebookEntry.SObjectType) {
+            throw new AuraHandledException('Price book entry Id is required.');
+        }
+        Id qId = Id.valueOf(String.valueOf(quoteId));
+        Id pbeId = Id.valueOf(String.valueOf(pricebookEntryId));
+
+        List<Quote> quotes = [
+            SELECT Id, Pricebook2Id, StartDate, EndDate
+            FROM Quote
+            WHERE Id = :qId
+            WITH USER_MODE
+            LIMIT 1
+        ];
+        if (quotes.isEmpty()) {
+            throw new AuraHandledException('Quote was not found.');
+        }
+        Quote q = quotes[0];
+
+        List<PricebookEntry> pbes = [
+            SELECT
+                Id,
+                Pricebook2Id,
+                Product2Id,
+                UnitPrice,
+                ProductSellingModelId,
+                ProductSellingModel.SellingModelType,
+                ProductSellingModel.PricingTermUnit
+            FROM PricebookEntry
+            WHERE Id = :pbeId AND IsActive = TRUE
+            WITH USER_MODE
+            LIMIT 1
+        ];
+        if (pbes.isEmpty()) {
+            throw new AuraHandledException('Price book entry was not found or is inactive.');
+        }
+        PricebookEntry pbe = pbes[0];
+        if (q.Pricebook2Id != null && pbe.Pricebook2Id != q.Pricebook2Id) {
+            throw new AuraHandledException('That product is not on this quote\'s price book.');
+        }
+
+        Date startDate = Date.today();
+        Date endDate = null;
+        List<QuoteLineItem> siblings = [
+            SELECT StartDate, EndDate
+            FROM QuoteLineItem
+            WHERE QuoteId = :qId AND EndDate != NULL
+            WITH USER_MODE
+            ORDER BY CreatedDate ASC
+            LIMIT 1
+        ];
+        if (!siblings.isEmpty()) {
+            if (siblings[0].StartDate != null) {
+                startDate = Date.today();
+            }
+            endDate = siblings[0].EndDate;
+        } else if (q.EndDate != null) {
+            endDate = q.EndDate;
+        }
+
+        try {
+            QuoteAction action = new QuoteAction(QuoteId = qId, Type = 'Add');
+            insert as user action;
+
+            QuoteLineItem line = new QuoteLineItem(
+                QuoteId = qId,
+                QuoteActionId = action.Id,
+                PricebookEntryId = pbe.Id,
+                Product2Id = pbe.Product2Id,
+                Quantity = 1,
+                UnitPrice = pbe.UnitPrice != null ? pbe.UnitPrice : 0,
+                StartDate = startDate
+            );
+            if (endDate != null) {
+                line.EndDate = endDate;
+            }
+            insert as user line;
+        } catch (DmlException e) {
+            throw new AuraHandledException(e.getDmlMessage(0));
+        }
+
+        try {
+            RLM_RepriceQuoteInvocable.repriceQuoteNow(qId);
+        } catch (RLM_RepriceQuoteInvocable.RepriceException e) {
+            throw new AuraHandledException(e.getMessage());
+        } catch (Exception e) {
+            throw new AuraHandledException('Line added but reprice failed: ' + e.getMessage());
+        }
+        return getStudioPayload(qId);
+    }
+
+    /**
+     * RLM rule: QuoteAction Type = No Change requires Quantity = 0.
+     * Positive delta → Amend + qty; zero delta → No Change + qty 0.
+     */
+    private static void applyAmendmentQuantity(
+        QuoteLineItem existing,
+        String actionType,
+        Decimal newQuantity
+    ) {
+        Boolean isNoChange = actionType == null || actionType == 'No Change';
+        Boolean isAmend = actionType == 'Amend';
+
+        if (newQuantity == 0) {
+            if (!isNoChange && existing.QuoteActionId != null) {
+                update as user new QuoteLineItem(Id = existing.Id, Quantity = 0);
+                update as user new QuoteAction(Id = existing.QuoteActionId, Type = 'No Change');
+            } else if (existing.Quantity != 0) {
+                update as user new QuoteLineItem(Id = existing.Id, Quantity = 0);
+            }
+            return;
+        }
+
+        if (isNoChange) {
+            if (existing.QuoteActionId == null) {
+                throw new AuraHandledException(
+                    'This line has no Quote Action; open Advanced line editor to amend it.'
+                );
+            }
+            update as user new QuoteAction(Id = existing.QuoteActionId, Type = 'Amend');
+            update as user new QuoteLineItem(Id = existing.Id, Quantity = newQuantity);
+            return;
+        }
+
+        if (isAmend || actionType == 'Add') {
+            update as user new QuoteLineItem(Id = existing.Id, Quantity = newQuantity);
+            return;
+        }
+
+        throw new AuraHandledException(
+            'Quantity edit is only supported for No Change / Amend lines (found: '
+                + actionType
+                + ').'
+        );
+    }
+
+    /**
+     * Price-only or combined amend: ensure Type = Amend (qty may stay 0),
+     * then write QLI.Discount. Instant Pricing / PST reprice honors the %.
+     */
+    private static void applyAmendmentDiscount(
+        QuoteLineItem existing,
+        String actionType,
+        Decimal discountPercent
+    ) {
+        Boolean isNoChange = actionType == null || actionType == 'No Change';
+        if (isNoChange) {
+            if (existing.QuoteActionId == null) {
+                throw new AuraHandledException(
+                    'This line has no Quote Action; open Advanced line editor to amend it.'
+                );
+            }
+            update as user new QuoteAction(Id = existing.QuoteActionId, Type = 'Amend');
+        } else if (actionType != 'Amend' && actionType != 'Add') {
+            throw new AuraHandledException(
+                'Discount edit is only supported for No Change / Amend lines (found: '
+                    + actionType
+                    + ').'
+            );
+        }
+        update as user new QuoteLineItem(Id = existing.Id, Discount = discountPercent);
+    }
+
+    /** Start date drives proration; EndDate stays untouched (amendment term end). */
+    private static void applyAmendmentStartDate(
+        QuoteLineItem existing,
+        String actionType,
+        Date startDate
+    ) {
+        Boolean isNoChange = actionType == null || actionType == 'No Change';
+        if (isNoChange) {
+            if (existing.QuoteActionId == null) {
+                throw new AuraHandledException(
+                    'This line has no Quote Action; open Advanced line editor to amend it.'
+                );
+            }
+            update as user new QuoteAction(Id = existing.QuoteActionId, Type = 'Amend');
+        } else if (actionType != 'Amend' && actionType != 'Add') {
+            throw new AuraHandledException(
+                'Start date edit is only supported for No Change / Amend lines (found: '
+                    + actionType
+                    + ').'
+            );
+        }
+        update as user new QuoteLineItem(Id = existing.Id, StartDate = startDate);
+    }
+
+    private static Map<Id, Decimal> installedQuantityByAsset(Set<Id> assetIds) {
+        Map<Id, Decimal> result = new Map<Id, Decimal>();
+        if (assetIds == null || assetIds.isEmpty()) {
+            return result;
+        }
+        Datetime nowUtc = System.now();
+        for (AssetStatePeriod asp : [
+            SELECT AssetId, Quantity
+            FROM AssetStatePeriod
+            WHERE AssetId IN :assetIds
+                AND StartDate <= :nowUtc
+                AND EndDate >= :nowUtc
+            WITH USER_MODE
+        ]) {
+            if (asp.AssetId != null && asp.Quantity != null && !result.containsKey(asp.AssetId)) {
+                result.put(asp.AssetId, asp.Quantity);
+            }
+        }
+        return result;
     }
 
     /**
@@ -270,7 +916,9 @@ public with sharing class RLM_AssetPriceHistoryController {
         ]) {
             List<AssetActionSource> sources = aa.AssetActionSources;
             if (sources == null || sources.isEmpty()) {
-                resp.rows.add(baseRow(aa, assetNames));
+                HistoryRow orphan = baseRow(aa, assetNames);
+                enrichLineEconomics(orphan);
+                resp.rows.add(orphan);
                 continue;
             }
             for (AssetActionSource src : sources) {
@@ -282,6 +930,7 @@ public with sharing class RLM_AssetPriceHistoryController {
                 row.periodStart = src.StartDate;
                 row.periodEnd = src.EndDate;
                 row.discountPercent = resolveDiscountPercent(src.Discount, src.ListPrice, src.NetUnitPrice);
+                enrichLineEconomics(row);
                 resp.rows.add(row);
             }
         }
@@ -415,6 +1064,7 @@ public with sharing class RLM_AssetPriceHistoryController {
             if (qli.EndDate != null) {
                 tranche.periodEnd = Datetime.newInstance(qli.EndDate, Time.newInstance(23, 59, 59, 0));
             }
+            enrichLineEconomics(tranche);
             amendTranches.add(tranche);
             amendQty += qty;
             if (qli.NetUnitPrice != null) {
@@ -536,6 +1186,20 @@ public with sharing class RLM_AssetPriceHistoryController {
         summary.currentArr = arrTotal.setScale(2, RoundingMode.HALF_UP);
         summary.currentMrr = (arrTotal / 12).setScale(2, RoundingMode.HALF_UP);
         return summary;
+    }
+
+    private static void enrichLineEconomics(HistoryRow row) {
+        if (row == null) {
+            return;
+        }
+        Decimal qty = row.quantity != null ? row.quantity : row.quantityChange;
+        if (qty == null || qty <= 0 || row.netUnitPrice == null) {
+            row.arr = 0;
+            row.mrr = 0;
+            return;
+        }
+        row.arr = (row.netUnitPrice * qty).setScale(2, RoundingMode.HALF_UP);
+        row.mrr = (row.arr / 12).setScale(2, RoundingMode.HALF_UP);
     }
 
     private static Decimal resolveDiscountPercent(

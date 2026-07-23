@@ -108,6 +108,84 @@ private class RLM_AssetPriceHistoryControllerTest {
     }
 
     @isTest
+    static void searchCatalogProducts_shortTerm_returnsEmptyOrCommon() {
+        Account acct = new Account(Name = 'Search Acct');
+        insert acct;
+        Opportunity opp = new Opportunity(
+            Name = 'Search Opp',
+            AccountId = acct.Id,
+            StageName = 'Prospecting',
+            CloseDate = Date.today().addDays(30)
+        );
+        insert opp;
+        Quote q = new Quote(
+            Name = 'Search Quote',
+            OpportunityId = opp.Id,
+            Pricebook2Id = Test.getStandardPricebookId(),
+            Status = 'Draft'
+        );
+        insert q;
+
+        Product2 prod = new Product2(
+            Name = 'Studio Common Widget ZZ',
+            IsActive = true,
+            StockKeepingUnit = 'RLM-STUDIO-TEST-COMMON',
+            ProductCode = 'RLM-STUDIO-TEST-COMMON'
+        );
+        insert prod;
+        insert new PricebookEntry(
+            Pricebook2Id = Test.getStandardPricebookId(),
+            Product2Id = prod.Id,
+            UnitPrice = 100,
+            IsActive = true
+        );
+
+        Test.startTest();
+        List<RLM_AssetPriceHistoryController.CatalogProductHit> commonHits =
+            RLM_AssetPriceHistoryController.searchCatalogProducts(q.Id, '');
+        List<RLM_AssetPriceHistoryController.CatalogProductHit> oneChar =
+            RLM_AssetPriceHistoryController.searchCatalogProducts(q.Id, 'a');
+        List<RLM_AssetPriceHistoryController.CatalogProductHit> named =
+            RLM_AssetPriceHistoryController.searchCatalogProducts(q.Id, 'Studio Common Widget ZZ');
+        Test.stopTest();
+
+        System.assert(commonHits.size() >= 1, 'Blank term seeds common products');
+        Boolean sawCommonFlag = false;
+        for (RLM_AssetPriceHistoryController.CatalogProductHit h : commonHits) {
+            if (h.isCommon == true) {
+                sawCommonFlag = true;
+                break;
+            }
+        }
+        System.assertEquals(true, sawCommonFlag, 'Common rail marks hits as isCommon');
+        System.assert(oneChar.size() >= 1, 'Short term still shows common rail seed');
+        System.assert(named.size() >= 1, 'Name search finds the product');
+        System.assertEquals(false, named[0].isCommon);
+    }
+
+    @isTest
+    static void removeWorkingLine_rejectsNull() {
+        Boolean threw = false;
+        try {
+            RLM_AssetPriceHistoryController.removeWorkingLine(null, null);
+        } catch (AuraHandledException e) {
+            threw = true;
+        }
+        System.assertEquals(true, threw, 'Null ids must raise AuraHandledException');
+    }
+
+    @isTest
+    static void repriceQuote_rejectsNull() {
+        Boolean threw = false;
+        try {
+            RLM_AssetPriceHistoryController.repriceQuote(null);
+        } catch (AuraHandledException e) {
+            threw = true;
+        }
+        System.assertEquals(true, threw, 'Null quote Id must raise AuraHandledException');
+    }
+
+    @isTest
     static void updateWorkingLineQuantity_rejectsInvalidQty() {
         Account acct = new Account(Name = 'Qty Update Acct');
         insert acct;
@@ -128,10 +206,39 @@ private class RLM_AssetPriceHistoryControllerTest {
 
         Boolean threw = false;
         try {
-            RLM_AssetPriceHistoryController.updateWorkingLineQuantity(q.Id, q.Id, 0);
+            RLM_AssetPriceHistoryController.updateWorkingLineQuantity(q.Id, q.Id, -1, null, null);
         } catch (AuraHandledException e) {
             threw = true;
         }
-        System.assertEquals(true, threw, 'Invalid quantity must raise AuraHandledException');
+        System.assertEquals(true, threw, 'Negative quantity must raise AuraHandledException');
+    }
+
+    @isTest
+    static void updateWorkingLineQuantity_rejectsMissingLine() {
+        Account acct = new Account(Name = 'Qty Missing Line Acct');
+        insert acct;
+        Opportunity opp = new Opportunity(
+            Name = 'Qty Missing Line Opp',
+            AccountId = acct.Id,
+            StageName = 'Prospecting',
+            CloseDate = Date.today().addDays(30)
+        );
+        insert opp;
+        Quote q = new Quote(
+            Name = 'Qty Missing Line Quote',
+            OpportunityId = opp.Id,
+            Pricebook2Id = Test.getStandardPricebookId(),
+            Status = 'Draft'
+        );
+        insert q;
+
+        // Valid Quote Id shape but not a QuoteLineItem on this quote
+        Boolean threw = false;
+        try {
+            RLM_AssetPriceHistoryController.updateWorkingLineQuantity(q.Id, q.Id, 10, null, null);
+        } catch (AuraHandledException e) {
+            threw = true;
+        }
+        System.assertEquals(true, threw, 'Non-line Id must raise AuraHandledException');
     }
 }

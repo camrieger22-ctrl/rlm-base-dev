@@ -1,8 +1,10 @@
 feature: closewon
 feature_flag: closewon
 # 1) Amendment Studio full-bleed under highlights when OriginalActionType = Amend
-#    (primary AE workspace — no launcher bounce).
-# 2) Difference quoting field section on Details (Current / Proposed / Net Increase).
+#    (primary AE workspace after Managed Asset Viewer → initiateAmendment).
+# 2) Hide classic TLE + transaction summary on Amend Quotes so Studio is the
+#    default commercial surface (Advanced line editor remains as escape hatch).
+# 3) Difference quoting field section on Details (Current / Proposed / Net Increase).
 #    Field sections support at most 2 columns — Current | Proposed+Net.
 #
 # Anchor must match ElementTree's post-indent serialization (see AssembleAndDeployUX
@@ -24,6 +26,21 @@ patches:
               </visibilityRule>
           </componentInstance>
       </itemInstances>
+
+  # Studio-first Amend: keep OOTB line table / summary for new-sale Quotes only.
+  - type: set_component_visibility
+    identifier: runtime_rca_salesTxnLineTable
+    visibility:
+      - field: Record.OriginalActionType
+        operator: NE
+        value: Amend
+
+  - type: set_component_visibility
+    identifier: runtime_revenue_foundation_transactionSummary
+    visibility:
+      - field: Record.OriginalActionType
+        operator: NE
+        value: Amend
 
   # Facets for the Difference quoting field section (inserted before Address Information).
   - type: insert_after_xml

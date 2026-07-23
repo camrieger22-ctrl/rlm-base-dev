@@ -8,7 +8,8 @@ single sf project deploy start call.
 
 Supported metadata types:
   flexipages   — patch-based XML assembly (insert_action, add_display_field,
-                  add_facet_field, add_component, raw insert_after_xml)
+                  add_facet_field, add_component, set_component_visibility,
+                  raw insert_after_xml)
   layouts      — copy base + conditional overrides (billing, constraints)
   applications — copy from versioned templates based on active features
   profiles     — strip-and-build: base grants + feature layout patches
@@ -201,6 +202,33 @@ def _append_visibility_rule(item: ET.Element, criteria: List[Dict[str, Any]]) ->
         _sub_elem(c, "leftValue", left)
         _sub_elem(c, "operator", str(crit.get("operator", "EQUAL")))
         _sub_elem(c, "rightValue", str(crit.get("value", "")))
+
+
+def _patch_set_component_visibility(
+    root: ET.Element,
+    identifier: str,
+    criteria: List[Dict[str, Any]],
+    replace: bool = True,
+) -> bool:
+    """Find a componentInstance by identifier and set its visibilityRule.
+
+    When replace=True (default), removes any existing visibilityRule first so
+    the patch is idempotent across re-assembly. Criteria shape matches
+    _append_visibility_rule.
+    """
+    if not identifier or not criteria:
+        return False
+    for ci in root.iter(f"{SF_NS_TAG}componentInstance"):
+        id_el = _find_elem(ci, "identifier")
+        if id_el is None or id_el.text != identifier:
+            continue
+        if replace:
+            for child in list(ci):
+                if child.tag.rsplit("}", 1)[-1] == "visibilityRule":
+                    ci.remove(child)
+        _append_visibility_rule(ci, criteria)
+        return True
+    return False
 
 
 def _patch_insert_action(root: ET.Element, anchor: str, actions: List[Any]) -> bool:
@@ -528,6 +556,9 @@ def _patch_description(patch: Dict[str, Any]) -> str:
         return f"add fields to {facet}: {', '.join(fields)}"
     if ptype == "add_component":
         return f"add component: {patch.get('component', '?')}"
+    if ptype == "set_component_visibility":
+        ident = patch.get("identifier", "?")
+        return f"set visibility on {ident}"
     if ptype == "insert_after_xml":
         anchor = patch.get("anchor", "")
         # Extract a recognizable identifier from the anchor
@@ -637,6 +668,26 @@ def _apply_flexipage_patch(root: ET.Element, patch: Dict[str, Any], logger=None)
         ok = _patch_add_component(root, region_name, component_name, properties, identifier, after_id, before_id)
         if not ok and logger:
             logger.warning(f"add_component: region '{region_name}' not found")
+
+    elif ptype == "set_component_visibility":
+        identifier = patch.get("identifier")
+        criteria = patch.get("visibility") or patch.get("criteria") or []
+        if not identifier or not criteria:
+            log(
+                f"set_component_visibility patch missing 'identifier' or "
+                f"'visibility': {patch}"
+            )
+            return
+        ok = _patch_set_component_visibility(
+            root,
+            identifier,
+            criteria,
+            replace=patch.get("replace", True),
+        )
+        if not ok and logger:
+            logger.warning(
+                f"set_component_visibility: component '{identifier}' not found"
+            )
 
     elif ptype == "insert_after_xml":
         # Text-based fallback: raw XML string inserted after anchor text

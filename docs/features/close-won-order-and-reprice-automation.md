@@ -117,7 +117,7 @@ Decrease/cancel projection is parked; when no add projection exists, Proposed is
 | Quote fields | `RLM_Amend_Current_*` / `RLM_Amend_Proposed_*` / `RLM_Amend_Net_Increase_*` (`ARR`, `MRR`, `Qty`) in `unpackaged/post_closewon/objects/Quote/fields/` |
 | Stamp | `RLM_AssetPriceHistoryController` on panel load/refresh **and** after successful `RLM_RepriceQuoteInvocable` force-reprice |
 | Seller UI | `rlmAssetPriceHistory` — Current contract / Proposed / Impact (Δ); Details tab **Difference quoting** field section (closewon flexipage patch) |
-| Amendment Studio (Phase 2+) | `rlmAmendmentStudio` embeds on Amend Quotes (`OriginalActionType = Amend`) as the primary workspace: sticky Current/Proposed/Net KPIs · Installed · in-panel qty update (reprice) · Impact rail. Advanced line editor is an escape hatch only. |
+| Amendment Studio (Phase 2+) | `rlmAmendmentStudio` embeds on Amend Quotes (`OriginalActionType = Amend`) as the primary workspace after Managed Asset Viewer → `initiateAmendment`. Layout: left **Catalog** (common products + search/add) · Current / This add / Finalized KPIs · Working changes (qty, discount, start, list/net waterfall preview, prorated term) · **Installed** ledger in a slide-over (header + Current KPIs). Classic TLE/summary hidden on Amend Quotes. **Next:** Product Discovery / configurator, OOTB pricing waterfall API, decrease/cancel + multi-asset. |
 | Pricing: Discount % off list on LastTransaction | Overlay `datasets/expression_set_overlays/amendment_list_percent_discount.json` (applied in `prepare_closewon`) |
 | DocGen | `RLM_QuoteProposal` tokens `AmendCurrent*` / `AmendProposed*` / `AmendNetIncrease*` via `RLMQuoteExtractBasic` + `RLMQuoteTransformBasic` (blank on non-amendment quotes) |
 

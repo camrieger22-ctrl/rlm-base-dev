@@ -3,7 +3,7 @@
     <apiVersion>67.0</apiVersion>
     <isExposed>true</isExposed>
     <masterLabel>RLM Amendment Studio</masterLabel>
-    <description>Full-width amendment workspace: sticky KPIs, installed base, working Quote lines, and impact rail.</description>
+    <description>Amendment workspace: catalog rail, working Quote lines, KPI impact, and installed ledger drawer.</description>
     <targets>
         <target>lightning__AppPage</target>
         <target>lightning__RecordPage</target>
