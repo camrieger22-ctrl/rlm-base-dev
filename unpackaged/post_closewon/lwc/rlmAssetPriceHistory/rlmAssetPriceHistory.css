@@ -1,0 +1,59 @@
+/* Current = baseline (navy); Proposed = decision focus (orange).
+   Soft fills + left rails — keep metric text high-contrast. */
+
+.panel {
+    border-radius: 0.25rem;
+    padding: 0.75rem 0.75rem 0.75rem 0.875rem;
+    border: 1px solid transparent;
+    border-left-width: 3px;
+    border-left-style: solid;
+}
+
+.panel-current {
+    background-color: #eef1f6;
+    border-color: #d8dee8;
+    border-left-color: #0b162a;
+}
+
+.panel-proposed {
+    background-color: #fff4f0;
+    border-color: #f5d5c8;
+    border-left-color: #c83803;
+}
+
+.panel-title {
+    letter-spacing: 0.025rem;
+}
+
+.panel-current .panel-title {
+    color: #0b162a;
+}
+
+.panel-proposed .panel-title {
+    color: #c83803;
+}
+
+.panel-metric-value {
+    color: #0b162a;
+    font-weight: 700;
+}
+
+.panel-delta {
+    font-weight: 700;
+    font-size: 0.8125rem;
+    line-height: 1.25;
+    margin-top: 0.125rem;
+}
+
+.panel-delta_up {
+    color: #2e844a;
+}
+
+.panel-delta_down {
+    color: #ba0517;
+}
+
+.panel-delta_neutral {
+    color: #5c5c5c;
+    font-weight: 600;
+}

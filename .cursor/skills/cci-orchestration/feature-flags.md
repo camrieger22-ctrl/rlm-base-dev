@@ -24,7 +24,7 @@ Boolean flags that gate task/flow execution via `when:` clauses.
 | `calmdelete` | `True` | 1 flow step(s) |
 | `clm` | `True` | 4 flow step(s) |
 | `clm_data` | `False` | 1 flow step(s) |
-| `closewon` | `True` | 3 flow step(s) |
+| `closewon` | `True` | 4 flow step(s) |
 | `collections` | `True` | 5 flow step(s) |
 | `commerce` | `False` | 2 flow step(s) |
 | `constraints` | `True` | 12 flow step(s) |
@@ -154,6 +154,7 @@ Boolean flags that gate task/flow execution via `when:` clauses.
 - `prepare_rlm_org` step 28 → `prepare_closewon`
 - `prepare_closewon` step 1 → `deploy_post_closewon`
 - `prepare_closewon` step 2 → `assign_permission_sets`
+- `prepare_closewon` step 3 → `apply_expression_set_overlay`
 
 ### `collections` (default: `True`)
 

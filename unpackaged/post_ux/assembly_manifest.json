@@ -1,5 +1,5 @@
 {
-  "assembled_at": "2026-07-23T13:55:44.655543Z",
+  "assembled_at": "2026-07-23T14:03:23.147782Z",
   "feature_flags": {
     "quantumbit": true,
     "billing": true,
@@ -507,6 +507,16 @@
           "feature": "closewon",
           "patch_type": "insert_after_xml",
           "description": "insert XML after <identifier>force_highlightsPanel</identifier>"
+        },
+        {
+          "feature": "closewon",
+          "patch_type": "insert_after_xml",
+          "description": "insert XML after <name>Facet-faedd9c7-e69c-4942-80db-ac3fd24d69c7</name>"
+        },
+        {
+          "feature": "closewon",
+          "patch_type": "add_component",
+          "description": "add component: flexipage:fieldSection"
         }
       ]
     },

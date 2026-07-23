@@ -120,6 +120,50 @@ export default class RlmAssetPriceHistory extends LightningElement {
         );
     }
 
+    /** Sign-aware delta rows for the Proposed panel (positive = green, negative = red). */
+    get proposedDeltas() {
+        const p = this.projection;
+        if (!p || !p.projected) {
+            return [];
+        }
+        return [
+            this._metricRow('avgPaid', 'Avg paid', p.projected.averagePaid, p.deltaAveragePaid, 'currency', ''),
+            this._metricRow(
+                'avgDiscount',
+                'Avg discount',
+                p.projected.averageDiscountPercent,
+                p.deltaAverageDiscountPercent,
+                'percent',
+                ' pts'
+            ),
+            this._metricRow('qty', 'Total qty', p.projected.totalQuantity, p.deltaQuantity, 'qty', ''),
+            this._metricRow('mrr', 'MRR', p.projected.currentMrr, p.deltaMrr, 'currency', ''),
+            this._metricRow('arr', 'ARR', p.projected.currentArr, p.deltaArr, 'currency', '')
+        ];
+    }
+
+    _metricRow(key, label, value, delta, format, deltaSuffix) {
+        return {
+            key,
+            label,
+            value,
+            delta,
+            deltaClass: this._deltaClass(delta),
+            deltaSuffix,
+            formatCurrency: format === 'currency',
+            formatPercent: format === 'percent',
+            formatQty: format === 'qty'
+        };
+    }
+
+    _deltaClass(value) {
+        const n = Number(value);
+        if (!Number.isFinite(n) || n === 0) {
+            return 'panel-delta panel-delta_neutral';
+        }
+        return n > 0 ? 'panel-delta panel-delta_up' : 'panel-delta panel-delta_down';
+    }
+
     handleRefresh() {
         this.dispatchEvent(new RefreshEvent());
         this._load();

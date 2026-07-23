@@ -288,7 +288,9 @@
             <assignToReference>varT_DocTemplateId</assignToReference>
             <field>Id</field>
         </outputAssignments>
-        <valueField>Name</valueField>
+        <!-- valueField must be Id (not Name). Multiple versions share Name; Name-as-value
+             re-resolves to the oldest version and skips the Active one's ContentDocument. -->
+        <valueField>Id</valueField>
     </dynamicChoiceSets>
     <environments>Default</environments>
     <formulas>

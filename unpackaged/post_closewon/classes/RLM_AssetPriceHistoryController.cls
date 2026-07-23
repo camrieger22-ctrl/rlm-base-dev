@@ -184,6 +184,27 @@ public with sharing class RLM_AssetPriceHistoryController {
     }
 
     /**
+     * Recompute and stamp Current / Proposed / Net Increase on the Quote.
+     * Called after a successful force-reprice so DocGen / layouts stay current
+     * without requiring the seller to open the history panel.
+     * Best-effort: never throws.
+     */
+    public static void stampDifferenceFieldsForQuote(Id quoteId) {
+        if (quoteId == null || quoteId.getSObjectType() != Quote.SObjectType) {
+            return;
+        }
+        try {
+            getHistoryForQuote(quoteId);
+        } catch (Exception e) {
+            System.debug(
+                LoggingLevel.WARN,
+                'RLM_AssetPriceHistoryController.stampDifferenceFieldsForQuote: '
+                    + quoteId + ': ' + e.getMessage()
+            );
+        }
+    }
+
+    /**
      * Persist Current / Proposed / Net Increase KPIs on the Quote so layouts,
      * reports, and Document Generation can use them without the LWC.
      * Best-effort: stamp failures must not break the history panel.

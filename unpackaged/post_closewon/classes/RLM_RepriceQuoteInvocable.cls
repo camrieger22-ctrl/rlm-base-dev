@@ -140,6 +140,8 @@ public with sharing class RLM_RepriceQuoteInvocable {
             throw new RepriceException('Forced failure for test: ' + quoteId);
         }
         if (bypassPlatformCallForTest) {
+            // Still stamp amendment KPIs so unit tests cover the post-reprice hook.
+            stampAmendDifferenceFields(quoteId);
             return;
         }
         RevSalesTrxn.PlaceSalesTransactionResponse resp =
@@ -159,6 +161,21 @@ public with sharing class RLM_RepriceQuoteInvocable {
                 (resp != null && resp.errorResponse != null
                     ? String.valueOf(resp.errorResponse)
                     : 'no response')
+            );
+        }
+        // Keep Current / Proposed / Net Increase in sync after prices change.
+        stampAmendDifferenceFields(quoteId);
+    }
+
+    /** Best-effort stamp; never masks a successful reprice. */
+    private static void stampAmendDifferenceFields(Id quoteId) {
+        try {
+            RLM_AssetPriceHistoryController.stampDifferenceFieldsForQuote(quoteId);
+        } catch (Exception e) {
+            System.debug(
+                LoggingLevel.WARN,
+                'RLM_RepriceQuoteInvocable: amend KPI stamp failed for ' +
+                quoteId + ': ' + e.getMessage()
             );
         }
     }

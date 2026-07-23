@@ -21,15 +21,15 @@
 
             <template if:false={isLoading}>
                 <template if:true={hasSummary}>
-                    <div class="slds-m-bottom_small">
-                        <p class="slds-text-title_caps slds-text-color_weak slds-m-bottom_xx-small">
+                    <div class="panel panel-current slds-m-bottom_small" aria-label="Current contract">
+                        <p class="panel-title slds-text-title_caps slds-m-bottom_xx-small">
                             Current contract
                             <template if:true={summary.assetName}> — {summary.assetName}</template>
                         </p>
                         <div class="slds-grid slds-wrap slds-gutters_small">
                             <div class="slds-col slds-size_1-of-2 slds-medium-size_1-of-3 slds-large-size_1-of-5">
                                 <p class="slds-text-body_small slds-text-color_weak">Avg paid</p>
-                                <p class="slds-text-heading_small">
+                                <p class="slds-text-heading_small panel-metric-value">
                                     <lightning-formatted-number
                                         value={summary.averagePaid}
                                         format-style="currency"
@@ -39,7 +39,7 @@
                             </div>
                             <div class="slds-col slds-size_1-of-2 slds-medium-size_1-of-3 slds-large-size_1-of-5">
                                 <p class="slds-text-body_small slds-text-color_weak">Avg discount</p>
-                                <p class="slds-text-heading_small">
+                                <p class="slds-text-heading_small panel-metric-value">
                                     <template if:true={summary.averageDiscountPercent}>
                                         <lightning-formatted-number
                                             value={summary.averageDiscountPercent}
@@ -51,7 +51,7 @@
                             </div>
                             <div class="slds-col slds-size_1-of-2 slds-medium-size_1-of-3 slds-large-size_1-of-5">
                                 <p class="slds-text-body_small slds-text-color_weak">Total qty</p>
-                                <p class="slds-text-heading_small">
+                                <p class="slds-text-heading_small panel-metric-value">
                                     <lightning-formatted-number
                                         value={summary.totalQuantity}
                                         maximum-fraction-digits="0"
@@ -60,7 +60,7 @@
                             </div>
                             <div class="slds-col slds-size_1-of-2 slds-medium-size_1-of-3 slds-large-size_1-of-5">
                                 <p class="slds-text-body_small slds-text-color_weak">MRR</p>
-                                <p class="slds-text-heading_small">
+                                <p class="slds-text-heading_small panel-metric-value">
                                     <lightning-formatted-number
                                         value={summary.currentMrr}
                                         format-style="currency"
@@ -70,7 +70,7 @@
                             </div>
                             <div class="slds-col slds-size_1-of-2 slds-medium-size_1-of-3 slds-large-size_1-of-5">
                                 <p class="slds-text-body_small slds-text-color_weak">ARR</p>
-                                <p class="slds-text-heading_small">
+                                <p class="slds-text-heading_small panel-metric-value">
                                     <lightning-formatted-number
                                         value={summary.currentArr}
                                         format-style="currency"
@@ -83,8 +83,11 @@
                 </template>
 
                 <template if:true={showAddProjection}>
-                    <div class="slds-box slds-box_x-small slds-theme_shade slds-m-bottom_small">
-                        <p class="slds-text-title_caps slds-m-bottom_xx-small">
+                    <div
+                        class="panel panel-proposed slds-m-bottom_small"
+                        aria-label="Proposed after this amendment"
+                    >
+                        <p class="panel-title slds-text-title_caps slds-m-bottom_xx-small">
                             Proposed after this amendment
                         </p>
                         <p class="slds-text-body_small slds-text-color_weak slds-m-bottom_x-small">
@@ -93,7 +96,7 @@
                                 value={projection.amendmentQuantity}
                                 maximum-fraction-digits="0"
                             ></lightning-formatted-number>
-                            @ 
+                            @
                             <lightning-formatted-number
                                 value={projection.amendmentPaid}
                                 format-style="currency"
@@ -106,92 +109,57 @@
                             ></lightning-formatted-number>% off list)
                         </p>
                         <div class="slds-grid slds-wrap slds-gutters_small">
-                            <div class="slds-col slds-size_1-of-2 slds-medium-size_1-of-3 slds-large-size_1-of-5">
-                                <p class="slds-text-body_small slds-text-color_weak">Avg paid</p>
-                                <p class="slds-text-heading_small">
-                                    <lightning-formatted-number
-                                        value={projection.projected.averagePaid}
-                                        format-style="currency"
-                                        currency-code="USD"
-                                    ></lightning-formatted-number>
-                                </p>
-                                <p class="slds-text-body_small slds-text-color_weak">
-                                    Δ
-                                    <lightning-formatted-number
-                                        value={projection.deltaAveragePaid}
-                                        format-style="currency"
-                                        currency-code="USD"
-                                    ></lightning-formatted-number>
-                                </p>
-                            </div>
-                            <div class="slds-col slds-size_1-of-2 slds-medium-size_1-of-3 slds-large-size_1-of-5">
-                                <p class="slds-text-body_small slds-text-color_weak">Avg discount</p>
-                                <p class="slds-text-heading_small">
-                                    <lightning-formatted-number
-                                        value={projection.projected.averageDiscountPercent}
-                                        maximum-fraction-digits="2"
-                                    ></lightning-formatted-number>%
-                                </p>
-                                <p class="slds-text-body_small slds-text-color_weak">
-                                    Δ
-                                    <lightning-formatted-number
-                                        value={projection.deltaAverageDiscountPercent}
-                                        maximum-fraction-digits="2"
-                                    ></lightning-formatted-number> pts
-                                </p>
-                            </div>
-                            <div class="slds-col slds-size_1-of-2 slds-medium-size_1-of-3 slds-large-size_1-of-5">
-                                <p class="slds-text-body_small slds-text-color_weak">Total qty</p>
-                                <p class="slds-text-heading_small">
-                                    <lightning-formatted-number
-                                        value={projection.projected.totalQuantity}
-                                        maximum-fraction-digits="0"
-                                    ></lightning-formatted-number>
-                                </p>
-                                <p class="slds-text-body_small slds-text-color_weak">
-                                    Δ
-                                    <lightning-formatted-number
-                                        value={projection.deltaQuantity}
-                                        maximum-fraction-digits="0"
-                                    ></lightning-formatted-number>
-                                </p>
-                            </div>
-                            <div class="slds-col slds-size_1-of-2 slds-medium-size_1-of-3 slds-large-size_1-of-5">
-                                <p class="slds-text-body_small slds-text-color_weak">MRR</p>
-                                <p class="slds-text-heading_small">
-                                    <lightning-formatted-number
-                                        value={projection.projected.currentMrr}
-                                        format-style="currency"
-                                        currency-code="USD"
-                                    ></lightning-formatted-number>
-                                </p>
-                                <p class="slds-text-body_small slds-text-color_weak">
-                                    Δ
-                                    <lightning-formatted-number
-                                        value={projection.deltaMrr}
-                                        format-style="currency"
-                                        currency-code="USD"
-                                    ></lightning-formatted-number>
-                                </p>
-                            </div>
-                            <div class="slds-col slds-size_1-of-2 slds-medium-size_1-of-3 slds-large-size_1-of-5">
-                                <p class="slds-text-body_small slds-text-color_weak">ARR</p>
-                                <p class="slds-text-heading_small">
-                                    <lightning-formatted-number
-                                        value={projection.projected.currentArr}
-                                        format-style="currency"
-                                        currency-code="USD"
-                                    ></lightning-formatted-number>
-                                </p>
-                                <p class="slds-text-body_small slds-text-color_weak">
-                                    Δ
-                                    <lightning-formatted-number
-                                        value={projection.deltaArr}
-                                        format-style="currency"
-                                        currency-code="USD"
-                                    ></lightning-formatted-number>
-                                </p>
-                            </div>
+                            <template for:each={proposedDeltas} for:item="metric">
+                                <div
+                                    key={metric.key}
+                                    class="slds-col slds-size_1-of-2 slds-medium-size_1-of-3 slds-large-size_1-of-5"
+                                >
+                                    <p class="slds-text-body_small slds-text-color_weak">{metric.label}</p>
+                                    <p class="slds-text-heading_small panel-metric-value">
+                                        <template if:true={metric.formatCurrency}>
+                                            <lightning-formatted-number
+                                                value={metric.value}
+                                                format-style="currency"
+                                                currency-code="USD"
+                                            ></lightning-formatted-number>
+                                        </template>
+                                        <template if:true={metric.formatPercent}>
+                                            <lightning-formatted-number
+                                                value={metric.value}
+                                                maximum-fraction-digits="2"
+                                            ></lightning-formatted-number>%
+                                        </template>
+                                        <template if:true={metric.formatQty}>
+                                            <lightning-formatted-number
+                                                value={metric.value}
+                                                maximum-fraction-digits="0"
+                                            ></lightning-formatted-number>
+                                        </template>
+                                    </p>
+                                    <p class={metric.deltaClass}>
+                                        Δ
+                                        <template if:true={metric.formatCurrency}>
+                                            <lightning-formatted-number
+                                                value={metric.delta}
+                                                format-style="currency"
+                                                currency-code="USD"
+                                            ></lightning-formatted-number>
+                                        </template>
+                                        <template if:true={metric.formatPercent}>
+                                            <lightning-formatted-number
+                                                value={metric.delta}
+                                                maximum-fraction-digits="2"
+                                            ></lightning-formatted-number>{metric.deltaSuffix}
+                                        </template>
+                                        <template if:true={metric.formatQty}>
+                                            <lightning-formatted-number
+                                                value={metric.delta}
+                                                maximum-fraction-digits="0"
+                                            ></lightning-formatted-number>
+                                        </template>
+                                    </p>
+                                </div>
+                            </template>
                         </div>
                         <p class="slds-text-body_small slds-text-color_weak slds-m-top_x-small">
                             {projection.message}
