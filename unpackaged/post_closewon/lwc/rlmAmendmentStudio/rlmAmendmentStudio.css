@@ -802,8 +802,8 @@
     display: none;
     position: fixed;
     z-index: 10050;
-    min-width: 16.5rem;
-    max-width: 20rem;
+    min-width: 18rem;
+    max-width: 26rem;
     padding: 0.75rem 0.85rem;
     background: #ffffff;
     color: #0b162a;

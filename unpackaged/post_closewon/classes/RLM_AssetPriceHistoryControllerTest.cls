@@ -163,6 +163,93 @@ private class RLM_AssetPriceHistoryControllerTest {
         System.assertEquals(false, named[0].isCommon);
     }
 
+    private class WaterfallHttpMock implements HttpCalloutMock {
+        public HTTPResponse respond(HTTPRequest req) {
+            HttpResponse res = new HttpResponse();
+            res.setHeader('Content-Type', 'application/json');
+            res.setStatusCode(200);
+            res.setBody(
+                '{"success":true,"executionId":"exec1","lineItemId":"line1","waterfall":['
+                    + '{"sequence":1,"hideWaterfall":false,'
+                    + '"pricingElement":{"elementType":"ListPrice","name":"Get base prices","adjustments":[]},'
+                    + '"outputParameters":{"ListPrice":100}},'
+                    + '{"sequence":2,"hideWaterfall":false,'
+                    + '"pricingElement":{"elementType":"AssignmentElement","name":"Assign date","adjustments":[]},'
+                    + '"outputParameters":{}},'
+                    + '{"sequence":3,"hideWaterfall":false,'
+                    + '"pricingElement":{"elementType":"ManualDiscount","name":"Percentage discount",'
+                    + '"adjustments":[{"AdjustmentType":"Percentage","AdjustmentValue":10}]},'
+                    + '"outputParameters":{"NetUnitPrice":90}}'
+                    + ']}'
+            );
+            return res;
+        }
+    }
+
+    @isTest
+    static void getLinePricingWaterfall_parsesPlatformSteps() {
+        Account acct = new Account(Name = 'Waterfall Acct');
+        insert acct;
+        Opportunity opp = new Opportunity(
+            Name = 'Waterfall Opp',
+            AccountId = acct.Id,
+            StageName = 'Prospecting',
+            CloseDate = Date.today().addDays(30)
+        );
+        insert opp;
+        Quote q = new Quote(
+            Name = 'Waterfall Quote',
+            OpportunityId = opp.Id,
+            Pricebook2Id = Test.getStandardPricebookId(),
+            Status = 'Draft'
+        );
+        insert q;
+        Product2 prod = new Product2(
+            Name = 'Waterfall Product',
+            IsActive = true,
+            StockKeepingUnit = 'RLM-STUDIO-WF-TEST',
+            ProductCode = 'RLM-STUDIO-WF-TEST'
+        );
+        insert prod;
+        PricebookEntry pbe = new PricebookEntry(
+            Pricebook2Id = Test.getStandardPricebookId(),
+            Product2Id = prod.Id,
+            UnitPrice = 100,
+            IsActive = true
+        );
+        insert pbe;
+        QuoteLineItem qli = new QuoteLineItem(
+            QuoteId = q.Id,
+            PricebookEntryId = pbe.Id,
+            Quantity = 1,
+            UnitPrice = 100
+        );
+        insert qli;
+
+        RLM_AssetPriceHistoryController.testWaterfallIdentifierOverride =
+            String.valueOf(qli.Id) + ':exec1';
+        Test.setMock(HttpCalloutMock.class, new WaterfallHttpMock());
+        Test.startTest();
+        RLM_AssetPriceHistoryController.PlatformWaterfallResponse resp =
+            RLM_AssetPriceHistoryController.getLinePricingWaterfall(qli.Id);
+        Test.stopTest();
+        RLM_AssetPriceHistoryController.testWaterfallIdentifierOverride = null;
+
+        System.assertEquals(
+            true,
+            resp.success,
+            'waterfall failed: ' + String.valueOf(resp.message)
+        );
+        System.assert(resp.steps.size() >= 2, 'Assignment steps filtered; list+discount remain');
+        Boolean sawDiscount = false;
+        for (RLM_AssetPriceHistoryController.PlatformWaterfallStep s : resp.steps) {
+            if (s.isAdjustment == true) {
+                sawDiscount = true;
+            }
+        }
+        System.assertEquals(true, sawDiscount, 'Expected a ManualDiscount adjustment step');
+    }
+
     @isTest
     static void removeWorkingLine_rejectsNull() {
         Boolean threw = false;

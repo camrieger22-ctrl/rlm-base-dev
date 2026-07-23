@@ -11,6 +11,7 @@ import repriceQuote from '@salesforce/apex/RLM_AssetPriceHistoryController.repri
 import searchCatalogProducts from '@salesforce/apex/RLM_AssetPriceHistoryController.searchCatalogProducts';
 import addCatalogProductLine from '@salesforce/apex/RLM_AssetPriceHistoryController.addCatalogProductLine';
 import removeWorkingLine from '@salesforce/apex/RLM_AssetPriceHistoryController.removeWorkingLine';
+import getLinePricingWaterfall from '@salesforce/apex/RLM_AssetPriceHistoryController.getLinePricingWaterfall';
 import { ShowToastEvent } from 'lightning/platformShowToastEvent';
 import LightningConfirm from 'lightning/confirm';
 
@@ -20,6 +21,8 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
     quoteName;
     history;
     workingLines = [];
+    calculationStatus;
+    validationResult;
     loaded = false;
     error;
     saving = false;
@@ -45,6 +48,9 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
     _catalogSearchTimer;
     /** Installed ledger slide-over. */
     installedDrawerOpen = false;
+    /** lineId → { steps, source, loading, error, identifier } for OOTB waterfall. */
+    platformWaterfallByLineId = {};
+    _waterfallInflight = {};
 
 
     @api
@@ -94,6 +100,22 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
 
     get showNonAmendBanner() {
         return this.loaded && this.hasQuote && !this.isAmendment;
+    }
+
+    get showPricingAttentionBanner() {
+        return this.loaded && this.hasQuote && !!this.validationResult;
+    }
+
+    get pricingAttentionMessage() {
+        const vr = this.validationResult;
+        const calc = this.calculationStatus;
+        if (vr && calc) {
+            return `Pricing needs attention — ValidationResult: ${vr} · CalculationStatus: ${calc}. Use Reprice All, then review Working lines.`;
+        }
+        if (vr) {
+            return `Pricing needs attention — ValidationResult: ${vr}. Use Reprice All to refresh platform prices.`;
+        }
+        return '';
     }
 
     get headerSubtitle() {
@@ -384,7 +406,7 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
             }
             const termLabel =
                 this._formatDateRange(startIso, endIso) || 'term';
-            const waterfallSteps = [
+            const previewSteps = [
                 {
                     key: 'list',
                     label: 'List price',
@@ -410,6 +432,36 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
                     rowClass: 'waterfall-step waterfall-step_total'
                 }
             ];
+            const platformWf = this.platformWaterfallByLineId[line.id];
+            let waterfallSteps = previewSteps;
+            let waterfallNote = dirty
+                ? 'Preview until Update (platform waterfall after reprice).'
+                : 'Prorated = term bill — ARR/MRR stay annualized.';
+            let waterfallTitle = 'Price waterfall (preview)';
+            if (!dirty && platformWf?.loading) {
+                waterfallTitle = 'Price waterfall';
+                waterfallNote = 'Loading OOTB pricing procedure waterfall…';
+            } else if (!dirty && platformWf?.error && !platformWf?.steps?.length) {
+                waterfallTitle = 'Price waterfall (preview)';
+                waterfallNote = `Platform waterfall unavailable — ${platformWf.error}`;
+            } else if (!dirty && platformWf?.steps?.length) {
+                waterfallTitle = 'Price waterfall (pricing procedure)';
+                waterfallSteps = platformWf.steps.map((s, sIdx) => ({
+                    key: s.key || `pwf-${sIdx}`,
+                    label: s.label,
+                    valueLabel: s.valueLabel,
+                    rowClass:
+                        'waterfall-step' +
+                        (s.isAdjustment ? ' waterfall-step_adj' : '') +
+                        (sIdx === platformWf.steps.length - 1
+                            ? ' waterfall-step_total'
+                            : '')
+                }));
+                waterfallNote = 'From Salesforce Pricing procedure (persisted waterfall).';
+            } else if (!dirty && line.priceWaterfallIdentifier) {
+                waterfallNote =
+                    'Hover again or wait — loading OOTB pricing procedure waterfall.';
+            }
             const draftIncomplete =
                 (hasQtyDraft &&
                     (draftQtyRaw === '' || !Number.isFinite(draftQtyNum))) ||
@@ -425,6 +477,7 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
                 draftStartDate: draftStart,
                 endDateLabel: this._formatDateOnly(line.endDate) || '—',
                 isDirty: dirty,
+                dirtyFlag: dirty ? 'true' : 'false',
                 updateDisabled: this.saving || !dirty || draftIncomplete,
                 hasInstalledQty,
                 proposedTotal,
@@ -449,10 +502,10 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
                     ? 'ARR/MRR are annualized run-rate — they will not match Grand Total.'
                     : 'ARR/MRR stay annualized.',
                 waterfallId: `wf-${line.id || idx}`,
+                waterfallTitle,
                 waterfallSteps,
-                waterfallNote: dirty
-                    ? 'Preview until Update (platform waterfall after reprice).'
-                    : 'Matches list discount until other pricing steps apply.'
+                waterfallNote,
+                priceWaterfallIdentifier: line.priceWaterfallIdentifier
             };
         });
     }
@@ -712,6 +765,12 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
 
     handleWaterfallEnter(event) {
         const root = event.currentTarget;
+        const lineId = root.dataset.id;
+        const isDirty = root.dataset.dirty === 'true';
+        const identifier = root.dataset.pwf || '';
+        if (lineId && !isDirty) {
+            this._ensurePlatformWaterfall(lineId, identifier);
+        }
         const pop = root.querySelector('.waterfall-popover');
         if (!pop) {
             return;
@@ -727,26 +786,96 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
         // Measure after paint so we can flip above/below the viewport edge.
         // eslint-disable-next-line @lwc/lwc/no-async-operation
         requestAnimationFrame(() => {
-            const rect = root.getBoundingClientRect();
-            const popRect = pop.getBoundingClientRect();
-            const gap = 10;
-            const width = popRect.width || 264;
-            let left = rect.left;
-            if (left + width > window.innerWidth - 8) {
-                left = Math.max(8, window.innerWidth - width - 8);
-            }
-            let top = rect.bottom + gap;
-            let placement = 'below';
-            if (top + popRect.height > window.innerHeight - 8) {
-                top = Math.max(8, rect.top - popRect.height - gap);
-                placement = 'above';
-            }
-            pop.style.left = `${Math.round(left)}px`;
-            pop.style.top = `${Math.round(top)}px`;
-            pop.classList.add(
-                placement === 'below' ? 'waterfall-popover_below' : 'waterfall-popover_above'
-            );
+            this._positionWaterfallPopover(root, pop);
         });
+    }
+
+    _positionWaterfallPopover(root, pop) {
+        if (!root || !pop || !pop.classList.contains('is-open')) {
+            return;
+        }
+        const rect = root.getBoundingClientRect();
+        const popRect = pop.getBoundingClientRect();
+        const gap = 10;
+        const width = popRect.width || 264;
+        let left = rect.left;
+        if (left + width > window.innerWidth - 8) {
+            left = Math.max(8, window.innerWidth - width - 8);
+        }
+        let top = rect.bottom + gap;
+        let placement = 'below';
+        if (top + popRect.height > window.innerHeight - 8) {
+            top = Math.max(8, rect.top - popRect.height - gap);
+            placement = 'above';
+        }
+        pop.style.left = `${Math.round(left)}px`;
+        pop.style.top = `${Math.round(top)}px`;
+        pop.classList.add(
+            placement === 'below' ? 'waterfall-popover_below' : 'waterfall-popover_above'
+        );
+    }
+
+    _ensurePlatformWaterfall(lineId, identifier) {
+        const cached = this.platformWaterfallByLineId[lineId];
+        if (
+            cached &&
+            (cached.loading ||
+                (cached.identifier === identifier &&
+                    (cached.steps?.length || cached.error)))
+        ) {
+            return;
+        }
+        if (this._waterfallInflight[lineId]) {
+            return;
+        }
+        this._waterfallInflight[lineId] = true;
+        this.platformWaterfallByLineId = {
+            ...this.platformWaterfallByLineId,
+            [lineId]: {
+                loading: true,
+                identifier,
+                steps: cached?.steps || [],
+                error: undefined
+            }
+        };
+        getLinePricingWaterfall({ lineItemId: lineId })
+            .then((resp) => {
+                this.platformWaterfallByLineId = {
+                    ...this.platformWaterfallByLineId,
+                    [lineId]: {
+                        loading: false,
+                        identifier,
+                        steps: resp?.success ? resp.steps || [] : [],
+                        error: resp?.success ? undefined : resp?.message || 'Unavailable',
+                        source: resp?.source
+                    }
+                };
+                // Reposition open popover after content grows.
+                // eslint-disable-next-line @lwc/lwc/no-async-operation
+                requestAnimationFrame(() => {
+                    const root = this.template.querySelector(
+                        `.waterfall-trigger[data-id="${lineId}"]`
+                    );
+                    const pop = root?.querySelector('.waterfall-popover.is-open');
+                    if (root && pop) {
+                        this._positionWaterfallPopover(root, pop);
+                    }
+                });
+            })
+            .catch((e) => {
+                this.platformWaterfallByLineId = {
+                    ...this.platformWaterfallByLineId,
+                    [lineId]: {
+                        loading: false,
+                        identifier,
+                        steps: [],
+                        error: this._reduceError(e)
+                    }
+                };
+            })
+            .finally(() => {
+                delete this._waterfallInflight[lineId];
+            });
     }
 
     handleWaterfallLeave(event) {
@@ -1116,6 +1245,17 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
         this.workingLines = data.workingLines || [];
         this.quoteNumber = data.quoteNumber;
         this.quoteName = data.quoteName;
+        this.calculationStatus = data.calculationStatus;
+        this.validationResult = data.validationResult;
+        // Invalidate waterfall cache when identifiers change after reprice.
+        const nextCache = { ...this.platformWaterfallByLineId };
+        for (const line of this.workingLines) {
+            const cached = nextCache[line.id];
+            if (cached && cached.identifier !== line.priceWaterfallIdentifier) {
+                delete nextCache[line.id];
+            }
+        }
+        this.platformWaterfallByLineId = nextCache;
         // Seed / refresh the catalog rail with common products when not mid-search.
         if (!this.catalogSearchTerm || this.catalogSearchTerm.trim().length < 2) {
             this._loadCommonCatalog();

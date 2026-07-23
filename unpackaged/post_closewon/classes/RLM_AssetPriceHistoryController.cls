@@ -91,6 +91,11 @@ public with sharing class RLM_AssetPriceHistoryController {
         @AuraEnabled public Decimal addMrr;
         /** True when line is a catalog Add (hard-deletable). */
         @AuraEnabled public Boolean isCatalogAdd;
+        /**
+         * QLI.PriceWaterfallIdentifier — "{lineItemId}:{executionId}" after
+         * platform pricing. Used to fetch the OOTB pricing-procedure waterfall.
+         */
+        @AuraEnabled public String priceWaterfallIdentifier;
     }
 
     public class StudioPayload {
@@ -98,6 +103,10 @@ public with sharing class RLM_AssetPriceHistoryController {
         @AuraEnabled public List<WorkingLine> workingLines;
         @AuraEnabled public String quoteNumber;
         @AuraEnabled public String quoteName;
+        /** Quote.CalculationStatus after last pricing run (informational). */
+        @AuraEnabled public String calculationStatus;
+        /** Quote.ValidationResult — non-null means prices/transaction need attention. */
+        @AuraEnabled public String validationResult;
     }
 
     /**
@@ -114,7 +123,7 @@ public with sharing class RLM_AssetPriceHistoryController {
         }
         Id qId = Id.valueOf(String.valueOf(quoteId));
         for (Quote q : [
-            SELECT Id, QuoteNumber, Name
+            SELECT Id, QuoteNumber, Name, CalculationStatus, ValidationResult
             FROM Quote
             WHERE Id = :qId
             WITH USER_MODE
@@ -122,6 +131,8 @@ public with sharing class RLM_AssetPriceHistoryController {
         ]) {
             payload.quoteNumber = q.QuoteNumber;
             payload.quoteName = q.Name;
+            payload.calculationStatus = q.CalculationStatus;
+            payload.validationResult = q.ValidationResult;
         }
         Set<Id> sourceAssetIds = new Set<Id>();
         List<QuoteLineItem> qlis = [
@@ -134,6 +145,7 @@ public with sharing class RLM_AssetPriceHistoryController {
                 TotalPrice,
                 StartDate,
                 EndDate,
+                PriceWaterfallIdentifier,
                 Product2.Name,
                 QuoteActionId,
                 QuoteAction.Type,
@@ -164,6 +176,7 @@ public with sharing class RLM_AssetPriceHistoryController {
             line.totalPrice = qli.TotalPrice;
             line.startDate = qli.StartDate;
             line.endDate = qli.EndDate;
+            line.priceWaterfallIdentifier = qli.PriceWaterfallIdentifier;
             line.quoteActionId = qli.QuoteActionId;
             if (qli.QuoteAction != null) {
                 line.quoteActionType = qli.QuoteAction.Type;
@@ -570,6 +583,244 @@ public with sharing class RLM_AssetPriceHistoryController {
         hit.isCommon = isCommon == true;
         return hit;
     }
+
+    public class PlatformWaterfallStep {
+        @AuraEnabled public String key;
+        @AuraEnabled public Integer sequence;
+        @AuraEnabled public String label;
+        @AuraEnabled public String elementType;
+        @AuraEnabled public String valueLabel;
+        @AuraEnabled public Boolean isAdjustment;
+    }
+
+    public class PlatformWaterfallResponse {
+        @AuraEnabled public Id lineItemId;
+        @AuraEnabled public String executionId;
+        @AuraEnabled public Boolean success;
+        @AuraEnabled public String message;
+        @AuraEnabled public List<PlatformWaterfallStep> steps;
+        /** Platform | Preview — UI can label the popover source. */
+        @AuraEnabled public String source;
+    }
+
+    /** Skip noisy procedure bookkeeping steps in the AE-facing waterfall. */
+    private static final Set<String> WATERFALL_SKIP_ELEMENT_TYPES = new Set<String>{
+        'AssignmentElement',
+        'GroupingAndAggregatePricing'
+    };
+
+    /**
+     * Fetch the OOTB pricing-procedure waterfall for a Quote line after reprice.
+     * Uses QLI.PriceWaterfallIdentifier ("{lineItemId}:{executionId}") and
+     * GET /connect/core-pricing/waterfall/{lineItemId}/{executionId}.
+     */
+    @AuraEnabled
+    public static PlatformWaterfallResponse getLinePricingWaterfall(Id lineItemId) {
+        PlatformWaterfallResponse resp = new PlatformWaterfallResponse();
+        resp.steps = new List<PlatformWaterfallStep>();
+        resp.success = false;
+        resp.source = 'Platform';
+        if (lineItemId == null || lineItemId.getSObjectType() != QuoteLineItem.SObjectType) {
+            resp.message = 'Quote line Id is required.';
+            return resp;
+        }
+        Id liId = Id.valueOf(String.valueOf(lineItemId));
+        resp.lineItemId = liId;
+
+        List<QuoteLineItem> lines = [
+            SELECT Id, PriceWaterfallIdentifier
+            FROM QuoteLineItem
+            WHERE Id = :liId
+            WITH USER_MODE
+            LIMIT 1
+        ];
+        if (lines.isEmpty()) {
+            resp.message = 'Quote line was not found.';
+            return resp;
+        }
+        String identifier = lines[0].PriceWaterfallIdentifier;
+        if (Test.isRunningTest() && String.isNotBlank(testWaterfallIdentifierOverride)) {
+            identifier = testWaterfallIdentifierOverride;
+        }
+        if (String.isBlank(identifier) || !identifier.contains(':')) {
+            resp.message = 'No persisted price waterfall yet — Update / Reprice the line first.';
+            return resp;
+        }
+        List<String> parts = identifier.split(':', 2);
+        String pathLineId = parts[0];
+        String executionId = parts[1];
+        resp.executionId = executionId;
+
+        try {
+            HttpRequest req = new HttpRequest();
+            req.setMethod('GET');
+            req.setEndpoint(
+                URL.getOrgDomainUrl().toExternalForm()
+                    + '/services/data/v67.0/connect/core-pricing/waterfall/'
+                    + pathLineId
+                    + '/'
+                    + executionId
+            );
+            req.setHeader('Authorization', 'Bearer ' + getApiSessionId());
+            req.setHeader('Content-Type', 'application/json');
+            req.setTimeout(20000);
+            HttpResponse httpRes = new Http().send(req);
+            if (httpRes.getStatusCode() < 200 || httpRes.getStatusCode() >= 300) {
+                resp.message =
+                    'Waterfall API ' + httpRes.getStatusCode() + ': ' +
+                    truncateMessage(httpRes.getBody(), 240);
+                return resp;
+            }
+            Map<String, Object> root = (Map<String, Object>) JSON.deserializeUntyped(
+                httpRes.getBody()
+            );
+            if (root.get('success') == false) {
+                resp.message = truncateMessage(String.valueOf(root.get('error')), 240);
+                return resp;
+            }
+            List<Object> waterfall = (List<Object>) root.get('waterfall');
+            if (waterfall == null || waterfall.isEmpty()) {
+                resp.message = 'Pricing returned an empty waterfall.';
+                return resp;
+            }
+            Integer idx = 0;
+            for (Object raw : waterfall) {
+                Map<String, Object> step = (Map<String, Object>) raw;
+                if (step.get('hideWaterfall') == true) {
+                    continue;
+                }
+                Map<String, Object> pe = (Map<String, Object>) step.get('pricingElement');
+                String elementType = pe != null ? String.valueOf(pe.get('elementType')) : null;
+                if (elementType != null && WATERFALL_SKIP_ELEMENT_TYPES.contains(elementType)) {
+                    continue;
+                }
+                Map<String, Object> outp = (Map<String, Object>) step.get('outputParameters');
+                PlatformWaterfallStep dto = new PlatformWaterfallStep();
+                dto.key = 'pwf-' + String.valueOf(step.get('sequence')) + '-' + idx;
+                Object seqObj = step.get('sequence');
+                dto.sequence = seqObj == null ? idx : Integer.valueOf(String.valueOf(seqObj));
+                dto.elementType = elementType;
+                dto.label = pe != null && pe.get('name') != null
+                    ? String.valueOf(pe.get('name'))
+                    : (elementType != null ? elementType : 'Step');
+                dto.isAdjustment = isAdjustmentElement(elementType, pe);
+                dto.valueLabel = formatWaterfallStepValue(pe, outp, elementType);
+                resp.steps.add(dto);
+                idx++;
+            }
+            if (resp.steps.isEmpty()) {
+                resp.message = 'No displayable waterfall steps after filtering.';
+                return resp;
+            }
+            resp.success = true;
+            resp.message = null;
+            return resp;
+        } catch (Exception e) {
+            resp.message = 'Could not load pricing waterfall: ' + e.getMessage();
+            return resp;
+        }
+    }
+
+    private static Boolean isAdjustmentElement(String elementType, Map<String, Object> pe) {
+        if (elementType != null) {
+            String et = elementType.toLowerCase();
+            if (et.contains('discount') || et.contains('adjustment') || et.contains('promotion')) {
+                return true;
+            }
+        }
+        if (pe != null && pe.get('adjustments') instanceof List<Object>) {
+            List<Object> adjs = (List<Object>) pe.get('adjustments');
+            if (!adjs.isEmpty()) {
+                Map<String, Object> adj = (Map<String, Object>) adjs[0];
+                if (adj.get('AdjustmentValue') != null) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static String formatWaterfallStepValue(
+        Map<String, Object> pe,
+        Map<String, Object> outp,
+        String elementType
+    ) {
+        if (pe != null && pe.get('adjustments') instanceof List<Object>) {
+            List<Object> adjs = (List<Object>) pe.get('adjustments');
+            if (!adjs.isEmpty()) {
+                Map<String, Object> adj = (Map<String, Object>) adjs[0];
+                Object av = adj.get('AdjustmentValue');
+                Object at = adj.get('AdjustmentType');
+                if (av != null && at != null && String.valueOf(at).equalsIgnoreCase('Percentage')) {
+                    String pct = String.valueOf(av);
+                    if (outp != null && outp.get('NetUnitPrice') != null) {
+                        return '−' + pct + '% → ' + formatMoney(outp.get('NetUnitPrice'));
+                    }
+                    return '−' + pct + '%';
+                }
+                if (av != null) {
+                    return String.valueOf(at) + ' ' + String.valueOf(av);
+                }
+            }
+        }
+        if (outp != null) {
+            if (elementType == 'ListPrice' && outp.get('ListPrice') != null) {
+                return formatMoney(outp.get('ListPrice'));
+            }
+            if (outp.get('NetUnitPrice') != null) {
+                return formatMoney(outp.get('NetUnitPrice'));
+            }
+            if (outp.get('ListPrice') != null) {
+                return formatMoney(outp.get('ListPrice'));
+            }
+            if (outp.get('Subtotal') != null) {
+                return formatMoney(outp.get('Subtotal'));
+            }
+            if (outp.get('ProrationMultiplier') != null) {
+                return String.valueOf(outp.get('ProrationMultiplier'));
+            }
+        }
+        return '—';
+    }
+
+    private static String formatMoney(Object raw) {
+        if (raw == null) {
+            return '—';
+        }
+        try {
+            Decimal d = Decimal.valueOf(String.valueOf(raw));
+            return '$' + String.valueOf(d.setScale(2, System.RoundingMode.HALF_UP));
+        } catch (Exception e) {
+            return String.valueOf(raw);
+        }
+    }
+
+    private static String truncateMessage(String body, Integer maxLen) {
+        if (String.isBlank(body)) {
+            return '';
+        }
+        String cleaned = body.replace('\n', ' ').trim();
+        if (cleaned.length() <= maxLen) {
+            return cleaned;
+        }
+        return cleaned.substring(0, maxLen) + '…';
+    }
+
+    /**
+     * Full API session for same-org Connect callouts.
+     * Lightning's UserInfo.getSessionId() is restricted; VF $Api.Session_ID is not.
+     */
+    @TestVisible
+    private static String getApiSessionId() {
+        if (Test.isRunningTest()) {
+            return 'test-session-id';
+        }
+        return Page.RLM_CloseWon_SessionId.getContent().toString().trim();
+    }
+
+    /** Test-only override — PriceWaterfallIdentifier is not DML-writeable. */
+    @TestVisible
+    private static String testWaterfallIdentifierOverride;
 
     /** Sort curated PBEs into COMMON_PRODUCT_SKUS order. */
     private class CatalogSkuRankComparator implements Comparator<PricebookEntry> {

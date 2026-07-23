@@ -52,6 +52,11 @@
                         This Quote is not marked as an amendment. Studio still shows lines; KPIs may be empty.
                     </div>
                 </template>
+                <template if:true={showPricingAttentionBanner}>
+                    <div class="slds-notify slds-notify_alert slds-alert_warning slds-m-horizontal_medium slds-m-bottom_small" role="status">
+                        {pricingAttentionMessage}
+                    </div>
+                </template>
 
                 <!-- Left: Catalog. Middle: Current over This add, then Working.
                      Right: Finalized; Working spans under middle + right.
@@ -363,6 +368,9 @@
                                                     <td>
                                                         <div
                                                             class="waterfall-trigger"
+                                                            data-id={line.id}
+                                                            data-dirty={line.dirtyFlag}
+                                                            data-pwf={line.priceWaterfallIdentifier}
                                                             onmouseenter={handleWaterfallEnter}
                                                             onmouseleave={handleWaterfallLeave}
                                                             onfocusin={handleWaterfallEnter}
@@ -377,7 +385,7 @@
                                                                 <lightning-formatted-number value={line.previewNetUnit} format-style="currency" currency-code="USD"></lightning-formatted-number>
                                                             </button>
                                                             <div id={line.waterfallId} class="waterfall-popover" role="tooltip">
-                                                                <p class="waterfall-popover__title">Price waterfall</p>
+                                                                <p class="waterfall-popover__title">{line.waterfallTitle}</p>
                                                                 <template for:each={line.waterfallSteps} for:item="step">
                                                                     <div key={step.key} class={step.rowClass}>
                                                                         <span class="waterfall-step__label">{step.label}</span>
