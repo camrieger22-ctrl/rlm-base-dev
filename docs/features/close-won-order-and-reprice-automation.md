@@ -117,6 +117,7 @@ Decrease/cancel projection is parked; when no add projection exists, Proposed is
 | Quote fields | `RLM_Amend_Current_*` / `RLM_Amend_Proposed_*` / `RLM_Amend_Net_Increase_*` (`ARR`, `MRR`, `Qty`) in `unpackaged/post_closewon/objects/Quote/fields/` |
 | Stamp | `RLM_AssetPriceHistoryController` on panel load/refresh **and** after successful `RLM_RepriceQuoteInvocable` force-reprice |
 | Seller UI | `rlmAssetPriceHistory` — Current contract / Proposed / Impact (Δ); Details tab **Difference quoting** field section (closewon flexipage patch) |
+| Amendment Studio (Phase 2a) | Full-width App Page `RLM_Amendment_Studio` + `rlmAmendmentStudio` (sticky Current/Proposed/Net KPIs · Installed · Working QLIs · Impact rail); launcher `rlmAmendmentStudioLauncher` on Quote; **Open line editor** escapes to the Quote record |
 | Pricing: Discount % off list on LastTransaction | Overlay `datasets/expression_set_overlays/amendment_list_percent_discount.json` (applied in `prepare_closewon`) |
 | DocGen | `RLM_QuoteProposal` tokens `AmendCurrent*` / `AmendProposed*` / `AmendNetIncrease*` via `RLMQuoteExtractBasic` + `RLMQuoteTransformBasic` (blank on non-amendment quotes) |
 
