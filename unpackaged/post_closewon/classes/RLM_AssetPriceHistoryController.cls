@@ -61,6 +61,71 @@ public with sharing class RLM_AssetPriceHistoryController {
         @AuraEnabled public String message;
     }
 
+    /** Amendment Quote line item for the Studio Working Changes panel (Phase 2 read-only). */
+    public class WorkingLine {
+        @AuraEnabled public Id id;
+        @AuraEnabled public String productName;
+        @AuraEnabled public Decimal quantity;
+        @AuraEnabled public Decimal netUnitPrice;
+        @AuraEnabled public Decimal totalPrice;
+        @AuraEnabled public String quoteActionType;
+    }
+
+    public class StudioPayload {
+        @AuraEnabled public HistoryResponse history;
+        @AuraEnabled public List<WorkingLine> workingLines;
+        @AuraEnabled public String quoteNumber;
+        @AuraEnabled public String quoteName;
+    }
+
+    /**
+     * Amendment Studio payload: history/projection KPIs + working Quote lines.
+     * Not cacheable (same timing reasons as getHistoryForQuote).
+     */
+    @AuraEnabled
+    public static StudioPayload getStudioPayload(Id quoteId) {
+        StudioPayload payload = new StudioPayload();
+        payload.workingLines = new List<WorkingLine>();
+        payload.history = getHistoryForQuote(quoteId);
+        if (quoteId == null || quoteId.getSObjectType() != Quote.SObjectType) {
+            return payload;
+        }
+        Id qId = Id.valueOf(String.valueOf(quoteId));
+        for (Quote q : [
+            SELECT Id, QuoteNumber, Name
+            FROM Quote
+            WHERE Id = :qId
+            WITH USER_MODE
+            LIMIT 1
+        ]) {
+            payload.quoteNumber = q.QuoteNumber;
+            payload.quoteName = q.Name;
+        }
+        for (QuoteLineItem qli : [
+            SELECT
+                Id,
+                Quantity,
+                NetUnitPrice,
+                TotalPrice,
+                Product2.Name,
+                QuoteAction.Type
+            FROM QuoteLineItem
+            WHERE QuoteId = :qId
+            WITH USER_MODE
+            ORDER BY CreatedDate ASC
+        ]) {
+            WorkingLine line = new WorkingLine();
+            line.id = qli.Id;
+            line.productName = qli.Product2 != null ? qli.Product2.Name : 'Quote line';
+            line.quantity = qli.Quantity;
+            line.netUnitPrice = qli.NetUnitPrice;
+            line.totalPrice = qli.TotalPrice;
+            line.quoteActionType = qli.QuoteAction != null ? qli.QuoteAction.Type : null;
+            payload.workingLines.add(line);
+        }
+        return payload;
+    }
+
     /**
      * Not cacheable: amendment QuoteActions / AssetActions often land just after
      * the page first paints; a cached empty response would stick until hard reload.

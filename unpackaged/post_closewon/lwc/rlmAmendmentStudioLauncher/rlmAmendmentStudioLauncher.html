@@ -1,0 +1,16 @@
+<template>
+    <lightning-card title="Amendment Studio" icon-name="standard:shifts">
+        <div class="slds-p-horizontal_medium slds-p-bottom_medium">
+            <p class="slds-text-body_small slds-text-color_weak slds-m-bottom_small">
+                Open the full-width workspace to compare installed base, working amendment lines, and net impact side by side.
+            </p>
+            <lightning-button
+                variant="brand"
+                label="Open Amendment Studio"
+                title="Open Amendment Studio"
+                onclick={handleOpen}
+                disabled={disabled}
+            ></lightning-button>
+        </div>
+    </lightning-card>
+</template>

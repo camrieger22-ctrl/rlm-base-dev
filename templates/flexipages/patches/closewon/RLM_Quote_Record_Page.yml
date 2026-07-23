@@ -13,6 +13,12 @@ patches:
     xml: |
       <itemInstances>
           <componentInstance>
+              <componentName>rlmAmendmentStudioLauncher</componentName>
+              <identifier>rlm_amendment_studio_launcher</identifier>
+          </componentInstance>
+      </itemInstances>
+      <itemInstances>
+          <componentInstance>
               <componentName>rlmAssetPriceHistory</componentName>
               <identifier>rlm_asset_price_history</identifier>
           </componentInstance>

@@ -1,0 +1,266 @@
+<template>
+    <div class="studio">
+        <header class="studio-header">
+            <div class="studio-header__titles">
+                <h1 class="studio-title">Amendment Studio</h1>
+                <p class="studio-subtitle">{headerSubtitle}</p>
+            </div>
+            <div class="studio-header__actions">
+                <template if:true={hasQuote}>
+                    <lightning-button
+                        variant="neutral"
+                        label="Back to Quote"
+                        title="Return to the Quote record"
+                        onclick={handleBackToQuote}
+                        class="slds-m-right_x-small"
+                    ></lightning-button>
+                </template>
+                <lightning-button-icon
+                    icon-name="utility:refresh"
+                    alternative-text="Refresh studio"
+                    title="Refresh"
+                    onclick={handleRefresh}
+                ></lightning-button-icon>
+            </div>
+        </header>
+
+        <template if:true={isLoading}>
+            <div class="slds-align_absolute-center slds-p-around_large">
+                <lightning-spinner alternative-text="Loading Amendment Studio" size="medium"></lightning-spinner>
+            </div>
+        </template>
+
+        <template if:true={error}>
+            <div class="slds-notify slds-notify_alert slds-alert_error slds-m-around_medium" role="alert">
+                {error}
+            </div>
+        </template>
+
+        <template if:false={isLoading}>
+            <template if:false={hasQuote}>
+                <div class="slds-p-around_large slds-text-align_center">
+                    <p class="slds-text-heading_small">Open Amendment Studio from an amendment Quote</p>
+                    <p class="slds-text-body_regular slds-text-color_weak slds-m-top_x-small">
+                        Use the Open Amendment Studio button on a Quote to load Current, Working changes, and Impact.
+                    </p>
+                </div>
+            </template>
+
+            <template if:true={hasQuote}>
+                <template if:true={showNonAmendBanner}>
+                    <div class="slds-notify slds-notify_alert slds-alert_warning slds-m-horizontal_medium slds-m-bottom_small" role="status">
+                        This Quote is not marked as an amendment. Studio still shows lines; KPIs may be empty.
+                    </div>
+                </template>
+
+                <!-- Sticky KPI strip: Current | Proposed | Net -->
+                <section class="kpi-strip" aria-label="Amendment impact summary">
+                    <div class="kpi-card kpi-card_current">
+                        <p class="kpi-card__label">Current</p>
+                        <div class="kpi-card__metrics">
+                            <div>
+                                <p class="kpi-metric__label">ARR</p>
+                                <p class="kpi-metric__value">
+                                    <lightning-formatted-number value={kpiCurrentArr} format-style="currency" currency-code="USD"></lightning-formatted-number>
+                                </p>
+                            </div>
+                            <div>
+                                <p class="kpi-metric__label">MRR</p>
+                                <p class="kpi-metric__value">
+                                    <lightning-formatted-number value={kpiCurrentMrr} format-style="currency" currency-code="USD"></lightning-formatted-number>
+                                </p>
+                            </div>
+                            <div>
+                                <p class="kpi-metric__label">Qty</p>
+                                <p class="kpi-metric__value">
+                                    <lightning-formatted-number value={kpiCurrentQty} maximum-fraction-digits="0"></lightning-formatted-number>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="kpi-card kpi-card_proposed">
+                        <p class="kpi-card__label">Proposed</p>
+                        <div class="kpi-card__metrics">
+                            <div>
+                                <p class="kpi-metric__label">ARR</p>
+                                <p class="kpi-metric__value">
+                                    <lightning-formatted-number value={kpiProposedArr} format-style="currency" currency-code="USD"></lightning-formatted-number>
+                                </p>
+                            </div>
+                            <div>
+                                <p class="kpi-metric__label">MRR</p>
+                                <p class="kpi-metric__value">
+                                    <lightning-formatted-number value={kpiProposedMrr} format-style="currency" currency-code="USD"></lightning-formatted-number>
+                                </p>
+                            </div>
+                            <div>
+                                <p class="kpi-metric__label">Qty</p>
+                                <p class="kpi-metric__value">
+                                    <lightning-formatted-number value={kpiProposedQty} maximum-fraction-digits="0"></lightning-formatted-number>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="kpi-card kpi-card_net">
+                        <p class="kpi-card__label">Net increase</p>
+                        <div class="kpi-card__metrics">
+                            <div>
+                                <p class="kpi-metric__label">ARR</p>
+                                <p class={netArrClass}>
+                                    <lightning-formatted-number value={kpiNetArr} format-style="currency" currency-code="USD"></lightning-formatted-number>
+                                </p>
+                            </div>
+                            <div>
+                                <p class="kpi-metric__label">MRR</p>
+                                <p class={netMrrClass}>
+                                    <lightning-formatted-number value={kpiNetMrr} format-style="currency" currency-code="USD"></lightning-formatted-number>
+                                </p>
+                            </div>
+                            <div>
+                                <p class="kpi-metric__label">Qty</p>
+                                <p class={netQtyClass}>
+                                    <lightning-formatted-number value={kpiNetQty} maximum-fraction-digits="0"></lightning-formatted-number>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Three columns: Installed | Working | Impact -->
+                <div class="studio-grid">
+                    <section class="studio-panel" aria-label="Installed base">
+                        <div class="studio-panel__header">
+                            <h2 class="studio-panel__title">Installed</h2>
+                        </div>
+                        <div class="studio-panel__body">
+                            <template if:true={hasSummary}>
+                                <p class="installed-name">{installedAssetName}</p>
+                                <div class="installed-metrics panel panel-current">
+                                    <div>
+                                        <p class="slds-text-body_small slds-text-color_weak">Avg paid</p>
+                                        <p class="panel-metric-value">
+                                            <lightning-formatted-number value={summary.averagePaid} format-style="currency" currency-code="USD"></lightning-formatted-number>
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <p class="slds-text-body_small slds-text-color_weak">Qty</p>
+                                        <p class="panel-metric-value">
+                                            <lightning-formatted-number value={summary.totalQuantity} maximum-fraction-digits="0"></lightning-formatted-number>
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <p class="slds-text-body_small slds-text-color_weak">ARR</p>
+                                        <p class="panel-metric-value">
+                                            <lightning-formatted-number value={summary.currentArr} format-style="currency" currency-code="USD"></lightning-formatted-number>
+                                        </p>
+                                    </div>
+                                </div>
+                            </template>
+                            <template if:false={hasSummary}>
+                                <p class="slds-text-body_small slds-text-color_weak">{historyMessage}</p>
+                            </template>
+                        </div>
+                    </section>
+
+                    <section class="studio-panel studio-panel_center" aria-label="Working changes">
+                        <div class="studio-panel__header">
+                            <h2 class="studio-panel__title">Working changes</h2>
+                            <lightning-button
+                                variant="brand"
+                                label="Open line editor"
+                                title="Edit lines on the Quote (Transaction Line Editor escape hatch)"
+                                onclick={handleOpenLineEditor}
+                            ></lightning-button>
+                        </div>
+                        <div class="studio-panel__body">
+                            <p class="slds-text-body_small slds-text-color_weak slds-m-bottom_small">
+                                Amendment Quote lines — commercial truth. Guided qty/add arrives in Phase 3; use Open line editor for edits now.
+                            </p>
+                            <template if:true={hasWorkingLines}>
+                                <ul class="working-list">
+                                    <template for:each={workingLineRows} for:item="line">
+                                        <li key={line.key} class="working-row">
+                                            <div class="working-row__main">
+                                                <p class="working-row__name">{line.productName}</p>
+                                                <p class="working-row__meta">{line.typeLabel}</p>
+                                            </div>
+                                            <div class="working-row__nums">
+                                                <span>
+                                                    Qty
+                                                    <lightning-formatted-number value={line.quantity} maximum-fraction-digits="0"></lightning-formatted-number>
+                                                </span>
+                                                <span>
+                                                    <lightning-formatted-number value={line.netUnitPrice} format-style="currency" currency-code="USD"></lightning-formatted-number>
+                                                    /u
+                                                </span>
+                                            </div>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </template>
+                            <template if:false={hasWorkingLines}>
+                                <p class="slds-text-body_small slds-text-color_weak">
+                                    No quote lines yet. Open the line editor to add or amend products.
+                                </p>
+                            </template>
+                        </div>
+                    </section>
+
+                    <section class="studio-panel" aria-label="Impact detail">
+                        <div class="studio-panel__header">
+                            <h2 class="studio-panel__title">Impact</h2>
+                        </div>
+                        <div class="studio-panel__body">
+                            <template if:true={showAddProjection}>
+                                <div class="panel panel-proposed slds-m-bottom_small">
+                                    <p class="panel-title slds-text-title_caps slds-m-bottom_xx-small">
+                                        Current vs proposed
+                                    </p>
+                                    <template for:each={impactDeltas} for:item="row">
+                                        <div key={row.key} class="impact-row">
+                                            <p class="impact-row__label">{row.label}</p>
+                                            <div class="impact-row__values">
+                                                <span class="impact-row__current">
+                                                    <template if:true={row.formatCurrency}>
+                                                        <lightning-formatted-number value={row.current} format-style="currency" currency-code="USD"></lightning-formatted-number>
+                                                    </template>
+                                                    <template if:true={row.formatQty}>
+                                                        <lightning-formatted-number value={row.current} maximum-fraction-digits="0"></lightning-formatted-number>
+                                                    </template>
+                                                </span>
+                                                <span class="impact-row__arrow" aria-hidden="true">→</span>
+                                                <span class="impact-row__proposed">
+                                                    <template if:true={row.formatCurrency}>
+                                                        <lightning-formatted-number value={row.proposed} format-style="currency" currency-code="USD"></lightning-formatted-number>
+                                                    </template>
+                                                    <template if:true={row.formatQty}>
+                                                        <lightning-formatted-number value={row.proposed} maximum-fraction-digits="0"></lightning-formatted-number>
+                                                    </template>
+                                                </span>
+                                            </div>
+                                            <p class={row.deltaClass}>
+                                                Δ
+                                                <template if:true={row.formatCurrency}>
+                                                    <lightning-formatted-number value={row.delta} format-style="currency" currency-code="USD"></lightning-formatted-number>
+                                                </template>
+                                                <template if:true={row.formatQty}>
+                                                    <lightning-formatted-number value={row.delta} maximum-fraction-digits="0"></lightning-formatted-number>
+                                                </template>
+                                            </p>
+                                        </div>
+                                    </template>
+                                </div>
+                            </template>
+                            <template if:false={showAddProjection}>
+                                <p class="slds-text-body_small slds-text-color_weak">
+                                    <template if:true={projection}>{projection.message}</template>
+                                    <template if:false={projection}>Impact appears after amendment lines are priced.</template>
+                                </p>
+                            </template>
+                        </div>
+                    </section>
+                </div>
+            </template>
+        </template>
+    </div>
+</template>
