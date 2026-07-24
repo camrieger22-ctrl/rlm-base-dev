@@ -1,29 +1,5 @@
 <template>
     <div class="studio">
-        <header class="studio-header">
-            <div class="studio-header__titles">
-                <h1 class="studio-title">Amendment Studio</h1>
-                <p class="studio-subtitle">{headerSubtitle}</p>
-            </div>
-            <div class="studio-header__actions">
-                <lightning-button
-                    label="Installed"
-                    title="View installed transaction ledger"
-                    icon-name="utility:list"
-                    onclick={handleOpenInstalledDrawer}
-                    disabled={isBusy}
-                    class="studio-header__installed"
-                ></lightning-button>
-                <lightning-button-icon
-                    icon-name="utility:refresh"
-                    alternative-text="Refresh studio"
-                    title="Refresh"
-                    onclick={handleRefresh}
-                    disabled={isBusy}
-                ></lightning-button-icon>
-            </div>
-        </header>
-
         <template if:true={isLoading}>
             <div class="slds-align_absolute-center slds-p-around_large">
                 <lightning-spinner alternative-text="Loading Amendment Studio" size="medium"></lightning-spinner>
@@ -64,8 +40,7 @@
                     </div>
                 </template>
 
-                <!-- Left: Catalog. Middle: Current → This add → Finalized, then Working.
-                     Installed ledger lives in a slide-over (header + Current KPIs). -->
+                <!-- Left: Catalog. Right: stacked Working options (Current+installed / This add / Finalized). -->
                 <div class="studio-layout">
                     <section class="studio-panel layout-catalog" aria-label="Product catalog">
                         <div class="studio-panel__header studio-panel__header_stack">
@@ -172,546 +147,469 @@
                         </div>
                     </section>
 
-                    <div class="kpi-card kpi-card_current layout-current">
-                        <div class="kpi-card__label-row">
-                            <p class="kpi-card__label">Current</p>
-                            <button
-                                type="button"
-                                class="kpi-card__link"
-                                onclick={handleOpenInstalledDrawer}
-                                aria-expanded={installedDrawerExpanded}
-                            >
-                                View installed
-                            </button>
-                        </div>
-                        <div class="kpi-card__metrics kpi-card__metrics_aligned">
-                            <button
-                                type="button"
-                                class="kpi-metric-btn"
-                                onclick={handleOpenInstalledDrawer}
-                                title="View installed ledger that rolls up to Current ARR"
-                                aria-label="Current ARR — open installed ledger"
-                            >
-                                <p class="kpi-metric__label">ARR</p>
-                                <p class="kpi-metric__value">
-                                    <lightning-formatted-number value={kpiCurrentArr} format-style="currency" currency-code="USD"></lightning-formatted-number>
-                                </p>
-                            </button>
-                            <button
-                                type="button"
-                                class="kpi-metric-btn"
-                                onclick={handleOpenInstalledDrawer}
-                                title="View installed ledger that rolls up to Current MRR"
-                                aria-label="Current MRR — open installed ledger"
-                            >
-                                <p class="kpi-metric__label">MRR</p>
-                                <p class="kpi-metric__value">
-                                    <lightning-formatted-number value={kpiCurrentMrr} format-style="currency" currency-code="USD"></lightning-formatted-number>
-                                </p>
-                            </button>
-                            <button
-                                type="button"
-                                class="kpi-metric-btn"
-                                onclick={handleOpenInstalledDrawer}
-                                title="View installed ledger that rolls up to Current quantity"
-                                aria-label="Current quantity — open installed ledger"
-                            >
-                                <p class="kpi-metric__label">Qty</p>
-                                <p class="kpi-metric__value">
-                                    <lightning-formatted-number value={kpiCurrentQty} maximum-fraction-digits="0"></lightning-formatted-number>
-                                </p>
-                            </button>
-                            <div class="kpi-metric-spacer" aria-hidden="true"></div>
-                        </div>
-                    </div>
-
-                    <div class="kpi-card kpi-card_add layout-add">
-                        <p class="kpi-card__label">This add</p>
-                        <div class="kpi-card__metrics kpi-card__metrics_aligned">
-                            <div>
-                                <p class="kpi-metric__label">ARR</p>
-                                <p class="kpi-metric__value">
-                                    <lightning-formatted-number value={thisAddArr} format-style="currency" currency-code="USD"></lightning-formatted-number>
-                                </p>
-                            </div>
-                            <div>
-                                <p class="kpi-metric__label">MRR</p>
-                                <p class="kpi-metric__value">
-                                    <lightning-formatted-number value={thisAddMrr} format-style="currency" currency-code="USD"></lightning-formatted-number>
-                                </p>
-                            </div>
-                            <div>
-                                <p class="kpi-metric__label">Qty</p>
-                                <p class="kpi-metric__value">
-                                    <lightning-formatted-number value={thisAddQty} maximum-fraction-digits="0"></lightning-formatted-number>
-                                </p>
-                            </div>
-                            <div class="kpi-metric-prorated">
-                                <p class="kpi-metric__label">Prorated</p>
-                                <p class="kpi-metric__value">
-                                    <lightning-formatted-number value={thisAddProrated} format-style="currency" currency-code="USD"></lightning-formatted-number>
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <section class="kpi-card kpi-card_finalized layout-finalized" aria-label="Finalized contract">
-                        <p class="kpi-card__label">Finalized contract</p>
-                        <template if:true={showAddProjection}>
-                            <div class="kpi-card__metrics kpi-card__metrics_aligned">
-                                <template for:each={impactDeltas} for:item="row">
-                                    <div key={row.key} class="kpi-metric-finalized">
-                                        <p class="kpi-metric__label">{row.label}</p>
-                                        <p class="kpi-metric__value">
-                                            <template if:true={row.formatCurrency}>
-                                                <lightning-formatted-number value={row.proposed} format-style="currency" currency-code="USD"></lightning-formatted-number>
-                                            </template>
-                                            <template if:true={row.formatQty}>
-                                                <lightning-formatted-number value={row.proposed} maximum-fraction-digits="0"></lightning-formatted-number>
-                                            </template>
-                                        </p>
-                                        <p class={row.deltaClass}>
-                                            Δ
-                                            <template if:true={row.formatCurrency}>
-                                                <lightning-formatted-number value={row.delta} format-style="currency" currency-code="USD"></lightning-formatted-number>
-                                            </template>
-                                            <template if:true={row.formatQty}>
-                                                <lightning-formatted-number value={row.delta} maximum-fraction-digits="0"></lightning-formatted-number>
-                                            </template>
-                                        </p>
-                                    </div>
-                                </template>
-                                <div class="kpi-metric-spacer" aria-hidden="true"></div>
-                            </div>
-                        </template>
-                        <template if:false={showAddProjection}>
-                            <p class="finalized-empty">
-                                <template if:true={projection}>{projection.message}</template>
-                                <template if:false={projection}>Update Working to see Current → proposed.</template>
-                            </p>
-                        </template>
-                    </section>
-
-                    <section class="studio-panel layout-scenarios" aria-label="Compare scenarios">
-                        <div class="studio-panel__header studio-panel__header_stack">
-                            <div>
-                                <h2 class="studio-panel__title">Compare scenarios</h2>
-                                <p class="studio-panel__hint">
-                                    Sibling amend Quotes on this Opportunity. Edit qty/discount in place, then select one for forecast.
-                                </p>
-                            </div>
-                            <div class="scenario-header__actions">
-                                <lightning-button
-                                    label="Duplicate scenario"
-                                    title="Clone this amend Quote as another option"
-                                    onclick={handleDuplicateScenario}
-                                    disabled={isBusy}
-                                    variant="neutral"
-                                ></lightning-button>
-                            </div>
-                        </div>
-                        <div class="studio-panel__body">
-                            <template if:false={hasOpportunity}>
-                                <p class="slds-text-body_small slds-text-color_weak">
-                                    Link this Quote to an Opportunity to compare sibling scenarios and set forecast.
-                                </p>
+                    <section class="studio-panel studio-panel_working layout-working" aria-label="Working changes">
+                        <div class="tle-shell">
+                            <template if:true={scenarioLoading}>
+                                <div class="slds-align_absolute-center slds-p-around_medium">
+                                    <lightning-spinner alternative-text="Loading options" size="small"></lightning-spinner>
+                                </div>
                             </template>
-                            <template if:true={hasOpportunity}>
-                                <template if:true={scenarioLoading}>
-                                    <div class="slds-align_absolute-center slds-p-around_medium">
-                                        <lightning-spinner alternative-text="Loading scenarios" size="small"></lightning-spinner>
-                                    </div>
-                                </template>
-                                <template if:true={scenarioError}>
-                                    <p class="pending-error">{scenarioError}</p>
-                                </template>
-                                <template if:true={hasScenarioColumns}>
-                                    <div class="scenario-baseline">
-                                        <span class="scenario-baseline__label">Current (shared)</span>
-                                        <span class="scenario-baseline__metric">
-                                            ARR
-                                            <lightning-formatted-number value={scenarioCurrentArr} format-style="currency" currency-code="USD"></lightning-formatted-number>
-                                        </span>
-                                        <span class="scenario-baseline__metric">
-                                            MRR
-                                            <lightning-formatted-number value={scenarioCurrentMrr} format-style="currency" currency-code="USD"></lightning-formatted-number>
-                                        </span>
-                                        <span class="scenario-baseline__metric">
-                                            Qty
-                                            <lightning-formatted-number value={scenarioCurrentQty} maximum-fraction-digits="0"></lightning-formatted-number>
-                                        </span>
-                                    </div>
-                                    <div class="scenario-matrix" role="list">
-                                        <template for:each={scenarioColumnViews} for:item="col">
-                                            <article key={col.key} class={col.columnClass} role="listitem">
-                                                <header class="scenario-col__head">
-                                                    <div>
-                                                        <p class="scenario-col__name">{col.name}</p>
-                                                        <p class="scenario-col__meta">{col.quoteNumber}</p>
+                            <template if:true={scenarioError}>
+                                <p class="pending-error slds-p-around_small">{scenarioError}</p>
+                            </template>
+
+                            <div class="scenario-options" role="list">
+                                <template for:each={scenarioOptionViews} for:item="opt">
+                                    <article key={opt.key} class={opt.cardClass} role="listitem">
+                                        <header class="scenario-option__head">
+                                            <div class="scenario-option__title">
+                                                <lightning-input
+                                                    type="text"
+                                                    label="Option name"
+                                                    variant="label-hidden"
+                                                    value={opt.nameValue}
+                                                    data-quote-id={opt.quoteId}
+                                                    maxlength="255"
+                                                    onchange={handleScenarioNameInput}
+                                                    onblur={handleScenarioNameCommit}
+                                                    onkeydown={handleScenarioNameKeydown}
+                                                    disabled={opt.nameDisabled}
+                                                    class="scenario-option__name-input"
+                                                    title={opt.metaTitle}
+                                                ></lightning-input>
+                                            </div>
+                                            <div class="scenario-option__head-right">
+                                                <span class="scenario-option__badge">{opt.headerBadge}</span>
+                                                <div class="scenario-option__toolbar" role="toolbar" aria-label="Option actions">
+                                                    <div class="tle-instant" title="Studio force-reprices on Update">
+                                                        <span class="tle-instant__label">Instant Pricing</span>
+                                                        <span class="tle-instant__switch" role="img" aria-label="Instant Pricing Active">
+                                                            <span class="tle-instant__knob"></span>
+                                                        </span>
+                                                        <span class="tle-instant__state">Active</span>
                                                     </div>
-                                                    <span class="scenario-col__badge">{col.headerBadge}</span>
-                                                </header>
-                                                <div class="scenario-col__fields">
-                                                    <label class="scenario-field">
-                                                        <span class="txn-label">Qty</span>
-                                                        <lightning-input
-                                                            type="number"
-                                                            min="0"
-                                                            step="1"
-                                                            value={col.qtyValue}
-                                                            data-quote-id={col.quoteId}
-                                                            label="Quantity"
-                                                            variant="label-hidden"
-                                                            onchange={handleScenarioQtyInput}
-                                                            disabled={isBusy}
-                                                        ></lightning-input>
-                                                    </label>
-                                                    <label class="scenario-field">
-                                                        <span class="txn-label">Disc %</span>
-                                                        <lightning-input
-                                                            type="number"
-                                                            min="0"
-                                                            max="100"
-                                                            step="0.01"
-                                                            value={col.discValue}
-                                                            data-quote-id={col.quoteId}
-                                                            label="Discount percent"
-                                                            variant="label-hidden"
-                                                            onchange={handleScenarioDiscInput}
-                                                            disabled={isBusy}
-                                                        ></lightning-input>
-                                                    </label>
-                                                </div>
-                                                <div class="scenario-col__kpis">
-                                                    <div>
-                                                        <p class="txn-label">This add ARR</p>
-                                                        <p class="txn-value">
-                                                            <lightning-formatted-number value={col.thisAddArr} format-style="currency" currency-code="USD"></lightning-formatted-number>
-                                                        </p>
-                                                    </div>
-                                                    <div>
-                                                        <p class="txn-label">Finalized ARR</p>
-                                                        <p class="txn-value">
-                                                            <lightning-formatted-number value={col.finalizedArr} format-style="currency" currency-code="USD"></lightning-formatted-number>
-                                                        </p>
-                                                    </div>
-                                                    <div>
-                                                        <p class="txn-label">Δ ARR</p>
-                                                        <p class="txn-value">
-                                                            <lightning-formatted-number value={col.deltaArr} format-style="currency" currency-code="USD"></lightning-formatted-number>
-                                                        </p>
-                                                    </div>
-                                                    <div>
-                                                        <p class="txn-label">Grand Total</p>
-                                                        <p class="txn-value">
-                                                            <lightning-formatted-number value={col.grandTotal} format-style="currency" currency-code="USD"></lightning-formatted-number>
-                                                        </p>
-                                                    </div>
-                                                </div>
-                                                <div class="scenario-col__actions">
+                                                    <lightning-button
+                                                        label="Duplicate"
+                                                        title="Clone this option as another scenario"
+                                                        data-quote-id={opt.quoteId}
+                                                        onclick={handleDuplicateScenario}
+                                                        disabled={isBusy}
+                                                        variant="brand"
+                                                    ></lightning-button>
                                                     <button
                                                         type="button"
                                                         class="tle-btn"
-                                                        data-quote-id={col.quoteId}
-                                                        data-line-id={col.primaryLineItemId}
-                                                        onclick={handleScenarioUpdate}
-                                                        disabled={col.updateDisabled}
+                                                        data-tool="headerAdjustment"
+                                                        data-quote-id={opt.quoteId}
+                                                        onclick={handleTleTool}
+                                                        disabled={isBusy}
                                                     >
-                                                        Update
+                                                        Manage Header Adjustment
                                                     </button>
                                                     <button
                                                         type="button"
                                                         class="tle-btn"
-                                                        data-quote-id={col.quoteId}
+                                                        data-quote-id={opt.quoteId}
+                                                        onclick={handleRepriceAll}
+                                                        disabled={isBusy}
+                                                    >
+                                                        Reprice All
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        class="tle-btn"
+                                                        data-quote-id={opt.quoteId}
                                                         onclick={handleScenarioOpen}
-                                                        disabled={col.openDisabled}
+                                                        disabled={opt.openDisabled}
                                                     >
                                                         Open
                                                     </button>
                                                     <button
                                                         type="button"
                                                         class="tle-btn"
-                                                        data-quote-id={col.quoteId}
+                                                        data-quote-id={opt.quoteId}
                                                         onclick={handleScenarioSelectForecast}
-                                                        disabled={col.selectDisabled}
+                                                        disabled={opt.selectDisabled}
                                                     >
                                                         Set forecast
                                                     </button>
                                                 </div>
-                                            </article>
-                                        </template>
-                                    </div>
-                                </template>
-                                <template if:false={hasScenarioColumns}>
-                                    <template if:false={scenarioLoading}>
-                                        <p class="slds-text-body_small slds-text-color_weak">
-                                            No sibling scenarios yet — Duplicate scenario to create Option 2.
-                                        </p>
-                                    </template>
-                                </template>
-                            </template>
-                        </div>
-                    </section>
+                                            </div>
+                                        </header>
 
-                    <section class="studio-panel studio-panel_working layout-working" aria-label="Working changes">
-                        <div class="studio-panel__header">
-                            <h2 class="studio-panel__title">Working changes</h2>
-                            <p class="studio-panel__hint">Same line table format as standard Quote Line Items.</p>
-                        </div>
-                        <div class="tle-shell">
-                            <div class="tle-toolbar" role="toolbar" aria-label="Quote line items actions">
-                                <div class="tle-toolbar__identity">
-                                    <span class="tle-toolbar__badge" aria-hidden="true"></span>
-                                    <div>
-                                        <p class="tle-toolbar__title">Quote Line Items ({workingLineCount})</p>
-                                        <p class="tle-toolbar__count">{workingLineCountLabel} •</p>
-                                    </div>
-                                </div>
-                                <div class="tle-toolbar__controls">
-                                    <div class="tle-instant" title="Studio force-reprices on Update">
-                                        <span class="tle-instant__label">Instant Pricing</span>
-                                        <span class="tle-instant__switch" role="img" aria-label="Instant Pricing Active">
-                                            <span class="tle-instant__knob"></span>
-                                        </span>
-                                        <span class="tle-instant__state">Active</span>
-                                    </div>
-                                    <button type="button" class="tle-btn" data-tool="headerAdjustment" onclick={handleTleTool} disabled={isBusy}>Manage Header Adjustment</button>
-                                    <button type="button" class="tle-btn" onclick={handleRepriceAll} disabled={isBusy}>Reprice All</button>
-                                </div>
+                                        <div class="tle-table-wrap">
+                                            <template if:true={opt.hasLines}>
+                                                <p class="scenario-option__line-count">Quote Line Items ({opt.lineCount}) · {opt.lineCountLabel}</p>
+                                                <table class="tle-table">
+                                                    <thead>
+                                                        <tr>
+                                                            <th scope="col">Product</th>
+                                                            <th scope="col">Quantity</th>
+                                                            <th scope="col">Start Date</th>
+                                                            <th scope="col">End Date</th>
+                                                            <th scope="col">List Price</th>
+                                                            <th scope="col">Discount</th>
+                                                            <th scope="col">Net Unit Price</th>
+                                                            <th scope="col">Total Price</th>
+                                                            <th scope="col">Approval</th>
+                                                            <th class="tle-col_actions" scope="col">
+                                                                <span class="slds-assistive-text">Actions</span>
+                                                            </th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        <template for:each={opt.lineRows} for:item="line">
+                                                            <tr key={line.key} class={line.rowClass}>
+                                                                <td>
+                                                                    <button type="button" class="tle-product-link" title={line.typeLabel}>{line.productName}</button>
+                                                                    <template if:true={line.hasInstalledQty}>
+                                                                        <p class="tle-sub">{line.installedQtyLabel}</p>
+                                                                    </template>
+                                                                </td>
+                                                                <td>
+                                                                    <lightning-input
+                                                                        type="number"
+                                                                        min="0"
+                                                                        step="1"
+                                                                        value={line.draftQuantity}
+                                                                        data-id={line.id}
+                                                                        data-quote-id={opt.quoteId}
+                                                                        label="Quantity"
+                                                                        variant="label-hidden"
+                                                                        onchange={handleQtyInput}
+                                                                        disabled={isBusy}
+                                                                        class="tle-cell-input"
+                                                                    ></lightning-input>
+                                                                </td>
+                                                                <td>
+                                                                    <lightning-input
+                                                                        type="date"
+                                                                        value={line.draftStartDate}
+                                                                        data-id={line.id}
+                                                                        data-quote-id={opt.quoteId}
+                                                                        label="Start Date"
+                                                                        variant="label-hidden"
+                                                                        onchange={handleStartDateInput}
+                                                                        disabled={isBusy}
+                                                                        class="tle-cell-input tle-cell-input_date"
+                                                                    ></lightning-input>
+                                                                </td>
+                                                                <td>
+                                                                    <span class="tle-cell-text">{line.endDateLabel}</span>
+                                                                </td>
+                                                                <td>
+                                                                    <lightning-formatted-number value={line.listPrice} format-style="currency" currency-code="USD"></lightning-formatted-number>
+                                                                </td>
+                                                                <td>
+                                                                    <div class="tle-adj">
+                                                                        <lightning-input
+                                                                            type="number"
+                                                                            min="0"
+                                                                            max="100"
+                                                                            step="0.01"
+                                                                            value={line.draftDiscount}
+                                                                            data-id={line.id}
+                                                                            data-quote-id={opt.quoteId}
+                                                                            label="Discount %"
+                                                                            variant="label-hidden"
+                                                                            onchange={handleDiscountInput}
+                                                                            disabled={isBusy}
+                                                                            class="tle-cell-input tle-cell-input_adj"
+                                                                        ></lightning-input>
+                                                                        <span class="tle-adj__suffix">%</span>
+                                                                    </div>
+                                                                </td>
+                                                                <td>
+                                                                    <div
+                                                                        class="waterfall-trigger"
+                                                                        data-id={line.id}
+                                                                        data-dirty={line.dirtyFlag}
+                                                                        data-pwf={line.priceWaterfallIdentifier}
+                                                                        onmouseenter={handleWaterfallEnter}
+                                                                        onmouseleave={handleWaterfallLeave}
+                                                                        onfocusin={handleWaterfallEnter}
+                                                                        onfocusout={handleWaterfallLeave}
+                                                                    >
+                                                                        <button
+                                                                            type="button"
+                                                                            class="waterfall-price tle-net"
+                                                                            aria-describedby={line.waterfallId}
+                                                                            title="Hover for price waterfall"
+                                                                        >
+                                                                            <lightning-formatted-number value={line.previewNetUnit} format-style="currency" currency-code="USD"></lightning-formatted-number>
+                                                                        </button>
+                                                                        <div id={line.waterfallId} class="waterfall-popover" role="tooltip">
+                                                                            <p class="waterfall-popover__title">{line.waterfallTitle}</p>
+                                                                            <template for:each={line.waterfallSteps} for:item="step">
+                                                                                <div key={step.key} class={step.rowClass}>
+                                                                                    <span class="waterfall-step__label">{step.label}</span>
+                                                                                    <span class="waterfall-step__value">{step.valueLabel}</span>
+                                                                                </div>
+                                                                            </template>
+                                                                            <p class="waterfall-popover__note">{line.waterfallNote}</p>
+                                                                        </div>
+                                                                    </div>
+                                                                </td>
+                                                                <td>
+                                                                    <lightning-formatted-number value={line.previewProrated} format-style="currency" currency-code="USD"></lightning-formatted-number>
+                                                                </td>
+                                                                <td>
+                                                                    <span class="tle-cell-muted">—</span>
+                                                                </td>
+                                                                <td class="tle-col_actions">
+                                                                    <lightning-button-icon
+                                                                        icon-name="utility:add"
+                                                                        alternative-text="Add product below"
+                                                                        title="Add product below"
+                                                                        variant="border-filled"
+                                                                        data-id={line.id}
+                                                                        onclick={handleAddLineBelow}
+                                                                        disabled={isBusy}
+                                                                    ></lightning-button-icon>
+                                                                    <lightning-button-icon
+                                                                        icon-name="utility:delete"
+                                                                        alternative-text={line.removeLabel}
+                                                                        title={line.removeLabel}
+                                                                        variant="border-filled"
+                                                                        data-id={line.id}
+                                                                        data-catalog-add={line.isCatalogAdd}
+                                                                        onclick={handleRemoveLine}
+                                                                        disabled={isBusy}
+                                                                    ></lightning-button-icon>
+                                                                    <lightning-button
+                                                                        variant="brand"
+                                                                        label="Update"
+                                                                        title="Save line and reprice"
+                                                                        data-id={line.id}
+                                                                        data-quote-id={opt.quoteId}
+                                                                        onclick={handleQtyApply}
+                                                                        disabled={line.updateDisabled}
+                                                                        class="tle-update"
+                                                                    ></lightning-button>
+                                                                </td>
+                                                            </tr>
+                                                        </template>
+                                                    </tbody>
+                                                </table>
+                                            </template>
+                                            <template if:false={opt.hasLines}>
+                                                <p class="slds-text-body_small slds-text-color_weak slds-p-around_small">
+                                                    No quote lines yet. Search the Catalog on the left to add a product.
+                                                </p>
+                                            </template>
+                                        </div>
+
+                                        <div class="scenario-option__kpis">
+                                            <div class="kpi-card kpi-card_current scenario-option__kpi">
+                                                <div class="kpi-card__label-row">
+                                                    <p class="kpi-card__label">
+                                                        <span class="kpi-card__badge">Current</span>
+                                                    </p>
+                                                    <button
+                                                        type="button"
+                                                        class="kpi-card__link"
+                                                        onclick={handleOpenInstalledDrawer}
+                                                        aria-expanded={installedDrawerExpanded}
+                                                    >
+                                                        View installed
+                                                    </button>
+                                                </div>
+                                                <div class="kpi-card__metrics kpi-card__metrics_aligned">
+                                                    <button
+                                                        type="button"
+                                                        class="kpi-metric-btn"
+                                                        onclick={handleOpenInstalledDrawer}
+                                                        title="View installed ledger that rolls up to Current ARR"
+                                                        aria-label="Current ARR — open installed ledger"
+                                                    >
+                                                        <p class="kpi-metric__label">ARR</p>
+                                                        <p class="kpi-metric__value">
+                                                            <lightning-formatted-number value={opt.currentArr} format-style="currency" currency-code="USD"></lightning-formatted-number>
+                                                        </p>
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        class="kpi-metric-btn"
+                                                        onclick={handleOpenInstalledDrawer}
+                                                        title="View installed ledger that rolls up to Current MRR"
+                                                        aria-label="Current MRR — open installed ledger"
+                                                    >
+                                                        <p class="kpi-metric__label">MRR</p>
+                                                        <p class="kpi-metric__value">
+                                                            <lightning-formatted-number value={opt.currentMrr} format-style="currency" currency-code="USD"></lightning-formatted-number>
+                                                        </p>
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        class="kpi-metric-btn"
+                                                        onclick={handleOpenInstalledDrawer}
+                                                        title="View installed ledger that rolls up to Current quantity"
+                                                        aria-label="Current quantity — open installed ledger"
+                                                    >
+                                                        <p class="kpi-metric__label">Qty</p>
+                                                        <p class="kpi-metric__value">
+                                                            <lightning-formatted-number value={opt.currentQty} maximum-fraction-digits="0"></lightning-formatted-number>
+                                                        </p>
+                                                    </button>
+                                                    <div class="kpi-metric-spacer" aria-hidden="true"></div>
+                                                </div>
+                                            </div>
+                                            <div class="kpi-card kpi-card_add scenario-option__kpi">
+                                                <p class="kpi-card__label">
+                                                    <span class="kpi-card__badge">This add</span>
+                                                </p>
+                                                <div class="kpi-card__metrics kpi-card__metrics_aligned">
+                                                    <div>
+                                                        <p class="kpi-metric__label">ARR</p>
+                                                        <p class="kpi-metric__value">
+                                                            <lightning-formatted-number value={opt.thisAddArr} format-style="currency" currency-code="USD"></lightning-formatted-number>
+                                                        </p>
+                                                    </div>
+                                                    <div>
+                                                        <p class="kpi-metric__label">MRR</p>
+                                                        <p class="kpi-metric__value">
+                                                            <lightning-formatted-number value={opt.thisAddMrr} format-style="currency" currency-code="USD"></lightning-formatted-number>
+                                                        </p>
+                                                    </div>
+                                                    <div>
+                                                        <p class="kpi-metric__label">Qty</p>
+                                                        <p class="kpi-metric__value">
+                                                            <lightning-formatted-number value={opt.thisAddQty} maximum-fraction-digits="0"></lightning-formatted-number>
+                                                        </p>
+                                                    </div>
+                                                    <div class="kpi-metric-prorated">
+                                                        <p class="kpi-metric__label">Prorated</p>
+                                                        <p class="kpi-metric__value">
+                                                            <lightning-formatted-number value={opt.thisAddProrated} format-style="currency" currency-code="USD"></lightning-formatted-number>
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="kpi-card kpi-card_finalized scenario-option__kpi" aria-label="Finalized contract">
+                                                <p class="kpi-card__label">
+                                                    <span class="kpi-card__badge">Finalized contract</span>
+                                                </p>
+                                                <template if:true={opt.showFinalized}>
+                                                    <div class="kpi-card__metrics kpi-card__metrics_aligned">
+                                                        <template for:each={opt.finalizedRows} for:item="row">
+                                                            <div key={row.key} class="kpi-metric-finalized">
+                                                                <p class="kpi-metric__label">{row.label}</p>
+                                                                <p class="kpi-metric__value">
+                                                                    <template if:true={row.formatCurrency}>
+                                                                        <lightning-formatted-number value={row.proposed} format-style="currency" currency-code="USD"></lightning-formatted-number>
+                                                                    </template>
+                                                                    <template if:true={row.formatQty}>
+                                                                        <lightning-formatted-number value={row.proposed} maximum-fraction-digits="0"></lightning-formatted-number>
+                                                                    </template>
+                                                                </p>
+                                                                <p class={row.deltaClass}>
+                                                                    Δ
+                                                                    <template if:true={row.formatCurrency}>
+                                                                        <lightning-formatted-number value={row.delta} format-style="currency" currency-code="USD"></lightning-formatted-number>
+                                                                    </template>
+                                                                    <template if:true={row.formatQty}>
+                                                                        <lightning-formatted-number value={row.delta} maximum-fraction-digits="0"></lightning-formatted-number>
+                                                                    </template>
+                                                                </p>
+                                                            </div>
+                                                        </template>
+                                                        <div class="kpi-metric-spacer" aria-hidden="true"></div>
+                                                    </div>
+                                                </template>
+                                                <template if:false={opt.showFinalized}>
+                                                    <p class="finalized-empty">{opt.finalizedEmptyMessage}</p>
+                                                </template>
+                                            </div>
+                                        </div>
+
+                                        <template if:true={opt.showPendingAdds}>
+                                            <div class="studio-panel__body studio-panel__body_working-extra">
+                                                <template if:true={hasPendingAddRows}>
+                                                    <ul class="pending-list" aria-label="New product lines">
+                                                        <template for:each={pendingAddRowViews} for:item="row">
+                                                            <li key={row.key} class="pending-row">
+                                                                <div class="pending-row__head">
+                                                                    <p class="working-row__name">New product line</p>
+                                                                    <lightning-button-icon
+                                                                        icon-name="utility:close"
+                                                                        alternative-text="Cancel new line"
+                                                                        title="Cancel"
+                                                                        data-key={row.key}
+                                                                        onclick={handleCancelPendingRow}
+                                                                        disabled={row.selecting}
+                                                                    ></lightning-button-icon>
+                                                                </div>
+                                                                <lightning-input
+                                                                    type="search"
+                                                                    label="Search product catalog"
+                                                                    placeholder="Type a product name…"
+                                                                    value={row.searchTerm}
+                                                                    data-key={row.key}
+                                                                    onchange={handlePendingSearchInput}
+                                                                    disabled={row.selecting}
+                                                                    class="pending-search"
+                                                                ></lightning-input>
+                                                                <template if:true={row.searching}>
+                                                                    <p class="working-row__meta">Searching…</p>
+                                                                </template>
+                                                                <template if:true={row.error}>
+                                                                    <p class="pending-error">{row.error}</p>
+                                                                </template>
+                                                                <template if:true={row.hasResults}>
+                                                                    <ul class="catalog-hits" role="listbox" aria-label="Matching products">
+                                                                        <template for:each={row.results} for:item="hit">
+                                                                            <li key={hit.key}>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    class="catalog-hit"
+                                                                                    role="option"
+                                                                                    data-key={row.key}
+                                                                                    data-pbe-id={hit.pricebookEntryId}
+                                                                                    onclick={handleSelectCatalogProduct}
+                                                                                    disabled={row.selecting}
+                                                                                >
+                                                                                    <span class="catalog-hit__name">{hit.label}</span>
+                                                                                    <span class="catalog-hit__price">
+                                                                                        <lightning-formatted-number
+                                                                                            value={hit.listPrice}
+                                                                                            format-style="currency"
+                                                                                            currency-code="USD"
+                                                                                        ></lightning-formatted-number>
+                                                                                    </span>
+                                                                                </button>
+                                                                            </li>
+                                                                        </template>
+                                                                    </ul>
+                                                                </template>
+                                                            </li>
+                                                        </template>
+                                                    </ul>
+                                                </template>
+                                                <button
+                                                    type="button"
+                                                    class="working-add-row"
+                                                    onclick={handleAddLineBelow}
+                                                    disabled={isBusy}
+                                                >
+                                                    <lightning-icon icon-name="utility:add" size="x-small" alternative-text=""></lightning-icon>
+                                                    <span>Add Product (inline)</span>
+                                                </button>
+                                                <p class="working-actions__note">
+                                                    Prefer the left Catalog rail. Manage Header Adjustment opens the standard line editor.
+                                                </p>
+                                            </div>
+                                        </template>
+                                    </article>
+                                </template>
                             </div>
 
-                            <div class="tle-table-wrap">
-                                <template if:true={hasWorkingLines}>
-                                    <table class="tle-table">
-                                        <thead>
-                                            <tr>
-                                                <th scope="col">Product</th>
-                                                <th scope="col">Quantity</th>
-                                                <th scope="col">Start Date</th>
-                                                <th scope="col">End Date</th>
-                                                <th scope="col">List Price</th>
-                                                <th scope="col">Discount</th>
-                                                <th scope="col">Net Unit Price</th>
-                                                <th scope="col">Total Price</th>
-                                                <th scope="col">Approval</th>
-                                                <th class="tle-col_actions" scope="col">
-                                                    <span class="slds-assistive-text">Actions</span>
-                                                </th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            <template for:each={workingLineRows} for:item="line">
-                                                <tr key={line.key} class={line.rowClass}>
-                                                    <td>
-                                                        <button type="button" class="tle-product-link" title={line.typeLabel}>{line.productName}</button>
-                                                        <template if:true={line.hasInstalledQty}>
-                                                            <p class="tle-sub">{line.installedQtyLabel}</p>
-                                                        </template>
-                                                    </td>
-                                                    <td>
-                                                        <lightning-input
-                                                            type="number"
-                                                            min="0"
-                                                            step="1"
-                                                            value={line.draftQuantity}
-                                                            data-id={line.id}
-                                                            label="Quantity"
-                                                            variant="label-hidden"
-                                                            onchange={handleQtyInput}
-                                                            disabled={isBusy}
-                                                            class="tle-cell-input"
-                                                        ></lightning-input>
-                                                    </td>
-                                                    <td>
-                                                        <lightning-input
-                                                            type="date"
-                                                            value={line.draftStartDate}
-                                                            data-id={line.id}
-                                                            label="Start Date"
-                                                            variant="label-hidden"
-                                                            onchange={handleStartDateInput}
-                                                            disabled={isBusy}
-                                                            class="tle-cell-input tle-cell-input_date"
-                                                        ></lightning-input>
-                                                    </td>
-                                                    <td>
-                                                        <span class="tle-cell-text">{line.endDateLabel}</span>
-                                                    </td>
-                                                    <td>
-                                                        <lightning-formatted-number value={line.listPrice} format-style="currency" currency-code="USD"></lightning-formatted-number>
-                                                    </td>
-                                                    <td>
-                                                        <div class="tle-adj">
-                                                            <lightning-input
-                                                                type="number"
-                                                                min="0"
-                                                                max="100"
-                                                                step="0.01"
-                                                                value={line.draftDiscount}
-                                                                data-id={line.id}
-                                                                label="Discount %"
-                                                                variant="label-hidden"
-                                                                onchange={handleDiscountInput}
-                                                                disabled={isBusy}
-                                                                class="tle-cell-input tle-cell-input_adj"
-                                                            ></lightning-input>
-                                                            <span class="tle-adj__suffix">%</span>
-                                                        </div>
-                                                    </td>
-                                                    <td>
-                                                        <div
-                                                            class="waterfall-trigger"
-                                                            data-id={line.id}
-                                                            data-dirty={line.dirtyFlag}
-                                                            data-pwf={line.priceWaterfallIdentifier}
-                                                            onmouseenter={handleWaterfallEnter}
-                                                            onmouseleave={handleWaterfallLeave}
-                                                            onfocusin={handleWaterfallEnter}
-                                                            onfocusout={handleWaterfallLeave}
-                                                        >
-                                                            <button
-                                                                type="button"
-                                                                class="waterfall-price tle-net"
-                                                                aria-describedby={line.waterfallId}
-                                                                title="Hover for price waterfall"
-                                                            >
-                                                                <lightning-formatted-number value={line.previewNetUnit} format-style="currency" currency-code="USD"></lightning-formatted-number>
-                                                            </button>
-                                                            <div id={line.waterfallId} class="waterfall-popover" role="tooltip">
-                                                                <p class="waterfall-popover__title">{line.waterfallTitle}</p>
-                                                                <template for:each={line.waterfallSteps} for:item="step">
-                                                                    <div key={step.key} class={step.rowClass}>
-                                                                        <span class="waterfall-step__label">{step.label}</span>
-                                                                        <span class="waterfall-step__value">{step.valueLabel}</span>
-                                                                    </div>
-                                                                </template>
-                                                                <p class="waterfall-popover__note">{line.waterfallNote}</p>
-                                                            </div>
-                                                        </div>
-                                                    </td>
-                                                    <td>
-                                                        <lightning-formatted-number value={line.previewProrated} format-style="currency" currency-code="USD"></lightning-formatted-number>
-                                                    </td>
-                                                    <td>
-                                                        <span class="tle-cell-muted">—</span>
-                                                    </td>
-                                                    <td class="tle-col_actions">
-                                                        <lightning-button-icon
-                                                            icon-name="utility:add"
-                                                            alternative-text="Add product below"
-                                                            title="Add product below"
-                                                            variant="border-filled"
-                                                            data-id={line.id}
-                                                            onclick={handleAddLineBelow}
-                                                            disabled={isBusy}
-                                                        ></lightning-button-icon>
-                                                        <lightning-button-icon
-                                                            icon-name="utility:delete"
-                                                            alternative-text={line.removeLabel}
-                                                            title={line.removeLabel}
-                                                            variant="border-filled"
-                                                            data-id={line.id}
-                                                            data-catalog-add={line.isCatalogAdd}
-                                                            onclick={handleRemoveLine}
-                                                            disabled={isBusy}
-                                                        ></lightning-button-icon>
-                                                        <lightning-button
-                                                            variant="brand"
-                                                            label="Update"
-                                                            title="Save line and reprice"
-                                                            data-id={line.id}
-                                                            onclick={handleQtyApply}
-                                                            disabled={line.updateDisabled}
-                                                            class="tle-update"
-                                                        ></lightning-button>
-                                                    </td>
-                                                </tr>
-                                            </template>
-                                        </tbody>
-                                    </table>
-                                </template>
-                                <template if:false={hasWorkingLines}>
+                            <template if:false={hasScenarioOptions}>
+                                <template if:false={scenarioLoading}>
                                     <p class="slds-text-body_small slds-text-color_weak slds-p-around_small">
-                                        No quote lines yet. Search the Catalog on the left to add a product.
+                                        Open Amendment Studio from an amendment Quote to model options.
                                     </p>
                                 </template>
-                            </div>
-
-                            <div class="studio-panel__body studio-panel__body_working-extra">
-                            <template if:true={hasPendingAddRows}>
-                                <ul class="pending-list" aria-label="New product lines">
-                                    <template for:each={pendingAddRowViews} for:item="row">
-                                        <li key={row.key} class="pending-row">
-                                            <div class="pending-row__head">
-                                                <p class="working-row__name">New product line</p>
-                                                <lightning-button-icon
-                                                    icon-name="utility:close"
-                                                    alternative-text="Cancel new line"
-                                                    title="Cancel"
-                                                    data-key={row.key}
-                                                    onclick={handleCancelPendingRow}
-                                                    disabled={row.selecting}
-                                                ></lightning-button-icon>
-                                            </div>
-                                            <lightning-input
-                                                type="search"
-                                                label="Search product catalog"
-                                                placeholder="Type a product name…"
-                                                value={row.searchTerm}
-                                                data-key={row.key}
-                                                onchange={handlePendingSearchInput}
-                                                disabled={row.selecting}
-                                                class="pending-search"
-                                            ></lightning-input>
-                                            <template if:true={row.searching}>
-                                                <p class="working-row__meta">Searching…</p>
-                                            </template>
-                                            <template if:true={row.error}>
-                                                <p class="pending-error">{row.error}</p>
-                                            </template>
-                                            <template if:true={row.hasResults}>
-                                                <ul class="catalog-hits" role="listbox" aria-label="Matching products">
-                                                    <template for:each={row.results} for:item="hit">
-                                                        <li key={hit.key}>
-                                                            <button
-                                                                type="button"
-                                                                class="catalog-hit"
-                                                                role="option"
-                                                                data-key={row.key}
-                                                                data-pbe-id={hit.pricebookEntryId}
-                                                                onclick={handleSelectCatalogProduct}
-                                                                disabled={row.selecting}
-                                                            >
-                                                                <span class="catalog-hit__name">{hit.label}</span>
-                                                                <span class="catalog-hit__price">
-                                                                    <lightning-formatted-number
-                                                                        value={hit.listPrice}
-                                                                        format-style="currency"
-                                                                        currency-code="USD"
-                                                                    ></lightning-formatted-number>
-                                                                </span>
-                                                            </button>
-                                                        </li>
-                                                    </template>
-                                                </ul>
-                                            </template>
-                                        </li>
-                                    </template>
-                                </ul>
                             </template>
-                            <button
-                                type="button"
-                                class="working-add-row"
-                                onclick={handleAddLineBelow}
-                                disabled={isBusy}
-                            >
-                                <lightning-icon icon-name="utility:add" size="x-small" alternative-text=""></lightning-icon>
-                                <span>Add Product (inline)</span>
-                            </button>
-                            <p class="working-actions__note">
-                                Prefer the left Catalog rail. Manage Header Adjustment opens the standard line editor.
-                            </p>
-                            </div>
                         </div>
                     </section>
                 </div>

@@ -1536,7 +1536,9 @@
     <masterLabel>RLM Quote Record Page</masterLabel>
     <sobjectType>Quote</sobjectType>
     <template>
-        <name>flexipage:recordHomeSimpleViewTemplate</name>
+        <!-- Same single-column desktop template as Order — Path stays under highlights;
+             SimpleView was pinning Path/tabs under tall Quote Lines content. -->
+        <name>flexipage:recordHomeSingleColTemplateDesktop</name>
     </template>
     <type>RecordPage</type>
 </FlexiPage>

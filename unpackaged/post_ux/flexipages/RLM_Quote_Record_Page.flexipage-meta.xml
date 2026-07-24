@@ -86,19 +86,6 @@
         </itemInstances>
         <itemInstances>
             <componentInstance>
-                <componentName>rlmAmendmentStudio</componentName>
-                <identifier>rlm_amendment_studio</identifier>
-                <visibilityRule>
-                    <criteria>
-                        <leftValue>{!Record.OriginalActionType}</leftValue>
-                        <operator>EQUAL</operator>
-                        <rightValue>Amend</rightValue>
-                    </criteria>
-                </visibilityRule>
-            </componentInstance>
-        </itemInstances>
-        <itemInstances>
-            <componentInstance>
                 <componentInstanceProperties>
                     <name>hideUpdateButton</name>
                     <value>false</value>
@@ -124,8 +111,28 @@
     <flexiPageRegions>
         <itemInstances>
             <componentInstance>
+                <componentName>rlmAmendmentStudio</componentName>
+                <identifier>rlm_amendment_studio</identifier>
+                <visibilityRule>
+                    <criteria>
+                        <leftValue>{!Record.OriginalActionType}</leftValue>
+                        <operator>EQUAL</operator>
+                        <rightValue>Amend</rightValue>
+                    </criteria>
+                </visibilityRule>
+            </componentInstance>
+        </itemInstances>
+        <itemInstances>
+            <componentInstance>
                 <componentName>runtime_revenue_foundation:progressIndicator</componentName>
                 <identifier>runtime_revenue_foundation_progressIndicator</identifier>
+                <visibilityRule>
+                    <criteria>
+                        <leftValue>{!Record.OriginalActionType}</leftValue>
+                        <operator>NE</operator>
+                        <rightValue>Amend</rightValue>
+                    </criteria>
+                </visibilityRule>
             </componentInstance>
         </itemInstances>
         <itemInstances>
@@ -1749,7 +1756,7 @@
     <masterLabel>RLM Quote Record Page</masterLabel>
     <sobjectType>Quote</sobjectType>
     <template>
-        <name>flexipage:recordHomeSimpleViewTemplate</name>
+        <name>flexipage:recordHomeSingleColTemplateDesktop</name>
     </template>
     <type>RecordPage</type>
 </FlexiPage>

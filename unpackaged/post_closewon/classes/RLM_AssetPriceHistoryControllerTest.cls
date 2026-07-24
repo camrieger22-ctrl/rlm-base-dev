@@ -581,6 +581,112 @@ private class RLM_AssetPriceHistoryControllerTest {
     }
 
     @isTest
+    static void getStudioPayload_orphanAmend_autoCreatesOpportunity() {
+        Account acct = new Account(Name = 'Orphan Amend Acct');
+        insert acct;
+        Opportunity seed = new Opportunity(
+            Name = 'Seed Opp',
+            AccountId = acct.Id,
+            StageName = 'Prospecting',
+            CloseDate = Date.today().addDays(30)
+        );
+        insert seed;
+        Quote q = new Quote(
+            Name = 'Orphan Amend Quote',
+            OpportunityId = seed.Id,
+            Pricebook2Id = Test.getStandardPricebookId(),
+            Status = 'Draft'
+        );
+        insert q;
+        // Simulate OOTB amend with no amendOpportunityId (AccountId is not writable).
+        q.OpportunityId = null;
+        update q;
+
+        RLM_AssetPriceHistoryController.testBypassAmendScenarioCheck = true;
+        RLM_AssetPriceHistoryController.testEnsureAccountIdOverride = acct.Id;
+        Test.startTest();
+        RLM_AssetPriceHistoryController.StudioPayload payload =
+            RLM_AssetPriceHistoryController.getStudioPayload(q.Id);
+        Test.stopTest();
+        RLM_AssetPriceHistoryController.testBypassAmendScenarioCheck = false;
+        RLM_AssetPriceHistoryController.testEnsureAccountIdOverride = null;
+
+        System.assertEquals(true, payload.opportunityAutoCreated);
+        System.assertNotEquals(null, payload.opportunityId);
+        Quote after = [SELECT OpportunityId FROM Quote WHERE Id = :q.Id];
+        System.assertEquals(payload.opportunityId, after.OpportunityId);
+        Opportunity created = [
+            SELECT Name, AccountId, StageName
+            FROM Opportunity
+            WHERE Id = :payload.opportunityId
+        ];
+        System.assertEquals(acct.Id, created.AccountId);
+        System.assert(
+            created.Name != null && created.Name.startsWith('Amendment —'),
+            created.Name
+        );
+        System.assertNotEquals(
+            seed.Id,
+            payload.opportunityId,
+            'Must create a new Opportunity, not reuse the seed'
+        );
+    }
+
+    @isTest
+    static void createScenario_orphanSource_autoCreatesOpportunity() {
+        Account acct = new Account(Name = 'Create Orphan Acct');
+        insert acct;
+        Opportunity seed = new Opportunity(
+            Name = 'Create Orphan Seed',
+            AccountId = acct.Id,
+            StageName = 'Prospecting',
+            CloseDate = Date.today().addDays(30)
+        );
+        insert seed;
+        Quote source = new Quote(
+            Name = 'Source Orphan Amend',
+            OpportunityId = seed.Id,
+            Pricebook2Id = Test.getStandardPricebookId(),
+            Status = 'Draft'
+        );
+        Quote cloneTarget = new Quote(
+            Name = 'Clone Target',
+            OpportunityId = seed.Id,
+            Pricebook2Id = Test.getStandardPricebookId(),
+            Status = 'Draft'
+        );
+        insert new List<Quote>{ source, cloneTarget };
+        source.OpportunityId = null;
+        update source;
+
+        RLM_AssetPriceHistoryController.testBypassAmendScenarioCheck = true;
+        RLM_AssetPriceHistoryController.testEnsureAccountIdOverride = acct.Id;
+        RLM_AssetPriceHistoryController.testCloneSalesTransactionIdOverride = cloneTarget.Id;
+
+        Test.startTest();
+        RLM_AssetPriceHistoryController.ScenarioMutationResult result =
+            RLM_AssetPriceHistoryController.createScenario(
+                source.Id,
+                'Option A',
+                null
+            );
+        Test.stopTest();
+
+        RLM_AssetPriceHistoryController.testBypassAmendScenarioCheck = false;
+        RLM_AssetPriceHistoryController.testEnsureAccountIdOverride = null;
+        RLM_AssetPriceHistoryController.testCloneSalesTransactionIdOverride = null;
+
+        System.assertEquals(true, result.success, result.message == null ? 'expected success' : result.message);
+        System.assertNotEquals(null, result.opportunityId);
+        System.assertNotEquals(seed.Id, result.opportunityId);
+        Quote sourceAfter = [SELECT OpportunityId FROM Quote WHERE Id = :source.Id];
+        System.assertEquals(result.opportunityId, sourceAfter.OpportunityId);
+        Quote cloneAfter = [SELECT OpportunityId, Name FROM Quote WHERE Id = :cloneTarget.Id];
+        System.assertEquals(result.opportunityId, cloneAfter.OpportunityId);
+        System.assertEquals('Option A', cloneAfter.Name);
+    }
+
+    @isTest
     static void createScenario_clonesAndAttachesToOpportunity() {
         Account acct = new Account(Name = 'Create Scenario Acct');
         insert acct;
@@ -641,6 +747,51 @@ private class RLM_AssetPriceHistoryControllerTest {
     }
 
     @isTest
+    static void renameScenario_updatesQuoteName() {
+        Account acct = new Account(Name = 'Rename Scenario Acct');
+        insert acct;
+        Opportunity opp = new Opportunity(
+            Name = 'Rename Scenario Opp',
+            AccountId = acct.Id,
+            StageName = 'Prospecting',
+            CloseDate = Date.today().addDays(30)
+        );
+        insert opp;
+        Quote q = new Quote(
+            Name = 'Option A',
+            OpportunityId = opp.Id,
+            Pricebook2Id = Test.getStandardPricebookId(),
+            Status = 'Draft'
+        );
+        insert q;
+
+        RLM_AssetPriceHistoryController.testBypassAmendScenarioCheck = true;
+        Test.startTest();
+        RLM_AssetPriceHistoryController.ScenarioMutationResult result =
+            RLM_AssetPriceHistoryController.renameScenario(q.Id, '  +40k seats  ');
+        Test.stopTest();
+        RLM_AssetPriceHistoryController.testBypassAmendScenarioCheck = false;
+
+        System.assertEquals(
+            true,
+            result.success,
+            result.message == null ? 'expected success' : result.message
+        );
+        System.assertEquals('+40k seats', result.scenario.name);
+        Quote after = [SELECT Name FROM Quote WHERE Id = :q.Id];
+        System.assertEquals('+40k seats', after.Name);
+    }
+
+    @isTest
+    static void renameScenario_rejectsBlank() {
+        Test.startTest();
+        RLM_AssetPriceHistoryController.ScenarioMutationResult result =
+            RLM_AssetPriceHistoryController.renameScenario(null, '  ');
+        Test.stopTest();
+        System.assertEquals(false, result.success);
+    }
+
+    @isTest
     static void setForecastScenario_syncsQuoteToOpportunity() {
         Account acct = new Account(Name = 'Forecast Scenario Acct');
         insert acct;
@@ -660,15 +811,18 @@ private class RLM_AssetPriceHistoryControllerTest {
         insert q;
 
         RLM_AssetPriceHistoryController.testBypassAmendScenarioCheck = true;
+        RLM_RepriceQuoteInvocable.bypassPlatformCallForTest = true;
 
         Test.startTest();
         RLM_AssetPriceHistoryController.ScenarioMutationResult result =
             RLM_AssetPriceHistoryController.setForecastScenario(opp.Id, q.Id);
         Test.stopTest();
 
+        RLM_RepriceQuoteInvocable.bypassPlatformCallForTest = false;
         RLM_AssetPriceHistoryController.testBypassAmendScenarioCheck = false;
 
         System.assertEquals(true, result.success, result.message == null ? 'expected success' : result.message);
+        System.assertEquals(null, result.message, 'reprice should succeed via test bypass');
         System.assertEquals(q.Id, result.syncedQuoteId);
         Opportunity after = [SELECT SyncedQuoteId FROM Opportunity WHERE Id = :opp.Id];
         System.assertEquals(q.Id, after.SyncedQuoteId);

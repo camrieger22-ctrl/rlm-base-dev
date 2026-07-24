@@ -110,8 +110,14 @@ public with sharing class RLM_AssetPriceHistoryController {
         @AuraEnabled public List<WorkingLine> workingLines;
         @AuraEnabled public String quoteNumber;
         @AuraEnabled public String quoteName;
+        /** Account name for Studio chrome (Quote.Account or Contract.Account). */
+        @AuraEnabled public String accountName;
+        @AuraEnabled public Decimal grandTotal;
+        @AuraEnabled public String status;
         /** Parent Opportunity for scenario compare (may be null on unlinked amends). */
         @AuraEnabled public Id opportunityId;
+        /** True when Studio auto-created an Opportunity for an orphan amend Quote. */
+        @AuraEnabled public Boolean opportunityAutoCreated;
         /** Quote.CalculationStatus after last pricing run (informational). */
         @AuraEnabled public String calculationStatus;
         /** Quote.ValidationResult — non-null means prices/transaction need attention. */
@@ -161,6 +167,8 @@ public with sharing class RLM_AssetPriceHistoryController {
          * (first positive-qty line, else first line).
          */
         @AuraEnabled public Id primaryLineItemId;
+        /** Working lines for stacked Working-changes UI (same shape as StudioPayload). */
+        @AuraEnabled public List<WorkingLine> workingLines;
     }
 
     public class ScenarioCompareResponse {
@@ -313,8 +321,21 @@ public with sharing class RLM_AssetPriceHistoryController {
             oppId = source.OpportunityId;
         }
         if (oppId == null) {
+            // OOTB amend submit often omits amendOpportunityId — create one.
+            try {
+                oppId = ensureAmendmentOpportunity(sourceId);
+            } catch (AuraHandledException ahe) {
+                result.message = ahe.getMessage();
+                return result;
+            } catch (Exception e) {
+                result.message =
+                    'Could not create an Opportunity for this amendment: ' + e.getMessage();
+                return result;
+            }
+        }
+        if (oppId == null) {
             result.message =
-                'Opportunity Id is required (source quote has none). Pass opportunityId.';
+                'Opportunity Id is required (source quote has none and auto-create failed).';
             return result;
         }
         result.opportunityId = oppId;
@@ -372,6 +393,79 @@ public with sharing class RLM_AssetPriceHistoryController {
     }
 
     /**
+     * Rename a scenario Quote (updates Quote.Name). Used by editable option headers.
+     */
+    @AuraEnabled
+    public static ScenarioMutationResult renameScenario(Id quoteId, String name) {
+        ScenarioMutationResult result = new ScenarioMutationResult();
+        result.success = false;
+        if (quoteId == null || quoteId.getSObjectType() != Quote.SObjectType) {
+            result.message = 'Quote Id is required.';
+            return result;
+        }
+        if (String.isBlank(name)) {
+            result.message = 'Option name is required.';
+            return result;
+        }
+        Id qId = Id.valueOf(String.valueOf(quoteId));
+        String newName = name.trim();
+        if (newName.length() > 255) {
+            newName = newName.substring(0, 255);
+        }
+
+        List<Quote> quotes = [
+            SELECT Id, Name, QuoteNumber, OpportunityId, OriginalActionType, GrandTotal, IsSyncing,
+                CalculationStatus, ValidationResult
+            FROM Quote
+            WHERE Id = :qId
+            WITH USER_MODE
+            LIMIT 1
+        ];
+        if (quotes.isEmpty()) {
+            result.message = 'Quote was not found.';
+            return result;
+        }
+        Quote q = quotes[0];
+        if (!isAmendScenarioQuote(q)) {
+            result.message = 'Only amendment scenario quotes can be renamed here.';
+            return result;
+        }
+        if (q.Name == newName) {
+            result.success = true;
+            result.scenario = new ScenarioSummary();
+            result.scenario.quoteId = q.Id;
+            result.scenario.quoteNumber = q.QuoteNumber;
+            result.scenario.name = q.Name;
+            result.scenario.grandTotal = q.GrandTotal;
+            result.scenario.isSynced = q.IsSyncing == true;
+            result.scenario.calculationStatus = q.CalculationStatus;
+            result.scenario.validationResult = q.ValidationResult;
+            result.opportunityId = q.OpportunityId;
+            return result;
+        }
+
+        try {
+            Quote upd = new Quote(Id = q.Id, Name = newName);
+            update as user upd;
+        } catch (Exception e) {
+            result.message = 'Could not rename quote: ' + e.getMessage();
+            return result;
+        }
+
+        result.success = true;
+        result.scenario = new ScenarioSummary();
+        result.scenario.quoteId = q.Id;
+        result.scenario.quoteNumber = q.QuoteNumber;
+        result.scenario.name = newName;
+        result.scenario.grandTotal = q.GrandTotal;
+        result.scenario.isSynced = q.IsSyncing == true;
+        result.scenario.calculationStatus = q.CalculationStatus;
+        result.scenario.validationResult = q.ValidationResult;
+        result.opportunityId = q.OpportunityId;
+        return result;
+    }
+
+    /**
      * Commit a scenario Quote as the Opportunity forecast (OOTB sync).
      * Sets Opportunity.SyncedQuoteId; IsSyncing flips on the Quotes.
      */
@@ -421,17 +515,39 @@ public with sharing class RLM_AssetPriceHistoryController {
             return result;
         }
 
+        // Sync alone leaves TransactionIncomplete until pricing runs; the on-sync
+        // flow is async. Force-reprice here so Create Order is not blocked.
+        String repriceWarning;
+        try {
+            RLM_RepriceQuoteInvocable.repriceQuoteNow(qId);
+        } catch (RLM_RepriceQuoteInvocable.RepriceException e) {
+            repriceWarning = e.getMessage();
+        } catch (Exception e) {
+            repriceWarning = e.getMessage();
+        }
+
+        Quote afterReprice = [
+            SELECT Id, Name, QuoteNumber, GrandTotal, CalculationStatus, ValidationResult
+            FROM Quote
+            WHERE Id = :qId
+            WITH USER_MODE
+            LIMIT 1
+        ];
+
         result.syncedQuoteId = qId;
         result.scenario = new ScenarioSummary();
-        result.scenario.quoteId = q.Id;
-        result.scenario.quoteNumber = q.QuoteNumber;
-        result.scenario.name = q.Name;
-        result.scenario.grandTotal = q.GrandTotal;
+        result.scenario.quoteId = afterReprice.Id;
+        result.scenario.quoteNumber = afterReprice.QuoteNumber;
+        result.scenario.name = afterReprice.Name;
+        result.scenario.grandTotal = afterReprice.GrandTotal;
         result.scenario.isSynced = true;
-        result.scenario.calculationStatus = q.CalculationStatus;
-        result.scenario.validationResult = q.ValidationResult;
+        result.scenario.calculationStatus = afterReprice.CalculationStatus;
+        result.scenario.validationResult = afterReprice.ValidationResult;
         result.success = true;
-        result.message = null;
+        result.message = repriceWarning == null
+            ? null
+            : 'Forecast set, but reprice failed — Create Order may stay blocked until you Reprice All. '
+                + repriceWarning;
         return result;
     }
 
@@ -492,6 +608,139 @@ public with sharing class RLM_AssetPriceHistoryController {
         return q.OriginalActionType == 'Amend';
     }
 
+    /**
+     * OOTB initiateAmendment often omits amendOpportunityId, so amend Quotes can
+     * land without an Opportunity. Scenario compare / forecast sync need a parent
+     * Opp — create a draft one on the Quote's Account and attach the Quote.
+     * Idempotent when OpportunityId is already set.
+     */
+    @TestVisible
+    private static Id ensureAmendmentOpportunity(Id quoteId) {
+        if (quoteId == null || quoteId.getSObjectType() != Quote.SObjectType) {
+            throw new AuraHandledException('Quote Id is required to create an Opportunity.');
+        }
+        Id qId = Id.valueOf(String.valueOf(quoteId));
+        List<Quote> rows = [
+            SELECT
+                Id,
+                Name,
+                QuoteNumber,
+                OpportunityId,
+                AccountId,
+                Pricebook2Id,
+                ContractId,
+                OriginalActionType,
+                Account.Name,
+                Contract.AccountId,
+                Contract.Account.Name
+            FROM Quote
+            WHERE Id = :qId
+            WITH USER_MODE
+            LIMIT 1
+        ];
+        if (rows.isEmpty()) {
+            throw new AuraHandledException('Quote was not found.');
+        }
+        return ensureAmendmentOpportunity(rows[0]);
+    }
+
+    @TestVisible
+    private static Id ensureAmendmentOpportunity(Quote q) {
+        if (q == null) {
+            throw new AuraHandledException('Quote is required to create an Opportunity.');
+        }
+        if (q.OpportunityId != null) {
+            return q.OpportunityId;
+        }
+        if (!isAmendScenarioQuote(q)) {
+            throw new AuraHandledException(
+                'Only amendment quotes can auto-create an Opportunity for scenario compare.'
+            );
+        }
+
+        Id accountId = null;
+        String acctName = null;
+        if (Test.isRunningTest() && testEnsureAccountIdOverride != null) {
+            accountId = testEnsureAccountIdOverride;
+            acctName = 'Test Account';
+        } else {
+            accountId = q.AccountId;
+            if (q.Account != null && String.isNotBlank(q.Account.Name)) {
+                acctName = q.Account.Name;
+            }
+            if (accountId == null && q.ContractId != null && q.Contract != null) {
+                accountId = q.Contract.AccountId;
+                if (q.Contract.Account != null && String.isNotBlank(q.Contract.Account.Name)) {
+                    acctName = q.Contract.Account.Name;
+                }
+            }
+            if (accountId == null) {
+                for (QuoteAction qa : [
+                    SELECT SourceAsset.AccountId, SourceAsset.Account.Name
+                    FROM QuoteAction
+                    WHERE QuoteId = :q.Id AND SourceAssetId != null
+                    WITH USER_MODE
+                    LIMIT 1
+                ]) {
+                    if (qa.SourceAsset != null && qa.SourceAsset.AccountId != null) {
+                        accountId = qa.SourceAsset.AccountId;
+                        if (
+                            qa.SourceAsset.Account != null &&
+                            String.isNotBlank(qa.SourceAsset.Account.Name)
+                        ) {
+                            acctName = qa.SourceAsset.Account.Name;
+                        }
+                    }
+                }
+            }
+        }
+        if (accountId == null) {
+            throw new AuraHandledException(
+                'Could not resolve an Account for this amendment Quote (no Account, Contract, or Source Asset).'
+            );
+        }
+        if (String.isBlank(acctName)) {
+            acctName = 'Account';
+        }
+
+        String oppName = 'Amendment — ' + acctName;
+        if (String.isNotBlank(q.QuoteNumber)) {
+            oppName += ' (' + q.QuoteNumber + ')';
+        }
+        if (oppName.length() > 120) {
+            oppName = oppName.substring(0, 120);
+        }
+
+        Opportunity opp = new Opportunity(
+            Name = oppName,
+            AccountId = accountId,
+            StageName = 'Prospecting',
+            CloseDate = Date.today().addDays(30),
+            Pricebook2Id = q.Pricebook2Id,
+            ContractId = q.ContractId
+        );
+        try {
+            insert as user opp;
+        } catch (Exception e) {
+            throw new AuraHandledException(
+                'Could not create Opportunity for amendment: ' + e.getMessage()
+            );
+        }
+
+        try {
+            Quote link = new Quote(Id = q.Id, OpportunityId = opp.Id);
+            update as user link;
+        } catch (Exception e) {
+            throw new AuraHandledException(
+                'Opportunity created (' +
+                    opp.Id +
+                    ') but could not link the Quote: ' +
+                    e.getMessage()
+            );
+        }
+        return opp.Id;
+    }
+
     /** Test-only: skip Connect clone and return this Quote Id as the clone. */
     @TestVisible
     private static Id testCloneSalesTransactionIdOverride;
@@ -499,6 +748,10 @@ public with sharing class RLM_AssetPriceHistoryController {
     /** Test-only: OriginalActionType is not DML-writeable in unit tests. */
     @TestVisible
     private static Boolean testBypassAmendScenarioCheck = false;
+
+    /** Test-only: Account resolution when Quote.AccountId is not writable. */
+    @TestVisible
+    private static Id testEnsureAccountIdOverride;
 
     @TestVisible
     private static ScenarioColumn buildScenarioColumn(
@@ -579,6 +832,10 @@ public with sharing class RLM_AssetPriceHistoryController {
             col.finalizedArr = proposed.currentArr;
             col.finalizedMrr = proposed.currentMrr;
         }
+        col.workingLines =
+            payload != null && payload.workingLines != null
+                ? payload.workingLines
+                : new List<WorkingLine>();
         return col;
     }
 
@@ -595,8 +852,24 @@ public with sharing class RLM_AssetPriceHistoryController {
             return payload;
         }
         Id qId = Id.valueOf(String.valueOf(quoteId));
+        payload.opportunityAutoCreated = false;
         for (Quote q : [
-            SELECT Id, QuoteNumber, Name, OpportunityId, CalculationStatus, ValidationResult
+            SELECT
+                Id,
+                QuoteNumber,
+                Name,
+                Status,
+                GrandTotal,
+                OpportunityId,
+                AccountId,
+                Pricebook2Id,
+                ContractId,
+                OriginalActionType,
+                CalculationStatus,
+                ValidationResult,
+                Account.Name,
+                Contract.AccountId,
+                Contract.Account.Name
             FROM Quote
             WHERE Id = :qId
             WITH USER_MODE
@@ -604,9 +877,50 @@ public with sharing class RLM_AssetPriceHistoryController {
         ]) {
             payload.quoteNumber = q.QuoteNumber;
             payload.quoteName = q.Name;
-            payload.opportunityId = q.OpportunityId;
+            payload.grandTotal = q.GrandTotal;
+            payload.status = q.Status;
+            if (q.Account != null && String.isNotBlank(q.Account.Name)) {
+                payload.accountName = q.Account.Name;
+            } else if (q.Contract != null && q.Contract.Account != null) {
+                payload.accountName = q.Contract.Account.Name;
+            }
             payload.calculationStatus = q.CalculationStatus;
             payload.validationResult = q.ValidationResult;
+            Id oppId = q.OpportunityId;
+            if (oppId == null && isAmendScenarioQuote(q)) {
+                try {
+                    oppId = ensureAmendmentOpportunity(q);
+                    payload.opportunityAutoCreated = true;
+                } catch (AuraHandledException ahe) {
+                    // Keep Studio usable for pricing; scenario actions stay gated.
+                    payload.history.message = String.isBlank(payload.history.message)
+                        ? ahe.getMessage()
+                        : payload.history.message;
+                } catch (Exception e) {
+                    payload.history.message = String.isBlank(payload.history.message)
+                        ? ('Could not auto-create Opportunity: ' + e.getMessage())
+                        : payload.history.message;
+                }
+            }
+            payload.opportunityId = oppId;
+            // Prefer Account from Source Asset when Quote.Account is blank (common on OOTB amend).
+            if (String.isBlank(payload.accountName)) {
+                for (QuoteAction qa : [
+                    SELECT SourceAsset.Account.Name
+                    FROM QuoteAction
+                    WHERE QuoteId = :qId AND SourceAssetId != null
+                    WITH USER_MODE
+                    LIMIT 1
+                ]) {
+                    if (
+                        qa.SourceAsset != null &&
+                        qa.SourceAsset.Account != null &&
+                        String.isNotBlank(qa.SourceAsset.Account.Name)
+                    ) {
+                        payload.accountName = qa.SourceAsset.Account.Name;
+                    }
+                }
+            }
         }
         Set<Id> sourceAssetIds = new Set<Id>();
         List<QuoteLineItem> qlis = [
@@ -2155,21 +2469,25 @@ public with sharing class RLM_AssetPriceHistoryController {
         update as user new QuoteLineItem(Id = existing.Id, StartDate = startDate);
     }
 
+    /**
+     * End-state installed quantity per asset (latest Asset State Period).
+     * Do not use "as of now" — future-dated prior amends still count as what
+     * the customer owns for Current → This add → Finalized (e.g. 30k installed
+     * even when today's period is still the pre-amend 10k tranche).
+     */
     private static Map<Id, Decimal> installedQuantityByAsset(Set<Id> assetIds) {
         Map<Id, Decimal> result = new Map<Id, Decimal>();
         if (assetIds == null || assetIds.isEmpty()) {
             return result;
         }
-        Datetime nowUtc = System.now();
         for (AssetStatePeriod asp : [
-            SELECT AssetId, Quantity
+            SELECT AssetId, Quantity, StartDate
             FROM AssetStatePeriod
-            WHERE AssetId IN :assetIds
-                AND StartDate <= :nowUtc
-                AND EndDate >= :nowUtc
+            WHERE AssetId IN :assetIds AND Quantity != null
             WITH USER_MODE
+            ORDER BY AssetId, StartDate DESC
         ]) {
-            if (asp.AssetId != null && asp.Quantity != null && !result.containsKey(asp.AssetId)) {
+            if (asp.AssetId != null && !result.containsKey(asp.AssetId)) {
                 result.put(asp.AssetId, asp.Quantity);
             }
         }

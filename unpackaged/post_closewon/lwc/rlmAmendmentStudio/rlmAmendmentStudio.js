@@ -17,6 +17,7 @@ import getLinePricingWaterfall from '@salesforce/apex/RLM_AssetPriceHistoryContr
 import getScenarioCompare from '@salesforce/apex/RLM_AssetPriceHistoryController.getScenarioCompare';
 import createScenario from '@salesforce/apex/RLM_AssetPriceHistoryController.createScenario';
 import setForecastScenario from '@salesforce/apex/RLM_AssetPriceHistoryController.setForecastScenario';
+import renameScenario from '@salesforce/apex/RLM_AssetPriceHistoryController.renameScenario';
 import { ShowToastEvent } from 'lightning/platformShowToastEvent';
 import LightningConfirm from 'lightning/confirm';
 
@@ -24,6 +25,9 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
     quoteId;
     quoteNumber;
     quoteName;
+    accountName;
+    grandTotal;
+    quoteStatus;
     history;
     workingLines = [];
     calculationStatus;
@@ -70,6 +74,10 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
     scenarioError;
     draftScenarioQtyByQuoteId = {};
     draftScenarioDiscByQuoteId = {};
+    /** Draft option titles before renameScenario persists Quote.Name. */
+    draftScenarioNameByQuoteId = {};
+    /** Sibling quoteId → workingLines (hydrated via getStudioPayload; nested compare lists can arrive empty). */
+    scenarioLinesByQuoteId = {};
 
 
     @api
@@ -153,6 +161,22 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
             return `Quote ${this.quoteNumber}`;
         }
         return 'Amendment workspace';
+    }
+
+    get chromeQuoteLabel() {
+        return this.quoteNumber ? `Quote ${this.quoteNumber}` : 'Amendment Studio';
+    }
+
+    get chromeStatusLabel() {
+        return this.quoteStatus || 'Draft';
+    }
+
+    get hasChromeGrandTotal() {
+        return this.grandTotal != null && Number.isFinite(Number(this.grandTotal));
+    }
+
+    get hasChromeAccount() {
+        return !!this.accountName;
     }
 
     get summary() {
@@ -393,72 +417,186 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
         return !!this.opportunityId;
     }
 
-    get hasScenarioColumns() {
-        return Array.isArray(this.scenarioCompare?.scenarios) && this.scenarioCompare.scenarios.length > 0;
-    }
-
     get scenarioCurrentArr() {
-        return this.scenarioCompare?.current?.currentArr;
+        return this.scenarioCompare?.current?.currentArr ?? this.kpiCurrentArr;
     }
 
     get scenarioCurrentMrr() {
-        return this.scenarioCompare?.current?.currentMrr;
+        return this.scenarioCompare?.current?.currentMrr ?? this.kpiCurrentMrr;
     }
 
     get scenarioCurrentQty() {
-        return this.scenarioCompare?.current?.totalQuantity;
+        return this.scenarioCompare?.current?.totalQuantity ?? this.kpiCurrentQty;
     }
 
-    get scenarioColumnViews() {
-        return (this.scenarioCompare?.scenarios || []).map((col) => {
-            const qid = col.quoteId;
-            const draftQty = this.draftScenarioQtyByQuoteId[qid];
-            const draftDisc = this.draftScenarioDiscByQuoteId[qid];
-            const qtyValue =
-                draftQty !== undefined && draftQty !== null
-                    ? draftQty
-                    : col.thisAddQty != null
-                      ? String(col.thisAddQty)
-                      : '';
-            const discValue =
-                draftDisc !== undefined && draftDisc !== null
-                    ? draftDisc
-                    : col.thisAddDiscountPercent != null
-                      ? String(col.thisAddDiscountPercent)
-                      : '';
-            const qtyDirty =
-                draftQty !== undefined &&
-                Number(draftQty) !== Number(col.thisAddQty);
-            const discDirty =
-                draftDisc !== undefined &&
-                Number(draftDisc) !== Number(col.thisAddDiscountPercent || 0);
-            const isCurrent = qid === this.quoteId;
-            const busy = this.scenarioBusyQuoteId === qid;
-            return {
-                ...col,
-                key: qid,
-                qtyValue,
-                discValue,
-                isDirty: qtyDirty || discDirty,
-                isCurrent,
-                columnClass:
-                    'scenario-col' +
-                    (col.isSynced ? ' scenario-col_forecast' : '') +
-                    (isCurrent ? ' scenario-col_current' : ''),
-                headerBadge: col.isSynced
-                    ? 'Forecast'
-                    : isCurrent
-                      ? 'Open'
-                      : 'Draft',
-                updateDisabled: this.isBusy || busy || !(qtyDirty || discDirty) || !col.primaryLineItemId,
-                openDisabled: this.isBusy || isCurrent,
-                selectDisabled: this.isBusy || busy || col.isSynced === true
-            };
-        });
+    get hasScenarioOptions() {
+        return this.scenarioOptionViews.length > 0;
+    }
+
+    get scenarioOptionViews() {
+        const cols = this.scenarioCompare?.scenarios;
+        if (cols && cols.length) {
+            // Put the Quote you're on first so Open lands without scrolling.
+            const ordered = [...cols].sort((a, b) => {
+                if (a.quoteId === this.quoteId) {
+                    return -1;
+                }
+                if (b.quoteId === this.quoteId) {
+                    return 1;
+                }
+                return 0;
+            });
+            return ordered.map((col, idx) => this._mapScenarioOption(col, idx));
+        }
+        // No Opp / no siblings yet — still show this quote as Option 1.
+        if (this.quoteId && (this.workingLines?.length || this.hasQuote)) {
+            return [
+                this._mapScenarioOption(
+                    {
+                        quoteId: this.quoteId,
+                        quoteNumber: this.quoteNumber,
+                        name: this.quoteName || 'Option 1',
+                        isSynced: false,
+                        grandTotal: null,
+                        thisAddQty: this.thisAddQty,
+                        thisAddArr: this.thisAddArr,
+                        thisAddMrr: this.thisAddMrr,
+                        thisAddProrated: this.thisAddProrated,
+                        finalizedQty: this.projection?.projected?.totalQuantity,
+                        finalizedArr: this.projection?.projected?.currentArr,
+                        finalizedMrr: this.projection?.projected?.currentMrr,
+                        deltaQty: this.projection?.deltaQuantity,
+                        deltaArr: this.projection?.deltaArr,
+                        deltaMrr: this.projection?.deltaMrr,
+                        workingLines: this.workingLines
+                    },
+                    0
+                )
+            ];
+        }
+        return [];
     }
 
     get workingLineRows() {
-        return (this.workingLines || []).map((line, idx) => {
+        return this._buildWorkingLineRows(this.workingLines || []);
+    }
+
+    _mapScenarioOption(col, idx) {
+        const qid = col.quoteId;
+        const isCurrent = qid === this.quoteId;
+        const busy = this.scenarioBusyQuoteId === qid;
+        const lines =
+            isCurrent && this.workingLines?.length
+                ? this.workingLines
+                : this.scenarioLinesByQuoteId[qid] ||
+                  col.workingLines ||
+                  [];
+        const lineRows = this._buildWorkingLineRows(lines).map((row) => ({
+            ...row,
+            quoteId: qid,
+            key: `${qid}-${row.key}`
+        }));
+        const anyDirty = lineRows.some((r) => r.isDirty);
+        const showFinalized =
+            col.finalizedArr != null ||
+            col.finalizedMrr != null ||
+            col.finalizedQty != null;
+        const finalizedRows = showFinalized
+            ? [
+                  {
+                      key: 'arr',
+                      label: 'ARR',
+                      proposed: col.finalizedArr,
+                      delta: col.deltaArr,
+                      deltaClass: this._deltaClass(col.deltaArr),
+                      formatCurrency: true,
+                      formatQty: false
+                  },
+                  {
+                      key: 'mrr',
+                      label: 'MRR',
+                      proposed: col.finalizedMrr,
+                      delta: col.deltaMrr,
+                      deltaClass: this._deltaClass(col.deltaMrr),
+                      formatCurrency: true,
+                      formatQty: false
+                  },
+                  {
+                      key: 'qty',
+                      label: 'Qty',
+                      proposed: col.finalizedQty,
+                      delta: col.deltaQty,
+                      deltaClass: this._deltaClass(col.deltaQty),
+                      formatCurrency: false,
+                      formatQty: true
+                  }
+              ]
+            : [];
+        const optionLabel =
+            col.name ||
+            (idx === 0 ? 'Option 1' : `Option ${idx + 1}`);
+        const draftName = this.draftScenarioNameByQuoteId[qid];
+        const nameValue =
+            draftName !== undefined && draftName !== null ? draftName : optionLabel;
+        const nameDirty =
+            draftName !== undefined &&
+            String(draftName).trim() !== String(optionLabel).trim();
+        const metaBits = [];
+        if (col.quoteNumber) {
+            metaBits.push(`Quote ${col.quoteNumber}`);
+        }
+        if (col.grandTotal != null && Number.isFinite(Number(col.grandTotal))) {
+            metaBits.push(
+                `Grand total ${this._formatCurrency(Number(col.grandTotal))}`
+            );
+        }
+        metaBits.push('Edit name to rename this Quote');
+        return {
+            quoteId: qid,
+            quoteNumber: col.quoteNumber,
+            name: optionLabel,
+            nameValue,
+            nameDirty,
+            metaTitle: metaBits.join(' · '),
+            isSynced: col.isSynced === true,
+            isCurrent,
+            grandTotal: col.grandTotal,
+            currentArr: this.scenarioCurrentArr,
+            currentMrr: this.scenarioCurrentMrr,
+            currentQty: this.scenarioCurrentQty,
+            thisAddQty: col.thisAddQty,
+            thisAddArr: col.thisAddArr,
+            thisAddMrr: col.thisAddMrr,
+            thisAddProrated: col.thisAddProrated,
+            showFinalized,
+            finalizedRows,
+            finalizedEmptyMessage: 'Update lines to see Current → proposed.',
+            lineRows,
+            hasLines: lineRows.length > 0,
+            lineCount: lineRows.length,
+            lineCountLabel:
+                lineRows.length === 1 ? '1 item' : `${lineRows.length} items`,
+            key: qid || `opt-${idx}`,
+            cardClass:
+                'scenario-option' +
+                (col.isSynced ? ' scenario-option_forecast' : '') +
+                (isCurrent ? ' scenario-option_current' : ''),
+            headerBadge: col.isSynced
+                ? 'Forecast'
+                : isCurrent
+                  ? 'Editing'
+                  : 'Draft',
+            openDisabled: this.isBusy || isCurrent,
+            selectDisabled:
+                this.isBusy || busy || !this.opportunityId || col.isSynced === true,
+            updateDisabled: this.isBusy || busy || !anyDirty,
+            nameDisabled: this.isBusy || busy,
+            showPendingAdds: isCurrent
+        };
+    }
+
+    _buildWorkingLineRows(lines) {
+        return (lines || []).map((line, idx) => {
             const hasQtyDraft = this._hasDraft(this.draftQtyByLineId, line.id);
             const hasDiscDraft = this._hasDraft(this.draftDiscountByLineId, line.id);
             const hasStartDraft = this._hasDraft(this.draftStartByLineId, line.id);
@@ -730,7 +868,7 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
     handleQtyStep(event) {
         const lineId = event.currentTarget.dataset.id;
         const delta = Number(event.currentTarget.dataset.delta);
-        const row = this.workingLineRows.find((r) => r.id === lineId);
+        const row = this._findLineRow(lineId);
         if (!row) {
             return;
         }
@@ -742,10 +880,21 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
         };
     }
 
+    _findLineRow(lineId) {
+        for (const opt of this.scenarioOptionViews) {
+            const row = (opt.lineRows || []).find((r) => r.id === lineId);
+            if (row) {
+                return row;
+            }
+        }
+        return this.workingLineRows.find((r) => r.id === lineId);
+    }
+
     handleQtyApply(event) {
         const lineId = event.currentTarget.dataset.id;
-        const row = this.workingLineRows.find((r) => r.id === lineId);
-        if (!row || !this.quoteId) {
+        const quoteId = event.currentTarget.dataset.quoteId || this.quoteId;
+        const row = this._findLineRow(lineId);
+        if (!row || !quoteId) {
             return;
         }
         const qty = Number(row.draftQuantity);
@@ -778,14 +927,13 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
         this.saving = true;
         this.error = undefined;
         updateWorkingLineQuantity({
-            quoteId: this.quoteId,
+            quoteId,
             lineItemId: lineId,
             newQuantity: qtyChanged ? qty : null,
             discountPercent: discChanged ? discount : null,
             startDate: startChanged ? startDate : null
         })
             .then((data) => {
-                this._applyPayload(data);
                 const nextQty = { ...this.draftQtyByLineId };
                 const nextDisc = { ...this.draftDiscountByLineId };
                 const nextStart = { ...this.draftStartByLineId };
@@ -798,11 +946,16 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
                 this.dispatchEvent(
                     new ShowToastEvent({
                         title: 'Line updated',
-                        message: 'Quote repriced — Net increase and Finalized contract refreshed.',
+                        message: 'Quote repriced — This add and Finalized refreshed.',
                         variant: 'success'
                     })
                 );
                 this.dispatchEvent(new RefreshEvent());
+                if (quoteId === this.quoteId) {
+                    this._applyPayload(data);
+                } else {
+                    this._loadScenarioCompare();
+                }
             })
             .catch((e) => {
                 this.error = this._reduceError(e);
@@ -1367,15 +1520,16 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
         this.handleAddLineBelow();
     }
 
-    handleRepriceAll() {
-        if (!this.quoteId) {
+    handleRepriceAll(event) {
+        const quoteId =
+            event?.currentTarget?.dataset?.quoteId || this.quoteId;
+        if (!quoteId) {
             return;
         }
         this.saving = true;
         this.error = undefined;
-        repriceQuote({ quoteId: this.quoteId })
+        repriceQuote({ quoteId })
             .then((data) => {
-                this._applyPayload(data);
                 this.dispatchEvent(
                     new ShowToastEvent({
                         title: 'Repriced',
@@ -1384,6 +1538,11 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
                     })
                 );
                 this.dispatchEvent(new RefreshEvent());
+                if (quoteId === this.quoteId) {
+                    this._applyPayload(data);
+                } else {
+                    this._loadScenarioCompare();
+                }
             })
             .catch((e) => {
                 this.error = this._reduceError(e);
@@ -1406,6 +1565,8 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
      */
     handleTleTool(event) {
         const tool = event.currentTarget?.dataset?.tool;
+        const quoteId =
+            event.currentTarget?.dataset?.quoteId || this.quoteId;
         const labels = {
             headerAdjustment: 'Manage Header Adjustment',
             addAssets: 'Add Assets',
@@ -1422,19 +1583,20 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
                 mode: 'dismissible'
             })
         );
-        this.handleOpenLineEditor();
+        this.handleOpenLineEditor(quoteId);
     }
 
-    handleOpenLineEditor() {
+    handleOpenLineEditor(quoteId) {
         // Escape hatch only — scroll/focus is not available across page regions;
         // keep a path to the classic Quote surface for advanced TLE work.
-        if (!this.quoteId) {
+        const targetId = quoteId || this.quoteId;
+        if (!targetId) {
             return;
         }
         this[NavigationMixin.Navigate]({
             type: 'standard__recordRelationshipPage',
             attributes: {
-                recordId: this.quoteId,
+                recordId: targetId,
                 objectApiName: 'Quote',
                 relationshipApiName: 'QuoteLineItems',
                 actionName: 'view'
@@ -1492,9 +1654,23 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
         this.workingLines = data.workingLines || [];
         this.quoteNumber = data.quoteNumber;
         this.quoteName = data.quoteName;
+        this.accountName = data.accountName;
+        this.grandTotal = data.grandTotal;
+        this.quoteStatus = data.status;
         this.opportunityId = data.opportunityId;
         this.calculationStatus = data.calculationStatus;
         this.validationResult = data.validationResult;
+        if (data.opportunityAutoCreated && data.opportunityId) {
+            this.dispatchEvent(
+                new ShowToastEvent({
+                    title: 'Opportunity ready',
+                    message:
+                        'Created an Opportunity for this amendment so you can model scenarios and set a forecast.',
+                    variant: 'success',
+                    mode: 'dismissable'
+                })
+            );
+        }
         // Invalidate waterfall cache when identifiers change after reprice.
         const nextCache = { ...this.platformWaterfallByLineId };
         for (const line of this.workingLines) {
@@ -1523,6 +1699,7 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
             this.scenarioCompare = undefined;
             this.scenarioError = undefined;
             this.scenarioLoading = false;
+            this.scenarioLinesByQuoteId = {};
             return;
         }
         this.scenarioLoading = true;
@@ -1530,7 +1707,6 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
         getScenarioCompare({ opportunityId: this.opportunityId })
             .then((data) => {
                 this.scenarioCompare = data;
-                this.scenarioLoading = false;
                 const nextQty = { ...this.draftScenarioQtyByQuoteId };
                 const nextDisc = { ...this.draftScenarioDiscByQuoteId };
                 for (const col of data?.scenarios || []) {
@@ -1550,11 +1726,53 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
                 }
                 this.draftScenarioQtyByQuoteId = nextQty;
                 this.draftScenarioDiscByQuoteId = nextDisc;
+                return this._hydrateScenarioLines(data?.scenarios || []);
+            })
+            .then(() => {
+                this.scenarioLoading = false;
             })
             .catch((e) => {
                 this.scenarioLoading = false;
                 this.scenarioError = this._reduceError(e);
             });
+    }
+
+    /**
+     * Load working lines for sibling options. Nested workingLines on
+     * getScenarioCompare often arrive empty in LWC even when This add KPIs
+     * were computed server-side from those same lines.
+     */
+    _hydrateScenarioLines(scenarios) {
+        const lineMap = { ...this.scenarioLinesByQuoteId };
+        const fetches = [];
+        for (const col of scenarios || []) {
+            const qid = col.quoteId;
+            if (!qid || qid === this.quoteId) {
+                continue;
+            }
+            const embedded = col.workingLines;
+            if (Array.isArray(embedded) && embedded.length) {
+                lineMap[qid] = embedded;
+                continue;
+            }
+            fetches.push(
+                getStudioPayload({ quoteId: qid })
+                    .then((payload) => {
+                        lineMap[qid] = payload?.workingLines || [];
+                    })
+                    .catch(() => {
+                        lineMap[qid] = lineMap[qid] || [];
+                    })
+            );
+        }
+        const apply = () => {
+            this.scenarioLinesByQuoteId = lineMap;
+        };
+        if (!fetches.length) {
+            apply();
+            return Promise.resolve();
+        }
+        return Promise.all(fetches).then(apply);
     }
 
     handleScenarioQtyInput(event) {
@@ -1643,18 +1861,192 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
             });
     }
 
+    handleScenarioNameInput(event) {
+        const quoteId = event.target.dataset.quoteId;
+        if (!quoteId) {
+            return;
+        }
+        const raw =
+            event.detail && event.detail.value !== undefined
+                ? event.detail.value
+                : event.target.value;
+        this.draftScenarioNameByQuoteId = {
+            ...this.draftScenarioNameByQuoteId,
+            [quoteId]: raw == null ? '' : String(raw)
+        };
+    }
+
+    handleScenarioNameKeydown(event) {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            event.target.blur();
+        } else if (event.key === 'Escape') {
+            const quoteId = event.target.dataset.quoteId;
+            if (!quoteId) {
+                return;
+            }
+            const next = { ...this.draftScenarioNameByQuoteId };
+            delete next[quoteId];
+            this.draftScenarioNameByQuoteId = next;
+            event.target.blur();
+        }
+    }
+
+    handleScenarioNameCommit(event) {
+        const quoteId = event.target.dataset.quoteId;
+        if (!quoteId || this.isBusy) {
+            return;
+        }
+        const opt = this.scenarioOptionViews.find((o) => o.quoteId === quoteId);
+        if (!opt) {
+            return;
+        }
+        const nextName = String(opt.nameValue || '').trim();
+        if (!nextName) {
+            const revert = { ...this.draftScenarioNameByQuoteId };
+            delete revert[quoteId];
+            this.draftScenarioNameByQuoteId = revert;
+            this.dispatchEvent(
+                new ShowToastEvent({
+                    title: 'Name required',
+                    message: 'Option name cannot be blank.',
+                    variant: 'warning'
+                })
+            );
+            return;
+        }
+        if (nextName === String(opt.name || '').trim()) {
+            const clear = { ...this.draftScenarioNameByQuoteId };
+            delete clear[quoteId];
+            this.draftScenarioNameByQuoteId = clear;
+            return;
+        }
+        this.scenarioBusyQuoteId = quoteId;
+        renameScenario({ quoteId, name: nextName })
+            .then((result) => {
+                this.scenarioBusyQuoteId = undefined;
+                if (!result?.success) {
+                    this.dispatchEvent(
+                        new ShowToastEvent({
+                            title: 'Could not rename option',
+                            message: result?.message || 'Unknown error',
+                            variant: 'error'
+                        })
+                    );
+                    return;
+                }
+                const clear = { ...this.draftScenarioNameByQuoteId };
+                delete clear[quoteId];
+                this.draftScenarioNameByQuoteId = clear;
+                if (quoteId === this.quoteId) {
+                    this.quoteName = nextName;
+                }
+                // Patch local compare cache so the new name shows without a full reload.
+                if (this.scenarioCompare?.scenarios) {
+                    this.scenarioCompare = {
+                        ...this.scenarioCompare,
+                        scenarios: this.scenarioCompare.scenarios.map((col) =>
+                            col.quoteId === quoteId ? { ...col, name: nextName } : col
+                        )
+                    };
+                }
+            })
+            .catch((e) => {
+                this.scenarioBusyQuoteId = undefined;
+                this.dispatchEvent(
+                    new ShowToastEvent({
+                        title: 'Could not rename option',
+                        message: this._reduceError(e),
+                        variant: 'error'
+                    })
+                );
+            });
+    }
+
+    handleScenarioOptionUpdate(event) {
+        const quoteId = event.currentTarget.dataset.quoteId;
+        if (!quoteId) {
+            return;
+        }
+        const opt = this.scenarioOptionViews.find((o) => o.quoteId === quoteId);
+        const dirty = (opt?.lineRows || []).filter(
+            (r) => r.isDirty && !r.updateDisabled
+        );
+        if (!dirty.length) {
+            return;
+        }
+        this.scenarioBusyQuoteId = quoteId;
+        const runNext = (index) => {
+            if (index >= dirty.length) {
+                this.scenarioBusyQuoteId = undefined;
+                this.dispatchEvent(
+                    new ShowToastEvent({
+                        title: 'Option updated',
+                        message: 'Lines saved and repriced.',
+                        variant: 'success'
+                    })
+                );
+                if (quoteId === this.quoteId) {
+                    this._load();
+                } else {
+                    this._loadScenarioCompare();
+                }
+                return;
+            }
+            const row = dirty[index];
+            const qty = Number(row.draftQuantity);
+            const discount = Number(row.draftDiscount);
+            const startDate = row.draftStartDate || null;
+            const qtyChanged = Number(qty) !== Number(row.quantity);
+            const discChanged =
+                Number(discount) !== Number(row.discountPercent || 0);
+            const startChanged =
+                (startDate || '') !== (this._toDateInput(row.startDate) || '');
+            updateWorkingLineQuantity({
+                quoteId,
+                lineItemId: row.id,
+                newQuantity: qtyChanged ? qty : null,
+                discountPercent: discChanged ? discount : null,
+                startDate: startChanged ? startDate : null
+            })
+                .then(() => {
+                    const nextQty = { ...this.draftQtyByLineId };
+                    const nextDisc = { ...this.draftDiscountByLineId };
+                    const nextStart = { ...this.draftStartByLineId };
+                    delete nextQty[row.id];
+                    delete nextDisc[row.id];
+                    delete nextStart[row.id];
+                    this.draftQtyByLineId = nextQty;
+                    this.draftDiscountByLineId = nextDisc;
+                    this.draftStartByLineId = nextStart;
+                    runNext(index + 1);
+                })
+                .catch((e) => {
+                    this.scenarioBusyQuoteId = undefined;
+                    this.dispatchEvent(
+                        new ShowToastEvent({
+                            title: 'Could not update option',
+                            message: this._reduceError(e),
+                            variant: 'error'
+                        })
+                    );
+                });
+        };
+        runNext(0);
+    }
+
     handleScenarioOpen(event) {
         const quoteId = event.currentTarget.dataset.quoteId;
         if (!quoteId || quoteId === this.quoteId) {
             return;
         }
+        // Open the sibling option's Quote record (Studio is embedded there).
         this[NavigationMixin.Navigate]({
-            type: 'standard__navItemPage',
+            type: 'standard__recordPage',
             attributes: {
-                apiName: 'RLM_Amendment_Studio'
-            },
-            state: {
-                c__quoteId: quoteId
+                recordId: quoteId,
+                objectApiName: 'Quote',
+                actionName: 'view'
             }
         });
     }
@@ -1681,14 +2073,29 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
                     );
                     return;
                 }
-                this.dispatchEvent(
-                    new ShowToastEvent({
-                        title: 'Forecast updated',
-                        message: 'This scenario is now synced to the Opportunity.',
-                        variant: 'success'
-                    })
-                );
+                if (result.message) {
+                    this.dispatchEvent(
+                        new ShowToastEvent({
+                            title: 'Forecast set — reprice needed',
+                            message: result.message,
+                            variant: 'warning',
+                            mode: 'sticky'
+                        })
+                    );
+                } else {
+                    this.dispatchEvent(
+                        new ShowToastEvent({
+                            title: 'Forecast updated',
+                            message:
+                                'Synced to the Opportunity and repriced — ready for Create Order.',
+                            variant: 'success'
+                        })
+                    );
+                }
                 this._loadScenarioCompare();
+                if (quoteId === this.quoteId) {
+                    this._load();
+                }
             })
             .catch((e) => {
                 this.scenarioBusyQuoteId = undefined;
@@ -1702,25 +2109,19 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
             });
     }
 
-    handleDuplicateScenario() {
-        if (!this.quoteId || !this.opportunityId) {
-            this.dispatchEvent(
-                new ShowToastEvent({
-                    title: 'Link an Opportunity first',
-                    message:
-                        'Scenario compare needs the amend Quote on an Opportunity.',
-                    variant: 'warning'
-                })
-            );
+    handleDuplicateScenario(event) {
+        const sourceQuoteId =
+            event?.currentTarget?.dataset?.quoteId || this.quoteId;
+        if (!sourceQuoteId) {
             return;
         }
-        const n = (this.scenarioCompare?.scenarios?.length || 0) + 1;
+        const n = Math.max(this.scenarioOptionViews.length, 1) + 1;
         const label = `Option ${n}`;
         this.scenarioLoading = true;
         createScenario({
-            sourceQuoteId: this.quoteId,
+            sourceQuoteId,
             label,
-            opportunityId: this.opportunityId
+            opportunityId: this.opportunityId || null
         })
             .then((result) => {
                 this.scenarioLoading = false;
@@ -1734,14 +2135,17 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
                     );
                     return;
                 }
+                if (result.opportunityId) {
+                    this.opportunityId = result.opportunityId;
+                }
                 this.dispatchEvent(
                     new ShowToastEvent({
                         title: 'Scenario created',
-                        message: `${label} cloned — edit qty/discount in the matrix.`,
+                        message: `${label} added below — edit lines, then Set forecast when ready.`,
                         variant: 'success'
                     })
                 );
-                this._loadScenarioCompare();
+                this._load();
             })
             .catch((e) => {
                 this.scenarioLoading = false;
