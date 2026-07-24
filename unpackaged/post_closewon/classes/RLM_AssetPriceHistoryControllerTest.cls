@@ -447,4 +447,136 @@ private class RLM_AssetPriceHistoryControllerTest {
             'No list → no effective net'
         );
     }
+
+    @isTest
+    static void listScenarios_nullOrInvalid_returnsEmpty() {
+        Test.startTest();
+        System.assertEquals(
+            0,
+            RLM_AssetPriceHistoryController.listScenarios(null).size()
+        );
+        Account acct = new Account(Name = 'Scenario List Acct');
+        insert acct;
+        // Account Id is not an Opportunity — must return empty, not throw
+        System.assertEquals(
+            0,
+            RLM_AssetPriceHistoryController.listScenarios(acct.Id).size()
+        );
+        Test.stopTest();
+    }
+
+    @isTest
+    static void listScenarios_excludesNonAmendQuotes() {
+        // OriginalActionType is platform-owned (not writeable in tests), so we
+        // verify the Amend filter by asserting standard quotes do not appear.
+        Account acct = new Account(Name = 'Scenario Amend List Acct');
+        insert acct;
+        Opportunity opp = new Opportunity(
+            Name = 'Scenario Amend List Opp',
+            AccountId = acct.Id,
+            StageName = 'Prospecting',
+            CloseDate = Date.today().addDays(30)
+        );
+        insert opp;
+        Quote newSale = new Quote(
+            Name = 'New Sale Quote',
+            OpportunityId = opp.Id,
+            Pricebook2Id = Test.getStandardPricebookId(),
+            Status = 'Draft'
+        );
+        insert newSale;
+
+        Test.startTest();
+        List<RLM_AssetPriceHistoryController.ScenarioSummary> rows =
+            RLM_AssetPriceHistoryController.listScenarios(opp.Id);
+        Test.stopTest();
+
+        System.assertEquals(
+            0,
+            rows.size(),
+            'Quotes without OriginalActionType=Amend must be excluded'
+        );
+    }
+
+    @isTest
+    static void getScenarioCompare_buildsColumnsFromPayload() {
+        Account acct = new Account(Name = 'Scenario Compare Acct');
+        insert acct;
+        Opportunity opp = new Opportunity(
+            Name = 'Scenario Compare Opp',
+            AccountId = acct.Id,
+            StageName = 'Prospecting',
+            CloseDate = Date.today().addDays(30)
+        );
+        insert opp;
+        // No amend quotes on opp — live compare returns empty message.
+        // Column builder is unit-tested with an in-memory sibling + payload.
+
+        RLM_AssetPriceHistoryController.ScenarioSummary sibling =
+            new RLM_AssetPriceHistoryController.ScenarioSummary();
+        sibling.quoteId = opp.Id; // placeholder Id shape for DTO only
+        sibling.quoteNumber = '00009999';
+        sibling.name = 'Compare Scenario';
+        sibling.grandTotal = 1000;
+        sibling.isSynced = true;
+        sibling.calculationStatus = 'CompletedWithoutTax';
+
+        RLM_AssetPriceHistoryController.StudioPayload payload =
+            new RLM_AssetPriceHistoryController.StudioPayload();
+        payload.workingLines = new List<RLM_AssetPriceHistoryController.WorkingLine>();
+        RLM_AssetPriceHistoryController.WorkingLine line =
+            new RLM_AssetPriceHistoryController.WorkingLine();
+        line.quantity = 100;
+        line.discountPercent = 70;
+        line.addArr = 4500;
+        line.addMrr = 375;
+        line.totalPrice = 1200;
+        payload.workingLines.add(line);
+
+        RLM_AssetPriceHistoryController.HistorySummary current =
+            new RLM_AssetPriceHistoryController.HistorySummary();
+        current.totalQuantity = 70000;
+        current.currentArr = 2999800;
+        current.currentMrr = 249983.33;
+        RLM_AssetPriceHistoryController.HistorySummary projected =
+            new RLM_AssetPriceHistoryController.HistorySummary();
+        projected.totalQuantity = 70100;
+        projected.currentArr = 3004300;
+        projected.currentMrr = 250358.33;
+        RLM_AssetPriceHistoryController.ProjectionImpact proj =
+            new RLM_AssetPriceHistoryController.ProjectionImpact();
+        proj.mode = 'Add';
+        proj.projected = projected;
+        proj.deltaQuantity = 100;
+        proj.deltaArr = 4500;
+        proj.deltaMrr = 375;
+        payload.history = new RLM_AssetPriceHistoryController.HistoryResponse();
+        payload.history.summary = current;
+        payload.history.projection = proj;
+
+        Test.startTest();
+        RLM_AssetPriceHistoryController.ScenarioColumn col =
+            RLM_AssetPriceHistoryController.buildScenarioColumn(sibling, payload);
+        RLM_AssetPriceHistoryController.ScenarioCompareResponse empty =
+            RLM_AssetPriceHistoryController.getScenarioCompare(null);
+        RLM_AssetPriceHistoryController.ScenarioCompareResponse live =
+            RLM_AssetPriceHistoryController.getScenarioCompare(opp.Id);
+        Test.stopTest();
+
+        System.assertEquals(100, col.thisAddQty);
+        System.assertEquals(4500, col.thisAddArr);
+        System.assertEquals(70, col.thisAddDiscountPercent);
+        System.assertEquals(1200, col.thisAddProrated);
+        System.assertEquals(70100, col.finalizedQty);
+        System.assertEquals(4500, col.deltaArr);
+        System.assertEquals(true, col.isSynced);
+
+        System.assertEquals('No opportunity Id provided.', empty.message);
+        System.assertEquals(opp.Id, live.opportunityId);
+        System.assertEquals(
+            'No amendment scenario quotes on this opportunity.',
+            live.message
+        );
+        System.assertEquals(0, live.scenarios.size());
+    }
 }

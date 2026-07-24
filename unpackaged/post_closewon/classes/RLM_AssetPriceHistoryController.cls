@@ -117,6 +117,211 @@ public with sharing class RLM_AssetPriceHistoryController {
     }
 
     /**
+     * Sibling amend Quote on an Opportunity (scenario compare Phase 1).
+     * Forecast commitment = Opportunity.SyncedQuoteId / Quote.IsSyncing.
+     */
+    public class ScenarioSummary {
+        @AuraEnabled public Id quoteId;
+        @AuraEnabled public String quoteNumber;
+        @AuraEnabled public String name;
+        @AuraEnabled public Decimal grandTotal;
+        @AuraEnabled public Boolean isSynced;
+        @AuraEnabled public String calculationStatus;
+        @AuraEnabled public String validationResult;
+    }
+
+    /**
+     * One column in the scenario compare matrix: This add + Finalized if selected.
+     */
+    public class ScenarioColumn {
+        @AuraEnabled public Id quoteId;
+        @AuraEnabled public String quoteNumber;
+        @AuraEnabled public String name;
+        @AuraEnabled public Boolean isSynced;
+        @AuraEnabled public Decimal grandTotal;
+        @AuraEnabled public String calculationStatus;
+        /** Working-line rollup: add qty / ARR / MRR / prorated (term bill). */
+        @AuraEnabled public Decimal thisAddQty;
+        @AuraEnabled public Decimal thisAddArr;
+        @AuraEnabled public Decimal thisAddMrr;
+        @AuraEnabled public Decimal thisAddProrated;
+        /** Qty-weighted average discount % across positive-qty working lines. */
+        @AuraEnabled public Decimal thisAddDiscountPercent;
+        /** Finalized contract if this quote were the forecast (proposed). */
+        @AuraEnabled public Decimal finalizedQty;
+        @AuraEnabled public Decimal finalizedArr;
+        @AuraEnabled public Decimal finalizedMrr;
+        @AuraEnabled public Decimal deltaQty;
+        @AuraEnabled public Decimal deltaArr;
+        @AuraEnabled public Decimal deltaMrr;
+    }
+
+    public class ScenarioCompareResponse {
+        @AuraEnabled public Id opportunityId;
+        @AuraEnabled public Id syncedQuoteId;
+        /** Shared installed baseline (same Source Asset history across siblings). */
+        @AuraEnabled public HistorySummary current;
+        @AuraEnabled public List<ScenarioColumn> scenarios;
+        @AuraEnabled public String message;
+    }
+
+    /**
+     * Amendment Quotes on an Opportunity for scenario compare.
+     * Not cacheable: sync / clone / reprice change the list frequently.
+     */
+    @AuraEnabled
+    public static List<ScenarioSummary> listScenarios(Id opportunityId) {
+        List<ScenarioSummary> out = new List<ScenarioSummary>();
+        if (opportunityId == null || opportunityId.getSObjectType() != Opportunity.SObjectType) {
+            return out;
+        }
+        Id oppId = Id.valueOf(String.valueOf(opportunityId));
+        for (Quote q : [
+            SELECT
+                Id,
+                QuoteNumber,
+                Name,
+                GrandTotal,
+                IsSyncing,
+                CalculationStatus,
+                ValidationResult
+            FROM Quote
+            WHERE OpportunityId = :oppId AND OriginalActionType = 'Amend'
+            WITH USER_MODE
+            ORDER BY CreatedDate ASC
+        ]) {
+            ScenarioSummary row = new ScenarioSummary();
+            row.quoteId = q.Id;
+            row.quoteNumber = q.QuoteNumber;
+            row.name = q.Name;
+            row.grandTotal = q.GrandTotal;
+            row.isSynced = q.IsSyncing == true;
+            row.calculationStatus = q.CalculationStatus;
+            row.validationResult = q.ValidationResult;
+            out.add(row);
+        }
+        return out;
+    }
+
+    /**
+     * Side-by-side impact of sibling amend Quotes on one Opportunity.
+     * Reuses getStudioPayload KPI math per quote (Current shared from first
+     * sibling with history). Intended for N ≤ ~5 scenarios.
+     */
+    @AuraEnabled
+    public static ScenarioCompareResponse getScenarioCompare(Id opportunityId) {
+        ScenarioCompareResponse resp = new ScenarioCompareResponse();
+        resp.scenarios = new List<ScenarioColumn>();
+        if (opportunityId == null || opportunityId.getSObjectType() != Opportunity.SObjectType) {
+            resp.message = 'No opportunity Id provided.';
+            return resp;
+        }
+        Id oppId = Id.valueOf(String.valueOf(opportunityId));
+        resp.opportunityId = oppId;
+
+        for (Opportunity opp : [
+            SELECT Id, SyncedQuoteId
+            FROM Opportunity
+            WHERE Id = :oppId
+            WITH USER_MODE
+            LIMIT 1
+        ]) {
+            resp.syncedQuoteId = opp.SyncedQuoteId;
+        }
+
+        List<ScenarioSummary> siblings = listScenarios(oppId);
+        if (siblings.isEmpty()) {
+            resp.message = 'No amendment scenario quotes on this opportunity.';
+            return resp;
+        }
+
+        for (ScenarioSummary sibling : siblings) {
+            StudioPayload payload = getStudioPayload(sibling.quoteId);
+            if (resp.current == null && payload.history != null && payload.history.summary != null) {
+                resp.current = payload.history.summary;
+            }
+            resp.scenarios.add(buildScenarioColumn(sibling, payload));
+        }
+        if (resp.current == null) {
+            resp.current = new HistorySummary();
+        }
+        return resp;
+    }
+
+    @TestVisible
+    private static ScenarioColumn buildScenarioColumn(
+        ScenarioSummary sibling,
+        StudioPayload payload
+    ) {
+        ScenarioColumn col = new ScenarioColumn();
+        col.quoteId = sibling.quoteId;
+        col.quoteNumber = sibling.quoteNumber;
+        col.name = sibling.name;
+        col.isSynced = sibling.isSynced;
+        col.grandTotal = sibling.grandTotal;
+        col.calculationStatus = sibling.calculationStatus;
+
+        Decimal addQty = 0;
+        Decimal addArr = 0;
+        Decimal addMrr = 0;
+        Decimal prorated = 0;
+        Decimal discWeight = 0;
+        Decimal discQty = 0;
+        if (payload != null && payload.workingLines != null) {
+            for (WorkingLine line : payload.workingLines) {
+                Decimal q = line.quantity != null ? line.quantity : 0;
+                if (q <= 0) {
+                    continue;
+                }
+                addQty += q;
+                if (line.addArr != null) {
+                    addArr += line.addArr;
+                }
+                if (line.addMrr != null) {
+                    addMrr += line.addMrr;
+                }
+                if (line.totalPrice != null) {
+                    prorated += line.totalPrice;
+                }
+                if (line.discountPercent != null) {
+                    discWeight += line.discountPercent * q;
+                    discQty += q;
+                }
+            }
+        }
+        col.thisAddQty = addQty;
+        col.thisAddArr = addArr.setScale(2, RoundingMode.HALF_UP);
+        col.thisAddMrr = addMrr.setScale(2, RoundingMode.HALF_UP);
+        col.thisAddProrated = prorated.setScale(2, RoundingMode.HALF_UP);
+        col.thisAddDiscountPercent = discQty > 0
+            ? (discWeight / discQty).setScale(2, RoundingMode.HALF_UP)
+            : null;
+
+        HistorySummary baseline =
+            payload != null && payload.history != null ? payload.history.summary : null;
+        HistorySummary proposed = null;
+        ProjectionImpact projection =
+            payload != null && payload.history != null ? payload.history.projection : null;
+        if (projection != null && projection.mode == 'Add' && projection.projected != null) {
+            proposed = projection.projected;
+            col.deltaQty = projection.deltaQuantity;
+            col.deltaArr = projection.deltaArr;
+            col.deltaMrr = projection.deltaMrr;
+        } else if (baseline != null) {
+            proposed = baseline;
+            col.deltaQty = 0;
+            col.deltaArr = 0;
+            col.deltaMrr = 0;
+        }
+        if (proposed != null) {
+            col.finalizedQty = proposed.totalQuantity;
+            col.finalizedArr = proposed.currentArr;
+            col.finalizedMrr = proposed.currentMrr;
+        }
+        return col;
+    }
+
+    /**
      * Amendment Studio payload: history/projection KPIs + working Quote lines.
      * Not cacheable (same timing reasons as getHistoryForQuote).
      */
