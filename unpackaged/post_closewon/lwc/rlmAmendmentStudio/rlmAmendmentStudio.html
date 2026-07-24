@@ -292,6 +292,167 @@
                         </template>
                     </section>
 
+                    <section class="studio-panel layout-scenarios" aria-label="Compare scenarios">
+                        <div class="studio-panel__header studio-panel__header_stack">
+                            <div>
+                                <h2 class="studio-panel__title">Compare scenarios</h2>
+                                <p class="studio-panel__hint">
+                                    Sibling amend Quotes on this Opportunity. Edit qty/discount in place, then select one for forecast.
+                                </p>
+                            </div>
+                            <div class="scenario-header__actions">
+                                <lightning-button
+                                    label="Duplicate scenario"
+                                    title="Clone this amend Quote as another option"
+                                    onclick={handleDuplicateScenario}
+                                    disabled={isBusy}
+                                    variant="neutral"
+                                ></lightning-button>
+                            </div>
+                        </div>
+                        <div class="studio-panel__body">
+                            <template if:false={hasOpportunity}>
+                                <p class="slds-text-body_small slds-text-color_weak">
+                                    Link this Quote to an Opportunity to compare sibling scenarios and set forecast.
+                                </p>
+                            </template>
+                            <template if:true={hasOpportunity}>
+                                <template if:true={scenarioLoading}>
+                                    <div class="slds-align_absolute-center slds-p-around_medium">
+                                        <lightning-spinner alternative-text="Loading scenarios" size="small"></lightning-spinner>
+                                    </div>
+                                </template>
+                                <template if:true={scenarioError}>
+                                    <p class="pending-error">{scenarioError}</p>
+                                </template>
+                                <template if:true={hasScenarioColumns}>
+                                    <div class="scenario-baseline">
+                                        <span class="scenario-baseline__label">Current (shared)</span>
+                                        <span class="scenario-baseline__metric">
+                                            ARR
+                                            <lightning-formatted-number value={scenarioCurrentArr} format-style="currency" currency-code="USD"></lightning-formatted-number>
+                                        </span>
+                                        <span class="scenario-baseline__metric">
+                                            MRR
+                                            <lightning-formatted-number value={scenarioCurrentMrr} format-style="currency" currency-code="USD"></lightning-formatted-number>
+                                        </span>
+                                        <span class="scenario-baseline__metric">
+                                            Qty
+                                            <lightning-formatted-number value={scenarioCurrentQty} maximum-fraction-digits="0"></lightning-formatted-number>
+                                        </span>
+                                    </div>
+                                    <div class="scenario-matrix" role="list">
+                                        <template for:each={scenarioColumnViews} for:item="col">
+                                            <article key={col.key} class={col.columnClass} role="listitem">
+                                                <header class="scenario-col__head">
+                                                    <div>
+                                                        <p class="scenario-col__name">{col.name}</p>
+                                                        <p class="scenario-col__meta">{col.quoteNumber}</p>
+                                                    </div>
+                                                    <span class="scenario-col__badge">{col.headerBadge}</span>
+                                                </header>
+                                                <div class="scenario-col__fields">
+                                                    <label class="scenario-field">
+                                                        <span class="txn-label">Qty</span>
+                                                        <lightning-input
+                                                            type="number"
+                                                            min="0"
+                                                            step="1"
+                                                            value={col.qtyValue}
+                                                            data-quote-id={col.quoteId}
+                                                            label="Quantity"
+                                                            variant="label-hidden"
+                                                            onchange={handleScenarioQtyInput}
+                                                            disabled={isBusy}
+                                                        ></lightning-input>
+                                                    </label>
+                                                    <label class="scenario-field">
+                                                        <span class="txn-label">Disc %</span>
+                                                        <lightning-input
+                                                            type="number"
+                                                            min="0"
+                                                            max="100"
+                                                            step="0.01"
+                                                            value={col.discValue}
+                                                            data-quote-id={col.quoteId}
+                                                            label="Discount percent"
+                                                            variant="label-hidden"
+                                                            onchange={handleScenarioDiscInput}
+                                                            disabled={isBusy}
+                                                        ></lightning-input>
+                                                    </label>
+                                                </div>
+                                                <div class="scenario-col__kpis">
+                                                    <div>
+                                                        <p class="txn-label">This add ARR</p>
+                                                        <p class="txn-value">
+                                                            <lightning-formatted-number value={col.thisAddArr} format-style="currency" currency-code="USD"></lightning-formatted-number>
+                                                        </p>
+                                                    </div>
+                                                    <div>
+                                                        <p class="txn-label">Finalized ARR</p>
+                                                        <p class="txn-value">
+                                                            <lightning-formatted-number value={col.finalizedArr} format-style="currency" currency-code="USD"></lightning-formatted-number>
+                                                        </p>
+                                                    </div>
+                                                    <div>
+                                                        <p class="txn-label">Δ ARR</p>
+                                                        <p class="txn-value">
+                                                            <lightning-formatted-number value={col.deltaArr} format-style="currency" currency-code="USD"></lightning-formatted-number>
+                                                        </p>
+                                                    </div>
+                                                    <div>
+                                                        <p class="txn-label">Grand Total</p>
+                                                        <p class="txn-value">
+                                                            <lightning-formatted-number value={col.grandTotal} format-style="currency" currency-code="USD"></lightning-formatted-number>
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                                <div class="scenario-col__actions">
+                                                    <button
+                                                        type="button"
+                                                        class="tle-btn"
+                                                        data-quote-id={col.quoteId}
+                                                        data-line-id={col.primaryLineItemId}
+                                                        onclick={handleScenarioUpdate}
+                                                        disabled={col.updateDisabled}
+                                                    >
+                                                        Update
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        class="tle-btn"
+                                                        data-quote-id={col.quoteId}
+                                                        onclick={handleScenarioOpen}
+                                                        disabled={col.openDisabled}
+                                                    >
+                                                        Open
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        class="tle-btn"
+                                                        data-quote-id={col.quoteId}
+                                                        onclick={handleScenarioSelectForecast}
+                                                        disabled={col.selectDisabled}
+                                                    >
+                                                        Set forecast
+                                                    </button>
+                                                </div>
+                                            </article>
+                                        </template>
+                                    </div>
+                                </template>
+                                <template if:false={hasScenarioColumns}>
+                                    <template if:false={scenarioLoading}>
+                                        <p class="slds-text-body_small slds-text-color_weak">
+                                            No sibling scenarios yet — Duplicate scenario to create Option 2.
+                                        </p>
+                                    </template>
+                                </template>
+                            </template>
+                        </div>
+                    </section>
+
                     <section class="studio-panel studio-panel_working layout-working" aria-label="Working changes">
                         <div class="studio-panel__header">
                             <h2 class="studio-panel__title">Working changes</h2>

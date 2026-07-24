@@ -82,6 +82,7 @@
         'catalog current'
         'catalog add'
         'catalog finalized'
+        'catalog scenarios'
         'catalog working';
     gap: var(--studio-col-gap);
     align-items: stretch;
@@ -97,6 +98,10 @@
 
 .layout-finalized {
     grid-area: finalized;
+}
+
+.layout-scenarios {
+    grid-area: scenarios;
 }
 
 .layout-catalog {
@@ -1390,6 +1395,119 @@
     color: #5c5c5c;
 }
 
+.scenario-header__actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.scenario-baseline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 1.25rem;
+    align-items: baseline;
+    margin-bottom: 0.75rem;
+    padding: 0.55rem 0.65rem;
+    background: #f3f5f8;
+    border-radius: 0.25rem;
+    font-size: var(--studio-size-xs);
+}
+
+.scenario-baseline__label {
+    font-weight: var(--studio-weight-bold);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #0b162a;
+}
+
+.scenario-baseline__metric {
+    color: #3e4a5c;
+    font-variant-numeric: tabular-nums;
+}
+
+.scenario-matrix {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+    gap: 0.75rem;
+}
+
+.scenario-col {
+    border: 1px solid #e5e9f0;
+    border-radius: 0.25rem;
+    padding: 0.65rem 0.75rem;
+    background: #fff;
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+}
+
+.scenario-col_forecast {
+    border-color: #c83803;
+    box-shadow: inset 3px 0 0 #c83803;
+}
+
+.scenario-col_current {
+    border-color: #0176d3;
+}
+
+.scenario-col__head {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+    align-items: flex-start;
+}
+
+.scenario-col__name {
+    margin: 0;
+    font-size: var(--studio-size-sm);
+    font-weight: var(--studio-weight-bold);
+    color: #0b162a;
+}
+
+.scenario-col__meta {
+    margin: 0.1rem 0 0;
+    font-size: var(--studio-size-xs);
+    color: #5c5c5c;
+}
+
+.scenario-col__badge {
+    font-size: 0.625rem;
+    font-weight: var(--studio-weight-bold);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #5c5c5c;
+    white-space: nowrap;
+}
+
+.scenario-col_forecast .scenario-col__badge {
+    color: #c83803;
+}
+
+.scenario-col__fields {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+}
+
+.scenario-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+}
+
+.scenario-col__kpis {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.35rem 0.5rem;
+}
+
+.scenario-col__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-top: 0.15rem;
+}
+
 @media (max-width: 1024px) {
     .studio-layout {
         grid-template-columns: 1fr;
@@ -1398,6 +1516,7 @@
             'current'
             'add'
             'finalized'
+            'scenarios'
             'working';
     }
 

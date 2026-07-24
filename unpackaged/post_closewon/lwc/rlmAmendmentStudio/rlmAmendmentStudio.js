@@ -14,6 +14,9 @@ import getCatalogCategories from '@salesforce/apex/RLM_AssetPriceHistoryControll
 import addCatalogProductLine from '@salesforce/apex/RLM_AssetPriceHistoryController.addCatalogProductLine';
 import removeWorkingLine from '@salesforce/apex/RLM_AssetPriceHistoryController.removeWorkingLine';
 import getLinePricingWaterfall from '@salesforce/apex/RLM_AssetPriceHistoryController.getLinePricingWaterfall';
+import getScenarioCompare from '@salesforce/apex/RLM_AssetPriceHistoryController.getScenarioCompare';
+import createScenario from '@salesforce/apex/RLM_AssetPriceHistoryController.createScenario';
+import setForecastScenario from '@salesforce/apex/RLM_AssetPriceHistoryController.setForecastScenario';
 import { ShowToastEvent } from 'lightning/platformShowToastEvent';
 import LightningConfirm from 'lightning/confirm';
 
@@ -59,6 +62,14 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
     /** lineId → { steps, source, loading, error, identifier } for OOTB waterfall. */
     platformWaterfallByLineId = {};
     _waterfallInflight = {};
+    /** Sibling amend scenario compare (Opportunity-scoped). */
+    opportunityId;
+    scenarioCompare;
+    scenarioLoading = false;
+    scenarioBusyQuoteId;
+    scenarioError;
+    draftScenarioQtyByQuoteId = {};
+    draftScenarioDiscByQuoteId = {};
 
 
     @api
@@ -375,7 +386,75 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
     }
 
     get isBusy() {
-        return this.isLoading || this.saving;
+        return this.isLoading || this.saving || this.scenarioLoading || !!this.scenarioBusyQuoteId;
+    }
+
+    get hasOpportunity() {
+        return !!this.opportunityId;
+    }
+
+    get hasScenarioColumns() {
+        return Array.isArray(this.scenarioCompare?.scenarios) && this.scenarioCompare.scenarios.length > 0;
+    }
+
+    get scenarioCurrentArr() {
+        return this.scenarioCompare?.current?.currentArr;
+    }
+
+    get scenarioCurrentMrr() {
+        return this.scenarioCompare?.current?.currentMrr;
+    }
+
+    get scenarioCurrentQty() {
+        return this.scenarioCompare?.current?.totalQuantity;
+    }
+
+    get scenarioColumnViews() {
+        return (this.scenarioCompare?.scenarios || []).map((col) => {
+            const qid = col.quoteId;
+            const draftQty = this.draftScenarioQtyByQuoteId[qid];
+            const draftDisc = this.draftScenarioDiscByQuoteId[qid];
+            const qtyValue =
+                draftQty !== undefined && draftQty !== null
+                    ? draftQty
+                    : col.thisAddQty != null
+                      ? String(col.thisAddQty)
+                      : '';
+            const discValue =
+                draftDisc !== undefined && draftDisc !== null
+                    ? draftDisc
+                    : col.thisAddDiscountPercent != null
+                      ? String(col.thisAddDiscountPercent)
+                      : '';
+            const qtyDirty =
+                draftQty !== undefined &&
+                Number(draftQty) !== Number(col.thisAddQty);
+            const discDirty =
+                draftDisc !== undefined &&
+                Number(draftDisc) !== Number(col.thisAddDiscountPercent || 0);
+            const isCurrent = qid === this.quoteId;
+            const busy = this.scenarioBusyQuoteId === qid;
+            return {
+                ...col,
+                key: qid,
+                qtyValue,
+                discValue,
+                isDirty: qtyDirty || discDirty,
+                isCurrent,
+                columnClass:
+                    'scenario-col' +
+                    (col.isSynced ? ' scenario-col_forecast' : '') +
+                    (isCurrent ? ' scenario-col_current' : ''),
+                headerBadge: col.isSynced
+                    ? 'Forecast'
+                    : isCurrent
+                      ? 'Open'
+                      : 'Draft',
+                updateDisabled: this.isBusy || busy || !(qtyDirty || discDirty) || !col.primaryLineItemId,
+                openDisabled: this.isBusy || isCurrent,
+                selectDisabled: this.isBusy || busy || col.isSynced === true
+            };
+        });
     }
 
     get workingLineRows() {
@@ -1413,6 +1492,7 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
         this.workingLines = data.workingLines || [];
         this.quoteNumber = data.quoteNumber;
         this.quoteName = data.quoteName;
+        this.opportunityId = data.opportunityId;
         this.calculationStatus = data.calculationStatus;
         this.validationResult = data.validationResult;
         // Invalidate waterfall cache when identifiers change after reprice.
@@ -1424,6 +1504,7 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
             }
         }
         this.platformWaterfallByLineId = nextCache;
+        this._loadScenarioCompare();
         // Seed taxonomy once, then browse/search the rail.
         const seedRail = () => {
             if (!this.catalogSearchTerm || this.catalogSearchTerm.trim().length < 2) {
@@ -1435,6 +1516,243 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
         } else {
             seedRail();
         }
+    }
+
+    _loadScenarioCompare() {
+        if (!this.opportunityId) {
+            this.scenarioCompare = undefined;
+            this.scenarioError = undefined;
+            this.scenarioLoading = false;
+            return;
+        }
+        this.scenarioLoading = true;
+        this.scenarioError = undefined;
+        getScenarioCompare({ opportunityId: this.opportunityId })
+            .then((data) => {
+                this.scenarioCompare = data;
+                this.scenarioLoading = false;
+                const nextQty = { ...this.draftScenarioQtyByQuoteId };
+                const nextDisc = { ...this.draftScenarioDiscByQuoteId };
+                for (const col of data?.scenarios || []) {
+                    if (
+                        nextQty[col.quoteId] !== undefined &&
+                        Number(nextQty[col.quoteId]) === Number(col.thisAddQty)
+                    ) {
+                        delete nextQty[col.quoteId];
+                    }
+                    if (
+                        nextDisc[col.quoteId] !== undefined &&
+                        Number(nextDisc[col.quoteId]) ===
+                            Number(col.thisAddDiscountPercent || 0)
+                    ) {
+                        delete nextDisc[col.quoteId];
+                    }
+                }
+                this.draftScenarioQtyByQuoteId = nextQty;
+                this.draftScenarioDiscByQuoteId = nextDisc;
+            })
+            .catch((e) => {
+                this.scenarioLoading = false;
+                this.scenarioError = this._reduceError(e);
+            });
+    }
+
+    handleScenarioQtyInput(event) {
+        const quoteId = event.target.dataset.quoteId;
+        if (!quoteId) {
+            return;
+        }
+        this.draftScenarioQtyByQuoteId = {
+            ...this.draftScenarioQtyByQuoteId,
+            [quoteId]: event.target.value
+        };
+    }
+
+    handleScenarioDiscInput(event) {
+        const quoteId = event.target.dataset.quoteId;
+        if (!quoteId) {
+            return;
+        }
+        this.draftScenarioDiscByQuoteId = {
+            ...this.draftScenarioDiscByQuoteId,
+            [quoteId]: event.target.value
+        };
+    }
+
+    handleScenarioUpdate(event) {
+        const quoteId = event.currentTarget.dataset.quoteId;
+        const lineId = event.currentTarget.dataset.lineId;
+        if (!quoteId || !lineId) {
+            return;
+        }
+        const col = (this.scenarioCompare?.scenarios || []).find(
+            (c) => c.quoteId === quoteId
+        );
+        const qtyRaw = this.draftScenarioQtyByQuoteId[quoteId];
+        const discRaw = this.draftScenarioDiscByQuoteId[quoteId];
+        const qty =
+            qtyRaw !== undefined && qtyRaw !== ''
+                ? Number(qtyRaw)
+                : Number(col?.thisAddQty);
+        const disc =
+            discRaw !== undefined && discRaw !== ''
+                ? Number(discRaw)
+                : Number(col?.thisAddDiscountPercent || 0);
+        if (!Number.isFinite(qty) || qty < 0) {
+            this.dispatchEvent(
+                new ShowToastEvent({
+                    title: 'Invalid quantity',
+                    message: 'Enter a non-negative quantity for this scenario.',
+                    variant: 'error'
+                })
+            );
+            return;
+        }
+        this.scenarioBusyQuoteId = quoteId;
+        updateWorkingLineQuantity({
+            quoteId,
+            lineItemId: lineId,
+            newQuantity: qty,
+            discountPercent: Number.isFinite(disc) ? disc : null,
+            startDate: null
+        })
+            .then(() => {
+                this.scenarioBusyQuoteId = undefined;
+                this.dispatchEvent(
+                    new ShowToastEvent({
+                        title: 'Scenario updated',
+                        message: 'Qty / discount applied and repriced.',
+                        variant: 'success'
+                    })
+                );
+                if (quoteId === this.quoteId) {
+                    this._load();
+                } else {
+                    this._loadScenarioCompare();
+                }
+            })
+            .catch((e) => {
+                this.scenarioBusyQuoteId = undefined;
+                this.dispatchEvent(
+                    new ShowToastEvent({
+                        title: 'Could not update scenario',
+                        message: this._reduceError(e),
+                        variant: 'error'
+                    })
+                );
+            });
+    }
+
+    handleScenarioOpen(event) {
+        const quoteId = event.currentTarget.dataset.quoteId;
+        if (!quoteId || quoteId === this.quoteId) {
+            return;
+        }
+        this[NavigationMixin.Navigate]({
+            type: 'standard__navItemPage',
+            attributes: {
+                apiName: 'RLM_Amendment_Studio'
+            },
+            state: {
+                c__quoteId: quoteId
+            }
+        });
+    }
+
+    handleScenarioSelectForecast(event) {
+        const quoteId = event.currentTarget.dataset.quoteId;
+        if (!quoteId || !this.opportunityId) {
+            return;
+        }
+        this.scenarioBusyQuoteId = quoteId;
+        setForecastScenario({
+            opportunityId: this.opportunityId,
+            quoteId
+        })
+            .then((result) => {
+                this.scenarioBusyQuoteId = undefined;
+                if (!result?.success) {
+                    this.dispatchEvent(
+                        new ShowToastEvent({
+                            title: 'Could not set forecast',
+                            message: result?.message || 'Unknown error',
+                            variant: 'error'
+                        })
+                    );
+                    return;
+                }
+                this.dispatchEvent(
+                    new ShowToastEvent({
+                        title: 'Forecast updated',
+                        message: 'This scenario is now synced to the Opportunity.',
+                        variant: 'success'
+                    })
+                );
+                this._loadScenarioCompare();
+            })
+            .catch((e) => {
+                this.scenarioBusyQuoteId = undefined;
+                this.dispatchEvent(
+                    new ShowToastEvent({
+                        title: 'Could not set forecast',
+                        message: this._reduceError(e),
+                        variant: 'error'
+                    })
+                );
+            });
+    }
+
+    handleDuplicateScenario() {
+        if (!this.quoteId || !this.opportunityId) {
+            this.dispatchEvent(
+                new ShowToastEvent({
+                    title: 'Link an Opportunity first',
+                    message:
+                        'Scenario compare needs the amend Quote on an Opportunity.',
+                    variant: 'warning'
+                })
+            );
+            return;
+        }
+        const n = (this.scenarioCompare?.scenarios?.length || 0) + 1;
+        const label = `Option ${n}`;
+        this.scenarioLoading = true;
+        createScenario({
+            sourceQuoteId: this.quoteId,
+            label,
+            opportunityId: this.opportunityId
+        })
+            .then((result) => {
+                this.scenarioLoading = false;
+                if (!result?.success) {
+                    this.dispatchEvent(
+                        new ShowToastEvent({
+                            title: 'Could not duplicate scenario',
+                            message: result?.message || 'Unknown error',
+                            variant: 'error'
+                        })
+                    );
+                    return;
+                }
+                this.dispatchEvent(
+                    new ShowToastEvent({
+                        title: 'Scenario created',
+                        message: `${label} cloned — edit qty/discount in the matrix.`,
+                        variant: 'success'
+                    })
+                );
+                this._loadScenarioCompare();
+            })
+            .catch((e) => {
+                this.scenarioLoading = false;
+                this.dispatchEvent(
+                    new ShowToastEvent({
+                        title: 'Could not duplicate scenario',
+                        message: this._reduceError(e),
+                        variant: 'error'
+                    })
+                );
+            });
     }
 
     _deltaClass(value) {

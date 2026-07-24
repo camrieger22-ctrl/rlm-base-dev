@@ -110,6 +110,8 @@ public with sharing class RLM_AssetPriceHistoryController {
         @AuraEnabled public List<WorkingLine> workingLines;
         @AuraEnabled public String quoteNumber;
         @AuraEnabled public String quoteName;
+        /** Parent Opportunity for scenario compare (may be null on unlinked amends). */
+        @AuraEnabled public Id opportunityId;
         /** Quote.CalculationStatus after last pricing run (informational). */
         @AuraEnabled public String calculationStatus;
         /** Quote.ValidationResult — non-null means prices/transaction need attention. */
@@ -594,7 +596,7 @@ public with sharing class RLM_AssetPriceHistoryController {
         }
         Id qId = Id.valueOf(String.valueOf(quoteId));
         for (Quote q : [
-            SELECT Id, QuoteNumber, Name, CalculationStatus, ValidationResult
+            SELECT Id, QuoteNumber, Name, OpportunityId, CalculationStatus, ValidationResult
             FROM Quote
             WHERE Id = :qId
             WITH USER_MODE
@@ -602,6 +604,7 @@ public with sharing class RLM_AssetPriceHistoryController {
         ]) {
             payload.quoteNumber = q.QuoteNumber;
             payload.quoteName = q.Name;
+            payload.opportunityId = q.OpportunityId;
             payload.calculationStatus = q.CalculationStatus;
             payload.validationResult = q.ValidationResult;
         }
