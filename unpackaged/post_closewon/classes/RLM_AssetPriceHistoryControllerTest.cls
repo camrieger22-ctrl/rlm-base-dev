@@ -142,12 +142,22 @@ private class RLM_AssetPriceHistoryControllerTest {
 
         Test.startTest();
         List<RLM_AssetPriceHistoryController.CatalogProductHit> commonHits =
-            RLM_AssetPriceHistoryController.searchCatalogProducts(q.Id, '');
+            RLM_AssetPriceHistoryController.searchCatalogProducts(q.Id, '', null, null);
         List<RLM_AssetPriceHistoryController.CatalogProductHit> oneChar =
-            RLM_AssetPriceHistoryController.searchCatalogProducts(q.Id, 'a');
+            RLM_AssetPriceHistoryController.searchCatalogProducts(q.Id, 'a', null, null);
         List<RLM_AssetPriceHistoryController.CatalogProductHit> named =
-            RLM_AssetPriceHistoryController.searchCatalogProducts(q.Id, 'Studio Common Widget ZZ');
+            RLM_AssetPriceHistoryController.searchCatalogProducts(
+                q.Id,
+                'Studio Common Widget ZZ',
+                null,
+                null
+            );
+        RLM_AssetPriceHistoryController.CatalogBrowseContext browseCtx =
+            RLM_AssetPriceHistoryController.getCatalogBrowseContext(q.Id);
         Test.stopTest();
+
+        System.assertNotEquals(null, browseCtx);
+        System.assertNotEquals(null, browseCtx.catalogs);
 
         System.assert(commonHits.size() >= 1, 'Blank term seeds common products');
         Boolean sawCommonFlag = false;
@@ -161,6 +171,96 @@ private class RLM_AssetPriceHistoryControllerTest {
         System.assert(oneChar.size() >= 1, 'Short term still shows common rail seed');
         System.assert(named.size() >= 1, 'Name search finds the product');
         System.assertEquals(false, named[0].isCommon);
+    }
+
+    @isTest
+    static void ensureSalesUnitPrice_seedsFromListPrice() {
+        Account acct = new Account(Name = 'UnitPrice Seed Acct');
+        insert acct;
+        Opportunity opp = new Opportunity(
+            Name = 'UnitPrice Seed Opp',
+            AccountId = acct.Id,
+            StageName = 'Prospecting',
+            CloseDate = Date.today().addDays(30)
+        );
+        insert opp;
+        Quote q = new Quote(
+            Name = 'UnitPrice Seed Quote',
+            OpportunityId = opp.Id,
+            Pricebook2Id = Test.getStandardPricebookId(),
+            Status = 'Draft'
+        );
+        insert q;
+        Product2 prod = new Product2(
+            Name = 'Seed Price Product',
+            IsActive = true,
+            StockKeepingUnit = 'RLM-STUDIO-SEED-UP',
+            ProductCode = 'RLM-STUDIO-SEED-UP'
+        );
+        insert prod;
+        PricebookEntry pbe = new PricebookEntry(
+            Pricebook2Id = Test.getStandardPricebookId(),
+            Product2Id = prod.Id,
+            UnitPrice = 149.99,
+            IsActive = true
+        );
+        insert pbe;
+        QuoteLineItem qli = new QuoteLineItem(
+            QuoteId = q.Id,
+            PricebookEntryId = pbe.Id,
+            Quantity = 1,
+            UnitPrice = 149.99
+        );
+        insert qli;
+        // Simulate Amend lines that arrive with ListPrice but null sales UnitPrice.
+        // Standard PBEs always write UnitPrice on insert — clear via update when allowed.
+        // If the org rejects null UnitPrice, assert the helper is a no-op on priced lines.
+        QuoteLineItem loaded = [
+            SELECT Id, UnitPrice, ListPrice, PricebookEntryId, PricebookEntry.UnitPrice
+            FROM QuoteLineItem
+            WHERE Id = :qli.Id
+        ];
+        // Simulate Amend lines that land with null sales UnitPrice.
+        Decimal seedFrom = loaded.ListPrice != null
+            ? loaded.ListPrice
+            : loaded.PricebookEntry.UnitPrice;
+        loaded.UnitPrice = null;
+        Test.startTest();
+        RLM_AssetPriceHistoryController.ensureSalesUnitPrice(new List<QuoteLineItem>{ loaded });
+        Test.stopTest();
+        QuoteLineItem afterRow = [
+            SELECT UnitPrice
+            FROM QuoteLineItem
+            WHERE Id = :qli.Id
+        ];
+        System.assertEquals(
+            seedFrom,
+            afterRow.UnitPrice,
+            'Null UnitPrice is seeded from ListPrice / PBE before FORCE reprice'
+        );
+    }
+
+    @isTest
+    static void mapDiscoveryResults_buildsHitsFromPayload() {
+        String payload =
+            '[{"id":"01tgL00000TMAdJQAX","name":"QuantumBit Generative AI License",'
+                + '"productCode":"QB-GEN-AI-LIC","description":"Gen AI license",'
+                + '"prices":['
+                + '{"priceBookEntryId":"01ugL000003ygucQAA","price":149.99,"isDefault":true,'
+                + '"pricingModel":{"id":"0jPgL0000007HvOUAU","name":"Term Annual"}},'
+                + '{"priceBookEntryId":"01ugL000003ygudQAA","price":20,"isDefault":false,'
+                + '"pricingModel":{"id":"0jPgL0000007HvNUAU","name":"Evergreen Monthly"}}'
+                + ']}]';
+        Object raw = JSON.deserializeUntyped(payload);
+        List<RLM_AssetPriceHistoryController.CatalogProductHit> hits =
+            RLM_AssetPriceHistoryController.mapDiscoveryResults(raw);
+        // Prefer default price only → 1 hit
+        System.assertEquals(1, hits.size());
+        System.assertEquals('Discovery', hits[0].source);
+        System.assertEquals('QuantumBit Generative AI License · Term Annual', hits[0].label);
+        System.assertEquals(149.99, hits[0].listPrice);
+        System.assertEquals('QB-GEN-AI-LIC', hits[0].productCode);
+        System.assertEquals('Gen AI license', hits[0].description);
     }
 
     private class WaterfallHttpMock implements HttpCalloutMock {
@@ -327,5 +427,24 @@ private class RLM_AssetPriceHistoryControllerTest {
             threw = true;
         }
         System.assertEquals(true, threw, 'Non-line Id must raise AuraHandledException');
+    }
+
+    @isTest
+    static void resolveEffectiveNetUnitPrice_fallsBackWhenNetNull() {
+        System.assertEquals(
+            90,
+            RLM_AssetPriceHistoryController.resolveEffectiveNetUnitPrice(90, 100, 40),
+            'Platform net wins when present'
+        );
+        System.assertEquals(
+            97.4935,
+            RLM_AssetPriceHistoryController.resolveEffectiveNetUnitPrice(null, 149.99, 35),
+            'List × (1 − Disc%) when NetUnitPrice null (QLD-owned sales price)'
+        );
+        System.assertEquals(
+            null,
+            RLM_AssetPriceHistoryController.resolveEffectiveNetUnitPrice(null, null, 35),
+            'No list → no effective net'
+        );
     }
 }

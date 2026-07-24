@@ -320,6 +320,7 @@ any real target.
 | Overlay | Shape | Dependency scopes demonstrated |
 |---|---|---|
 | `map_line_item.json` | flat, single step (`actionType: BreakdownLineMapping`; maps `SalesTransactionItem` → `SalesTransactionItemDetail`, 18 `sectionJsonStringN` field-mappings) | standard context only — no `addVariables`, no `externalDependencies` |
+| `map_line_item_nearcore.json` | same Map Line Item step, retargeted to `RLM_DefaultNearCorePricingProcedure` (quote procedure plan). Required with `enableAdvancedDetailLinePricing` for FDO / multi-ASP Quote Line Detail totals. Applied in `prepare_closewon`. | same |
 | `discount_distribution.json` | **nested** — 3 `ListGroup` parents (each with an `AdvancedListFilter` + `AssignmentElement` child) feeding a `DiscountDistributionService` element | ships 4 `Constant_DDS_*` constants in `addVariables`; rest standard context (incl. `__std` discount fields) → no `externalDependencies` |
 | `docs/references/expression-set-overlay-examples/facility-quantity.overlay.example.json` | **Environment-specific reference** — 2 `ListGroup` blocks, incl. a `FormulaBasedPricing` child computing `SalesTransaction_Hospitals__c - ItemStartQuantity` | **all three scopes**: `HospitalPrice` in `addVariables`; the custom field `SalesTransaction_Hospitals__c` (mapped into `RLM_SalesTransactionContext`) in `externalDependencies`; `ItemProductCode`/`ItemStartQuantity`/etc. standard context |
 

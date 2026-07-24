@@ -2,6 +2,29 @@
     display: block;
     min-height: 70vh;
     background: #f3f5f8;
+    /*
+     * Shared type scale — all panels (Catalog / KPIs / Working / Installed)
+     * must use these tokens so family + sizes stay consistent.
+     * Prefer LEX design tokens so custom markup matches lightning-* hosts.
+     */
+    --studio-font: var(
+        --lwc-fontFamily,
+        var(--slds-g-font-family, inherit)
+    );
+    --studio-size-xs: 0.75rem; /* labels, hints, meta */
+    --studio-size-sm: 0.8125rem; /* body, table, catalog rows */
+    --studio-size-md: 0.9375rem; /* KPI / primary values */
+    --studio-size-lg: 1.125rem; /* page title only */
+    --studio-weight-regular: 400;
+    --studio-weight-semibold: 600;
+    --studio-weight-bold: 700;
+
+    font-family: var(--studio-font);
+    font-size: var(--studio-size-sm);
+    font-weight: var(--studio-weight-regular);
+    line-height: 1.4;
+    color: var(--lwc-colorTextDefault, #181818);
+    -webkit-font-smoothing: antialiased;
 }
 
 .studio {
@@ -10,6 +33,23 @@
     gap: 0.75rem;
     padding: 0.75rem 1rem 1.25rem;
     --studio-col-gap: 0.75rem;
+    font: inherit;
+}
+
+/* Keep native controls + lightning hosts on the same face as panel text. */
+.studio button,
+.studio input,
+.studio select,
+.studio textarea,
+.studio lightning-formatted-number,
+.studio lightning-input,
+.studio lightning-button,
+.studio lightning-button-icon,
+.studio lightning-spinner,
+.installed-drawer button,
+.installed-drawer lightning-formatted-number,
+.installed-drawer lightning-button-icon {
+    font-family: inherit;
 }
 
 .studio-header {
@@ -21,28 +61,28 @@
 
 .studio-title {
     margin: 0;
-    font-size: 1.25rem;
-    font-weight: 700;
+    font-size: var(--studio-size-lg);
+    font-weight: var(--studio-weight-bold);
     color: #0b162a;
 }
 
 .studio-subtitle {
     margin: 0.15rem 0 0;
     color: #5c5c5c;
-    font-size: 0.8125rem;
+    font-size: var(--studio-size-sm);
 }
 
 /* Left: Catalog full height.
-   Middle: Current stacked over This add, then Working.
-   Right: Finalized beside the KPI stack; Working spans under middle+right.
+   Middle: Current → This add → Finalized (start / add / end), then Working.
    Installed ledger is a slide-over, not a grid column. */
 .studio-layout {
     display: grid;
-    grid-template-columns: minmax(14rem, 0.95fr) minmax(0, 1.4fr) minmax(13rem, 0.75fr);
+    grid-template-columns: minmax(14rem, 0.95fr) minmax(0, 1.65fr);
     grid-template-areas:
-        'catalog current finalized'
-        'catalog add finalized'
-        'catalog working working';
+        'catalog current'
+        'catalog add'
+        'catalog finalized'
+        'catalog working';
     gap: var(--studio-col-gap);
     align-items: stretch;
 }
@@ -57,7 +97,6 @@
 
 .layout-finalized {
     grid-area: finalized;
-    align-self: stretch;
 }
 
 .layout-catalog {
@@ -84,6 +123,8 @@
     border-left-width: 3px;
     border-left-style: solid;
     background: #fff;
+    font-family: inherit;
+    font-size: var(--studio-size-sm);
 }
 
 .kpi-card_current {
@@ -108,8 +149,8 @@
     background: transparent;
     padding: 0;
     font: inherit;
-    font-size: 0.6875rem;
-    font-weight: 600;
+    font-size: var(--studio-size-xs);
+    font-weight: var(--studio-weight-semibold);
     color: #0176d3;
     cursor: pointer;
     text-decoration: underline;
@@ -155,6 +196,46 @@
     min-height: 0;
 }
 
+.catalog-chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin: 0 0 0.5rem;
+}
+
+.catalog-chip {
+    margin: 0;
+    padding: 0.2rem 0.55rem;
+    border: 1px solid #c9c9c9;
+    border-radius: 0.25rem;
+    background: #fff;
+    color: #181818;
+    font: inherit;
+    font-size: var(--studio-size-xs);
+    font-weight: var(--studio-weight-semibold);
+    line-height: 1.25;
+    cursor: pointer;
+}
+
+.catalog-chip:hover:not(:disabled) {
+    background: #f3f3f3;
+}
+
+.catalog-chip:disabled {
+    opacity: 0.55;
+    cursor: wait;
+}
+
+.catalog-chip_selected {
+    border-color: #0176d3;
+    background: #eaf5fe;
+    color: #0b5cab;
+}
+
+.catalog-chip_category {
+    font-weight: 500;
+}
+
 .catalog-rail-search {
     display: block;
     margin-bottom: 0.5rem;
@@ -162,8 +243,8 @@
 
 .catalog-rail-heading {
     margin: 0 0 0.35rem;
-    font-size: 0.6875rem;
-    font-weight: 700;
+    font-size: var(--studio-size-xs);
+    font-weight: var(--studio-weight-bold);
     letter-spacing: 0.04em;
     text-transform: uppercase;
     color: #5c5c5c;
@@ -190,13 +271,15 @@
     position: fixed;
     top: 0;
     right: 0;
-    width: min(28rem, 92vw);
+    width: min(34rem, 94vw);
     height: 100vh;
     z-index: 9001;
     display: flex;
     flex-direction: column;
     background: #fff;
     box-shadow: -0.35rem 0 1.5rem rgba(11, 22, 42, 0.18);
+    font-family: inherit;
+    font-size: var(--studio-size-sm);
 }
 
 .installed-drawer__header {
@@ -210,14 +293,14 @@
 
 .installed-drawer__title {
     margin: 0;
-    font-size: 1.05rem;
-    font-weight: 700;
+    font-size: var(--studio-size-lg);
+    font-weight: var(--studio-weight-bold);
     color: #0b162a;
 }
 
 .installed-drawer__subtitle {
     margin: 0.2rem 0 0;
-    font-size: 0.8125rem;
+    font-size: var(--studio-size-sm);
     color: #5c5c5c;
 }
 
@@ -235,16 +318,12 @@
     background: #fff4f0;
     border-color: #f5d5c8;
     border-left-color: #c83803;
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-    min-height: 0;
 }
 
 .kpi-card__label {
     margin: 0 0 0.5rem;
-    font-size: 0.6875rem;
-    font-weight: 700;
+    font-size: var(--studio-size-xs);
+    font-weight: var(--studio-weight-bold);
     letter-spacing: 0.04em;
     text-transform: uppercase;
     color: #0b162a;
@@ -259,14 +338,18 @@
 }
 
 .kpi-card__hint {
-    margin: 0.45rem 0 0;
-    font-size: 0.6875rem;
-    line-height: 1.35;
+    margin: 0.85rem 0 0;
+    padding-top: 0.55rem;
+    border-top: 1px solid #eef1f5;
+    font-size: var(--studio-size-xs);
+    line-height: 1.45;
     color: #5c5c5c;
 }
 
 .kpi-card__hint_secondary {
-    margin-top: 0.2rem;
+    margin-top: 0.35rem;
+    padding-top: 0;
+    border-top: 0;
 }
 
 .kpi-card__metrics {
@@ -275,27 +358,51 @@
     gap: 0.5rem;
 }
 
-.kpi-card__metrics_four {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+/* Shared Current / This add columns: ARR | MRR | Qty | (Prorated / spacer). */
+.kpi-card__metrics_aligned {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(6.75rem, 0.95fr);
+    align-items: start;
 }
 
-@media (min-width: 40rem) {
-    .kpi-card__metrics_four {
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-    }
+.kpi-metric-spacer {
+    min-height: 1px;
+}
+
+.kpi-metric-prorated {
+    padding-left: 0.65rem;
+    border-left: 1px solid #e5e9f0;
+}
+
+.kpi-metric-finalized .kpi-metric__value {
+    margin: 0;
+}
+
+.kpi-metric-finalized .delta,
+.kpi-metric-finalized .delta_up,
+.kpi-metric-finalized .delta_down,
+.kpi-metric-finalized .delta_neutral {
+    margin: 0.15rem 0 0;
+    font-size: var(--studio-size-xs);
 }
 
 .kpi-metric__label {
     margin: 0;
-    font-size: 0.6875rem;
+    font-size: var(--studio-size-xs);
     color: #5c5c5c;
 }
 
 .kpi-metric__value {
     margin: 0.1rem 0 0;
-    font-size: 0.9375rem;
-    font-weight: 700;
+    font-size: var(--studio-size-md);
+    font-weight: var(--studio-weight-bold);
     color: #0b162a;
+    font-variant-numeric: tabular-nums;
+}
+
+.kpi-metric__value lightning-formatted-number {
+    font-size: inherit;
+    font-weight: inherit;
+    font-family: inherit;
 }
 
 .studio-panel {
@@ -305,6 +412,8 @@
     min-height: 20rem;
     display: flex;
     flex-direction: column;
+    font-family: inherit;
+    font-size: var(--studio-size-sm);
 }
 
 .studio-panel_working {
@@ -351,14 +460,14 @@
 
 .tle-toolbar__title {
     margin: 0;
-    font-size: 0.8125rem;
-    font-weight: 700;
+    font-size: var(--studio-size-sm);
+    font-weight: var(--studio-weight-bold);
     color: #181818;
 }
 
 .tle-toolbar__count {
     margin: 0.05rem 0 0;
-    font-size: 0.6875rem;
+    font-size: var(--studio-size-xs);
     color: #706e6b;
 }
 
@@ -378,7 +487,7 @@
 }
 
 .tle-instant__label {
-    font-size: 0.6875rem;
+    font-size: var(--studio-size-xs);
     color: #3e3e3c;
 }
 
@@ -403,7 +512,7 @@
 }
 
 .tle-instant__state {
-    font-size: 0.625rem;
+    font-size: var(--studio-size-xs);
     color: #706e6b;
 }
 
@@ -413,8 +522,8 @@
     background: #fff;
     color: #c83904;
     font: inherit;
-    font-size: 0.75rem;
-    font-weight: 600;
+    font-size: var(--studio-size-xs);
+    font-weight: var(--studio-weight-semibold);
     padding: 0.3rem 0.55rem;
     border-radius: 0.25rem;
     cursor: pointer;
@@ -458,7 +567,8 @@
 .tle-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 0.75rem;
+    font-size: var(--studio-size-sm);
+    font-family: inherit;
     min-width: 52rem;
 }
 
@@ -469,11 +579,14 @@
     text-align: left;
     vertical-align: middle;
     white-space: nowrap;
+    font-size: inherit;
+    font-family: inherit;
 }
 
 .tle-table thead th {
     background: #f3f3f3;
-    font-weight: 600;
+    font-size: var(--studio-size-xs);
+    font-weight: var(--studio-weight-semibold);
     color: #3e3e3c;
 }
 
@@ -497,7 +610,8 @@
     padding: 0;
     color: #c83904;
     font: inherit;
-    font-weight: 600;
+    font-size: var(--studio-size-sm);
+    font-weight: var(--studio-weight-semibold);
     cursor: pointer;
     text-align: left;
 }
@@ -507,14 +621,16 @@
 }
 
 .tle-sub {
-    margin: 0.15rem 0 0;
-    font-size: 0.625rem;
+    margin: 0.2rem 0 0;
+    font-size: var(--studio-size-xs);
+    line-height: 1.35;
     color: #706e6b;
     white-space: normal;
 }
 
 .tle-cell-text {
     color: #181818;
+    font-size: var(--studio-size-sm);
 }
 
 .tle-cell-muted {
@@ -613,17 +729,17 @@
 
 .studio-panel__title {
     margin: 0;
-    font-size: 0.8125rem;
-    font-weight: 700;
-    letter-spacing: 0.03em;
+    font-size: var(--studio-size-xs);
+    font-weight: var(--studio-weight-bold);
+    letter-spacing: 0.04em;
     text-transform: uppercase;
     color: #0b162a;
 }
 
 .studio-panel__hint {
     margin: 0.25rem 0 0;
-    font-size: 0.6875rem;
-    font-weight: 400;
+    font-size: var(--studio-size-xs);
+    font-weight: var(--studio-weight-regular);
     letter-spacing: normal;
     text-transform: none;
     color: #5c5c5c;
@@ -649,21 +765,22 @@
 
 .txn-card__head {
     display: flex;
-    justify-content: space-between;
-    gap: 0.5rem;
-    margin-bottom: 0.4rem;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.15rem;
+    margin-bottom: 0.55rem;
 }
 
 .txn-card__type {
-    font-size: 0.75rem;
-    font-weight: 700;
+    font-size: var(--studio-size-xs);
+    font-weight: var(--studio-weight-bold);
     color: #0b162a;
 }
 
-.txn-card__dates {
-    font-size: 0.6875rem;
+.txn-card__product {
+    font-size: var(--studio-size-xs);
     color: #5c5c5c;
-    text-align: right;
+    line-height: 1.3;
 }
 
 .txn-card__grid {
@@ -672,9 +789,14 @@
     gap: 0.35rem 0.5rem;
 }
 
+.txn-card__grid_installed {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.45rem 0.75rem;
+}
+
 .txn-label {
     margin: 0;
-    font-size: 0.625rem;
+    font-size: var(--studio-size-xs);
     text-transform: uppercase;
     letter-spacing: 0.03em;
     color: #5c5c5c;
@@ -682,9 +804,16 @@
 
 .txn-value {
     margin: 0;
-    font-size: 0.75rem;
-    font-weight: 600;
+    font-size: var(--studio-size-sm);
+    font-weight: var(--studio-weight-semibold);
     color: #0b162a;
+    font-variant-numeric: tabular-nums;
+}
+
+.txn-value lightning-formatted-number {
+    font-size: inherit;
+    font-weight: inherit;
+    font-family: inherit;
 }
 
 .working-row_stack {
@@ -802,9 +931,8 @@
     display: none;
     position: fixed;
     z-index: 10050;
-    min-width: 18rem;
-    max-width: 26rem;
-    padding: 0.75rem 0.85rem;
+    width: min(22rem, calc(100vw - 1.5rem));
+    padding: 0.85rem 1rem;
     background: #ffffff;
     color: #0b162a;
     border: 1px solid #c9d3e0;
@@ -839,7 +967,9 @@
 }
 
 .waterfall-popover__title {
-    margin: 0 0 0.45rem;
+    margin: 0 0 0.65rem;
+    padding-bottom: 0.45rem;
+    border-bottom: 1px solid #eef1f6;
     font-size: 0.6875rem;
     font-weight: 700;
     letter-spacing: 0.04em;
@@ -848,29 +978,41 @@
 }
 
 .waterfall-step {
-    display: flex;
-    justify-content: space-between;
-    gap: 0.85rem;
-    padding: 0.28rem 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: baseline;
+    column-gap: 1rem;
+    padding: 0.4rem 0;
     font-size: 0.8125rem;
-    line-height: 1.3;
+    line-height: 1.35;
+}
+
+.waterfall-step + .waterfall-step {
+    border-top: 1px solid #f3f5f8;
 }
 
 .waterfall-step_adj .waterfall-step__value {
     color: #8c4b02;
-    font-weight: 600;
 }
 
 .waterfall-step_total {
-    margin-top: 0.25rem;
-    padding-top: 0.45rem;
-    border-top: 1px solid #d8dee8;
+    margin-top: 0.15rem;
+    padding-top: 0.55rem;
+    border-top: 1px solid #c9d3e0 !important;
+    font-weight: 700;
+}
+
+.waterfall-step_total .waterfall-step__label,
+.waterfall-step_total .waterfall-step__value {
+    color: #0b162a;
     font-weight: 700;
     font-size: 0.875rem;
 }
 
 .waterfall-step__label {
-    color: #5c5c5c;
+    color: #3e4a5c;
+    min-width: 0;
+    overflow-wrap: anywhere;
 }
 
 .waterfall-step__value {
@@ -878,13 +1020,17 @@
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
     font-weight: 600;
+    text-align: right;
+    justify-self: end;
 }
 
 .waterfall-popover__note {
-    margin: 0.5rem 0 0;
+    margin: 0.65rem 0 0;
+    padding-top: 0.45rem;
+    border-top: 1px solid #eef1f6;
     font-size: 0.6875rem;
     line-height: 1.4;
-    color: #5c5c5c;
+    color: #706e6b;
 }
 
 .studio-panel__body {
@@ -1041,6 +1187,7 @@
 .catalog-hit {
     display: flex;
     justify-content: space-between;
+    align-items: flex-start;
     gap: 0.75rem;
     width: 100%;
     padding: 0.5rem 0.65rem;
@@ -1065,16 +1212,41 @@
     cursor: wait;
 }
 
+.catalog-hit__main {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    min-width: 0;
+}
+
 .catalog-hit__name {
-    font-size: 0.8125rem;
-    font-weight: 600;
+    font-size: var(--studio-size-sm);
+    font-weight: var(--studio-weight-semibold);
     color: #0b162a;
 }
 
+.catalog-hit__meta {
+    font-size: var(--studio-size-xs);
+    font-weight: var(--studio-weight-semibold);
+    letter-spacing: 0.02em;
+    color: #5c5c5c;
+}
+
+.catalog-hit__desc {
+    font-size: var(--studio-size-xs);
+    color: #706e6b;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
 .catalog-hit__price {
-    font-size: 0.75rem;
+    font-size: var(--studio-size-sm);
     color: #5c5c5c;
     white-space: nowrap;
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
 }
 
 .working-row:last-child {

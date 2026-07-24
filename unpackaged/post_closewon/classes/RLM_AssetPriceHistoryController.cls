@@ -89,6 +89,13 @@ public with sharing class RLM_AssetPriceHistoryController {
         /** This add's ARR contribution (qty × net), when qty > 0. */
         @AuraEnabled public Decimal addArr;
         @AuraEnabled public Decimal addMrr;
+        /**
+         * True when Quote Line Details exist (future-dated multi-ASP / ARC
+         * breakdown). Sales price lives on details; Studio Update uses Place
+         * Sales Transaction FORCE (requires Near Core Map Line Item + Advanced
+         * Detail Line Pricing).
+         */
+        @AuraEnabled public Boolean hasQuoteLineDetails;
         /** True when line is a catalog Add (hard-deletable). */
         @AuraEnabled public Boolean isCatalogAdd;
         /**
@@ -161,6 +168,22 @@ public with sharing class RLM_AssetPriceHistoryController {
             }
         }
         Map<Id, Decimal> installedByAsset = installedQuantityByAsset(sourceAssetIds);
+        Set<Id> detailLineIds = new Set<Id>();
+        if (!qlis.isEmpty()) {
+            Set<Id> qliIds = new Set<Id>();
+            for (QuoteLineItem qli : qlis) {
+                qliIds.add(qli.Id);
+            }
+            for (AggregateResult ar : [
+                SELECT QuoteLineItemId lineId
+                FROM QuoteLineDetail
+                WHERE QuoteLineItemId IN :qliIds
+                WITH USER_MODE
+                GROUP BY QuoteLineItemId
+            ]) {
+                detailLineIds.add((Id) ar.get('lineId'));
+            }
+        }
         for (QuoteLineItem qli : qlis) {
             WorkingLine line = new WorkingLine();
             line.id = qli.Id;
@@ -178,6 +201,7 @@ public with sharing class RLM_AssetPriceHistoryController {
             line.endDate = qli.EndDate;
             line.priceWaterfallIdentifier = qli.PriceWaterfallIdentifier;
             line.quoteActionId = qli.QuoteActionId;
+            line.hasQuoteLineDetails = detailLineIds.contains(qli.Id);
             if (qli.QuoteAction != null) {
                 line.quoteActionType = qli.QuoteAction.Type;
                 line.sourceAssetId = qli.QuoteAction.SourceAssetId;
@@ -188,9 +212,19 @@ public with sharing class RLM_AssetPriceHistoryController {
             } else {
                 line.isCatalogAdd = false;
             }
-            if (qli.Quantity != null && qli.Quantity > 0 && qli.NetUnitPrice != null) {
-                line.addArr = qli.NetUnitPrice * qli.Quantity;
-                line.addMrr = line.addArr / 12;
+            if (qli.Quantity != null && qli.Quantity > 0) {
+                Decimal effectiveNet = resolveEffectiveNetUnitPrice(
+                    qli.NetUnitPrice,
+                    qli.ListPrice,
+                    qli.Discount
+                );
+                if (effectiveNet != null) {
+                    line.addArr = effectiveNet * qli.Quantity;
+                    line.addMrr = line.addArr / 12;
+                } else {
+                    line.addArr = 0;
+                    line.addMrr = 0;
+                }
             } else {
                 line.addArr = 0;
                 line.addMrr = 0;
@@ -235,7 +269,18 @@ public with sharing class RLM_AssetPriceHistoryController {
         Id liId = Id.valueOf(String.valueOf(lineItemId));
 
         List<QuoteLineItem> lines = [
-            SELECT Id, QuoteId, Quantity, Discount, StartDate, QuoteActionId, QuoteAction.Type
+            SELECT
+                Id,
+                QuoteId,
+                Quantity,
+                Discount,
+                StartDate,
+                UnitPrice,
+                ListPrice,
+                PricebookEntryId,
+                PricebookEntry.UnitPrice,
+                QuoteActionId,
+                QuoteAction.Type
             FROM QuoteLineItem
             WHERE Id = :liId AND QuoteId = :qId
             WITH USER_MODE
@@ -249,30 +294,85 @@ public with sharing class RLM_AssetPriceHistoryController {
         String actionType = existing.QuoteAction != null ? existing.QuoteAction.Type : null;
 
         try {
+            // QuoteAction Type flips still require DML. Commercial fields go through
+            // Place Sales Transaction so Quote Line Detail / multi-period lines can reprice.
+            if (newQuantity != null && newQuantity == 0) {
+                applyAmendmentQuantity(existing, actionType, 0);
+                ensureSalesUnitPriceForQuote(qId);
+                RLM_RepriceQuoteInvocable.repriceQuoteNow(qId);
+                return getStudioPayload(qId);
+            }
+            ensureAmendActionType(existing, actionType, newQuantity, discountPercent, startDate);
+
+            Map<String, Object> lineFields = new Map<String, Object>();
             if (newQuantity != null) {
-                applyAmendmentQuantity(existing, actionType, newQuantity);
-                actionType = newQuantity == 0 ? 'No Change' : 'Amend';
+                lineFields.put('Quantity', newQuantity);
             }
             if (discountPercent != null) {
-                applyAmendmentDiscount(existing, actionType, discountPercent);
-                actionType = 'Amend';
+                lineFields.put('Discount', discountPercent);
             }
             if (startDate != null) {
-                applyAmendmentStartDate(existing, actionType, startDate);
+                lineFields.put('StartDate', startDate);
             }
-        } catch (DmlException e) {
-            throw new AuraHandledException(e.getDmlMessage(0));
-        }
-
-        try {
-            RLM_RepriceQuoteInvocable.repriceQuoteNow(qId);
+            if (existing.UnitPrice == null) {
+                Decimal seed = existing.ListPrice;
+                if (seed == null && existing.PricebookEntry != null) {
+                    seed = existing.PricebookEntry.UnitPrice;
+                }
+                if (seed != null) {
+                    lineFields.put('UnitPrice', seed);
+                }
+            }
+            if (lineFields.isEmpty()) {
+                ensureSalesUnitPriceForQuote(qId);
+                RLM_RepriceQuoteInvocable.repriceQuoteNow(qId);
+            } else {
+                RLM_RepriceQuoteInvocable.patchLineAndReprice(qId, liId, lineFields);
+            }
         } catch (RLM_RepriceQuoteInvocable.RepriceException e) {
             throw new AuraHandledException(e.getMessage());
+        } catch (DmlException e) {
+            throw new AuraHandledException(e.getDmlMessage(0));
         } catch (Exception e) {
             throw new AuraHandledException('Reprice failed: ' + e.getMessage());
         }
 
         return getStudioPayload(qId);
+    }
+
+    /**
+     * Flip No Change → Amend when the AE starts changing qty / discount / start.
+     * Does not write commercial QLI fields (those go through PST).
+     */
+    private static void ensureAmendActionType(
+        QuoteLineItem existing,
+        String actionType,
+        Decimal newQuantity,
+        Decimal discountPercent,
+        Date startDate
+    ) {
+        Boolean touchesCommercial =
+            newQuantity != null || discountPercent != null || startDate != null;
+        if (!touchesCommercial) {
+            return;
+        }
+        Boolean isNoChange = actionType == null || actionType == 'No Change';
+        if (!isNoChange) {
+            if (actionType != 'Amend' && actionType != 'Add') {
+                throw new AuraHandledException(
+                    'Edits are only supported for No Change / Amend / Add lines (found: '
+                        + actionType
+                        + ').'
+                );
+            }
+            return;
+        }
+        if (existing.QuoteActionId == null) {
+            throw new AuraHandledException(
+                'This line has no Quote Action; open Advanced line editor to amend it.'
+            );
+        }
+        update as user new QuoteAction(Id = existing.QuoteActionId, Type = 'Amend');
     }
 
     /**
@@ -349,6 +449,7 @@ public with sharing class RLM_AssetPriceHistoryController {
         }
         Id qId = Id.valueOf(String.valueOf(quoteId));
         try {
+            ensureSalesUnitPriceForQuote(qId);
             RLM_RepriceQuoteInvocable.repriceQuoteNow(qId);
         } catch (RLM_RepriceQuoteInvocable.RepriceException e) {
             throw new AuraHandledException(e.getMessage());
@@ -362,17 +463,44 @@ public with sharing class RLM_AssetPriceHistoryController {
         @AuraEnabled public Id pricebookEntryId;
         @AuraEnabled public Id productId;
         @AuraEnabled public String productName;
+        @AuraEnabled public String productCode;
+        @AuraEnabled public String description;
         @AuraEnabled public Decimal listPrice;
         @AuraEnabled public Id sellingModelId;
         @AuraEnabled public String sellingModelName;
         @AuraEnabled public String label;
         /** True when returned as the default common-products rail (not a typed search). */
         @AuraEnabled public Boolean isCommon;
+        /** Discovery | PriceBook — where the hit came from. */
+        @AuraEnabled public String source;
     }
 
-    /** Max rows for common-products rail and search results. */
+    /** Catalog or category chip for the Studio Discovery rail. */
+    public class CatalogTaxonomyNode {
+        @AuraEnabled public Id id;
+        @AuraEnabled public String name;
+        @AuraEnabled public String code;
+        @AuraEnabled public Integer childCount;
+    }
+
+    /**
+     * Initial Discovery browse context: catalogs + categories for the default
+     * catalog (prefers QuantumBit Software).
+     */
+    public class CatalogBrowseContext {
+        @AuraEnabled public List<CatalogTaxonomyNode> catalogs;
+        @AuraEnabled public List<CatalogTaxonomyNode> categories;
+        @AuraEnabled public Id defaultCatalogId;
+        @AuraEnabled public String message;
+    }
+
+    /** Max rows for common-products rail (price-book seed). */
     @TestVisible
     private static final Integer CATALOG_LIST_LIMIT = 40;
+
+    /** Page size for Discovery search / browse (OOTB-like density). */
+    @TestVisible
+    private static final Integer CATALOG_SEARCH_LIMIT = 12;
 
     /**
      * Hero / commonly sold QuantumBit SKUs — preferred when seeding the catalog rail.
@@ -399,13 +527,58 @@ public with sharing class RLM_AssetPriceHistoryController {
     };
 
     /**
-     * Catalog browse for Studio.
-     * - Blank / short (&lt; 2 chars) searchTerm → common products (curated SKUs +
-     *   frequently quoted products on this price book, filled alphabetically).
-     * - 2+ chars → name filter on the quote's price book.
+     * Load Discovery taxonomy for the Studio rail (catalogs + default categories).
      */
-    @AuraEnabled(cacheable=true)
-    public static List<CatalogProductHit> searchCatalogProducts(Id quoteId, String searchTerm) {
+    @AuraEnabled
+    public static CatalogBrowseContext getCatalogBrowseContext(Id quoteId) {
+        CatalogBrowseContext ctx = new CatalogBrowseContext();
+        ctx.catalogs = new List<CatalogTaxonomyNode>();
+        ctx.categories = new List<CatalogTaxonomyNode>();
+        if (quoteId == null || quoteId.getSObjectType() != Quote.SObjectType) {
+            ctx.message = 'Quote required.';
+            return ctx;
+        }
+        Id qId = Id.valueOf(String.valueOf(quoteId));
+        ctx.catalogs = listDiscoveryCatalogs(qId);
+        ctx.defaultCatalogId = pickDefaultCatalogId(ctx.catalogs);
+        if (ctx.defaultCatalogId != null) {
+            ctx.categories = listDiscoveryCategories(qId, ctx.defaultCatalogId);
+        }
+        return ctx;
+    }
+
+    /**
+     * Categories for a selected Discovery catalog.
+     */
+    @AuraEnabled
+    public static List<CatalogTaxonomyNode> getCatalogCategories(Id quoteId, Id catalogId) {
+        if (
+            quoteId == null ||
+            quoteId.getSObjectType() != Quote.SObjectType ||
+            catalogId == null
+        ) {
+            return new List<CatalogTaxonomyNode>();
+        }
+        return listDiscoveryCategories(
+            Id.valueOf(String.valueOf(quoteId)),
+            Id.valueOf(String.valueOf(catalogId))
+        );
+    }
+
+    /**
+     * Catalog browse / search for Studio (OOTB Discovery composition).
+     * - No catalog + blank → curated common products (price book).
+     * - Catalog/category + blank → getProducts browse.
+     * - 2+ chars → findProducts (scoped when catalog/category set),
+     *   falling back to price-book name search if Discovery returns nothing.
+     */
+    @AuraEnabled
+    public static List<CatalogProductHit> searchCatalogProducts(
+        Id quoteId,
+        String searchTerm,
+        Id catalogId,
+        Id categoryId
+    ) {
         if (quoteId == null || quoteId.getSObjectType() != Quote.SObjectType) {
             return new List<CatalogProductHit>();
         }
@@ -421,11 +594,349 @@ public with sharing class RLM_AssetPriceHistoryController {
             return new List<CatalogProductHit>();
         }
         Id pricebookId = quotes[0].Pricebook2Id;
+        Id scopedCatalogId = catalogId;
+        Id scopedCategoryId = categoryId;
         String trimmed = searchTerm == null ? '' : searchTerm.trim();
         if (trimmed.length() < 2) {
+            if (scopedCatalogId != null || scopedCategoryId != null) {
+                List<CatalogProductHit> browseHits = browseViaProductDiscovery(
+                    qId,
+                    pricebookId,
+                    scopedCatalogId,
+                    scopedCategoryId
+                );
+                if (!browseHits.isEmpty()) {
+                    return browseHits;
+                }
+            }
             return listCommonCatalogProducts(pricebookId);
         }
+        List<CatalogProductHit> discoveryHits = searchViaProductDiscovery(
+            qId,
+            pricebookId,
+            trimmed,
+            scopedCatalogId,
+            scopedCategoryId
+        );
+        if (!discoveryHits.isEmpty()) {
+            return discoveryHits;
+        }
         return searchCatalogProductsByName(pricebookId, trimmed);
+    }
+
+    /**
+     * OOTB Product Discovery search (standard invocable findProducts).
+     */
+    private static List<CatalogProductHit> searchViaProductDiscovery(
+        Id quoteId,
+        Id pricebookId,
+        String searchTerm,
+        Id catalogId,
+        Id categoryId
+    ) {
+        try {
+            Invocable.Action action = Invocable.Action.createStandardAction('findProducts');
+            action.setInvocationParameter('searchTerm', searchTerm);
+            action.setInvocationParameter('transactionId', String.valueOf(quoteId));
+            action.setInvocationParameter('priceBookId', String.valueOf(pricebookId));
+            action.setInvocationParameter('limit', CATALOG_SEARCH_LIMIT);
+            action.setInvocationParameter('enablePricing', true);
+            action.setInvocationParameter('enableQualification', false);
+            if (catalogId != null) {
+                action.setInvocationParameter('catalogId', String.valueOf(catalogId));
+            }
+            if (categoryId != null) {
+                action.setInvocationParameter('categoryId', String.valueOf(categoryId));
+            }
+            return invokeDiscoveryProductList(action);
+        } catch (Exception e) {
+            return new List<CatalogProductHit>();
+        }
+    }
+
+    /**
+     * OOTB Product Discovery browse (standard invocable getProducts).
+     */
+    private static List<CatalogProductHit> browseViaProductDiscovery(
+        Id quoteId,
+        Id pricebookId,
+        Id catalogId,
+        Id categoryId
+    ) {
+        try {
+            Invocable.Action action = Invocable.Action.createStandardAction('getProducts');
+            action.setInvocationParameter('transactionId', String.valueOf(quoteId));
+            action.setInvocationParameter('priceBookId', String.valueOf(pricebookId));
+            action.setInvocationParameter('limit', CATALOG_SEARCH_LIMIT);
+            action.setInvocationParameter('enablePricing', true);
+            action.setInvocationParameter('enableQualification', false);
+            if (catalogId != null) {
+                action.setInvocationParameter('catalogId', String.valueOf(catalogId));
+            }
+            if (categoryId != null) {
+                action.setInvocationParameter('categoryId', String.valueOf(categoryId));
+            }
+            List<CatalogProductHit> hits = invokeDiscoveryProductList(action);
+            for (CatalogProductHit hit : hits) {
+                hit.isCommon = true;
+            }
+            return hits;
+        } catch (Exception e) {
+            return new List<CatalogProductHit>();
+        }
+    }
+
+    private static List<CatalogProductHit> invokeDiscoveryProductList(Invocable.Action action) {
+        List<Invocable.Action.Result> actionResults = action.invoke();
+        if (actionResults == null || actionResults.isEmpty()) {
+            return new List<CatalogProductHit>();
+        }
+        Invocable.Action.Result res = actionResults[0];
+        if (!res.isSuccess()) {
+            return new List<CatalogProductHit>();
+        }
+        Map<String, Object> outMap = res.getOutputParameters();
+        if (outMap == null) {
+            return new List<CatalogProductHit>();
+        }
+        return mapDiscoveryResults(outMap.get('results'));
+    }
+
+    private static List<CatalogTaxonomyNode> listDiscoveryCatalogs(Id quoteId) {
+        List<CatalogTaxonomyNode> nodes = new List<CatalogTaxonomyNode>();
+        try {
+            Invocable.Action action = Invocable.Action.createStandardAction('getCatalogs');
+            action.setInvocationParameter('transactionId', String.valueOf(quoteId));
+            action.setInvocationParameter('limit', 20);
+            List<Invocable.Action.Result> actionResults = action.invoke();
+            if (actionResults == null || actionResults.isEmpty() || !actionResults[0].isSuccess()) {
+                return nodes;
+            }
+            Map<String, Object> outMap = actionResults[0].getOutputParameters();
+            Object raw = outMap != null ? outMap.get('resultCatalogList') : null;
+            for (Map<String, Object> row : asObjectMaps(raw)) {
+                CatalogTaxonomyNode node = new CatalogTaxonomyNode();
+                if (row.get('id') == null) {
+                    continue;
+                }
+                try {
+                    node.id = Id.valueOf(String.valueOf(row.get('id')));
+                } catch (Exception e) {
+                    continue;
+                }
+                node.name = row.get('name') != null ? String.valueOf(row.get('name')) : 'Catalog';
+                node.code = row.get('catalogCode') != null
+                    ? String.valueOf(row.get('catalogCode'))
+                    : null;
+                if (row.get('numberOfCategories') != null) {
+                    try {
+                        node.childCount = Integer.valueOf(String.valueOf(row.get('numberOfCategories')));
+                    } catch (Exception e) {
+                        node.childCount = null;
+                    }
+                }
+                nodes.add(node);
+            }
+        } catch (Exception e) {
+            return nodes;
+        }
+        return nodes;
+    }
+
+    private static List<CatalogTaxonomyNode> listDiscoveryCategories(Id quoteId, Id catalogId) {
+        List<CatalogTaxonomyNode> nodes = new List<CatalogTaxonomyNode>();
+        try {
+            Invocable.Action action = Invocable.Action.createStandardAction('getCategories');
+            action.setInvocationParameter('transactionId', String.valueOf(quoteId));
+            action.setInvocationParameter('catalogId', String.valueOf(catalogId));
+            action.setInvocationParameter('limit', 50);
+            List<Invocable.Action.Result> actionResults = action.invoke();
+            if (actionResults == null || actionResults.isEmpty() || !actionResults[0].isSuccess()) {
+                return nodes;
+            }
+            Map<String, Object> outMap = actionResults[0].getOutputParameters();
+            Object raw = outMap != null ? outMap.get('resultCategoryList') : null;
+            for (Map<String, Object> row : asObjectMaps(raw)) {
+                CatalogTaxonomyNode node = new CatalogTaxonomyNode();
+                if (row.get('id') == null) {
+                    continue;
+                }
+                try {
+                    node.id = Id.valueOf(String.valueOf(row.get('id')));
+                } catch (Exception e) {
+                    continue;
+                }
+                node.name = row.get('name') != null ? String.valueOf(row.get('name')) : 'Category';
+                nodes.add(node);
+            }
+        } catch (Exception e) {
+            return nodes;
+        }
+        return nodes;
+    }
+
+    private static Id pickDefaultCatalogId(List<CatalogTaxonomyNode> catalogs) {
+        if (catalogs == null || catalogs.isEmpty()) {
+            return null;
+        }
+        for (CatalogTaxonomyNode n : catalogs) {
+            if (n.code != null && n.code.equalsIgnoreCase('CAT-QB-SFT')) {
+                return n.id;
+            }
+        }
+        for (CatalogTaxonomyNode n : catalogs) {
+            if (n.name != null && n.name.toLowerCase().contains('software')) {
+                return n.id;
+            }
+        }
+        return catalogs[0].id;
+    }
+
+    private static List<Map<String, Object>> asObjectMaps(Object raw) {
+        List<Map<String, Object>> rows = new List<Map<String, Object>>();
+        if (raw == null) {
+            return rows;
+        }
+        try {
+            Object parsed = JSON.deserializeUntyped(JSON.serialize(raw));
+            if (!(parsed instanceof List<Object>)) {
+                return rows;
+            }
+            for (Object item : (List<Object>) parsed) {
+                if (item instanceof Map<String, Object>) {
+                    rows.add((Map<String, Object>) item);
+                }
+            }
+        } catch (Exception e) {
+            return rows;
+        }
+        return rows;
+    }
+
+    /**
+     * Map findProducts / Discovery result payload into Studio catalog hits.
+     * Emits one hit per priced selling model (prefers isDefault when present).
+     *
+     * Always normalize via JSON: invocable output is typed
+     * SearchProductsRepresentation (not Map&lt;String,Object&gt;), so a direct
+     * List&lt;Object&gt; cast would skip every row.
+     */
+    @TestVisible
+    private static List<CatalogProductHit> mapDiscoveryResults(Object rawResults) {
+        List<CatalogProductHit> hits = new List<CatalogProductHit>();
+        if (rawResults == null) {
+            return hits;
+        }
+        List<Object> items;
+        try {
+            Object parsed = JSON.deserializeUntyped(JSON.serialize(rawResults));
+            if (!(parsed instanceof List<Object>)) {
+                return hits;
+            }
+            items = (List<Object>) parsed;
+        } catch (Exception e) {
+            return hits;
+        }
+        Set<Id> seenPbe = new Set<Id>();
+        for (Object rawItem : items) {
+            if (!(rawItem instanceof Map<String, Object>)) {
+                continue;
+            }
+            Map<String, Object> product = (Map<String, Object>) rawItem;
+            String productName = product.get('name') != null
+                ? String.valueOf(product.get('name'))
+                : 'Product';
+            String productCode = product.get('productCode') != null
+                ? String.valueOf(product.get('productCode'))
+                : null;
+            String description = product.get('description') != null
+                ? String.valueOf(product.get('description'))
+                : null;
+            Id productId = null;
+            if (product.get('id') != null) {
+                try {
+                    productId = Id.valueOf(String.valueOf(product.get('id')));
+                } catch (Exception e) {
+                    productId = null;
+                }
+            }
+            List<Object> prices = new List<Object>();
+            if (product.get('prices') instanceof List<Object>) {
+                prices = (List<Object>) product.get('prices');
+            }
+            if (prices.isEmpty()) {
+                continue;
+            }
+            // Prefer default price rows; otherwise include all priced models.
+            List<Object> chosen = new List<Object>();
+            for (Object rawPrice : prices) {
+                if (!(rawPrice instanceof Map<String, Object>)) {
+                    continue;
+                }
+                Map<String, Object> price = (Map<String, Object>) rawPrice;
+                if (price.get('isDefault') == true) {
+                    chosen.add(price);
+                }
+            }
+            if (chosen.isEmpty()) {
+                chosen.addAll(prices);
+            }
+            for (Object rawPrice : chosen) {
+                Map<String, Object> price = (Map<String, Object>) rawPrice;
+                if (price.get('priceBookEntryId') == null) {
+                    continue;
+                }
+                Id pbeId;
+                try {
+                    pbeId = Id.valueOf(String.valueOf(price.get('priceBookEntryId')));
+                } catch (Exception e) {
+                    continue;
+                }
+                if (seenPbe.contains(pbeId)) {
+                    continue;
+                }
+                seenPbe.add(pbeId);
+                CatalogProductHit hit = new CatalogProductHit();
+                hit.pricebookEntryId = pbeId;
+                hit.productId = productId;
+                hit.productName = productName;
+                hit.productCode = productCode;
+                hit.description = description;
+                hit.isCommon = false;
+                hit.source = 'Discovery';
+                if (price.get('price') != null) {
+                    try {
+                        hit.listPrice = Decimal.valueOf(String.valueOf(price.get('price')));
+                    } catch (Exception e) {
+                        hit.listPrice = null;
+                    }
+                }
+                Map<String, Object> model = null;
+                if (price.get('pricingModel') instanceof Map<String, Object>) {
+                    model = (Map<String, Object>) price.get('pricingModel');
+                }
+                if (model != null) {
+                    if (model.get('id') != null) {
+                        try {
+                            hit.sellingModelId = Id.valueOf(String.valueOf(model.get('id')));
+                        } catch (Exception e) {
+                            hit.sellingModelId = null;
+                        }
+                    }
+                    hit.sellingModelName = model.get('name') != null
+                        ? String.valueOf(model.get('name'))
+                        : null;
+                }
+                hit.label = String.isNotBlank(hit.sellingModelName)
+                    ? hit.productName + ' · ' + hit.sellingModelName
+                    : hit.productName;
+                hits.add(hit);
+                if (hits.size() >= CATALOG_SEARCH_LIMIT) {
+                    return hits;
+                }
+            }
+        }
+        return hits;
     }
 
     private static List<CatalogProductHit> searchCatalogProductsByName(
@@ -440,6 +951,8 @@ public with sharing class RLM_AssetPriceHistoryController {
                 UnitPrice,
                 Product2Id,
                 Product2.Name,
+                Product2.ProductCode,
+                Product2.Description,
                 ProductSellingModelId,
                 ProductSellingModel.Name
             FROM PricebookEntry
@@ -449,9 +962,11 @@ public with sharing class RLM_AssetPriceHistoryController {
                 AND Product2.Name LIKE :term
             WITH USER_MODE
             ORDER BY Product2.Name ASC
-            LIMIT :CATALOG_LIST_LIMIT
+            LIMIT :CATALOG_SEARCH_LIMIT
         ]) {
-            hits.add(toCatalogHit(pbe, false));
+            CatalogProductHit hit = toCatalogHit(pbe, false);
+            hit.source = 'PriceBook';
+            hits.add(hit);
         }
         return hits;
     }
@@ -520,6 +1035,7 @@ public with sharing class RLM_AssetPriceHistoryController {
                         UnitPrice,
                         Product2Id,
                         Product2.Name,
+                        Product2.ProductCode,
                         ProductSellingModelId,
                         ProductSellingModel.Name
                     FROM PricebookEntry
@@ -550,6 +1066,7 @@ public with sharing class RLM_AssetPriceHistoryController {
                     UnitPrice,
                     Product2Id,
                     Product2.Name,
+                    Product2.ProductCode,
                     ProductSellingModelId,
                     ProductSellingModel.Name
                 FROM PricebookEntry
@@ -573,6 +1090,9 @@ public with sharing class RLM_AssetPriceHistoryController {
         hit.pricebookEntryId = pbe.Id;
         hit.productId = pbe.Product2Id;
         hit.productName = pbe.Product2 != null ? pbe.Product2.Name : 'Product';
+        if (pbe.Product2 != null) {
+            hit.productCode = pbe.Product2.ProductCode;
+        }
         hit.listPrice = pbe.UnitPrice;
         hit.sellingModelId = pbe.ProductSellingModelId;
         hit.sellingModelName =
@@ -581,6 +1101,7 @@ public with sharing class RLM_AssetPriceHistoryController {
             ? hit.productName + ' · ' + hit.sellingModelName
             : hit.productName;
         hit.isCommon = isCommon == true;
+        hit.source = 'PriceBook';
         return hit;
     }
 
@@ -606,7 +1127,11 @@ public with sharing class RLM_AssetPriceHistoryController {
     /** Skip noisy procedure bookkeeping steps in the AE-facing waterfall. */
     private static final Set<String> WATERFALL_SKIP_ELEMENT_TYPES = new Set<String>{
         'AssignmentElement',
-        'GroupingAndAggregatePricing'
+        'GroupingAndAggregatePricing',
+        // Unit-price hover: keep List → Discount → Net; hide term/bookkeeping noise.
+        'SubscriptionPricing',
+        'FormulaBasedPricing',
+        'Proration'
     };
 
     /**
@@ -695,22 +1220,34 @@ public with sharing class RLM_AssetPriceHistoryController {
                     continue;
                 }
                 Map<String, Object> outp = (Map<String, Object>) step.get('outputParameters');
+                String valueLabel = formatWaterfallStepValue(pe, outp, elementType);
+                // Drop empty / dash-only rows so the popover stays scannable.
+                if (String.isBlank(valueLabel) || valueLabel == '—') {
+                    continue;
+                }
                 PlatformWaterfallStep dto = new PlatformWaterfallStep();
                 dto.key = 'pwf-' + String.valueOf(step.get('sequence')) + '-' + idx;
                 Object seqObj = step.get('sequence');
                 dto.sequence = seqObj == null ? idx : Integer.valueOf(String.valueOf(seqObj));
                 dto.elementType = elementType;
-                dto.label = pe != null && pe.get('name') != null
+                String rawName = pe != null && pe.get('name') != null
                     ? String.valueOf(pe.get('name'))
-                    : (elementType != null ? elementType : 'Step');
+                    : elementType;
+                dto.label = friendlyWaterfallLabel(elementType, rawName);
                 dto.isAdjustment = isAdjustmentElement(elementType, pe);
-                dto.valueLabel = formatWaterfallStepValue(pe, outp, elementType);
+                dto.valueLabel = valueLabel;
                 resp.steps.add(dto);
                 idx++;
             }
             if (resp.steps.isEmpty()) {
                 resp.message = 'No displayable waterfall steps after filtering.';
                 return resp;
+            }
+            // Mark the last money step as the net/total row for styling.
+            PlatformWaterfallStep last = resp.steps[resp.steps.size() - 1];
+            if (last.elementType == 'DiscountDistributionService' || last.label == 'Net unit price') {
+                last.label = 'Net unit price';
+                last.isAdjustment = false;
             }
             resp.success = true;
             resp.message = null;
@@ -721,10 +1258,40 @@ public with sharing class RLM_AssetPriceHistoryController {
         }
     }
 
+    private static String friendlyWaterfallLabel(String elementType, String rawName) {
+        if (elementType == 'ListPrice') {
+            return 'List price';
+        }
+        if (elementType == 'ManualDiscount') {
+            return 'Discount';
+        }
+        if (elementType == 'Proration') {
+            return 'Proration';
+        }
+        if (elementType == 'DiscountDistributionService') {
+            return 'Net unit price';
+        }
+        if (elementType != null && elementType.toLowerCase().contains('discount')) {
+            return 'Discount';
+        }
+        if (String.isBlank(rawName)) {
+            return elementType != null ? elementType : 'Step';
+        }
+        // Collapse verbose procedure names to something an AE can scan.
+        String cleaned = rawName.replace('Calculate ', '').replace(' for term-defined lines', '');
+        if (cleaned.length() > 36) {
+            return cleaned.substring(0, 34) + '…';
+        }
+        return cleaned;
+    }
+
     private static Boolean isAdjustmentElement(String elementType, Map<String, Object> pe) {
         if (elementType != null) {
             String et = elementType.toLowerCase();
             if (et.contains('discount') || et.contains('adjustment') || et.contains('promotion')) {
+                return true;
+            }
+            if (et == 'proration') {
                 return true;
             }
         }
@@ -752,18 +1319,23 @@ public with sharing class RLM_AssetPriceHistoryController {
                 Object av = adj.get('AdjustmentValue');
                 Object at = adj.get('AdjustmentType');
                 if (av != null && at != null && String.valueOf(at).equalsIgnoreCase('Percentage')) {
-                    String pct = String.valueOf(av);
-                    if (outp != null && outp.get('NetUnitPrice') != null) {
-                        return '−' + pct + '% → ' + formatMoney(outp.get('NetUnitPrice'));
-                    }
-                    return '−' + pct + '%';
+                    return '−' + formatPercent(av);
+                }
+                if (av != null && at != null && String.valueOf(at).equalsIgnoreCase('Amount')) {
+                    return '−' + formatMoney(av);
                 }
                 if (av != null) {
-                    return String.valueOf(at) + ' ' + String.valueOf(av);
+                    return String.valueOf(av);
                 }
             }
         }
         if (outp != null) {
+            if (elementType == 'Proration' || outp.get('ProrationMultiplier') != null) {
+                Object mult = outp.get('ProrationMultiplier');
+                if (mult != null) {
+                    return formatProrationMultiplier(mult);
+                }
+            }
             if (elementType == 'ListPrice' && outp.get('ListPrice') != null) {
                 return formatMoney(outp.get('ListPrice'));
             }
@@ -773,14 +1345,28 @@ public with sharing class RLM_AssetPriceHistoryController {
             if (outp.get('ListPrice') != null) {
                 return formatMoney(outp.get('ListPrice'));
             }
-            if (outp.get('Subtotal') != null) {
-                return formatMoney(outp.get('Subtotal'));
-            }
-            if (outp.get('ProrationMultiplier') != null) {
-                return String.valueOf(outp.get('ProrationMultiplier'));
-            }
+            // Prefer not to show huge Subtotals on a unit-price hover.
         }
         return '—';
+    }
+
+    private static String formatProrationMultiplier(Object raw) {
+        try {
+            Decimal m = Decimal.valueOf(String.valueOf(raw));
+            Decimal pct = (m * 100).setScale(1, System.RoundingMode.HALF_UP);
+            return pct.format() + '% of term';
+        } catch (Exception e) {
+            return String.valueOf(raw);
+        }
+    }
+
+    private static String formatPercent(Object raw) {
+        try {
+            Decimal d = Decimal.valueOf(String.valueOf(raw));
+            return d.setScale(1, System.RoundingMode.HALF_UP).format() + '%';
+        } catch (Exception e) {
+            return String.valueOf(raw) + '%';
+        }
     }
 
     private static String formatMoney(Object raw) {
@@ -789,7 +1375,7 @@ public with sharing class RLM_AssetPriceHistoryController {
         }
         try {
             Decimal d = Decimal.valueOf(String.valueOf(raw));
-            return '$' + String.valueOf(d.setScale(2, System.RoundingMode.HALF_UP));
+            return '$' + d.setScale(2, System.RoundingMode.HALF_UP).format();
         } catch (Exception e) {
             return String.valueOf(raw);
         }
@@ -997,6 +1583,58 @@ public with sharing class RLM_AssetPriceHistoryController {
                 + actionType
                 + ').'
         );
+    }
+
+    /**
+     * Seed sales UnitPrice when null so FORCE Place Sales Transaction can run the
+     * pricing procedure. Amend lines from initiateAmendment sometimes arrive with
+     * ListPrice set but UnitPrice null; FORCE reprice then "succeeds" with $0 totals.
+     * Prefers ListPrice, then PricebookEntry.UnitPrice.
+     */
+    @TestVisible
+    private static void ensureSalesUnitPriceForQuote(Id quoteId) {
+        List<QuoteLineItem> lines = [
+            SELECT Id, UnitPrice, ListPrice, PricebookEntryId, PricebookEntry.UnitPrice
+            FROM QuoteLineItem
+            WHERE QuoteId = :quoteId AND UnitPrice = NULL
+            WITH USER_MODE
+        ];
+        ensureSalesUnitPrice(lines);
+    }
+
+    @TestVisible
+    private static void ensureSalesUnitPrice(List<QuoteLineItem> lines) {
+        if (lines == null || lines.isEmpty()) {
+            return;
+        }
+        List<QuoteLineItem> updates = new List<QuoteLineItem>();
+        for (QuoteLineItem line : lines) {
+            if (line == null || line.Id == null || line.UnitPrice != null) {
+                continue;
+            }
+            Decimal seed = line.ListPrice;
+            if (seed == null && line.PricebookEntry != null) {
+                seed = line.PricebookEntry.UnitPrice;
+            }
+            if (seed == null) {
+                continue;
+            }
+            updates.add(new QuoteLineItem(Id = line.Id, UnitPrice = seed));
+            line.UnitPrice = seed;
+        }
+        if (updates.isEmpty()) {
+            return;
+        }
+        try {
+            update as user updates;
+        } catch (DmlException e) {
+            // Quote Line Detail lines block UnitPrice DML — Place Sales
+            // Transaction owns sales price for those. Don't fail the Update path.
+            System.debug(
+                LoggingLevel.WARN,
+                'ensureSalesUnitPrice: skipped UnitPrice seed (' + e.getDmlMessage(0) + ')'
+            );
+        }
     }
 
     /**
@@ -1302,13 +1940,22 @@ public with sharing class RLM_AssetPriceHistoryController {
                 continue;
             }
             hasAdd = true;
+            Decimal effectiveNet = resolveEffectiveNetUnitPrice(
+                qli.NetUnitPrice,
+                qli.ListPrice,
+                qli.Discount
+            );
             HistoryRow tranche = new HistoryRow();
             tranche.category = 'This amendment';
             tranche.assetName = qli.Product2 != null ? qli.Product2.Name : null;
             tranche.quantity = qty;
             tranche.listPrice = qli.ListPrice;
-            tranche.netUnitPrice = qli.NetUnitPrice;
-            tranche.discountPercent = resolveDiscountPercent(qli.Discount, qli.ListPrice, qli.NetUnitPrice);
+            tranche.netUnitPrice = effectiveNet;
+            tranche.discountPercent = resolveDiscountPercent(
+                qli.Discount,
+                qli.ListPrice,
+                effectiveNet
+            );
             if (qli.StartDate != null) {
                 tranche.periodStart = Datetime.newInstance(qli.StartDate, Time.newInstance(0, 0, 0, 0));
             }
@@ -1318,8 +1965,8 @@ public with sharing class RLM_AssetPriceHistoryController {
             enrichLineEconomics(tranche);
             amendTranches.add(tranche);
             amendQty += qty;
-            if (qli.NetUnitPrice != null) {
-                amendPaidWeight += qli.NetUnitPrice * qty;
+            if (effectiveNet != null) {
+                amendPaidWeight += effectiveNet * qty;
             }
             if (tranche.discountPercent != null) {
                 amendDiscWeight += tranche.discountPercent * qty;
@@ -1451,6 +2098,27 @@ public with sharing class RLM_AssetPriceHistoryController {
         }
         row.arr = (row.netUnitPrice * qty).setScale(2, RoundingMode.HALF_UP);
         row.mrr = (row.arr / 12).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * Net unit for ARR/MRR KPIs. Prefer platform NetUnitPrice; when Quote Line
+     * Details own sales price the QLI NetUnitPrice is often null — fall back to
+     * List × (1 − Discount%) so Finalized / This Add stay consistent with Studio preview.
+     */
+    @TestVisible
+    private static Decimal resolveEffectiveNetUnitPrice(
+        Decimal netUnitPrice,
+        Decimal listPrice,
+        Decimal discountPercent
+    ) {
+        if (netUnitPrice != null) {
+            return netUnitPrice;
+        }
+        if (listPrice == null) {
+            return null;
+        }
+        Decimal disc = discountPercent != null ? discountPercent : 0;
+        return (listPrice * (1 - (disc / 100))).setScale(6, RoundingMode.HALF_UP);
     }
 
     private static Decimal resolveDiscountPercent(

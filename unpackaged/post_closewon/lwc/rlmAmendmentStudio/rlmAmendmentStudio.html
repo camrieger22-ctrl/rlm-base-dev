@@ -57,30 +57,70 @@
                         {pricingAttentionMessage}
                     </div>
                 </template>
+                <template if:true={showMultiPeriodBanner}>
+                    <div class="slds-notify slds-notify_alert slds-theme_info slds-m-horizontal_medium slds-m-bottom_small" role="status">
+                        This amendment spans multiple asset periods (Quote Line Details).
+                        Use Update or Reprice All — platform detail pricing sets Prorated and Grand Total.
+                    </div>
+                </template>
 
-                <!-- Left: Catalog. Middle: Current over This add, then Working.
-                     Right: Finalized; Working spans under middle + right.
+                <!-- Left: Catalog. Middle: Current → This add → Finalized, then Working.
                      Installed ledger lives in a slide-over (header + Current KPIs). -->
                 <div class="studio-layout">
                     <section class="studio-panel layout-catalog" aria-label="Product catalog">
                         <div class="studio-panel__header studio-panel__header_stack">
                             <div>
                                 <h2 class="studio-panel__title">Catalog</h2>
-                                <p class="studio-panel__hint">Search the quote price book and add a line.</p>
+                                <p class="studio-panel__hint">
+                                    Browse catalogs or search with Product Discovery on this quote.
+                                    Use Browse Catalogs for full configure.
+                                </p>
                             </div>
                         </div>
                         <div class="studio-panel__body studio-panel__body_catalog">
+                            <div class="catalog-chip-row" role="group" aria-label="Product catalogs">
+                                <template for:each={catalogChipViews} for:item="chip">
+                                    <button
+                                        key={chip.id}
+                                        type="button"
+                                        class={chip.chipClass}
+                                        data-id={chip.id}
+                                        aria-pressed={chip.isSelected}
+                                        onclick={handleCatalogChipClick}
+                                        disabled={isBusy}
+                                    >
+                                        {chip.name}
+                                    </button>
+                                </template>
+                            </div>
+                            <template if:true={hasCategoryChips}>
+                                <div class="catalog-chip-row" role="group" aria-label="Categories">
+                                    <template for:each={categoryChipViews} for:item="chip">
+                                        <button
+                                            key={chip.id}
+                                            type="button"
+                                            class={chip.chipClass}
+                                            data-id={chip.id}
+                                            aria-pressed={chip.isSelected}
+                                            onclick={handleCategoryChipClick}
+                                            disabled={isBusy}
+                                        >
+                                            {chip.name}
+                                        </button>
+                                    </template>
+                                </div>
+                            </template>
                             <lightning-input
                                 type="search"
                                 label="Search products"
-                                placeholder="Filter catalog…"
+                                placeholder="Search with Product Discovery…"
                                 value={catalogSearchTerm}
                                 onchange={handleCatalogSearchInput}
                                 disabled={isBusy}
                                 class="catalog-rail-search"
                             ></lightning-input>
                             <template if:true={catalogSearching}>
-                                <p class="working-row__meta">Searching…</p>
+                                <p class="working-row__meta">Searching Product Discovery…</p>
                             </template>
                             <template if:true={catalogError}>
                                 <p class="pending-error">{catalogError}</p>
@@ -98,7 +138,15 @@
                                                 onclick={handleSelectRailCatalogProduct}
                                                 disabled={catalogAdding}
                                             >
-                                                <span class="catalog-hit__name">{hit.label}</span>
+                                                <span class="catalog-hit__main">
+                                                    <span class="catalog-hit__name">{hit.productName}</span>
+                                                    <template if:true={hit.metaLine}>
+                                                        <span class="catalog-hit__meta">{hit.metaLine}</span>
+                                                    </template>
+                                                    <template if:true={hit.descriptionLine}>
+                                                        <span class="catalog-hit__desc">{hit.descriptionLine}</span>
+                                                    </template>
+                                                </span>
                                                 <span class="catalog-hit__price">
                                                     <lightning-formatted-number
                                                         value={hit.listPrice}
@@ -113,12 +161,12 @@
                             </template>
                             <template if:true={showCatalogEmptyHint}>
                                 <p class="slds-text-body_small slds-text-color_weak catalog-rail-empty">
-                                    No common products on this quote’s price book yet. Try a search.
+                                    Pick a category or type to search Product Discovery.
                                 </p>
                             </template>
                             <template if:true={showCatalogNoHits}>
                                 <p class="slds-text-body_small slds-text-color_weak catalog-rail-empty">
-                                    No matching products. Clear search to see common products again.
+                                    No Discovery matches in this catalog scope. Try All or another category.
                                 </p>
                             </template>
                         </div>
@@ -136,7 +184,7 @@
                                 View installed
                             </button>
                         </div>
-                        <div class="kpi-card__metrics">
+                        <div class="kpi-card__metrics kpi-card__metrics_aligned">
                             <button
                                 type="button"
                                 class="kpi-metric-btn"
@@ -173,79 +221,68 @@
                                     <lightning-formatted-number value={kpiCurrentQty} maximum-fraction-digits="0"></lightning-formatted-number>
                                 </p>
                             </button>
+                            <div class="kpi-metric-spacer" aria-hidden="true"></div>
                         </div>
                     </div>
 
                     <div class="kpi-card kpi-card_add layout-add">
                         <p class="kpi-card__label">This add</p>
-                        <div class="kpi-card__metrics kpi-card__metrics_four">
-                            <div>
-                                <p class="kpi-metric__label">Qty</p>
-                                <p class={thisAddQtyClass}>
-                                    <lightning-formatted-number value={thisAddQty} maximum-fraction-digits="0"></lightning-formatted-number>
-                                </p>
-                            </div>
-                            <div>
-                                <p class="kpi-metric__label">MRR</p>
-                                <p class={thisAddMrrClass}>
-                                    <lightning-formatted-number value={thisAddMrr} format-style="currency" currency-code="USD"></lightning-formatted-number>
-                                </p>
-                            </div>
+                        <div class="kpi-card__metrics kpi-card__metrics_aligned">
                             <div>
                                 <p class="kpi-metric__label">ARR</p>
-                                <p class={thisAddArrClass}>
+                                <p class="kpi-metric__value">
                                     <lightning-formatted-number value={thisAddArr} format-style="currency" currency-code="USD"></lightning-formatted-number>
                                 </p>
                             </div>
                             <div>
+                                <p class="kpi-metric__label">MRR</p>
+                                <p class="kpi-metric__value">
+                                    <lightning-formatted-number value={thisAddMrr} format-style="currency" currency-code="USD"></lightning-formatted-number>
+                                </p>
+                            </div>
+                            <div>
+                                <p class="kpi-metric__label">Qty</p>
+                                <p class="kpi-metric__value">
+                                    <lightning-formatted-number value={thisAddQty} maximum-fraction-digits="0"></lightning-formatted-number>
+                                </p>
+                            </div>
+                            <div class="kpi-metric-prorated">
                                 <p class="kpi-metric__label">Prorated</p>
                                 <p class="kpi-metric__value">
                                     <lightning-formatted-number value={thisAddProrated} format-style="currency" currency-code="USD"></lightning-formatted-number>
                                 </p>
                             </div>
                         </div>
-                        <p class="kpi-card__hint">{thisAddHint}</p>
-                        <template if:true={hasThisAddHintSecondary}>
-                            <p class="kpi-card__hint kpi-card__hint_secondary">{thisAddHintSecondary}</p>
-                        </template>
                     </div>
 
                     <section class="kpi-card kpi-card_finalized layout-finalized" aria-label="Finalized contract">
                         <p class="kpi-card__label">Finalized contract</p>
                         <template if:true={showAddProjection}>
-                            <template for:each={impactDeltas} for:item="row">
-                                <div key={row.key} class="impact-row impact-row_compact">
-                                    <p class="impact-row__label">{row.label}</p>
-                                    <div class="impact-row__values">
-                                        <span class="impact-row__current">
-                                            <template if:true={row.formatCurrency}>
-                                                <lightning-formatted-number value={row.current} format-style="currency" currency-code="USD"></lightning-formatted-number>
-                                            </template>
-                                            <template if:true={row.formatQty}>
-                                                <lightning-formatted-number value={row.current} maximum-fraction-digits="0"></lightning-formatted-number>
-                                            </template>
-                                        </span>
-                                        <span class="impact-row__arrow" aria-hidden="true">→</span>
-                                        <span class="impact-row__proposed">
+                            <div class="kpi-card__metrics kpi-card__metrics_aligned">
+                                <template for:each={impactDeltas} for:item="row">
+                                    <div key={row.key} class="kpi-metric-finalized">
+                                        <p class="kpi-metric__label">{row.label}</p>
+                                        <p class="kpi-metric__value">
                                             <template if:true={row.formatCurrency}>
                                                 <lightning-formatted-number value={row.proposed} format-style="currency" currency-code="USD"></lightning-formatted-number>
                                             </template>
                                             <template if:true={row.formatQty}>
                                                 <lightning-formatted-number value={row.proposed} maximum-fraction-digits="0"></lightning-formatted-number>
                                             </template>
-                                        </span>
+                                        </p>
+                                        <p class={row.deltaClass}>
+                                            Δ
+                                            <template if:true={row.formatCurrency}>
+                                                <lightning-formatted-number value={row.delta} format-style="currency" currency-code="USD"></lightning-formatted-number>
+                                            </template>
+                                            <template if:true={row.formatQty}>
+                                                <lightning-formatted-number value={row.delta} maximum-fraction-digits="0"></lightning-formatted-number>
+                                            </template>
+                                        </p>
                                     </div>
-                                    <p class={row.deltaClass}>
-                                        Δ
-                                        <template if:true={row.formatCurrency}>
-                                            <lightning-formatted-number value={row.delta} format-style="currency" currency-code="USD"></lightning-formatted-number>
-                                        </template>
-                                        <template if:true={row.formatQty}>
-                                            <lightning-formatted-number value={row.delta} maximum-fraction-digits="0"></lightning-formatted-number>
-                                        </template>
-                                    </p>
-                                </div>
-                            </template>
+                                </template>
+                                <div class="kpi-metric-spacer" aria-hidden="true"></div>
+                            </div>
                         </template>
                         <template if:false={showAddProjection}>
                             <p class="finalized-empty">
@@ -307,12 +344,7 @@
                                                     <td>
                                                         <button type="button" class="tle-product-link" title={line.typeLabel}>{line.productName}</button>
                                                         <template if:true={line.hasInstalledQty}>
-                                                            <p class="tle-sub">
-                                                                Installed
-                                                                <lightning-formatted-number value={line.installedQuantity} maximum-fraction-digits="0"></lightning-formatted-number>
-                                                                →
-                                                                <lightning-formatted-number value={line.proposedTotal} maximum-fraction-digits="0"></lightning-formatted-number>
-                                                            </p>
+                                                            <p class="tle-sub">{line.installedQtyLabel}</p>
                                                         </template>
                                                     </td>
                                                     <td>
@@ -550,7 +582,7 @@
                         </div>
                         <div class="installed-drawer__body">
                             <p class="studio-panel__hint">
-                                Transaction ledger that rolls up to Current ARR / MRR / Qty.
+                                Installed periods that roll up to Current ARR / MRR / Qty.
                             </p>
                             <template if:true={hasHistoryRows}>
                                 <ul class="txn-list" aria-label="Installed transactions">
@@ -558,34 +590,23 @@
                                         <li key={row.key} class="txn-card">
                                             <div class="txn-card__head">
                                                 <span class="txn-card__type">{row.typeLabel}</span>
-                                                <span class="txn-card__dates">{row.dateRangeLabel}</span>
+                                                <template if:true={row.assetName}>
+                                                    <span class="txn-card__product">{row.assetName}</span>
+                                                </template>
                                             </div>
-                                            <div class="txn-card__grid">
+                                            <div class="txn-card__grid txn-card__grid_installed">
                                                 <div>
-                                                    <p class="txn-label">List</p>
-                                                    <p class="txn-value">
-                                                        <lightning-formatted-number value={row.listPrice} format-style="currency" currency-code="USD"></lightning-formatted-number>
-                                                    </p>
+                                                    <p class="txn-label">Start date</p>
+                                                    <p class="txn-value">{row.startDateLabel}</p>
                                                 </div>
                                                 <div>
-                                                    <p class="txn-label">Paid</p>
-                                                    <p class="txn-value">
-                                                        <lightning-formatted-number value={row.netUnitPrice} format-style="currency" currency-code="USD"></lightning-formatted-number>
-                                                    </p>
+                                                    <p class="txn-label">End date</p>
+                                                    <p class="txn-value">{row.endDateLabel}</p>
                                                 </div>
                                                 <div>
-                                                    <p class="txn-label">Disc</p>
+                                                    <p class="txn-label">ARR</p>
                                                     <p class="txn-value">
-                                                        <template if:true={row.hasDiscount}>
-                                                            <lightning-formatted-number value={row.discountPercent} maximum-fraction-digits="1"></lightning-formatted-number>%
-                                                        </template>
-                                                        <template if:false={row.hasDiscount}>—</template>
-                                                    </p>
-                                                </div>
-                                                <div>
-                                                    <p class="txn-label">Qty</p>
-                                                    <p class="txn-value">
-                                                        <lightning-formatted-number value={row.lineQty} maximum-fraction-digits="0"></lightning-formatted-number>
+                                                        <lightning-formatted-number value={row.arr} format-style="currency" currency-code="USD"></lightning-formatted-number>
                                                     </p>
                                                 </div>
                                                 <div>
@@ -595,9 +616,30 @@
                                                     </p>
                                                 </div>
                                                 <div>
-                                                    <p class="txn-label">ARR</p>
+                                                    <p class="txn-label">List price</p>
                                                     <p class="txn-value">
-                                                        <lightning-formatted-number value={row.arr} format-style="currency" currency-code="USD"></lightning-formatted-number>
+                                                        <lightning-formatted-number value={row.listPrice} format-style="currency" currency-code="USD"></lightning-formatted-number>
+                                                    </p>
+                                                </div>
+                                                <div>
+                                                    <p class="txn-label">What they paid</p>
+                                                    <p class="txn-value">
+                                                        <lightning-formatted-number value={row.netUnitPrice} format-style="currency" currency-code="USD"></lightning-formatted-number>
+                                                    </p>
+                                                </div>
+                                                <div>
+                                                    <p class="txn-label">Discount</p>
+                                                    <p class="txn-value">
+                                                        <template if:true={row.hasDiscount}>
+                                                            <lightning-formatted-number value={row.discountPercent} maximum-fraction-digits="1"></lightning-formatted-number>%
+                                                        </template>
+                                                        <template if:false={row.hasDiscount}>—</template>
+                                                    </p>
+                                                </div>
+                                                <div>
+                                                    <p class="txn-label">Qty purchased</p>
+                                                    <p class="txn-value">
+                                                        <lightning-formatted-number value={row.lineQty} maximum-fraction-digits="0"></lightning-formatted-number>
                                                     </p>
                                                 </div>
                                             </div>

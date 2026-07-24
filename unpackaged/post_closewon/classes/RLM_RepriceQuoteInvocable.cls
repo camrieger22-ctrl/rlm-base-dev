@@ -141,10 +141,36 @@ public with sharing class RLM_RepriceQuoteInvocable {
         reprice(quoteId);
     }
 
+    /**
+     * OOTB Place Sales Transaction: PATCH quote header + one line, FORCE price.
+     * Prefer this over QLI DML when Quote Line Details / ramps own sales price
+     * (UnitPrice DML is blocked once details exist).
+     */
+    public static void patchLineAndReprice(
+        Id quoteId,
+        Id lineItemId,
+        Map<String, Object> lineFieldValues
+    ) {
+        if (quoteId == null || quoteId.getSObjectType() != Quote.SObjectType) {
+            throw new RepriceException('Quote Id is required to reprice.');
+        }
+        if (lineItemId == null || lineItemId.getSObjectType() != QuoteLineItem.SObjectType) {
+            throw new RepriceException('Quote line Id is required to patch.');
+        }
+        if (lineFieldValues == null || lineFieldValues.isEmpty()) {
+            reprice(quoteId);
+            return;
+        }
+        executeGraph(buildLinePatchGraph(quoteId, lineItemId, lineFieldValues), quoteId);
+    }
+
     /** Force-reprices a single quote. Throws RepriceException on failure. */
     @TestVisible
     private static void reprice(Id quoteId) {
-        RevSalesTrxn.GraphRequest graph = buildRepriceGraph(quoteId);
+        executeGraph(buildRepriceGraph(quoteId), quoteId);
+    }
+
+    private static void executeGraph(RevSalesTrxn.GraphRequest graph, Id quoteId) {
         if (forceFailureForTest) {
             throw new RepriceException('Forced failure for test: ' + quoteId);
         }
@@ -199,6 +225,50 @@ public with sharing class RLM_RepriceQuoteInvocable {
         header.fieldValues = new Map<String, Object>();
         records.add(new RevSalesTrxn.RecordWithReferenceRequest('refHeader', header));
         return new RevSalesTrxn.GraphRequest('RLM_RepriceQuoteInvocable', records);
+    }
+
+    @TestVisible
+    private static RevSalesTrxn.GraphRequest buildLinePatchGraph(
+        Id quoteId,
+        Id lineItemId,
+        Map<String, Object> lineFieldValues
+    ) {
+        List<RevSalesTrxn.RecordWithReferenceRequest> records =
+            new List<RevSalesTrxn.RecordWithReferenceRequest>();
+        RevSalesTrxn.RecordResource header =
+            new RevSalesTrxn.RecordResource(Quote.getSObjectType(), 'PATCH', String.valueOf(quoteId));
+        header.fieldValues = new Map<String, Object>();
+        records.add(new RevSalesTrxn.RecordWithReferenceRequest('refHeader', header));
+
+        RevSalesTrxn.RecordResource line =
+            new RevSalesTrxn.RecordResource(
+                QuoteLineItem.getSObjectType(),
+                'PATCH',
+                String.valueOf(lineItemId)
+            );
+        // PST JSON codec rejects Apex Date objects — send ISO date strings.
+        Map<String, Object> normalized = new Map<String, Object>();
+        for (String key : lineFieldValues.keySet()) {
+            Object val = lineFieldValues.get(key);
+            if (val instanceof Date) {
+                Date d = (Date) val;
+                normalized.put(
+                    key,
+                    String.valueOf(d.year()) +
+                        '-' +
+                        (d.month() < 10 ? '0' : '') +
+                        String.valueOf(d.month()) +
+                        '-' +
+                        (d.day() < 10 ? '0' : '') +
+                        String.valueOf(d.day())
+                );
+            } else {
+                normalized.put(key, val);
+            }
+        }
+        line.fieldValues = normalized;
+        records.add(new RevSalesTrxn.RecordWithReferenceRequest('refLine', line));
+        return new RevSalesTrxn.GraphRequest('RLM_Studio_LinePatch', records);
     }
 
     public class RepriceException extends Exception {}

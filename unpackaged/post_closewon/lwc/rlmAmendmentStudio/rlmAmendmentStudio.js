@@ -9,6 +9,8 @@ import getStudioPayload from '@salesforce/apex/RLM_AssetPriceHistoryController.g
 import updateWorkingLineQuantity from '@salesforce/apex/RLM_AssetPriceHistoryController.updateWorkingLineQuantity';
 import repriceQuote from '@salesforce/apex/RLM_AssetPriceHistoryController.repriceQuote';
 import searchCatalogProducts from '@salesforce/apex/RLM_AssetPriceHistoryController.searchCatalogProducts';
+import getCatalogBrowseContext from '@salesforce/apex/RLM_AssetPriceHistoryController.getCatalogBrowseContext';
+import getCatalogCategories from '@salesforce/apex/RLM_AssetPriceHistoryController.getCatalogCategories';
 import addCatalogProductLine from '@salesforce/apex/RLM_AssetPriceHistoryController.addCatalogProductLine';
 import removeWorkingLine from '@salesforce/apex/RLM_AssetPriceHistoryController.removeWorkingLine';
 import getLinePricingWaterfall from '@salesforce/apex/RLM_AssetPriceHistoryController.getLinePricingWaterfall';
@@ -46,6 +48,12 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
     /** True while results are the default common list (not a typed search). */
     catalogShowingCommon = true;
     _catalogSearchTimer;
+    /** Discovery taxonomy (C+A): catalogs → categories → search/browse. */
+    catalogNodes = [];
+    categoryNodes = [];
+    selectedCatalogId;
+    selectedCategoryId;
+    taxonomyLoading = false;
     /** Installed ledger slide-over. */
     installedDrawerOpen = false;
     /** lineId → { steps, source, loading, error, identifier } for OOTB waterfall. */
@@ -118,6 +126,14 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
         return '';
     }
 
+    get showMultiPeriodBanner() {
+        return (
+            this.loaded &&
+            this.hasQuote &&
+            (this.workingLines || []).some((l) => l.hasQuoteLineDetails === true)
+        );
+    }
+
     get headerSubtitle() {
         if (this.quoteNumber && this.quoteName) {
             return `Quote ${this.quoteNumber} · ${this.quoteName}`;
@@ -151,9 +167,10 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
                 row.quantity != null ? row.quantity : row.quantityChange;
             return {
                 ...row,
-                key: row.actionId || `hist-${idx}`,
-                typeLabel: typeBits.join(' · ') || 'Transaction',
-                dateRangeLabel: this._formatDateRange(row.periodStart, row.periodEnd),
+                key: `${row.actionId || 'hist'}-${idx}`,
+                typeLabel: typeBits.join(' · ') || 'Installed period',
+                startDateLabel: this._formatDateOnly(row.periodStart) || '—',
+                endDateLabel: this._formatDateOnly(row.periodEnd) || '—',
                 lineQty,
                 hasDiscount:
                     row.discountPercent != null && Number(row.discountPercent) !== 0
@@ -181,8 +198,6 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
         let mrr = 0;
         let arr = 0;
         let prorated = 0;
-        let hint = 'Model qty / discount / start in Working — Update to lock in.';
-        let hintSecondary = '';
         const rows = this.workingLineRows || [];
         for (const r of rows) {
             const q = Number(r.draftQuantity);
@@ -193,25 +208,19 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
             mrr += Number(r.previewMrr) || 0;
             arr += Number(r.previewArr) || 0;
             prorated += Number(r.previewProrated) || 0;
-            if (r.prorationHint) {
-                hint = r.prorationHint;
-                hintSecondary = r.prorationHintSecondary || '';
-            }
         }
         if (qty > 0) {
-            return { qty, mrr, arr, prorated, hint, hintSecondary };
+            return { qty, mrr, arr, prorated };
         }
         if (this.showAddProjection) {
             return {
                 qty: this.projection.deltaQuantity || 0,
                 mrr: this.projection.deltaMrr || 0,
                 arr: this.projection.deltaArr || 0,
-                prorated: 0,
-                hint: 'From last Update — adjust Working to preview again.',
-                hintSecondary: 'ARR/MRR stay annualized.'
+                prorated: 0
             };
         }
-        return { qty: 0, mrr: 0, arr: 0, prorated: 0, hint, hintSecondary };
+        return { qty: 0, mrr: 0, arr: 0, prorated: 0 };
     }
 
     get thisAddQty() {
@@ -225,24 +234,6 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
     }
     get thisAddProrated() {
         return this._thisAddRollup.prorated;
-    }
-    get thisAddHint() {
-        return this._thisAddRollup.hint;
-    }
-    get thisAddHintSecondary() {
-        return this._thisAddRollup.hintSecondary;
-    }
-    get hasThisAddHintSecondary() {
-        return !!this._thisAddRollup.hintSecondary;
-    }
-    get thisAddQtyClass() {
-        return this._deltaClass(this.thisAddQty);
-    }
-    get thisAddMrrClass() {
-        return this._deltaClass(this.thisAddMrr);
-    }
-    get thisAddArrClass() {
-        return this._deltaClass(this.thisAddArr);
     }
 
     get installedAssetName() {
@@ -262,14 +253,83 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
     }
 
     get catalogResultViews() {
-        return (this.catalogResults || []).map((h) => ({
-            ...h,
-            key: h.pricebookEntryId
-        }));
+        return (this.catalogResults || []).map((h) => {
+            const desc = h.description && h.description !== h.productName ? h.description : '';
+            return {
+                ...h,
+                key: h.pricebookEntryId,
+                metaLine: [h.productCode, h.sellingModelName].filter(Boolean).join(' · '),
+                descriptionLine: desc
+            };
+        });
+    }
+
+    get catalogChipViews() {
+        const allSelected = !this.selectedCatalogId;
+        const chips = [
+            {
+                id: 'all',
+                name: 'All',
+                chipClass: 'catalog-chip' + (allSelected ? ' catalog-chip_selected' : ''),
+                isSelected: allSelected
+            }
+        ];
+        for (const c of this.catalogNodes || []) {
+            const selected = this.selectedCatalogId === c.id;
+            chips.push({
+                id: c.id,
+                name: this._shortCatalogName(c.name),
+                chipClass: 'catalog-chip' + (selected ? ' catalog-chip_selected' : ''),
+                isSelected: selected
+            });
+        }
+        return chips;
+    }
+
+    get categoryChipViews() {
+        if (!this.selectedCatalogId) {
+            return [];
+        }
+        const chips = [
+            {
+                id: 'all-cat',
+                name: 'All',
+                chipClass:
+                    'catalog-chip catalog-chip_category' +
+                    (!this.selectedCategoryId ? ' catalog-chip_selected' : ''),
+                isSelected: !this.selectedCategoryId
+            }
+        ];
+        for (const c of this.categoryNodes || []) {
+            const selected = this.selectedCategoryId === c.id;
+            chips.push({
+                id: c.id,
+                name: c.name,
+                chipClass:
+                    'catalog-chip catalog-chip_category' +
+                    (selected ? ' catalog-chip_selected' : ''),
+                isSelected: selected
+            });
+        }
+        return chips;
+    }
+
+    get hasCategoryChips() {
+        return this.categoryChipViews.length > 1;
     }
 
     get catalogListHeading() {
-        return this.catalogShowingCommon ? 'Common products' : 'Search results';
+        if (this.catalogShowingCommon) {
+            return this.selectedCatalogId || this.selectedCategoryId
+                ? 'Browse'
+                : 'Common products';
+        }
+        return this.catalogFromDiscovery ? 'Product Discovery' : 'Search results';
+    }
+
+    get catalogFromDiscovery() {
+        const rows = this.catalogResults || [];
+        return rows.some((h) => h.source === 'Discovery');
     }
 
     get showCatalogEmptyHint() {
@@ -404,8 +464,6 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
             ) {
                 previewProrated = Number(line.totalPrice);
             }
-            const termLabel =
-                this._formatDateRange(startIso, endIso) || 'term';
             const previewSteps = [
                 {
                     key: 'list',
@@ -445,7 +503,7 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
                 waterfallTitle = 'Price waterfall (preview)';
                 waterfallNote = `Platform waterfall unavailable — ${platformWf.error}`;
             } else if (!dirty && platformWf?.steps?.length) {
-                waterfallTitle = 'Price waterfall (pricing procedure)';
+                waterfallTitle = 'Price waterfall';
                 waterfallSteps = platformWf.steps.map((s, sIdx) => ({
                     key: s.key || `pwf-${sIdx}`,
                     label: s.label,
@@ -457,7 +515,7 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
                             ? ' waterfall-step_total'
                             : '')
                 }));
-                waterfallNote = 'From Salesforce Pricing procedure (persisted waterfall).';
+                waterfallNote = 'Salesforce Pricing procedure';
             } else if (!dirty && line.priceWaterfallIdentifier) {
                 waterfallNote =
                     'Hover again or wait — loading OOTB pricing procedure waterfall.';
@@ -480,6 +538,13 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
                 dirtyFlag: dirty ? 'true' : 'false',
                 updateDisabled: this.saving || !dirty || draftIncomplete,
                 hasInstalledQty,
+                installedQtyLabel: hasInstalledQty
+                    ? `Installed ${this._formatInteger(installed)}${
+                          proposedTotal != null
+                              ? ` → ${this._formatInteger(proposedTotal)}`
+                              : ''
+                      }`
+                    : '',
                 proposedTotal,
                 previewNetUnit: unit,
                 previewArr,
@@ -491,16 +556,11 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
                         : 0,
                 rowClass: 'tle-row' + (dirty ? ' tle-row_dirty' : ''),
                 isCatalogAdd: line.isCatalogAdd === true,
+                hasQuoteLineDetails: line.hasQuoteLineDetails === true,
                 removeLabel:
                     line.isCatalogAdd === true
                         ? 'Remove this product line'
                         : 'Clear amendment (set qty to 0)',
-                prorationHint: dirty
-                    ? `Prorated ≈ billed for ${termLabel} (estimate until Update).`
-                    : `Prorated = term bill for ${termLabel} (aligns with Grand Total).`,
-                prorationHintSecondary: dirty
-                    ? 'ARR/MRR are annualized run-rate — they will not match Grand Total.'
-                    : 'ARR/MRR stay annualized.',
                 waterfallId: `wf-${line.id || idx}`,
                 waterfallTitle,
                 waterfallSteps,
@@ -517,13 +577,13 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
         const p = this.projection;
         return [
             {
-                key: 'qty',
-                label: 'Total qty',
-                current: this.summary.totalQuantity,
-                proposed: p.projected.totalQuantity,
-                delta: p.deltaQuantity,
-                deltaClass: this._deltaClass(p.deltaQuantity),
-                format: 'qty'
+                key: 'arr',
+                label: 'ARR',
+                current: this.summary.currentArr,
+                proposed: p.projected.currentArr,
+                delta: p.deltaArr,
+                deltaClass: this._deltaClass(p.deltaArr),
+                format: 'currency'
             },
             {
                 key: 'mrr',
@@ -535,13 +595,13 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
                 format: 'currency'
             },
             {
-                key: 'arr',
-                label: 'ARR',
-                current: this.summary.currentArr,
-                proposed: p.projected.currentArr,
-                delta: p.deltaArr,
-                deltaClass: this._deltaClass(p.deltaArr),
-                format: 'currency'
+                key: 'qty',
+                label: 'Qty',
+                current: this.summary.totalQuantity,
+                proposed: p.projected.totalQuantity,
+                delta: p.deltaQuantity,
+                deltaClass: this._deltaClass(p.deltaQuantity),
+                format: 'qty'
             }
         ].map((row) => ({
             ...row,
@@ -914,7 +974,7 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
             clearTimeout(this._catalogSearchTimer);
             this._catalogSearchTimer = undefined;
         }
-        // Blank / short → common products rail; 2+ chars → filter.
+        // Blank / short → browse / common; 2+ chars → Discovery search.
         if (term.trim().length < 2) {
             this._loadCommonCatalog();
             return;
@@ -922,6 +982,96 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
         this._catalogSearchTimer = setTimeout(() => {
             this._runRailCatalogSearch(term.trim());
         }, 250);
+    }
+
+    handleCatalogChipClick(event) {
+        const id = event.currentTarget.dataset.id;
+        if (id === 'all') {
+            this.selectedCatalogId = undefined;
+            this.selectedCategoryId = undefined;
+            this.categoryNodes = [];
+            this._refreshCatalogRail();
+            return;
+        }
+        if (this.selectedCatalogId === id) {
+            return;
+        }
+        this.selectedCatalogId = id;
+        this.selectedCategoryId = undefined;
+        this._loadCategoriesForCatalog(id).then(() => this._refreshCatalogRail());
+    }
+
+    handleCategoryChipClick(event) {
+        const id = event.currentTarget.dataset.id;
+        const next = id === 'all-cat' ? undefined : id;
+        if (this.selectedCategoryId === next) {
+            return;
+        }
+        this.selectedCategoryId = next;
+        this._refreshCatalogRail();
+    }
+
+    _refreshCatalogRail() {
+        const term = (this.catalogSearchTerm || '').trim();
+        if (term.length >= 2) {
+            this._runRailCatalogSearch(term);
+        } else {
+            this._loadCommonCatalog();
+        }
+    }
+
+    _loadCatalogTaxonomy() {
+        if (!this.quoteId) {
+            return Promise.resolve();
+        }
+        this.taxonomyLoading = true;
+        return getCatalogBrowseContext({ quoteId: this.quoteId })
+            .then((ctx) => {
+                this.catalogNodes = ctx?.catalogs || [];
+                // Default into Software (or platform default) so search is scoped.
+                if (!this.selectedCatalogId && ctx?.defaultCatalogId) {
+                    this.selectedCatalogId = ctx.defaultCatalogId;
+                    this.categoryNodes = ctx?.categories || [];
+                } else if (this.selectedCatalogId) {
+                    this.categoryNodes = ctx?.categories || [];
+                }
+            })
+            .catch(() => {
+                // Taxonomy is progressive enhancement; search still works unscoped.
+                this.catalogNodes = [];
+                this.categoryNodes = [];
+            })
+            .finally(() => {
+                this.taxonomyLoading = false;
+            });
+    }
+
+    _loadCategoriesForCatalog(catalogId) {
+        if (!this.quoteId || !catalogId) {
+            this.categoryNodes = [];
+            return Promise.resolve();
+        }
+        return getCatalogCategories({ quoteId: this.quoteId, catalogId })
+            .then((nodes) => {
+                this.categoryNodes = nodes || [];
+            })
+            .catch(() => {
+                this.categoryNodes = [];
+            });
+    }
+
+    _shortCatalogName(name) {
+        if (!name) {
+            return 'Catalog';
+        }
+        return name.replace(/^QuantumBit\s+/i, '');
+    }
+
+    _catalogScopeParams() {
+        return {
+            catalogId: this.selectedCatalogId || null,
+            categoryId: this.selectedCategoryId || null
+        };
     }
 
     _loadCommonCatalog() {
@@ -933,7 +1083,13 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
         }
         this.catalogSearching = true;
         this.catalogShowingCommon = true;
-        searchCatalogProducts({ quoteId: this.quoteId, searchTerm: '' })
+        const scope = this._catalogScopeParams();
+        searchCatalogProducts({
+            quoteId: this.quoteId,
+            searchTerm: '',
+            catalogId: scope.catalogId,
+            categoryId: scope.categoryId
+        })
             .then((hits) => {
                 if (this.catalogSearchTerm.trim().length >= 2) {
                     return;
@@ -958,7 +1114,13 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
         }
         this.catalogSearching = true;
         this.catalogShowingCommon = false;
-        searchCatalogProducts({ quoteId: this.quoteId, searchTerm: term })
+        const scope = this._catalogScopeParams();
+        searchCatalogProducts({
+            quoteId: this.quoteId,
+            searchTerm: term,
+            catalogId: scope.catalogId,
+            categoryId: scope.categoryId
+        })
             .then((hits) => {
                 // Ignore stale responses if the user kept typing.
                 if (this.catalogSearchTerm.trim() !== term) {
@@ -1036,7 +1198,13 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
         this.pendingAddRows = this.pendingAddRows.map((row) =>
             row.key === key ? { ...row, searching: true } : row
         );
-        searchCatalogProducts({ quoteId: this.quoteId, searchTerm: term })
+        const scope = this._catalogScopeParams();
+        searchCatalogProducts({
+            quoteId: this.quoteId,
+            searchTerm: term,
+            catalogId: scope.catalogId,
+            categoryId: scope.categoryId
+        })
             .then((hits) => {
                 this.pendingAddRows = this.pendingAddRows.map((row) =>
                     row.key === key
@@ -1256,9 +1424,16 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
             }
         }
         this.platformWaterfallByLineId = nextCache;
-        // Seed / refresh the catalog rail with common products when not mid-search.
-        if (!this.catalogSearchTerm || this.catalogSearchTerm.trim().length < 2) {
-            this._loadCommonCatalog();
+        // Seed taxonomy once, then browse/search the rail.
+        const seedRail = () => {
+            if (!this.catalogSearchTerm || this.catalogSearchTerm.trim().length < 2) {
+                this._loadCommonCatalog();
+            }
+        };
+        if (!this.catalogNodes.length && !this.taxonomyLoading) {
+            this._loadCatalogTaxonomy().then(seedRail);
+        } else {
+            seedRail();
         }
     }
 
@@ -1299,6 +1474,20 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
             }).format(n);
         } catch (e) {
             return `$${n.toFixed(2)}`;
+        }
+    }
+
+    _formatInteger(value) {
+        const n = Number(value);
+        if (!Number.isFinite(n)) {
+            return '—';
+        }
+        try {
+            return new Intl.NumberFormat(undefined, {
+                maximumFractionDigits: 0
+            }).format(n);
+        } catch (e) {
+            return String(Math.round(n));
         }
     }
 
