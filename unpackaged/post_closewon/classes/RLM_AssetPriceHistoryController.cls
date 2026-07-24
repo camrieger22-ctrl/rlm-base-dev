@@ -154,6 +154,11 @@ public with sharing class RLM_AssetPriceHistoryController {
         @AuraEnabled public Decimal deltaQty;
         @AuraEnabled public Decimal deltaArr;
         @AuraEnabled public Decimal deltaMrr;
+        /**
+         * Primary working line for inline qty/disc Update from the compare matrix
+         * (first positive-qty line, else first line).
+         */
+        @AuraEnabled public Id primaryLineItemId;
     }
 
     public class ScenarioCompareResponse {
@@ -163,6 +168,15 @@ public with sharing class RLM_AssetPriceHistoryController {
         @AuraEnabled public HistorySummary current;
         @AuraEnabled public List<ScenarioColumn> scenarios;
         @AuraEnabled public String message;
+    }
+
+    /** Result for createScenario / setForecastScenario mutations. */
+    public class ScenarioMutationResult {
+        @AuraEnabled public Boolean success;
+        @AuraEnabled public String message;
+        @AuraEnabled public ScenarioSummary scenario;
+        @AuraEnabled public Id opportunityId;
+        @AuraEnabled public Id syncedQuoteId;
     }
 
     /**
@@ -248,6 +262,242 @@ public with sharing class RLM_AssetPriceHistoryController {
         return resp;
     }
 
+    /**
+     * Duplicate an amend Quote as a sibling scenario via OOTB Connect
+     * quote-scoped clone (`/connect/rev/sales-transaction/actions/clone`).
+     * Sets OpportunityId + Name on the clone. Discount may reset to 0 on clone
+     * (platform behavior) — callers should re-apply qty/disc via
+     * updateWorkingLineQuantity when modeling a distinct option.
+     *
+     * @param sourceQuoteId Amend Quote to clone
+     * @param label Optional Name for the clone (defaults to "{source} — option")
+     * @param opportunityId Opp to attach; falls back to source.OpportunityId
+     */
+    @AuraEnabled
+    public static ScenarioMutationResult createScenario(
+        Id sourceQuoteId,
+        String label,
+        Id opportunityId
+    ) {
+        ScenarioMutationResult result = new ScenarioMutationResult();
+        result.success = false;
+        if (sourceQuoteId == null || sourceQuoteId.getSObjectType() != Quote.SObjectType) {
+            result.message = 'Source quote Id is required.';
+            return result;
+        }
+        Id sourceId = Id.valueOf(String.valueOf(sourceQuoteId));
+
+        List<Quote> sources = [
+            SELECT Id, Name, QuoteNumber, OpportunityId, OriginalActionType, GrandTotal
+            FROM Quote
+            WHERE Id = :sourceId
+            WITH USER_MODE
+            LIMIT 1
+        ];
+        if (sources.isEmpty()) {
+            result.message = 'Source quote was not found.';
+            return result;
+        }
+        Quote source = sources[0];
+        if (!isAmendScenarioQuote(source)) {
+            result.message = 'Only amendment quotes can be duplicated as scenarios.';
+            return result;
+        }
+
+        Id oppId = null;
+        if (opportunityId != null && opportunityId.getSObjectType() == Opportunity.SObjectType) {
+            oppId = Id.valueOf(String.valueOf(opportunityId));
+        } else if (source.OpportunityId != null) {
+            oppId = source.OpportunityId;
+        }
+        if (oppId == null) {
+            result.message =
+                'Opportunity Id is required (source quote has none). Pass opportunityId.';
+            return result;
+        }
+        result.opportunityId = oppId;
+
+        Id clonedQuoteId;
+        try {
+            clonedQuoteId = cloneSalesTransactionQuote(sourceId);
+        } catch (AuraHandledException ahe) {
+            result.message = ahe.getMessage();
+            return result;
+        } catch (Exception e) {
+            result.message = 'Clone failed: ' + e.getMessage();
+            return result;
+        }
+        if (clonedQuoteId == null) {
+            result.message = 'Clone returned no quote Id.';
+            return result;
+        }
+
+        String newName = String.isNotBlank(label)
+            ? label.trim()
+            : (String.isNotBlank(source.Name) ? source.Name + ' — option' : 'Amend scenario');
+        if (newName.length() > 255) {
+            newName = newName.substring(0, 255);
+        }
+
+        try {
+            Quote cloned = new Quote(Id = clonedQuoteId, Name = newName, OpportunityId = oppId);
+            update as user cloned;
+        } catch (Exception e) {
+            result.message =
+                'Clone succeeded (' +
+                clonedQuoteId +
+                ') but could not set Name/Opportunity: ' +
+                e.getMessage();
+            return result;
+        }
+
+        List<ScenarioSummary> rows = listScenarios(oppId);
+        for (ScenarioSummary row : rows) {
+            if (row.quoteId == clonedQuoteId) {
+                result.scenario = row;
+                break;
+            }
+        }
+        if (result.scenario == null) {
+            result.scenario = new ScenarioSummary();
+            result.scenario.quoteId = clonedQuoteId;
+            result.scenario.name = newName;
+            result.scenario.isSynced = false;
+        }
+        result.success = true;
+        result.message = null;
+        return result;
+    }
+
+    /**
+     * Commit a scenario Quote as the Opportunity forecast (OOTB sync).
+     * Sets Opportunity.SyncedQuoteId; IsSyncing flips on the Quotes.
+     */
+    @AuraEnabled
+    public static ScenarioMutationResult setForecastScenario(Id opportunityId, Id quoteId) {
+        ScenarioMutationResult result = new ScenarioMutationResult();
+        result.success = false;
+        if (opportunityId == null || opportunityId.getSObjectType() != Opportunity.SObjectType) {
+            result.message = 'Opportunity Id is required.';
+            return result;
+        }
+        if (quoteId == null || quoteId.getSObjectType() != Quote.SObjectType) {
+            result.message = 'Quote Id is required.';
+            return result;
+        }
+        Id oppId = Id.valueOf(String.valueOf(opportunityId));
+        Id qId = Id.valueOf(String.valueOf(quoteId));
+        result.opportunityId = oppId;
+
+        List<Quote> quotes = [
+            SELECT Id, Name, QuoteNumber, OpportunityId, OriginalActionType, GrandTotal, IsSyncing,
+                CalculationStatus, ValidationResult
+            FROM Quote
+            WHERE Id = :qId
+            WITH USER_MODE
+            LIMIT 1
+        ];
+        if (quotes.isEmpty()) {
+            result.message = 'Quote was not found.';
+            return result;
+        }
+        Quote q = quotes[0];
+        if (q.OpportunityId != oppId) {
+            result.message = 'Quote does not belong to that opportunity.';
+            return result;
+        }
+        if (!isAmendScenarioQuote(q)) {
+            result.message = 'Only amendment scenario quotes can be set as forecast.';
+            return result;
+        }
+
+        try {
+            Opportunity opp = new Opportunity(Id = oppId, SyncedQuoteId = qId);
+            update as user opp;
+        } catch (Exception e) {
+            result.message = 'Could not sync quote to opportunity: ' + e.getMessage();
+            return result;
+        }
+
+        result.syncedQuoteId = qId;
+        result.scenario = new ScenarioSummary();
+        result.scenario.quoteId = q.Id;
+        result.scenario.quoteNumber = q.QuoteNumber;
+        result.scenario.name = q.Name;
+        result.scenario.grandTotal = q.GrandTotal;
+        result.scenario.isSynced = true;
+        result.scenario.calculationStatus = q.CalculationStatus;
+        result.scenario.validationResult = q.ValidationResult;
+        result.success = true;
+        result.message = null;
+        return result;
+    }
+
+    /**
+     * Connect quote-scoped clone. Do not pass a QLI Id — that clones into the
+     * same transaction (Phase 0 spike).
+     */
+    @TestVisible
+    private static Id cloneSalesTransactionQuote(Id quoteId) {
+        if (Test.isRunningTest() && testCloneSalesTransactionIdOverride != null) {
+            return testCloneSalesTransactionIdOverride;
+        }
+        HttpRequest req = new HttpRequest();
+        req.setMethod('POST');
+        req.setEndpoint(
+            URL.getOrgDomainUrl().toExternalForm()
+                + '/services/data/v67.0/connect/rev/sales-transaction/actions/clone'
+        );
+        req.setHeader('Authorization', 'Bearer ' + getApiSessionId());
+        req.setHeader('Content-Type', 'application/json');
+        req.setTimeout(60000);
+        Map<String, Object> body = new Map<String, Object>{
+            'recordIds' => new List<String>{ String.valueOf(quoteId) },
+            'salesTransactionId' => String.valueOf(quoteId)
+        };
+        req.setBody(JSON.serialize(body));
+        HttpResponse httpRes = new Http().send(req);
+        if (httpRes.getStatusCode() < 200 || httpRes.getStatusCode() >= 300) {
+            throw new AuraHandledException(
+                'Clone API ' +
+                    httpRes.getStatusCode() +
+                    ': ' +
+                    truncateMessage(httpRes.getBody(), 240)
+            );
+        }
+        Map<String, Object> root = (Map<String, Object>) JSON.deserializeUntyped(
+            httpRes.getBody()
+        );
+        if (root.get('success') == false) {
+            throw new AuraHandledException(
+                'Clone failed: ' + truncateMessage(String.valueOf(root.get('errors')), 240)
+            );
+        }
+        Object stxId = root.get('salesTransactionId');
+        if (stxId == null || String.isBlank(String.valueOf(stxId))) {
+            throw new AuraHandledException('Clone response missing salesTransactionId.');
+        }
+        return Id.valueOf(String.valueOf(stxId));
+    }
+
+    private static Boolean isAmendScenarioQuote(Quote q) {
+        if (q == null) {
+            return false;
+        }
+        if (Test.isRunningTest() && testBypassAmendScenarioCheck) {
+            return true;
+        }
+        return q.OriginalActionType == 'Amend';
+    }
+
+    /** Test-only: skip Connect clone and return this Quote Id as the clone. */
+    @TestVisible
+    private static Id testCloneSalesTransactionIdOverride;
+
+    /** Test-only: OriginalActionType is not DML-writeable in unit tests. */
+    @TestVisible
+    private static Boolean testBypassAmendScenarioCheck = false;
+
     @TestVisible
     private static ScenarioColumn buildScenarioColumn(
         ScenarioSummary sibling,
@@ -267,11 +517,19 @@ public with sharing class RLM_AssetPriceHistoryController {
         Decimal prorated = 0;
         Decimal discWeight = 0;
         Decimal discQty = 0;
+        Id primaryLineId = null;
+        Id fallbackLineId = null;
         if (payload != null && payload.workingLines != null) {
             for (WorkingLine line : payload.workingLines) {
+                if (fallbackLineId == null && line.id != null) {
+                    fallbackLineId = line.id;
+                }
                 Decimal q = line.quantity != null ? line.quantity : 0;
                 if (q <= 0) {
                     continue;
+                }
+                if (primaryLineId == null && line.id != null) {
+                    primaryLineId = line.id;
                 }
                 addQty += q;
                 if (line.addArr != null) {
@@ -289,6 +547,7 @@ public with sharing class RLM_AssetPriceHistoryController {
                 }
             }
         }
+        col.primaryLineItemId = primaryLineId != null ? primaryLineId : fallbackLineId;
         col.thisAddQty = addQty;
         col.thisAddArr = addArr.setScale(2, RoundingMode.HALF_UP);
         col.thisAddMrr = addMrr.setScale(2, RoundingMode.HALF_UP);

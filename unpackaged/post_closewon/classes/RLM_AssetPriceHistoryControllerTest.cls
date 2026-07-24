@@ -579,4 +579,139 @@ private class RLM_AssetPriceHistoryControllerTest {
         );
         System.assertEquals(0, live.scenarios.size());
     }
+
+    @isTest
+    static void createScenario_clonesAndAttachesToOpportunity() {
+        Account acct = new Account(Name = 'Create Scenario Acct');
+        insert acct;
+        Opportunity opp = new Opportunity(
+            Name = 'Create Scenario Opp',
+            AccountId = acct.Id,
+            StageName = 'Prospecting',
+            CloseDate = Date.today().addDays(30)
+        );
+        insert opp;
+        Quote source = new Quote(
+            Name = 'Source Amend',
+            OpportunityId = opp.Id,
+            Pricebook2Id = Test.getStandardPricebookId(),
+            Status = 'Draft'
+        );
+        Quote cloneTarget = new Quote(
+            Name = 'Clone Placeholder',
+            OpportunityId = opp.Id,
+            Pricebook2Id = Test.getStandardPricebookId(),
+            Status = 'Draft'
+        );
+        insert new List<Quote>{ source, cloneTarget };
+
+        RLM_AssetPriceHistoryController.testBypassAmendScenarioCheck = true;
+        RLM_AssetPriceHistoryController.testCloneSalesTransactionIdOverride = cloneTarget.Id;
+
+        Test.startTest();
+        RLM_AssetPriceHistoryController.ScenarioMutationResult result =
+            RLM_AssetPriceHistoryController.createScenario(
+                source.Id,
+                'Option B — +40k',
+                opp.Id
+            );
+        Test.stopTest();
+
+        RLM_AssetPriceHistoryController.testBypassAmendScenarioCheck = false;
+        RLM_AssetPriceHistoryController.testCloneSalesTransactionIdOverride = null;
+
+        System.assertEquals(true, result.success, result.message == null ? 'expected success' : result.message);
+        System.assertEquals(cloneTarget.Id, result.scenario.quoteId);
+        Quote after = [SELECT Name, OpportunityId FROM Quote WHERE Id = :cloneTarget.Id];
+        System.assertEquals('Option B — +40k', after.Name);
+        System.assertEquals(opp.Id, after.OpportunityId);
+    }
+
+    @isTest
+    static void createScenario_rejectsMissingSource() {
+        Test.startTest();
+        RLM_AssetPriceHistoryController.ScenarioMutationResult result =
+            RLM_AssetPriceHistoryController.createScenario(null, 'X', null);
+        Test.stopTest();
+        System.assertEquals(false, result.success);
+        System.assert(
+            result.message != null && result.message.contains('Source quote'),
+            result.message
+        );
+    }
+
+    @isTest
+    static void setForecastScenario_syncsQuoteToOpportunity() {
+        Account acct = new Account(Name = 'Forecast Scenario Acct');
+        insert acct;
+        Opportunity opp = new Opportunity(
+            Name = 'Forecast Scenario Opp',
+            AccountId = acct.Id,
+            StageName = 'Prospecting',
+            CloseDate = Date.today().addDays(30)
+        );
+        insert opp;
+        Quote q = new Quote(
+            Name = 'Forecast Scenario Quote',
+            OpportunityId = opp.Id,
+            Pricebook2Id = Test.getStandardPricebookId(),
+            Status = 'Draft'
+        );
+        insert q;
+
+        RLM_AssetPriceHistoryController.testBypassAmendScenarioCheck = true;
+
+        Test.startTest();
+        RLM_AssetPriceHistoryController.ScenarioMutationResult result =
+            RLM_AssetPriceHistoryController.setForecastScenario(opp.Id, q.Id);
+        Test.stopTest();
+
+        RLM_AssetPriceHistoryController.testBypassAmendScenarioCheck = false;
+
+        System.assertEquals(true, result.success, result.message == null ? 'expected success' : result.message);
+        System.assertEquals(q.Id, result.syncedQuoteId);
+        Opportunity after = [SELECT SyncedQuoteId FROM Opportunity WHERE Id = :opp.Id];
+        System.assertEquals(q.Id, after.SyncedQuoteId);
+    }
+
+    @isTest
+    static void setForecastScenario_rejectsWrongOpportunity() {
+        Account acct = new Account(Name = 'Forecast Wrong Opp Acct');
+        insert acct;
+        Opportunity oppA = new Opportunity(
+            Name = 'Forecast Opp A',
+            AccountId = acct.Id,
+            StageName = 'Prospecting',
+            CloseDate = Date.today().addDays(30)
+        );
+        Opportunity oppB = new Opportunity(
+            Name = 'Forecast Opp B',
+            AccountId = acct.Id,
+            StageName = 'Prospecting',
+            CloseDate = Date.today().addDays(30)
+        );
+        insert new List<Opportunity>{ oppA, oppB };
+        Quote q = new Quote(
+            Name = 'On Opp A',
+            OpportunityId = oppA.Id,
+            Pricebook2Id = Test.getStandardPricebookId(),
+            Status = 'Draft'
+        );
+        insert q;
+
+        RLM_AssetPriceHistoryController.testBypassAmendScenarioCheck = true;
+
+        Test.startTest();
+        RLM_AssetPriceHistoryController.ScenarioMutationResult result =
+            RLM_AssetPriceHistoryController.setForecastScenario(oppB.Id, q.Id);
+        Test.stopTest();
+
+        RLM_AssetPriceHistoryController.testBypassAmendScenarioCheck = false;
+
+        System.assertEquals(false, result.success);
+        System.assert(
+            result.message != null && result.message.contains('does not belong'),
+            result.message
+        );
+    }
 }
