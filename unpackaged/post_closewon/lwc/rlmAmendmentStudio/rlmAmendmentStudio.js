@@ -70,7 +70,6 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
     _lastPolledCalcStatus;
     _lastPolledGrandTotal;
     _lastPolledLmd;
-    _lastStampedLmd;
     _stableLmdCount = 0;
     pricingInProgress = false;
     /** True until pricing is terminal and Quote LMD has been stable for 2 polls. */
@@ -1084,40 +1083,62 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
     }
 
     /**
-     * Re-stamp Quote KPIs and Amend Breakdown rows once pricing has settled.
-     * Quote Line Editor edits (quantity, discount, catalog adds) do not run the
-     * reprice invocable on Amend quotes, so without this the proposal renders
-     * whatever was stamped at the last reprice.
+     * Re-stamp Quote KPIs and Amend Breakdown rows that feed the DocGen proposal.
+     *
+     * User-initiated only. This writes the Quote, and any Quote DML from outside
+     * the Quote Line Editor invalidates the version the editor is holding, so the
+     * next QLE save fails with "refresh and try again". Never call this from the
+     * pricing poll or any other timer — the user must be done editing lines.
      */
-    _refreshAmendKpisIfStale(settledLmd) {
-        if (
-            !this.quoteId ||
-            !settledLmd ||
-            this._kpiStampInFlight ||
-            this._lastStampedLmd === settledLmd
-        ) {
+    handleRefreshProposalFigures() {
+        if (!this.quoteId || this._kpiStampInFlight) {
             return;
         }
         this._kpiStampInFlight = true;
         refreshAmendKpis({ quoteId: this.quoteId })
             .then((data) => {
-                // Stamping may bump LastModifiedDate; re-baseline so the next
-                // pulse does not read its own write as a fresh external change.
+                // Stamping bumps LastModifiedDate; re-baseline so the next pulse
+                // does not read its own write as a fresh external change.
                 const stampedLmd = data?.lastModifiedDate
                     ? String(data.lastModifiedDate)
-                    : settledLmd;
-                this._lastStampedLmd = stampedLmd;
-                this._lastPolledLmd = stampedLmd;
+                    : undefined;
+                if (stampedLmd) {
+                    this._lastPolledLmd = stampedLmd;
+                }
                 this._applyPayload(data);
                 this._notifyQuoteRecordUpdated();
+                this.dispatchEvent(
+                    new ShowToastEvent({
+                        title: 'Proposal figures updated',
+                        message:
+                            'Generate the proposal now. Editing Quote Lines again means reloading the page before you save.',
+                        variant: 'success'
+                    })
+                );
             })
-            .catch(() => {
-                // Best-effort: proposal figures stay as last stamped.
-                this._lastStampedLmd = settledLmd;
+            .catch((e) => {
+                this.error = this._reduceError(e);
+                this.dispatchEvent(
+                    new ShowToastEvent({
+                        title: 'Could not update proposal figures',
+                        message: this.error,
+                        variant: 'error'
+                    })
+                );
             })
             .finally(() => {
                 this._kpiStampInFlight = false;
             });
+    }
+
+    get refreshProposalDisabled() {
+        return this.isBusy || this._kpiStampInFlight || this.pricingInProgress;
+    }
+
+    get refreshProposalLabel() {
+        return this._kpiStampInFlight
+            ? 'Updating…'
+            : 'Update proposal figures';
     }
 
     _tickPricingPulse() {
@@ -1174,7 +1195,6 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
                     // Two consecutive identical LMD samples at terminal = safe to edit.
                     if (this._stableLmdCount >= 2) {
                         this.quoteSettling = false;
-                        this._refreshAmendKpisIfStale(nextLmd);
                     }
                 }
 
@@ -1940,7 +1960,6 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
             this._lastPolledCalcStatus = undefined;
             this._lastPolledGrandTotal = undefined;
             this._lastPolledLmd = undefined;
-            this._lastStampedLmd = undefined;
             this._stableLmdCount = 0;
             this.quoteSettling = true;
             this._load();

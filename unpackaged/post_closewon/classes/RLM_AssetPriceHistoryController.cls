@@ -542,10 +542,16 @@ public with sharing class RLM_AssetPriceHistoryController {
      * Recompute the Quote KPI stamps and Amend Breakdown rows from the current
      * Quote Lines, then return a refreshed payload.
      *
-     * Amendment Studio calls this once pricing has settled. Without it the only
-     * stamp path is a force-reprice, so Quote Line Editor edits (quantity,
-     * discount, catalog adds) leave the proposal rendering figures from an
-     * earlier state.
+     * Without this the only stamp path is a force-reprice, so Quote Line Editor
+     * edits (quantity, discount, catalog adds) leave the proposal rendering
+     * figures from an earlier state.
+     *
+     * User-initiated only — Amendment Studio calls it from the "Update proposal
+     * figures" button. This updates the Quote, and Quote DML from outside the
+     * Quote Line Editor invalidates the version the editor holds, so the next QLE
+     * save fails with "refresh and try again". Do NOT call it from a poll, a
+     * trigger, or the Studio read path (see the comment on the read path in
+     * RLM_AmendDifferenceService.buildHistoryResponse).
      */
     @AuraEnabled
     public static StudioPayload refreshAmendKpis(Id quoteId) {

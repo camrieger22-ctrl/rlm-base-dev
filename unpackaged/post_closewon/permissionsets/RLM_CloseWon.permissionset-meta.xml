@@ -125,6 +125,16 @@
     </fieldPermissions>
     <fieldPermissions>
         <editable>false</editable>
+        <field>RLM_Amend_Breakdown__c.Current_Amending_Key__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>RLM_Amend_Breakdown__c.Product_Label__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
         <field>RLM_Amend_Breakdown__c.Other_Key__c</field>
         <readable>true</readable>
     </fieldPermissions>

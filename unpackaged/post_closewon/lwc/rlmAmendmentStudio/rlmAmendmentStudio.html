@@ -158,6 +158,15 @@
                                     <button
                                         type="button"
                                         class="tle-btn"
+                                        onclick={handleRefreshProposalFigures}
+                                        disabled={refreshProposalDisabled}
+                                        title="Re-stamp the Quote KPIs and By product rows used by the proposal. Writes the Quote, so reload the page before editing Quote Lines again."
+                                    >
+                                        {refreshProposalLabel}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        class="tle-btn"
                                         onclick={handleRepriceAll}
                                         disabled={isBusy}
                                         title="Force-reprice this Quote via Place Sales Transaction"
@@ -170,6 +179,7 @@
                             <p class="impact-hint">
                                 Edit quantity, discount, and dates in the <strong>Quote Lines</strong> table below — Instant Pricing updates totals as you save (no Reprice All needed for routine edits).
                                 Add products from the catalog on the left, or <strong>Browse Catalogs</strong> in the header.
+                                When you have finished editing, click <strong>Update proposal figures</strong> before you generate the proposal.
                             </p>
 
                             <div class="scenario-option__kpis impact-kpis">
