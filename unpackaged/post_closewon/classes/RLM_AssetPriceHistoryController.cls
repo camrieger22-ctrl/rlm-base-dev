@@ -1,69 +1,9 @@
 /**
- * Loads paid-price history for assets being amended on a Quote,
- * plus an add/upsell projection of how current amend lines would
- * change blended qty / discount / MRR / ARR. Decrease/cancel is parked.
+ * Amendment Studio Aura façade: Working mutators (PST), catalog/scenario
+ * delegates, OOTB Connect waterfall. Difference KPIs live in
+ * RLM_AmendDifferenceService.
  */
 public with sharing class RLM_AssetPriceHistoryController {
-
-    public class HistoryRow {
-        @AuraEnabled public Id assetId;
-        @AuraEnabled public String assetName;
-        @AuraEnabled public Id actionId;
-        @AuraEnabled public String actionType;
-        @AuraEnabled public String category;
-        @AuraEnabled public Datetime actionDate;
-        @AuraEnabled public Decimal quantityChange;
-        @AuraEnabled public Decimal amount;
-        @AuraEnabled public Decimal listPrice;
-        @AuraEnabled public Decimal unitPrice;
-        @AuraEnabled public Decimal netUnitPrice;
-        @AuraEnabled public Decimal discountPercent;
-        @AuraEnabled public Decimal quantity;
-        @AuraEnabled public Datetime periodStart;
-        @AuraEnabled public Datetime periodEnd;
-        /** Line ARR = net unit × qty (installed tranche or amend delta). */
-        @AuraEnabled public Decimal arr;
-        /** Line MRR = ARR / 12. */
-        @AuraEnabled public Decimal mrr;
-    }
-
-    public class HistorySummary {
-        @AuraEnabled public String assetName;
-        /** Qty-weighted average net unit price across contributing rows. */
-        @AuraEnabled public Decimal averagePaid;
-        @AuraEnabled public Decimal averageDiscountPercent;
-        /** Sum of quantities across contributing rows. */
-        @AuraEnabled public Decimal totalQuantity;
-        /** ARR = Σ(net unit × qty); MRR = ARR / 12. */
-        @AuraEnabled public Decimal currentMrr;
-        @AuraEnabled public Decimal currentArr;
-    }
-
-    /**
-     * Add/upsell impact of the current amendment line(s) on top of history.
-     * mode: Add | DecreaseParked | None
-     */
-    public class ProjectionImpact {
-        @AuraEnabled public String mode;
-        @AuraEnabled public String message;
-        @AuraEnabled public HistorySummary projected;
-        @AuraEnabled public Decimal deltaQuantity;
-        @AuraEnabled public Decimal deltaAveragePaid;
-        @AuraEnabled public Decimal deltaAverageDiscountPercent;
-        @AuraEnabled public Decimal deltaMrr;
-        @AuraEnabled public Decimal deltaArr;
-        @AuraEnabled public Decimal amendmentQuantity;
-        @AuraEnabled public Decimal amendmentPaid;
-        @AuraEnabled public Decimal amendmentDiscountPercent;
-    }
-
-    public class HistoryResponse {
-        @AuraEnabled public Boolean isAmendmentQuote;
-        @AuraEnabled public List<HistoryRow> rows;
-        @AuraEnabled public HistorySummary summary;
-        @AuraEnabled public ProjectionImpact projection;
-        @AuraEnabled public String message;
-    }
 
     /**
      * Amendment Quote line for Studio Working Changes.
@@ -106,7 +46,7 @@ public with sharing class RLM_AssetPriceHistoryController {
     }
 
     public class StudioPayload {
-        @AuraEnabled public HistoryResponse history;
+        @AuraEnabled public RLM_AmendDifferenceService.HistoryResponse history;
         @AuraEnabled public List<WorkingLine> workingLines;
         @AuraEnabled public String quoteNumber;
         @AuraEnabled public String quoteName;
@@ -122,721 +62,177 @@ public with sharing class RLM_AssetPriceHistoryController {
         @AuraEnabled public String calculationStatus;
         /** Quote.ValidationResult — non-null means prices/transaction need attention. */
         @AuraEnabled public String validationResult;
+        /** Lets Studio re-baseline its pricing pulse after a KPI stamp. */
+        @AuraEnabled public Datetime lastModifiedDate;
     }
 
     /**
-     * Sibling amend Quote on an Opportunity (scenario compare Phase 1).
-     * Forecast commitment = Opportunity.SyncedQuoteId / Quote.IsSyncing.
+     * Lightweight pricing pulse for Studio — poll after TLE Save without
+     * rebuilding full history/working-line payload every tick.
      */
-    public class ScenarioSummary {
-        @AuraEnabled public Id quoteId;
-        @AuraEnabled public String quoteNumber;
-        @AuraEnabled public String name;
-        @AuraEnabled public Decimal grandTotal;
-        @AuraEnabled public Boolean isSynced;
+    public class PricingPulse {
         @AuraEnabled public String calculationStatus;
         @AuraEnabled public String validationResult;
-    }
-
-    /**
-     * One column in the scenario compare matrix: This add + Finalized if selected.
-     */
-    public class ScenarioColumn {
-        @AuraEnabled public Id quoteId;
-        @AuraEnabled public String quoteNumber;
-        @AuraEnabled public String name;
-        @AuraEnabled public Boolean isSynced;
         @AuraEnabled public Decimal grandTotal;
-        @AuraEnabled public String calculationStatus;
-        /** Working-line rollup: add qty / ARR / MRR / prorated (term bill). */
-        @AuraEnabled public Decimal thisAddQty;
-        @AuraEnabled public Decimal thisAddArr;
-        @AuraEnabled public Decimal thisAddMrr;
-        @AuraEnabled public Decimal thisAddProrated;
-        /** Qty-weighted average discount % across positive-qty working lines. */
-        @AuraEnabled public Decimal thisAddDiscountPercent;
-        /** Finalized contract if this quote were the forecast (proposed). */
-        @AuraEnabled public Decimal finalizedQty;
-        @AuraEnabled public Decimal finalizedArr;
-        @AuraEnabled public Decimal finalizedMrr;
-        @AuraEnabled public Decimal deltaQty;
-        @AuraEnabled public Decimal deltaArr;
-        @AuraEnabled public Decimal deltaMrr;
-        /**
-         * Primary working line for inline qty/disc Update from the compare matrix
-         * (first positive-qty line, else first line).
-         */
-        @AuraEnabled public Id primaryLineItemId;
-        /** Working lines for stacked Working-changes UI (same shape as StudioPayload). */
-        @AuraEnabled public List<WorkingLine> workingLines;
-    }
-
-    public class ScenarioCompareResponse {
-        @AuraEnabled public Id opportunityId;
-        @AuraEnabled public Id syncedQuoteId;
-        /** Shared installed baseline (same Source Asset history across siblings). */
-        @AuraEnabled public HistorySummary current;
-        @AuraEnabled public List<ScenarioColumn> scenarios;
-        @AuraEnabled public String message;
-    }
-
-    /** Result for createScenario / setForecastScenario mutations. */
-    public class ScenarioMutationResult {
-        @AuraEnabled public Boolean success;
-        @AuraEnabled public String message;
-        @AuraEnabled public ScenarioSummary scenario;
-        @AuraEnabled public Id opportunityId;
-        @AuraEnabled public Id syncedQuoteId;
+        @AuraEnabled public Datetime lastModifiedDate;
     }
 
     /**
-     * Amendment Quotes on an Opportunity for scenario compare.
-     * Not cacheable: sync / clone / reprice change the list frequently.
+     * Sibling amend scenarios — delegated to RLM_AmendScenarioService.
      */
     @AuraEnabled
-    public static List<ScenarioSummary> listScenarios(Id opportunityId) {
-        List<ScenarioSummary> out = new List<ScenarioSummary>();
-        if (opportunityId == null || opportunityId.getSObjectType() != Opportunity.SObjectType) {
-            return out;
-        }
-        Id oppId = Id.valueOf(String.valueOf(opportunityId));
-        for (Quote q : [
-            SELECT
-                Id,
-                QuoteNumber,
-                Name,
-                GrandTotal,
-                IsSyncing,
-                CalculationStatus,
-                ValidationResult
-            FROM Quote
-            WHERE OpportunityId = :oppId AND OriginalActionType = 'Amend'
-            WITH USER_MODE
-            ORDER BY CreatedDate ASC
-        ]) {
-            ScenarioSummary row = new ScenarioSummary();
-            row.quoteId = q.Id;
-            row.quoteNumber = q.QuoteNumber;
-            row.name = q.Name;
-            row.grandTotal = q.GrandTotal;
-            row.isSynced = q.IsSyncing == true;
-            row.calculationStatus = q.CalculationStatus;
-            row.validationResult = q.ValidationResult;
-            out.add(row);
-        }
-        return out;
+    public static List<RLM_AmendScenarioService.ScenarioSummary> listScenarios(Id opportunityId) {
+        return RLM_AmendScenarioService.listScenarios(opportunityId);
     }
 
-    /**
-     * Side-by-side impact of sibling amend Quotes on one Opportunity.
-     * Reuses getStudioPayload KPI math per quote (Current shared from first
-     * sibling with history). Intended for N ≤ ~5 scenarios.
-     */
     @AuraEnabled
-    public static ScenarioCompareResponse getScenarioCompare(Id opportunityId) {
-        ScenarioCompareResponse resp = new ScenarioCompareResponse();
-        resp.scenarios = new List<ScenarioColumn>();
-        if (opportunityId == null || opportunityId.getSObjectType() != Opportunity.SObjectType) {
-            resp.message = 'No opportunity Id provided.';
-            return resp;
-        }
-        Id oppId = Id.valueOf(String.valueOf(opportunityId));
-        resp.opportunityId = oppId;
-
-        for (Opportunity opp : [
-            SELECT Id, SyncedQuoteId
-            FROM Opportunity
-            WHERE Id = :oppId
-            WITH USER_MODE
-            LIMIT 1
-        ]) {
-            resp.syncedQuoteId = opp.SyncedQuoteId;
-        }
-
-        List<ScenarioSummary> siblings = listScenarios(oppId);
-        if (siblings.isEmpty()) {
-            resp.message = 'No amendment scenario quotes on this opportunity.';
-            return resp;
-        }
-
-        for (ScenarioSummary sibling : siblings) {
-            StudioPayload payload = getStudioPayload(sibling.quoteId);
-            if (resp.current == null && payload.history != null && payload.history.summary != null) {
-                resp.current = payload.history.summary;
-            }
-            resp.scenarios.add(buildScenarioColumn(sibling, payload));
-        }
-        if (resp.current == null) {
-            resp.current = new HistorySummary();
-        }
-        return resp;
+    public static RLM_AmendScenarioService.ScenarioCompareResponse getScenarioCompare(
+        Id opportunityId
+    ) {
+        return RLM_AmendScenarioService.getScenarioCompare(opportunityId);
     }
 
-    /**
-     * Duplicate an amend Quote as a sibling scenario via OOTB Connect
-     * quote-scoped clone (`/connect/rev/sales-transaction/actions/clone`).
-     * Sets OpportunityId + Name on the clone. Discount may reset to 0 on clone
-     * (platform behavior) — callers should re-apply qty/disc via
-     * updateWorkingLineQuantity when modeling a distinct option.
-     *
-     * @param sourceQuoteId Amend Quote to clone
-     * @param label Optional Name for the clone (defaults to "{source} — option")
-     * @param opportunityId Opp to attach; falls back to source.OpportunityId
-     */
     @AuraEnabled
-    public static ScenarioMutationResult createScenario(
+    public static RLM_AmendScenarioService.ScenarioMutationResult createScenario(
         Id sourceQuoteId,
         String label,
         Id opportunityId
     ) {
-        ScenarioMutationResult result = new ScenarioMutationResult();
-        result.success = false;
-        if (sourceQuoteId == null || sourceQuoteId.getSObjectType() != Quote.SObjectType) {
-            result.message = 'Source quote Id is required.';
-            return result;
-        }
-        Id sourceId = Id.valueOf(String.valueOf(sourceQuoteId));
+        return RLM_AmendScenarioService.createScenario(sourceQuoteId, label, opportunityId);
+    }
 
-        List<Quote> sources = [
-            SELECT Id, Name, QuoteNumber, OpportunityId, OriginalActionType, GrandTotal
-            FROM Quote
-            WHERE Id = :sourceId
-            WITH USER_MODE
-            LIMIT 1
-        ];
-        if (sources.isEmpty()) {
-            result.message = 'Source quote was not found.';
-            return result;
-        }
-        Quote source = sources[0];
-        if (!isAmendScenarioQuote(source)) {
-            result.message = 'Only amendment quotes can be duplicated as scenarios.';
-            return result;
-        }
+    @AuraEnabled
+    public static RLM_AmendScenarioService.ScenarioMutationResult renameScenario(
+        Id quoteId,
+        String name
+    ) {
+        return RLM_AmendScenarioService.renameScenario(quoteId, name);
+    }
 
-        Id oppId = null;
-        if (opportunityId != null && opportunityId.getSObjectType() == Opportunity.SObjectType) {
-            oppId = Id.valueOf(String.valueOf(opportunityId));
-        } else if (source.OpportunityId != null) {
-            oppId = source.OpportunityId;
-        }
-        if (oppId == null) {
-            // OOTB amend submit often omits amendOpportunityId — create one.
-            try {
-                oppId = ensureAmendmentOpportunity(sourceId);
-            } catch (AuraHandledException ahe) {
-                result.message = ahe.getMessage();
-                return result;
-            } catch (Exception e) {
-                result.message =
-                    'Could not create an Opportunity for this amendment: ' + e.getMessage();
-                return result;
-            }
-        }
-        if (oppId == null) {
-            result.message =
-                'Opportunity Id is required (source quote has none and auto-create failed).';
-            return result;
-        }
-        result.opportunityId = oppId;
-
-        Id clonedQuoteId;
-        try {
-            clonedQuoteId = cloneSalesTransactionQuote(sourceId);
-        } catch (AuraHandledException ahe) {
-            result.message = ahe.getMessage();
-            return result;
-        } catch (Exception e) {
-            result.message = 'Clone failed: ' + e.getMessage();
-            return result;
-        }
-        if (clonedQuoteId == null) {
-            result.message = 'Clone returned no quote Id.';
-            return result;
-        }
-
-        String newName = String.isNotBlank(label)
-            ? label.trim()
-            : (String.isNotBlank(source.Name) ? source.Name + ' — option' : 'Amend scenario');
-        if (newName.length() > 255) {
-            newName = newName.substring(0, 255);
-        }
-
-        try {
-            Quote cloned = new Quote(Id = clonedQuoteId, Name = newName, OpportunityId = oppId);
-            update as user cloned;
-        } catch (Exception e) {
-            result.message =
-                'Clone succeeded (' +
-                clonedQuoteId +
-                ') but could not set Name/Opportunity: ' +
-                e.getMessage();
-            return result;
-        }
-
-        List<ScenarioSummary> rows = listScenarios(oppId);
-        for (ScenarioSummary row : rows) {
-            if (row.quoteId == clonedQuoteId) {
-                result.scenario = row;
-                break;
-            }
-        }
-        if (result.scenario == null) {
-            result.scenario = new ScenarioSummary();
-            result.scenario.quoteId = clonedQuoteId;
-            result.scenario.name = newName;
-            result.scenario.isSynced = false;
-        }
-        result.success = true;
-        result.message = null;
-        return result;
+    @AuraEnabled
+    public static RLM_AmendScenarioService.ScenarioMutationResult setForecastScenario(
+        Id opportunityId,
+        Id quoteId
+    ) {
+        return RLM_AmendScenarioService.setForecastScenario(opportunityId, quoteId);
     }
 
     /**
-     * Rename a scenario Quote (updates Quote.Name). Used by editable option headers.
+     * Seller-triggered Opportunity create for orphan amend Quotes.
+     * Never call from getStudioPayload / page load — Quote DML races the QLE.
      */
     @AuraEnabled
-    public static ScenarioMutationResult renameScenario(Id quoteId, String name) {
-        ScenarioMutationResult result = new ScenarioMutationResult();
-        result.success = false;
+    public static Id ensureAmendmentOpportunityForStudio(Id quoteId) {
         if (quoteId == null || quoteId.getSObjectType() != Quote.SObjectType) {
-            result.message = 'Quote Id is required.';
-            return result;
-        }
-        if (String.isBlank(name)) {
-            result.message = 'Option name is required.';
-            return result;
+            return null;
         }
         Id qId = Id.valueOf(String.valueOf(quoteId));
-        String newName = name.trim();
-        if (newName.length() > 255) {
-            newName = newName.substring(0, 255);
-        }
-
-        List<Quote> quotes = [
-            SELECT Id, Name, QuoteNumber, OpportunityId, OriginalActionType, GrandTotal, IsSyncing,
-                CalculationStatus, ValidationResult
-            FROM Quote
-            WHERE Id = :qId
-            WITH USER_MODE
-            LIMIT 1
-        ];
-        if (quotes.isEmpty()) {
-            result.message = 'Quote was not found.';
-            return result;
-        }
-        Quote q = quotes[0];
-        if (!isAmendScenarioQuote(q)) {
-            result.message = 'Only amendment scenario quotes can be renamed here.';
-            return result;
-        }
-        if (q.Name == newName) {
-            result.success = true;
-            result.scenario = new ScenarioSummary();
-            result.scenario.quoteId = q.Id;
-            result.scenario.quoteNumber = q.QuoteNumber;
-            result.scenario.name = q.Name;
-            result.scenario.grandTotal = q.GrandTotal;
-            result.scenario.isSynced = q.IsSyncing == true;
-            result.scenario.calculationStatus = q.CalculationStatus;
-            result.scenario.validationResult = q.ValidationResult;
-            result.opportunityId = q.OpportunityId;
-            return result;
-        }
-
-        try {
-            Quote upd = new Quote(Id = q.Id, Name = newName);
-            update as user upd;
-        } catch (Exception e) {
-            result.message = 'Could not rename quote: ' + e.getMessage();
-            return result;
-        }
-
-        result.success = true;
-        result.scenario = new ScenarioSummary();
-        result.scenario.quoteId = q.Id;
-        result.scenario.quoteNumber = q.QuoteNumber;
-        result.scenario.name = newName;
-        result.scenario.grandTotal = q.GrandTotal;
-        result.scenario.isSynced = q.IsSyncing == true;
-        result.scenario.calculationStatus = q.CalculationStatus;
-        result.scenario.validationResult = q.ValidationResult;
-        result.opportunityId = q.OpportunityId;
-        return result;
-    }
-
-    /**
-     * Commit a scenario Quote as the Opportunity forecast (OOTB sync).
-     * Sets Opportunity.SyncedQuoteId; IsSyncing flips on the Quotes.
-     */
-    @AuraEnabled
-    public static ScenarioMutationResult setForecastScenario(Id opportunityId, Id quoteId) {
-        ScenarioMutationResult result = new ScenarioMutationResult();
-        result.success = false;
-        if (opportunityId == null || opportunityId.getSObjectType() != Opportunity.SObjectType) {
-            result.message = 'Opportunity Id is required.';
-            return result;
-        }
-        if (quoteId == null || quoteId.getSObjectType() != Quote.SObjectType) {
-            result.message = 'Quote Id is required.';
-            return result;
-        }
-        Id oppId = Id.valueOf(String.valueOf(opportunityId));
-        Id qId = Id.valueOf(String.valueOf(quoteId));
-        result.opportunityId = oppId;
-
-        List<Quote> quotes = [
-            SELECT Id, Name, QuoteNumber, OpportunityId, OriginalActionType, GrandTotal, IsSyncing,
-                CalculationStatus, ValidationResult
-            FROM Quote
-            WHERE Id = :qId
-            WITH USER_MODE
-            LIMIT 1
-        ];
-        if (quotes.isEmpty()) {
-            result.message = 'Quote was not found.';
-            return result;
-        }
-        Quote q = quotes[0];
-        if (q.OpportunityId != oppId) {
-            result.message = 'Quote does not belong to that opportunity.';
-            return result;
-        }
-        if (!isAmendScenarioQuote(q)) {
-            result.message = 'Only amendment scenario quotes can be set as forecast.';
-            return result;
-        }
-
-        try {
-            Opportunity opp = new Opportunity(Id = oppId, SyncedQuoteId = qId);
-            update as user opp;
-        } catch (Exception e) {
-            result.message = 'Could not sync quote to opportunity: ' + e.getMessage();
-            return result;
-        }
-
-        // Sync alone leaves TransactionIncomplete until pricing runs; the on-sync
-        // flow is async. Force-reprice here so Create Order is not blocked.
-        String repriceWarning;
-        try {
-            RLM_RepriceQuoteInvocable.repriceQuoteNow(qId);
-        } catch (RLM_RepriceQuoteInvocable.RepriceException e) {
-            repriceWarning = e.getMessage();
-        } catch (Exception e) {
-            repriceWarning = e.getMessage();
-        }
-
-        Quote afterReprice = [
-            SELECT Id, Name, QuoteNumber, GrandTotal, CalculationStatus, ValidationResult
-            FROM Quote
-            WHERE Id = :qId
-            WITH USER_MODE
-            LIMIT 1
-        ];
-
-        result.syncedQuoteId = qId;
-        result.scenario = new ScenarioSummary();
-        result.scenario.quoteId = afterReprice.Id;
-        result.scenario.quoteNumber = afterReprice.QuoteNumber;
-        result.scenario.name = afterReprice.Name;
-        result.scenario.grandTotal = afterReprice.GrandTotal;
-        result.scenario.isSynced = true;
-        result.scenario.calculationStatus = afterReprice.CalculationStatus;
-        result.scenario.validationResult = afterReprice.ValidationResult;
-        result.success = true;
-        result.message = repriceWarning == null
-            ? null
-            : 'Forecast set, but reprice failed — Create Order may stay blocked until you Reprice All. '
-                + repriceWarning;
-        return result;
-    }
-
-    /**
-     * Connect quote-scoped clone. Do not pass a QLI Id — that clones into the
-     * same transaction (Phase 0 spike).
-     */
-    @TestVisible
-    private static Id cloneSalesTransactionQuote(Id quoteId) {
-        if (Test.isRunningTest() && testCloneSalesTransactionIdOverride != null) {
-            return testCloneSalesTransactionIdOverride;
-        }
-        HttpRequest req = new HttpRequest();
-        req.setMethod('POST');
-        req.setEndpoint(
-            URL.getOrgDomainUrl().toExternalForm()
-                + '/services/data/v67.0/connect/rev/sales-transaction/actions/clone'
-        );
-        req.setHeader('Authorization', 'Bearer ' + getApiSessionId());
-        req.setHeader('Content-Type', 'application/json');
-        req.setTimeout(60000);
-        Map<String, Object> body = new Map<String, Object>{
-            'recordIds' => new List<String>{ String.valueOf(quoteId) },
-            'salesTransactionId' => String.valueOf(quoteId)
-        };
-        req.setBody(JSON.serialize(body));
-        HttpResponse httpRes = new Http().send(req);
-        if (httpRes.getStatusCode() < 200 || httpRes.getStatusCode() >= 300) {
-            throw new AuraHandledException(
-                'Clone API ' +
-                    httpRes.getStatusCode() +
-                    ': ' +
-                    truncateMessage(httpRes.getBody(), 240)
-            );
-        }
-        Map<String, Object> root = (Map<String, Object>) JSON.deserializeUntyped(
-            httpRes.getBody()
-        );
-        if (root.get('success') == false) {
-            throw new AuraHandledException(
-                'Clone failed: ' + truncateMessage(String.valueOf(root.get('errors')), 240)
-            );
-        }
-        Object stxId = root.get('salesTransactionId');
-        if (stxId == null || String.isBlank(String.valueOf(stxId))) {
-            throw new AuraHandledException('Clone response missing salesTransactionId.');
-        }
-        return Id.valueOf(String.valueOf(stxId));
-    }
-
-    private static Boolean isAmendScenarioQuote(Quote q) {
-        if (q == null) {
-            return false;
-        }
-        if (Test.isRunningTest() && testBypassAmendScenarioCheck) {
-            return true;
-        }
-        return q.OriginalActionType == 'Amend';
-    }
-
-    /**
-     * OOTB initiateAmendment often omits amendOpportunityId, so amend Quotes can
-     * land without an Opportunity. Scenario compare / forecast sync need a parent
-     * Opp — create a draft one on the Quote's Account and attach the Quote.
-     * Idempotent when OpportunityId is already set.
-     */
-    @TestVisible
-    private static Id ensureAmendmentOpportunity(Id quoteId) {
-        if (quoteId == null || quoteId.getSObjectType() != Quote.SObjectType) {
-            throw new AuraHandledException('Quote Id is required to create an Opportunity.');
-        }
-        Id qId = Id.valueOf(String.valueOf(quoteId));
-        List<Quote> rows = [
+        for (Quote q : [
             SELECT
                 Id,
                 Name,
                 QuoteNumber,
                 OpportunityId,
-                AccountId,
-                Pricebook2Id,
-                ContractId,
                 OriginalActionType,
+                AccountId,
                 Account.Name,
+                ContractId,
                 Contract.AccountId,
-                Contract.Account.Name
+                Contract.Account.Name,
+                Pricebook2Id
             FROM Quote
             WHERE Id = :qId
             WITH USER_MODE
             LIMIT 1
-        ];
-        if (rows.isEmpty()) {
-            throw new AuraHandledException('Quote was not found.');
+        ]) {
+            if (q.OpportunityId != null) {
+                return q.OpportunityId;
+            }
+            if (!RLM_AmendScenarioService.isAmendScenarioQuote(q)) {
+                return null;
+            }
+            return RLM_AmendScenarioService.ensureAmendmentOpportunity(q);
         }
-        return ensureAmendmentOpportunity(rows[0]);
+        return null;
+    }
+
+    public class LinkOpportunityRequest {
+        @InvocableVariable(label='Quote Id' required=true)
+        public Id quoteId;
+    }
+
+    public class LinkOpportunityResult {
+        @InvocableVariable(label='Opportunity Id')
+        public Id opportunityId;
+        @InvocableVariable(label='Message')
+        public String message;
+    }
+
+    /**
+     * Flow entry point for Quote header action Link Opportunity.
+     */
+    @InvocableMethod(
+        label='Link Amendment Opportunity'
+        description='Creates a draft Opportunity and links an orphan amendment Quote.'
+    )
+    public static List<LinkOpportunityResult> linkAmendmentOpportunity(
+        List<LinkOpportunityRequest> requests
+    ) {
+        List<LinkOpportunityResult> results = new List<LinkOpportunityResult>();
+        if (requests == null) {
+            return results;
+        }
+        for (LinkOpportunityRequest req : requests) {
+            LinkOpportunityResult row = new LinkOpportunityResult();
+            if (req == null || req.quoteId == null) {
+                row.message = 'Quote Id is required.';
+                results.add(row);
+                continue;
+            }
+            try {
+                Id oppId = ensureAmendmentOpportunityForStudio(req.quoteId);
+                row.opportunityId = oppId;
+                row.message = oppId == null
+                    ? 'Could not link Opportunity (not an amendment Quote, or Account could not be resolved).'
+                    : 'Opportunity linked.';
+            } catch (AuraHandledException ahe) {
+                row.message = ahe.getMessage();
+            } catch (Exception e) {
+                row.message = e.getMessage();
+            }
+            results.add(row);
+        }
+        return results;
     }
 
     @TestVisible
-    private static Id ensureAmendmentOpportunity(Quote q) {
-        if (q == null) {
-            throw new AuraHandledException('Quote is required to create an Opportunity.');
-        }
-        if (q.OpportunityId != null) {
-            return q.OpportunityId;
-        }
-        if (!isAmendScenarioQuote(q)) {
-            throw new AuraHandledException(
-                'Only amendment quotes can auto-create an Opportunity for scenario compare.'
-            );
-        }
-
-        Id accountId = null;
-        String acctName = null;
-        if (Test.isRunningTest() && testEnsureAccountIdOverride != null) {
-            accountId = testEnsureAccountIdOverride;
-            acctName = 'Test Account';
-        } else {
-            accountId = q.AccountId;
-            if (q.Account != null && String.isNotBlank(q.Account.Name)) {
-                acctName = q.Account.Name;
-            }
-            if (accountId == null && q.ContractId != null && q.Contract != null) {
-                accountId = q.Contract.AccountId;
-                if (q.Contract.Account != null && String.isNotBlank(q.Contract.Account.Name)) {
-                    acctName = q.Contract.Account.Name;
-                }
-            }
-            if (accountId == null) {
-                for (QuoteAction qa : [
-                    SELECT SourceAsset.AccountId, SourceAsset.Account.Name
-                    FROM QuoteAction
-                    WHERE QuoteId = :q.Id AND SourceAssetId != null
-                    WITH USER_MODE
-                    LIMIT 1
-                ]) {
-                    if (qa.SourceAsset != null && qa.SourceAsset.AccountId != null) {
-                        accountId = qa.SourceAsset.AccountId;
-                        if (
-                            qa.SourceAsset.Account != null &&
-                            String.isNotBlank(qa.SourceAsset.Account.Name)
-                        ) {
-                            acctName = qa.SourceAsset.Account.Name;
-                        }
-                    }
-                }
-            }
-        }
-        if (accountId == null) {
-            throw new AuraHandledException(
-                'Could not resolve an Account for this amendment Quote (no Account, Contract, or Source Asset).'
-            );
-        }
-        if (String.isBlank(acctName)) {
-            acctName = 'Account';
-        }
-
-        String oppName = 'Amendment — ' + acctName;
-        if (String.isNotBlank(q.QuoteNumber)) {
-            oppName += ' (' + q.QuoteNumber + ')';
-        }
-        if (oppName.length() > 120) {
-            oppName = oppName.substring(0, 120);
-        }
-
-        Opportunity opp = new Opportunity(
-            Name = oppName,
-            AccountId = accountId,
-            StageName = 'Prospecting',
-            CloseDate = Date.today().addDays(30),
-            Pricebook2Id = q.Pricebook2Id,
-            ContractId = q.ContractId
-        );
-        try {
-            insert as user opp;
-        } catch (Exception e) {
-            throw new AuraHandledException(
-                'Could not create Opportunity for amendment: ' + e.getMessage()
-            );
-        }
-
-        try {
-            Quote link = new Quote(Id = q.Id, OpportunityId = opp.Id);
-            update as user link;
-        } catch (Exception e) {
-            throw new AuraHandledException(
-                'Opportunity created (' +
-                    opp.Id +
-                    ') but could not link the Quote: ' +
-                    e.getMessage()
-            );
-        }
-        return opp.Id;
-    }
-
-    /** Test-only: skip Connect clone and return this Quote Id as the clone. */
-    @TestVisible
-    private static Id testCloneSalesTransactionIdOverride;
-
-    /** Test-only: OriginalActionType is not DML-writeable in unit tests. */
-    @TestVisible
-    private static Boolean testBypassAmendScenarioCheck = false;
-
-    /** Test-only: Account resolution when Quote.AccountId is not writable. */
-    @TestVisible
-    private static Id testEnsureAccountIdOverride;
-
-    @TestVisible
-    private static ScenarioColumn buildScenarioColumn(
-        ScenarioSummary sibling,
+    public static RLM_AmendScenarioService.ScenarioColumn buildScenarioColumn(
+        RLM_AmendScenarioService.ScenarioSummary sibling,
         StudioPayload payload
     ) {
-        ScenarioColumn col = new ScenarioColumn();
-        col.quoteId = sibling.quoteId;
-        col.quoteNumber = sibling.quoteNumber;
-        col.name = sibling.name;
-        col.isSynced = sibling.isSynced;
-        col.grandTotal = sibling.grandTotal;
-        col.calculationStatus = sibling.calculationStatus;
+        return RLM_AmendScenarioService.buildScenarioColumn(sibling, payload);
+    }
 
-        Decimal addQty = 0;
-        Decimal addArr = 0;
-        Decimal addMrr = 0;
-        Decimal prorated = 0;
-        Decimal discWeight = 0;
-        Decimal discQty = 0;
-        Id primaryLineId = null;
-        Id fallbackLineId = null;
-        if (payload != null && payload.workingLines != null) {
-            for (WorkingLine line : payload.workingLines) {
-                if (fallbackLineId == null && line.id != null) {
-                    fallbackLineId = line.id;
-                }
-                Decimal q = line.quantity != null ? line.quantity : 0;
-                if (q <= 0) {
-                    continue;
-                }
-                if (primaryLineId == null && line.id != null) {
-                    primaryLineId = line.id;
-                }
-                addQty += q;
-                if (line.addArr != null) {
-                    addArr += line.addArr;
-                }
-                if (line.addMrr != null) {
-                    addMrr += line.addMrr;
-                }
-                if (line.totalPrice != null) {
-                    prorated += line.totalPrice;
-                }
-                if (line.discountPercent != null) {
-                    discWeight += line.discountPercent * q;
-                    discQty += q;
-                }
-            }
+    @AuraEnabled
+    public static PricingPulse getQuotePricingPulse(Id quoteId) {
+        PricingPulse pulse = new PricingPulse();
+        if (quoteId == null || quoteId.getSObjectType() != Quote.SObjectType) {
+            return pulse;
         }
-        col.primaryLineItemId = primaryLineId != null ? primaryLineId : fallbackLineId;
-        col.thisAddQty = addQty;
-        col.thisAddArr = addArr.setScale(2, RoundingMode.HALF_UP);
-        col.thisAddMrr = addMrr.setScale(2, RoundingMode.HALF_UP);
-        col.thisAddProrated = prorated.setScale(2, RoundingMode.HALF_UP);
-        col.thisAddDiscountPercent = discQty > 0
-            ? (discWeight / discQty).setScale(2, RoundingMode.HALF_UP)
-            : null;
-
-        HistorySummary baseline =
-            payload != null && payload.history != null ? payload.history.summary : null;
-        HistorySummary proposed = null;
-        ProjectionImpact projection =
-            payload != null && payload.history != null ? payload.history.projection : null;
-        if (projection != null && projection.mode == 'Add' && projection.projected != null) {
-            proposed = projection.projected;
-            col.deltaQty = projection.deltaQuantity;
-            col.deltaArr = projection.deltaArr;
-            col.deltaMrr = projection.deltaMrr;
-        } else if (baseline != null) {
-            proposed = baseline;
-            col.deltaQty = 0;
-            col.deltaArr = 0;
-            col.deltaMrr = 0;
+        Id qId = Id.valueOf(String.valueOf(quoteId));
+        for (Quote q : [
+            SELECT CalculationStatus, ValidationResult, GrandTotal, LastModifiedDate
+            FROM Quote
+            WHERE Id = :qId
+            WITH USER_MODE
+            LIMIT 1
+        ]) {
+            pulse.calculationStatus = q.CalculationStatus;
+            pulse.validationResult = q.ValidationResult;
+            pulse.grandTotal = q.GrandTotal;
+            pulse.lastModifiedDate = q.LastModifiedDate;
         }
-        if (proposed != null) {
-            col.finalizedQty = proposed.totalQuantity;
-            col.finalizedArr = proposed.currentArr;
-            col.finalizedMrr = proposed.currentMrr;
-        }
-        col.workingLines =
-            payload != null && payload.workingLines != null
-                ? payload.workingLines
-                : new List<WorkingLine>();
-        return col;
+        return pulse;
     }
 
     /**
@@ -847,7 +243,7 @@ public with sharing class RLM_AssetPriceHistoryController {
     public static StudioPayload getStudioPayload(Id quoteId) {
         StudioPayload payload = new StudioPayload();
         payload.workingLines = new List<WorkingLine>();
-        payload.history = getHistoryForQuote(quoteId);
+        payload.history = RLM_AmendDifferenceService.getHistoryForQuote(quoteId);
         if (quoteId == null || quoteId.getSObjectType() != Quote.SObjectType) {
             return payload;
         }
@@ -867,6 +263,7 @@ public with sharing class RLM_AssetPriceHistoryController {
                 OriginalActionType,
                 CalculationStatus,
                 ValidationResult,
+                LastModifiedDate,
                 Account.Name,
                 Contract.AccountId,
                 Contract.Account.Name
@@ -875,6 +272,7 @@ public with sharing class RLM_AssetPriceHistoryController {
             WITH USER_MODE
             LIMIT 1
         ]) {
+            payload.lastModifiedDate = q.LastModifiedDate;
             payload.quoteNumber = q.QuoteNumber;
             payload.quoteName = q.Name;
             payload.grandTotal = q.GrandTotal;
@@ -886,23 +284,8 @@ public with sharing class RLM_AssetPriceHistoryController {
             }
             payload.calculationStatus = q.CalculationStatus;
             payload.validationResult = q.ValidationResult;
-            Id oppId = q.OpportunityId;
-            if (oppId == null && isAmendScenarioQuote(q)) {
-                try {
-                    oppId = ensureAmendmentOpportunity(q);
-                    payload.opportunityAutoCreated = true;
-                } catch (AuraHandledException ahe) {
-                    // Keep Studio usable for pricing; scenario actions stay gated.
-                    payload.history.message = String.isBlank(payload.history.message)
-                        ? ahe.getMessage()
-                        : payload.history.message;
-                } catch (Exception e) {
-                    payload.history.message = String.isBlank(payload.history.message)
-                        ? ('Could not auto-create Opportunity: ' + e.getMessage())
-                        : payload.history.message;
-                }
-            }
-            payload.opportunityId = oppId;
+            // Opportunity linking is seller-triggered (Link Opportunity in Studio).
+            payload.opportunityId = q.OpportunityId;
             // Prefer Account from Source Asset when Quote.Account is blank (common on OOTB amend).
             if (String.isBlank(payload.accountName)) {
                 for (QuoteAction qa : [
@@ -922,96 +305,7 @@ public with sharing class RLM_AssetPriceHistoryController {
                 }
             }
         }
-        Set<Id> sourceAssetIds = new Set<Id>();
-        List<QuoteLineItem> qlis = [
-            SELECT
-                Id,
-                Quantity,
-                ListPrice,
-                NetUnitPrice,
-                Discount,
-                TotalPrice,
-                StartDate,
-                EndDate,
-                PriceWaterfallIdentifier,
-                Product2.Name,
-                QuoteActionId,
-                QuoteAction.Type,
-                QuoteAction.SourceAssetId
-            FROM QuoteLineItem
-            WHERE QuoteId = :qId
-            WITH USER_MODE
-            ORDER BY CreatedDate ASC
-        ];
-        for (QuoteLineItem qli : qlis) {
-            if (qli.QuoteAction != null && qli.QuoteAction.SourceAssetId != null) {
-                sourceAssetIds.add(qli.QuoteAction.SourceAssetId);
-            }
-        }
-        Map<Id, Decimal> installedByAsset = installedQuantityByAsset(sourceAssetIds);
-        Set<Id> detailLineIds = new Set<Id>();
-        if (!qlis.isEmpty()) {
-            Set<Id> qliIds = new Set<Id>();
-            for (QuoteLineItem qli : qlis) {
-                qliIds.add(qli.Id);
-            }
-            for (AggregateResult ar : [
-                SELECT QuoteLineItemId lineId
-                FROM QuoteLineDetail
-                WHERE QuoteLineItemId IN :qliIds
-                WITH USER_MODE
-                GROUP BY QuoteLineItemId
-            ]) {
-                detailLineIds.add((Id) ar.get('lineId'));
-            }
-        }
-        for (QuoteLineItem qli : qlis) {
-            WorkingLine line = new WorkingLine();
-            line.id = qli.Id;
-            line.productName = qli.Product2 != null ? qli.Product2.Name : 'Quote line';
-            line.quantity = qli.Quantity;
-            line.listPrice = qli.ListPrice;
-            line.netUnitPrice = qli.NetUnitPrice;
-            line.discountPercent = resolveDiscountPercent(
-                qli.Discount,
-                qli.ListPrice,
-                qli.NetUnitPrice
-            );
-            line.totalPrice = qli.TotalPrice;
-            line.startDate = qli.StartDate;
-            line.endDate = qli.EndDate;
-            line.priceWaterfallIdentifier = qli.PriceWaterfallIdentifier;
-            line.quoteActionId = qli.QuoteActionId;
-            line.hasQuoteLineDetails = detailLineIds.contains(qli.Id);
-            if (qli.QuoteAction != null) {
-                line.quoteActionType = qli.QuoteAction.Type;
-                line.sourceAssetId = qli.QuoteAction.SourceAssetId;
-                line.isCatalogAdd = qli.QuoteAction.Type == 'Add';
-                if (line.sourceAssetId != null) {
-                    line.installedQuantity = installedByAsset.get(line.sourceAssetId);
-                }
-            } else {
-                line.isCatalogAdd = false;
-            }
-            if (qli.Quantity != null && qli.Quantity > 0) {
-                Decimal effectiveNet = resolveEffectiveNetUnitPrice(
-                    qli.NetUnitPrice,
-                    qli.ListPrice,
-                    qli.Discount
-                );
-                if (effectiveNet != null) {
-                    line.addArr = effectiveNet * qli.Quantity;
-                    line.addMrr = line.addArr / 12;
-                } else {
-                    line.addArr = 0;
-                    line.addMrr = 0;
-                }
-            } else {
-                line.addArr = 0;
-                line.addMrr = 0;
-            }
-            payload.workingLines.add(line);
-        }
+        payload.workingLines = RLM_AmendDifferenceService.loadWorkingLines(qId);
         return payload;
     }
 
@@ -1187,7 +481,11 @@ public with sharing class RLM_AssetPriceHistoryController {
         String actionType = existing.QuoteAction != null ? existing.QuoteAction.Type : null;
 
         try {
-            if (actionType == 'Add') {
+            // Catalog add-ons (Type=Add, or orphan with no QuoteAction) delete;
+            // asset-backed Amend / No Change reset to qty 0.
+            Boolean isCatalogAdd =
+                actionType == 'Add' || existing.QuoteActionId == null;
+            if (isCatalogAdd) {
                 Id actionId = existing.QuoteActionId;
                 delete as user existing;
                 if (actionId != null) {
@@ -1240,650 +538,57 @@ public with sharing class RLM_AssetPriceHistoryController {
         return getStudioPayload(qId);
     }
 
-    public class CatalogProductHit {
-        @AuraEnabled public Id pricebookEntryId;
-        @AuraEnabled public Id productId;
-        @AuraEnabled public String productName;
-        @AuraEnabled public String productCode;
-        @AuraEnabled public String description;
-        @AuraEnabled public Decimal listPrice;
-        @AuraEnabled public Id sellingModelId;
-        @AuraEnabled public String sellingModelName;
-        @AuraEnabled public String label;
-        /** True when returned as the default common-products rail (not a typed search). */
-        @AuraEnabled public Boolean isCommon;
-        /** Discovery | PriceBook — where the hit came from. */
-        @AuraEnabled public String source;
-    }
-
-    /** Catalog or category chip for the Studio Discovery rail. */
-    public class CatalogTaxonomyNode {
-        @AuraEnabled public Id id;
-        @AuraEnabled public String name;
-        @AuraEnabled public String code;
-        @AuraEnabled public Integer childCount;
-    }
-
     /**
-     * Initial Discovery browse context: catalogs + categories for the default
-     * catalog (prefers QuantumBit Software).
-     */
-    public class CatalogBrowseContext {
-        @AuraEnabled public List<CatalogTaxonomyNode> catalogs;
-        @AuraEnabled public List<CatalogTaxonomyNode> categories;
-        @AuraEnabled public Id defaultCatalogId;
-        @AuraEnabled public String message;
-    }
-
-    /** Max rows for common-products rail (price-book seed). */
-    @TestVisible
-    private static final Integer CATALOG_LIST_LIMIT = 40;
-
-    /** Page size for Discovery search / browse (OOTB-like density). */
-    @TestVisible
-    private static final Integer CATALOG_SEARCH_LIMIT = 12;
-
-    /**
-     * Hero / commonly sold QuantumBit SKUs — preferred when seeding the catalog rail.
-     * Missing SKUs in an org are skipped; popularity + alphabetical fill the rest.
-     */
-    @TestVisible
-    private static final List<String> COMMON_PRODUCT_SKUS = new List<String>{
-        'QB-GEN-AI-LIC',
-        'QB-DB',
-        'QB-CS',
-        'QB-COMPLETE',
-        'QB-BDL-ENTR',
-        'QB-BDL-STND',
-        'QB-BDL-CRTL',
-        'QB-SRV-AS',
-        'QB-TRN-FUND',
-        'QB-TRN-ESSNTLS',
-        'QB-TOKENS-PACK',
-        'QB-DB-TOKEN',
-        'QB-MTY-CMT',
-        'QB-QTY-CMT',
-        'QB-BDL-RAXS',
-        'QB-BDL-SRVC'
-    };
-
-    /**
-     * Load Discovery taxonomy for the Studio rail (catalogs + default categories).
-     */
-    @AuraEnabled
-    public static CatalogBrowseContext getCatalogBrowseContext(Id quoteId) {
-        CatalogBrowseContext ctx = new CatalogBrowseContext();
-        ctx.catalogs = new List<CatalogTaxonomyNode>();
-        ctx.categories = new List<CatalogTaxonomyNode>();
-        if (quoteId == null || quoteId.getSObjectType() != Quote.SObjectType) {
-            ctx.message = 'Quote required.';
-            return ctx;
-        }
-        Id qId = Id.valueOf(String.valueOf(quoteId));
-        ctx.catalogs = listDiscoveryCatalogs(qId);
-        ctx.defaultCatalogId = pickDefaultCatalogId(ctx.catalogs);
-        if (ctx.defaultCatalogId != null) {
-            ctx.categories = listDiscoveryCategories(qId, ctx.defaultCatalogId);
-        }
-        return ctx;
-    }
-
-    /**
-     * Categories for a selected Discovery catalog.
-     */
-    @AuraEnabled
-    public static List<CatalogTaxonomyNode> getCatalogCategories(Id quoteId, Id catalogId) {
-        if (
-            quoteId == null ||
-            quoteId.getSObjectType() != Quote.SObjectType ||
-            catalogId == null
-        ) {
-            return new List<CatalogTaxonomyNode>();
-        }
-        return listDiscoveryCategories(
-            Id.valueOf(String.valueOf(quoteId)),
-            Id.valueOf(String.valueOf(catalogId))
-        );
-    }
-
-    /**
-     * Catalog browse / search for Studio (OOTB Discovery composition).
-     * - No catalog + blank → curated common products (price book).
-     * - Catalog/category + blank → getProducts browse.
-     * - 2+ chars → findProducts (scoped when catalog/category set),
-     *   falling back to price-book name search if Discovery returns nothing.
-     */
-    @AuraEnabled
-    public static List<CatalogProductHit> searchCatalogProducts(
-        Id quoteId,
-        String searchTerm,
-        Id catalogId,
-        Id categoryId
-    ) {
-        if (quoteId == null || quoteId.getSObjectType() != Quote.SObjectType) {
-            return new List<CatalogProductHit>();
-        }
-        Id qId = Id.valueOf(String.valueOf(quoteId));
-        List<Quote> quotes = [
-            SELECT Id, Pricebook2Id
-            FROM Quote
-            WHERE Id = :qId
-            WITH USER_MODE
-            LIMIT 1
-        ];
-        if (quotes.isEmpty() || quotes[0].Pricebook2Id == null) {
-            return new List<CatalogProductHit>();
-        }
-        Id pricebookId = quotes[0].Pricebook2Id;
-        Id scopedCatalogId = catalogId;
-        Id scopedCategoryId = categoryId;
-        String trimmed = searchTerm == null ? '' : searchTerm.trim();
-        if (trimmed.length() < 2) {
-            if (scopedCatalogId != null || scopedCategoryId != null) {
-                List<CatalogProductHit> browseHits = browseViaProductDiscovery(
-                    qId,
-                    pricebookId,
-                    scopedCatalogId,
-                    scopedCategoryId
-                );
-                if (!browseHits.isEmpty()) {
-                    return browseHits;
-                }
-            }
-            return listCommonCatalogProducts(pricebookId);
-        }
-        List<CatalogProductHit> discoveryHits = searchViaProductDiscovery(
-            qId,
-            pricebookId,
-            trimmed,
-            scopedCatalogId,
-            scopedCategoryId
-        );
-        if (!discoveryHits.isEmpty()) {
-            return discoveryHits;
-        }
-        return searchCatalogProductsByName(pricebookId, trimmed);
-    }
-
-    /**
-     * OOTB Product Discovery search (standard invocable findProducts).
-     */
-    private static List<CatalogProductHit> searchViaProductDiscovery(
-        Id quoteId,
-        Id pricebookId,
-        String searchTerm,
-        Id catalogId,
-        Id categoryId
-    ) {
-        try {
-            Invocable.Action action = Invocable.Action.createStandardAction('findProducts');
-            action.setInvocationParameter('searchTerm', searchTerm);
-            action.setInvocationParameter('transactionId', String.valueOf(quoteId));
-            action.setInvocationParameter('priceBookId', String.valueOf(pricebookId));
-            action.setInvocationParameter('limit', CATALOG_SEARCH_LIMIT);
-            action.setInvocationParameter('enablePricing', true);
-            action.setInvocationParameter('enableQualification', false);
-            if (catalogId != null) {
-                action.setInvocationParameter('catalogId', String.valueOf(catalogId));
-            }
-            if (categoryId != null) {
-                action.setInvocationParameter('categoryId', String.valueOf(categoryId));
-            }
-            return invokeDiscoveryProductList(action);
-        } catch (Exception e) {
-            return new List<CatalogProductHit>();
-        }
-    }
-
-    /**
-     * OOTB Product Discovery browse (standard invocable getProducts).
-     */
-    private static List<CatalogProductHit> browseViaProductDiscovery(
-        Id quoteId,
-        Id pricebookId,
-        Id catalogId,
-        Id categoryId
-    ) {
-        try {
-            Invocable.Action action = Invocable.Action.createStandardAction('getProducts');
-            action.setInvocationParameter('transactionId', String.valueOf(quoteId));
-            action.setInvocationParameter('priceBookId', String.valueOf(pricebookId));
-            action.setInvocationParameter('limit', CATALOG_SEARCH_LIMIT);
-            action.setInvocationParameter('enablePricing', true);
-            action.setInvocationParameter('enableQualification', false);
-            if (catalogId != null) {
-                action.setInvocationParameter('catalogId', String.valueOf(catalogId));
-            }
-            if (categoryId != null) {
-                action.setInvocationParameter('categoryId', String.valueOf(categoryId));
-            }
-            List<CatalogProductHit> hits = invokeDiscoveryProductList(action);
-            for (CatalogProductHit hit : hits) {
-                hit.isCommon = true;
-            }
-            return hits;
-        } catch (Exception e) {
-            return new List<CatalogProductHit>();
-        }
-    }
-
-    private static List<CatalogProductHit> invokeDiscoveryProductList(Invocable.Action action) {
-        List<Invocable.Action.Result> actionResults = action.invoke();
-        if (actionResults == null || actionResults.isEmpty()) {
-            return new List<CatalogProductHit>();
-        }
-        Invocable.Action.Result res = actionResults[0];
-        if (!res.isSuccess()) {
-            return new List<CatalogProductHit>();
-        }
-        Map<String, Object> outMap = res.getOutputParameters();
-        if (outMap == null) {
-            return new List<CatalogProductHit>();
-        }
-        return mapDiscoveryResults(outMap.get('results'));
-    }
-
-    private static List<CatalogTaxonomyNode> listDiscoveryCatalogs(Id quoteId) {
-        List<CatalogTaxonomyNode> nodes = new List<CatalogTaxonomyNode>();
-        try {
-            Invocable.Action action = Invocable.Action.createStandardAction('getCatalogs');
-            action.setInvocationParameter('transactionId', String.valueOf(quoteId));
-            action.setInvocationParameter('limit', 20);
-            List<Invocable.Action.Result> actionResults = action.invoke();
-            if (actionResults == null || actionResults.isEmpty() || !actionResults[0].isSuccess()) {
-                return nodes;
-            }
-            Map<String, Object> outMap = actionResults[0].getOutputParameters();
-            Object raw = outMap != null ? outMap.get('resultCatalogList') : null;
-            for (Map<String, Object> row : asObjectMaps(raw)) {
-                CatalogTaxonomyNode node = new CatalogTaxonomyNode();
-                if (row.get('id') == null) {
-                    continue;
-                }
-                try {
-                    node.id = Id.valueOf(String.valueOf(row.get('id')));
-                } catch (Exception e) {
-                    continue;
-                }
-                node.name = row.get('name') != null ? String.valueOf(row.get('name')) : 'Catalog';
-                node.code = row.get('catalogCode') != null
-                    ? String.valueOf(row.get('catalogCode'))
-                    : null;
-                if (row.get('numberOfCategories') != null) {
-                    try {
-                        node.childCount = Integer.valueOf(String.valueOf(row.get('numberOfCategories')));
-                    } catch (Exception e) {
-                        node.childCount = null;
-                    }
-                }
-                nodes.add(node);
-            }
-        } catch (Exception e) {
-            return nodes;
-        }
-        return nodes;
-    }
-
-    private static List<CatalogTaxonomyNode> listDiscoveryCategories(Id quoteId, Id catalogId) {
-        List<CatalogTaxonomyNode> nodes = new List<CatalogTaxonomyNode>();
-        try {
-            Invocable.Action action = Invocable.Action.createStandardAction('getCategories');
-            action.setInvocationParameter('transactionId', String.valueOf(quoteId));
-            action.setInvocationParameter('catalogId', String.valueOf(catalogId));
-            action.setInvocationParameter('limit', 50);
-            List<Invocable.Action.Result> actionResults = action.invoke();
-            if (actionResults == null || actionResults.isEmpty() || !actionResults[0].isSuccess()) {
-                return nodes;
-            }
-            Map<String, Object> outMap = actionResults[0].getOutputParameters();
-            Object raw = outMap != null ? outMap.get('resultCategoryList') : null;
-            for (Map<String, Object> row : asObjectMaps(raw)) {
-                CatalogTaxonomyNode node = new CatalogTaxonomyNode();
-                if (row.get('id') == null) {
-                    continue;
-                }
-                try {
-                    node.id = Id.valueOf(String.valueOf(row.get('id')));
-                } catch (Exception e) {
-                    continue;
-                }
-                node.name = row.get('name') != null ? String.valueOf(row.get('name')) : 'Category';
-                nodes.add(node);
-            }
-        } catch (Exception e) {
-            return nodes;
-        }
-        return nodes;
-    }
-
-    private static Id pickDefaultCatalogId(List<CatalogTaxonomyNode> catalogs) {
-        if (catalogs == null || catalogs.isEmpty()) {
-            return null;
-        }
-        for (CatalogTaxonomyNode n : catalogs) {
-            if (n.code != null && n.code.equalsIgnoreCase('CAT-QB-SFT')) {
-                return n.id;
-            }
-        }
-        for (CatalogTaxonomyNode n : catalogs) {
-            if (n.name != null && n.name.toLowerCase().contains('software')) {
-                return n.id;
-            }
-        }
-        return catalogs[0].id;
-    }
-
-    private static List<Map<String, Object>> asObjectMaps(Object raw) {
-        List<Map<String, Object>> rows = new List<Map<String, Object>>();
-        if (raw == null) {
-            return rows;
-        }
-        try {
-            Object parsed = JSON.deserializeUntyped(JSON.serialize(raw));
-            if (!(parsed instanceof List<Object>)) {
-                return rows;
-            }
-            for (Object item : (List<Object>) parsed) {
-                if (item instanceof Map<String, Object>) {
-                    rows.add((Map<String, Object>) item);
-                }
-            }
-        } catch (Exception e) {
-            return rows;
-        }
-        return rows;
-    }
-
-    /**
-     * Map findProducts / Discovery result payload into Studio catalog hits.
-     * Emits one hit per priced selling model (prefers isDefault when present).
+     * Recompute the Quote KPI stamps and Amend Breakdown rows from the current
+     * Quote Lines, then return a refreshed payload.
      *
-     * Always normalize via JSON: invocable output is typed
-     * SearchProductsRepresentation (not Map&lt;String,Object&gt;), so a direct
-     * List&lt;Object&gt; cast would skip every row.
+     * Amendment Studio calls this once pricing has settled. Without it the only
+     * stamp path is a force-reprice, so Quote Line Editor edits (quantity,
+     * discount, catalog adds) leave the proposal rendering figures from an
+     * earlier state.
      */
-    @TestVisible
-    private static List<CatalogProductHit> mapDiscoveryResults(Object rawResults) {
-        List<CatalogProductHit> hits = new List<CatalogProductHit>();
-        if (rawResults == null) {
-            return hits;
+    @AuraEnabled
+    public static StudioPayload refreshAmendKpis(Id quoteId) {
+        if (quoteId == null || quoteId.getSObjectType() != Quote.SObjectType) {
+            throw new AuraHandledException('Quote Id is required.');
         }
-        List<Object> items;
-        try {
-            Object parsed = JSON.deserializeUntyped(JSON.serialize(rawResults));
-            if (!(parsed instanceof List<Object>)) {
-                return hits;
-            }
-            items = (List<Object>) parsed;
-        } catch (Exception e) {
-            return hits;
-        }
-        Set<Id> seenPbe = new Set<Id>();
-        for (Object rawItem : items) {
-            if (!(rawItem instanceof Map<String, Object>)) {
-                continue;
-            }
-            Map<String, Object> product = (Map<String, Object>) rawItem;
-            String productName = product.get('name') != null
-                ? String.valueOf(product.get('name'))
-                : 'Product';
-            String productCode = product.get('productCode') != null
-                ? String.valueOf(product.get('productCode'))
-                : null;
-            String description = product.get('description') != null
-                ? String.valueOf(product.get('description'))
-                : null;
-            Id productId = null;
-            if (product.get('id') != null) {
-                try {
-                    productId = Id.valueOf(String.valueOf(product.get('id')));
-                } catch (Exception e) {
-                    productId = null;
-                }
-            }
-            List<Object> prices = new List<Object>();
-            if (product.get('prices') instanceof List<Object>) {
-                prices = (List<Object>) product.get('prices');
-            }
-            if (prices.isEmpty()) {
-                continue;
-            }
-            // Prefer default price rows; otherwise include all priced models.
-            List<Object> chosen = new List<Object>();
-            for (Object rawPrice : prices) {
-                if (!(rawPrice instanceof Map<String, Object>)) {
-                    continue;
-                }
-                Map<String, Object> price = (Map<String, Object>) rawPrice;
-                if (price.get('isDefault') == true) {
-                    chosen.add(price);
-                }
-            }
-            if (chosen.isEmpty()) {
-                chosen.addAll(prices);
-            }
-            for (Object rawPrice : chosen) {
-                Map<String, Object> price = (Map<String, Object>) rawPrice;
-                if (price.get('priceBookEntryId') == null) {
-                    continue;
-                }
-                Id pbeId;
-                try {
-                    pbeId = Id.valueOf(String.valueOf(price.get('priceBookEntryId')));
-                } catch (Exception e) {
-                    continue;
-                }
-                if (seenPbe.contains(pbeId)) {
-                    continue;
-                }
-                seenPbe.add(pbeId);
-                CatalogProductHit hit = new CatalogProductHit();
-                hit.pricebookEntryId = pbeId;
-                hit.productId = productId;
-                hit.productName = productName;
-                hit.productCode = productCode;
-                hit.description = description;
-                hit.isCommon = false;
-                hit.source = 'Discovery';
-                if (price.get('price') != null) {
-                    try {
-                        hit.listPrice = Decimal.valueOf(String.valueOf(price.get('price')));
-                    } catch (Exception e) {
-                        hit.listPrice = null;
-                    }
-                }
-                Map<String, Object> model = null;
-                if (price.get('pricingModel') instanceof Map<String, Object>) {
-                    model = (Map<String, Object>) price.get('pricingModel');
-                }
-                if (model != null) {
-                    if (model.get('id') != null) {
-                        try {
-                            hit.sellingModelId = Id.valueOf(String.valueOf(model.get('id')));
-                        } catch (Exception e) {
-                            hit.sellingModelId = null;
-                        }
-                    }
-                    hit.sellingModelName = model.get('name') != null
-                        ? String.valueOf(model.get('name'))
-                        : null;
-                }
-                hit.label = String.isNotBlank(hit.sellingModelName)
-                    ? hit.productName + ' · ' + hit.sellingModelName
-                    : hit.productName;
-                hits.add(hit);
-                if (hits.size() >= CATALOG_SEARCH_LIMIT) {
-                    return hits;
-                }
-            }
-        }
-        return hits;
-    }
-
-    private static List<CatalogProductHit> searchCatalogProductsByName(
-        Id pricebookId,
-        String searchTerm
-    ) {
-        List<CatalogProductHit> hits = new List<CatalogProductHit>();
-        String term = '%' + searchTerm + '%';
-        for (PricebookEntry pbe : [
-            SELECT
-                Id,
-                UnitPrice,
-                Product2Id,
-                Product2.Name,
-                Product2.ProductCode,
-                Product2.Description,
-                ProductSellingModelId,
-                ProductSellingModel.Name
-            FROM PricebookEntry
-            WHERE Pricebook2Id = :pricebookId
-                AND IsActive = TRUE
-                AND Product2.IsActive = TRUE
-                AND Product2.Name LIKE :term
-            WITH USER_MODE
-            ORDER BY Product2.Name ASC
-            LIMIT :CATALOG_SEARCH_LIMIT
-        ]) {
-            CatalogProductHit hit = toCatalogHit(pbe, false);
-            hit.source = 'PriceBook';
-            hits.add(hit);
-        }
-        return hits;
+        Id qId = Id.valueOf(String.valueOf(quoteId));
+        RLM_AmendDifferenceService.stampDifferenceFieldsForQuote(qId);
+        return getStudioPayload(qId);
     }
 
     /**
-     * Seed the left catalog rail: curated SKUs first, then products most often
-     * on Quote lines (with a PBE on this price book), then alphabetical fill.
+     * Catalog / Discovery — delegated to RLM_CatalogDiscoveryService (OOTB
+     * getCatalogs / getCategories / getProducts / findProducts; no curated SKUs).
      */
-    private static List<CatalogProductHit> listCommonCatalogProducts(Id pricebookId) {
-        List<CatalogProductHit> hits = new List<CatalogProductHit>();
-        Set<Id> seenPbeIds = new Set<Id>();
-
-        // 1) Curated hero SKUs (stable demo / sales favorites).
-        Map<String, Integer> skuRank = new Map<String, Integer>();
-        for (Integer i = 0; i < COMMON_PRODUCT_SKUS.size(); i++) {
-            skuRank.put(COMMON_PRODUCT_SKUS[i], i);
-        }
-        List<PricebookEntry> curated = [
-            SELECT
-                Id,
-                UnitPrice,
-                Product2Id,
-                Product2.Name,
-                Product2.StockKeepingUnit,
-                Product2.ProductCode,
-                ProductSellingModelId,
-                ProductSellingModel.Name
-            FROM PricebookEntry
-            WHERE Pricebook2Id = :pricebookId
-                AND IsActive = TRUE
-                AND Product2.IsActive = TRUE
-                AND (
-                    Product2.StockKeepingUnit IN :COMMON_PRODUCT_SKUS
-                    OR Product2.ProductCode IN :COMMON_PRODUCT_SKUS
-                )
-            WITH USER_MODE
-            LIMIT :CATALOG_LIST_LIMIT
-        ];
-        curated.sort(new CatalogSkuRankComparator(skuRank));
-        for (PricebookEntry pbe : curated) {
-            if (seenPbeIds.contains(pbe.Id) || hits.size() >= CATALOG_LIST_LIMIT) {
-                break;
-            }
-            seenPbeIds.add(pbe.Id);
-            hits.add(toCatalogHit(pbe, true));
-        }
-
-        // 2) Frequently quoted products (org-wide) that are on this price book.
-        if (hits.size() < CATALOG_LIST_LIMIT) {
-            Set<Id> popularProductIds = new Set<Id>();
-            for (AggregateResult ar : [
-                SELECT Product2Id prodId, COUNT(Id) cnt
-                FROM QuoteLineItem
-                WHERE Product2Id != NULL
-                WITH USER_MODE
-                GROUP BY Product2Id
-                ORDER BY COUNT(Id) DESC
-                LIMIT 50
-            ]) {
-                popularProductIds.add((Id) ar.get('prodId'));
-            }
-            if (!popularProductIds.isEmpty()) {
-                for (PricebookEntry pbe : [
-                    SELECT
-                        Id,
-                        UnitPrice,
-                        Product2Id,
-                        Product2.Name,
-                        Product2.ProductCode,
-                        ProductSellingModelId,
-                        ProductSellingModel.Name
-                    FROM PricebookEntry
-                    WHERE Pricebook2Id = :pricebookId
-                        AND IsActive = TRUE
-                        AND Product2.IsActive = TRUE
-                        AND Product2Id IN :popularProductIds
-                        AND Id NOT IN :seenPbeIds
-                    WITH USER_MODE
-                    ORDER BY Product2.Name ASC
-                    LIMIT :CATALOG_LIST_LIMIT
-                ]) {
-                    if (hits.size() >= CATALOG_LIST_LIMIT) {
-                        break;
-                    }
-                    seenPbeIds.add(pbe.Id);
-                    hits.add(toCatalogHit(pbe, true));
-                }
-            }
-        }
-
-        // 3) Alphabetical fill so the rail is never sparse on a full price book.
-        if (hits.size() < CATALOG_LIST_LIMIT) {
-            Integer remaining = CATALOG_LIST_LIMIT - hits.size();
-            for (PricebookEntry pbe : [
-                SELECT
-                    Id,
-                    UnitPrice,
-                    Product2Id,
-                    Product2.Name,
-                    Product2.ProductCode,
-                    ProductSellingModelId,
-                    ProductSellingModel.Name
-                FROM PricebookEntry
-                WHERE Pricebook2Id = :pricebookId
-                    AND IsActive = TRUE
-                    AND Product2.IsActive = TRUE
-                    AND Id NOT IN :seenPbeIds
-                WITH USER_MODE
-                ORDER BY Product2.Name ASC
-                LIMIT :remaining
-            ]) {
-                seenPbeIds.add(pbe.Id);
-                hits.add(toCatalogHit(pbe, true));
-            }
-        }
-        return hits;
+    @AuraEnabled
+    public static RLM_CatalogDiscoveryService.CatalogBrowseContext getCatalogBrowseContext(
+        Id quoteId
+    ) {
+        return RLM_CatalogDiscoveryService.getCatalogBrowseContext(quoteId);
     }
 
-    private static CatalogProductHit toCatalogHit(PricebookEntry pbe, Boolean isCommon) {
-        CatalogProductHit hit = new CatalogProductHit();
-        hit.pricebookEntryId = pbe.Id;
-        hit.productId = pbe.Product2Id;
-        hit.productName = pbe.Product2 != null ? pbe.Product2.Name : 'Product';
-        if (pbe.Product2 != null) {
-            hit.productCode = pbe.Product2.ProductCode;
-        }
-        hit.listPrice = pbe.UnitPrice;
-        hit.sellingModelId = pbe.ProductSellingModelId;
-        hit.sellingModelName =
-            pbe.ProductSellingModel != null ? pbe.ProductSellingModel.Name : null;
-        hit.label = String.isNotBlank(hit.sellingModelName)
-            ? hit.productName + ' · ' + hit.sellingModelName
-            : hit.productName;
-        hit.isCommon = isCommon == true;
-        hit.source = 'PriceBook';
-        return hit;
+    @AuraEnabled
+    public static List<RLM_CatalogDiscoveryService.CatalogTaxonomyNode> getCatalogCategories(
+        Id quoteId,
+        Id catalogId
+    ) {
+        return RLM_CatalogDiscoveryService.getCatalogCategories(quoteId, catalogId);
+    }
+
+    @AuraEnabled
+    public static List<RLM_CatalogDiscoveryService.CatalogProductHit> searchCatalogProducts(
+        Id quoteId,
+        String searchTerm,
+        Id catalogId,
+        Id categoryId
+    ) {
+        return RLM_CatalogDiscoveryService.searchCatalogProducts(
+            quoteId,
+            searchTerm,
+            catalogId,
+            categoryId
+        );
     }
 
     public class PlatformWaterfallStep {
@@ -1905,14 +610,14 @@ public with sharing class RLM_AssetPriceHistoryController {
         @AuraEnabled public String source;
     }
 
-    /** Skip noisy procedure bookkeeping steps in the AE-facing waterfall. */
+    /**
+     * Skip pure bookkeeping nodes the procedure often returns with no money.
+     * Do not filter Proration / SubscriptionPricing / Formula — those are part
+     * of the OOTB waterfall AEs should see. Platform hideWaterfall still applies.
+     */
     private static final Set<String> WATERFALL_SKIP_ELEMENT_TYPES = new Set<String>{
         'AssignmentElement',
-        'GroupingAndAggregatePricing',
-        // Unit-price hover: keep List → Discount → Net; hide term/bookkeeping noise.
-        'SubscriptionPricing',
-        'FormulaBasedPricing',
-        'Proration'
+        'GroupingAndAggregatePricing'
     };
 
     /**
@@ -2116,6 +821,9 @@ public with sharing class RLM_AssetPriceHistoryController {
                 if (mult != null) {
                     return formatProrationMultiplier(mult);
                 }
+                if (outp.get('ProratedAmount') != null) {
+                    return formatMoney(outp.get('ProratedAmount'));
+                }
             }
             if (elementType == 'ListPrice' && outp.get('ListPrice') != null) {
                 return formatMoney(outp.get('ListPrice'));
@@ -2189,41 +897,9 @@ public with sharing class RLM_AssetPriceHistoryController {
     @TestVisible
     private static String testWaterfallIdentifierOverride;
 
-    /** Sort curated PBEs into COMMON_PRODUCT_SKUS order. */
-    private class CatalogSkuRankComparator implements Comparator<PricebookEntry> {
-        private final Map<String, Integer> skuRank;
-
-        CatalogSkuRankComparator(Map<String, Integer> skuRank) {
-            this.skuRank = skuRank;
-        }
-
-        public Integer compare(PricebookEntry a, PricebookEntry b) {
-            Integer ra = rankFor(a);
-            Integer rb = rankFor(b);
-            if (ra != rb) {
-                return ra < rb ? -1 : 1;
-            }
-            String na = a.Product2 != null ? a.Product2.Name : '';
-            String nb = b.Product2 != null ? b.Product2.Name : '';
-            return na.toLowerCase().compareTo(nb.toLowerCase());
-        }
-
-        private Integer rankFor(PricebookEntry pbe) {
-            if (pbe.Product2 == null) {
-                return 9999;
-            }
-            if (skuRank.containsKey(pbe.Product2.StockKeepingUnit)) {
-                return skuRank.get(pbe.Product2.StockKeepingUnit);
-            }
-            if (skuRank.containsKey(pbe.Product2.ProductCode)) {
-                return skuRank.get(pbe.Product2.ProductCode);
-            }
-            return 9999;
-        }
-    }
-
     /**
-     * Add a catalog product as a new Quote line (QuoteAction Type = Add), then force-reprice.
+     * Add a catalog product via Place Sales Transaction (QuoteAction Type=Add +
+     * QuoteLineItem POST + FORCE price). No Apex insert of QuoteAction/QLI.
      * Used after the AE picks a product on a Studio draft "add line" row.
      */
     @AuraEnabled
@@ -2282,43 +958,89 @@ public with sharing class RLM_AssetPriceHistoryController {
             LIMIT 1
         ];
         if (!siblings.isEmpty()) {
-            if (siblings[0].StartDate != null) {
-                startDate = Date.today();
-            }
             endDate = siblings[0].EndDate;
         } else if (q.EndDate != null) {
             endDate = q.EndDate;
         }
 
-        try {
-            QuoteAction action = new QuoteAction(QuoteId = qId, Type = 'Add');
-            insert as user action;
-
-            QuoteLineItem line = new QuoteLineItem(
-                QuoteId = qId,
-                QuoteActionId = action.Id,
-                PricebookEntryId = pbe.Id,
-                Product2Id = pbe.Product2Id,
-                Quantity = 1,
-                UnitPrice = pbe.UnitPrice != null ? pbe.UnitPrice : 0,
-                StartDate = startDate
-            );
-            if (endDate != null) {
-                line.EndDate = endDate;
-            }
-            insert as user line;
-        } catch (DmlException e) {
-            throw new AuraHandledException(e.getDmlMessage(0));
-        }
+        Map<String, Object> lineFields = new Map<String, Object>{
+            'Product2Id' => pbe.Product2Id,
+            'PricebookEntryId' => pbe.Id,
+            'Quantity' => 1,
+            'UnitPrice' => pbe.UnitPrice != null ? pbe.UnitPrice : 0
+        };
+        applySellingModelFieldsForCatalogAdd(lineFields, pbe, startDate, endDate);
 
         try {
-            RLM_RepriceQuoteInvocable.repriceQuoteNow(qId);
+            RLM_RepriceQuoteInvocable.addCatalogLineAndReprice(qId, lineFields);
         } catch (RLM_RepriceQuoteInvocable.RepriceException e) {
             throw new AuraHandledException(e.getMessage());
         } catch (Exception e) {
-            throw new AuraHandledException('Line added but reprice failed: ' + e.getMessage());
+            throw new AuraHandledException('Add line failed: ' + e.getMessage());
         }
         return getStudioPayload(qId);
+    }
+
+    /**
+     * PST catalog-add selling-model fields (parity with RLM_SetUpQuoteInvocable).
+     * TermDefined / Evergreen require PeriodBoundary + BillingFrequency or the
+     * platform returns INVALID_PERIOD_BOUNDARY. One-Time gets StartDate only.
+     */
+    @TestVisible
+    private static void applySellingModelFieldsForCatalogAdd(
+        Map<String, Object> lineFields,
+        PricebookEntry pbe,
+        Date startDate,
+        Date endDate
+    ) {
+        if (lineFields == null || pbe == null) {
+            return;
+        }
+        Date start = startDate != null ? startDate : Date.today();
+        String sellingModelType =
+            pbe.ProductSellingModel != null
+                ? String.valueOf(pbe.ProductSellingModel.SellingModelType)
+                : null;
+        String pricingTermUnit =
+            pbe.ProductSellingModel != null
+                ? String.valueOf(pbe.ProductSellingModel.PricingTermUnit)
+                : null;
+        String billingFrequency = billingFrequencyForPricingTerm(pricingTermUnit);
+
+        if ('TermDefined' == sellingModelType && String.isNotBlank(billingFrequency)) {
+            lineFields.put('StartDate', start);
+            Date termEnd = endDate != null ? endDate : start.addYears(1);
+            lineFields.put('EndDate', termEnd);
+            lineFields.put('PeriodBoundary', 'Anniversary');
+            lineFields.put('BillingFrequency', billingFrequency);
+        } else if ('Evergreen' == sellingModelType && String.isNotBlank(billingFrequency)) {
+            lineFields.put('StartDate', start);
+            lineFields.put('PeriodBoundary', 'Anniversary');
+            lineFields.put('BillingFrequency', billingFrequency);
+        } else {
+            // One-Time / unknown — start only; do not send EndDate (platform rejects it).
+            lineFields.put('StartDate', start);
+        }
+    }
+
+    @TestVisible
+    private static String billingFrequencyForPricingTerm(String pricingTermUnit) {
+        if (String.isBlank(pricingTermUnit)) {
+            return null;
+        }
+        if (pricingTermUnit == 'Months') {
+            return 'Monthly';
+        }
+        if (pricingTermUnit == 'Annual') {
+            return 'Annual';
+        }
+        if (pricingTermUnit == 'Quarterly') {
+            return 'Quarterly';
+        }
+        if (pricingTermUnit == 'Semi-Annual') {
+            return 'Semi-Annual';
+        }
+        return null;
     }
 
     /**
@@ -2470,467 +1192,32 @@ public with sharing class RLM_AssetPriceHistoryController {
     }
 
     /**
-     * End-state installed quantity per asset (latest Asset State Period).
-     * Do not use "as of now" — future-dated prior amends still count as what
-     * the customer owns for Current → This add → Finalized (e.g. 30k installed
-     * even when today's period is still the pre-amend 10k tranche).
-     */
-    private static Map<Id, Decimal> installedQuantityByAsset(Set<Id> assetIds) {
-        Map<Id, Decimal> result = new Map<Id, Decimal>();
-        if (assetIds == null || assetIds.isEmpty()) {
-            return result;
-        }
-        for (AssetStatePeriod asp : [
-            SELECT AssetId, Quantity, StartDate
-            FROM AssetStatePeriod
-            WHERE AssetId IN :assetIds AND Quantity != null
-            WITH USER_MODE
-            ORDER BY AssetId, StartDate DESC
-        ]) {
-            if (asp.AssetId != null && !result.containsKey(asp.AssetId)) {
-                result.put(asp.AssetId, asp.Quantity);
-            }
-        }
-        return result;
-    }
-
-    /**
-     * Not cacheable: amendment QuoteActions / AssetActions often land just after
-     * the page first paints; a cached empty response would stick until hard reload.
+     * Difference history / stamps — delegated to RLM_AmendDifferenceService.
      */
     @AuraEnabled
-    public static HistoryResponse getHistoryForQuote(Id quoteId) {
-        HistoryResponse resp = new HistoryResponse();
-        resp.rows = new List<HistoryRow>();
-        resp.isAmendmentQuote = false;
-        if (quoteId == null) {
-            resp.message = 'No quote Id provided.';
-            return resp;
-        }
-
-        Id qId = Id.valueOf(String.valueOf(quoteId));
-        if (qId.getSObjectType() != Quote.SObjectType) {
-            resp.message = 'Record is not a Quote.';
-            return resp;
-        }
-
-        Quote q = [
-            SELECT Id, OriginalActionType
-            FROM Quote
-            WHERE Id = :qId
-            WITH USER_MODE
-            LIMIT 1
-        ];
-        if (q.OriginalActionType == 'Amend') {
-            resp.isAmendmentQuote = true;
-        }
-
-        Set<Id> assetIds = new Set<Id>();
-        Map<Id, String> assetNames = new Map<Id, String>();
-
-        for (QuoteAction qa : [
-            SELECT SourceAssetId, SourceAsset.Name, Type
-            FROM QuoteAction
-            WHERE QuoteId = :qId AND SourceAssetId != null
-            WITH USER_MODE
-        ]) {
-            if (qa.Type == 'Amend') {
-                resp.isAmendmentQuote = true;
-            }
-            if (resp.isAmendmentQuote || qa.Type == 'Amend') {
-                assetIds.add(qa.SourceAssetId);
-                if (qa.SourceAsset != null) {
-                    assetNames.put(qa.SourceAssetId, qa.SourceAsset.Name);
-                }
-            }
-        }
-
-        if (assetIds.isEmpty() && resp.isAmendmentQuote) {
-            Set<Id> actionIds = new Set<Id>();
-            for (QuoteLineItem qli : [
-                SELECT QuoteActionId
-                FROM QuoteLineItem
-                WHERE QuoteId = :qId AND QuoteActionId != null
-                WITH USER_MODE
-            ]) {
-                actionIds.add(qli.QuoteActionId);
-            }
-            if (!actionIds.isEmpty()) {
-                for (QuoteAction qa : [
-                    SELECT SourceAssetId, SourceAsset.Name
-                    FROM QuoteAction
-                    WHERE Id IN :actionIds AND SourceAssetId != null
-                    WITH USER_MODE
-                ]) {
-                    assetIds.add(qa.SourceAssetId);
-                    if (qa.SourceAsset != null) {
-                        assetNames.put(qa.SourceAssetId, qa.SourceAsset.Name);
-                    }
-                }
-            }
-        }
-
-        if (assetIds.isEmpty()) {
-            resp.message = resp.isAmendmentQuote
-                ? 'Amendment quote has no linked source assets yet. Refresh after the line finishes loading.'
-                : 'Price history appears on amendment quotes.';
-            return resp;
-        }
-
-        for (AssetAction aa : [
-            SELECT Id, AssetId, Type, CategoryEnum, ActionDate, QuantityChange, Amount,
-                (SELECT ListPrice, UnitPrice, NetUnitPrice, Quantity, Discount,
-                        StartDate, EndDate
-                 FROM AssetActionSources
-                 ORDER BY StartDate ASC NULLS LAST)
-            FROM AssetAction
-            WHERE AssetId IN :assetIds
-            WITH USER_MODE
-            ORDER BY ActionDate ASC, CreatedDate ASC
-        ]) {
-            List<AssetActionSource> sources = aa.AssetActionSources;
-            if (sources == null || sources.isEmpty()) {
-                HistoryRow orphan = baseRow(aa, assetNames);
-                enrichLineEconomics(orphan);
-                resp.rows.add(orphan);
-                continue;
-            }
-            for (AssetActionSource src : sources) {
-                HistoryRow row = baseRow(aa, assetNames);
-                row.listPrice = src.ListPrice;
-                row.unitPrice = src.UnitPrice;
-                row.netUnitPrice = src.NetUnitPrice;
-                row.quantity = src.Quantity;
-                row.periodStart = src.StartDate;
-                row.periodEnd = src.EndDate;
-                row.discountPercent = resolveDiscountPercent(src.Discount, src.ListPrice, src.NetUnitPrice);
-                enrichLineEconomics(row);
-                resp.rows.add(row);
-            }
-        }
-
-        resp.summary = buildSummaryFromRows(resp.rows, assetNames);
-        resp.projection = buildAddProjection(qId, resp.rows, resp.summary, assetNames);
-        stampQuoteDifferenceFields(qId, resp);
-
-        if (resp.rows.isEmpty()) {
-            resp.message = 'No Asset Actions found for the amended asset(s) yet.';
-        }
-        return resp;
+    public static RLM_AmendDifferenceService.HistoryResponse getHistoryForQuote(Id quoteId) {
+        return RLM_AmendDifferenceService.getHistoryForQuote(quoteId);
     }
 
     /**
      * Recompute and stamp Current / Proposed / Net Increase on the Quote.
-     * Called after a successful force-reprice so DocGen / layouts stay current
-     * without requiring the seller to open the history panel.
-     * Best-effort: never throws.
+     * Called after a successful force-reprice so DocGen / layouts stay current.
      */
     public static void stampDifferenceFieldsForQuote(Id quoteId) {
-        if (quoteId == null || quoteId.getSObjectType() != Quote.SObjectType) {
-            return;
-        }
-        try {
-            getHistoryForQuote(quoteId);
-        } catch (Exception e) {
-            System.debug(
-                LoggingLevel.WARN,
-                'RLM_AssetPriceHistoryController.stampDifferenceFieldsForQuote: '
-                    + quoteId + ': ' + e.getMessage()
-            );
-        }
+        RLM_AmendDifferenceService.stampDifferenceFieldsForQuote(quoteId);
     }
 
-    /**
-     * Persist Current / Proposed / Net Increase KPIs on the Quote so layouts,
-     * reports, and Document Generation can use them without the LWC.
-     * Best-effort: stamp failures must not break the history panel.
-     */
     @TestVisible
-    private static void stampQuoteDifferenceFields(Id quoteId, HistoryResponse resp) {
-        if (quoteId == null || resp == null || resp.summary == null) {
-            return;
-        }
-        try {
-            Quote q = new Quote(Id = quoteId);
-            q.RLM_Amend_Current_ARR__c = resp.summary.currentArr;
-            q.RLM_Amend_Current_MRR__c = resp.summary.currentMrr;
-            q.RLM_Amend_Current_Qty__c = resp.summary.totalQuantity;
-
-            if (resp.projection != null && resp.projection.mode == 'Add' && resp.projection.projected != null) {
-                q.RLM_Amend_Proposed_ARR__c = resp.projection.projected.currentArr;
-                q.RLM_Amend_Proposed_MRR__c = resp.projection.projected.currentMrr;
-                q.RLM_Amend_Proposed_Qty__c = resp.projection.projected.totalQuantity;
-                q.RLM_Amend_Net_Increase_ARR__c = resp.projection.deltaArr;
-                q.RLM_Amend_Net_Increase_MRR__c = resp.projection.deltaMrr;
-                q.RLM_Amend_Net_Increase_Qty__c = resp.projection.deltaQuantity;
-            } else {
-                // No add projection — proposed matches current; net increase is zero.
-                q.RLM_Amend_Proposed_ARR__c = resp.summary.currentArr;
-                q.RLM_Amend_Proposed_MRR__c = resp.summary.currentMrr;
-                q.RLM_Amend_Proposed_Qty__c = resp.summary.totalQuantity;
-                q.RLM_Amend_Net_Increase_ARR__c = 0;
-                q.RLM_Amend_Net_Increase_MRR__c = 0;
-                q.RLM_Amend_Net_Increase_Qty__c = 0;
-            }
-            update as user q;
-        } catch (Exception e) {
-            // Panel read path must stay resilient if FLS/validation blocks the stamp.
-            System.debug(
-                LoggingLevel.WARN,
-                'RLM_AssetPriceHistoryController: could not stamp difference fields on '
-                    + quoteId + ': ' + e.getMessage()
-            );
-        }
-    }
-
-    /**
-     * v1: only models positive-qty amend lines (add / upsell).
-     * Negative qty (decrease / cancel) returns DecreaseParked.
-     */
-    private static ProjectionImpact buildAddProjection(
-        Id quoteId,
-        List<HistoryRow> historyRows,
-        HistorySummary baseline,
-        Map<Id, String> assetNames
-    ) {
-        ProjectionImpact impact = new ProjectionImpact();
-        impact.mode = 'None';
-
-        List<QuoteLineItem> lines = [
-            SELECT Id, Quantity, ListPrice, NetUnitPrice, Discount, Product2.Name,
-                StartDate, EndDate
-            FROM QuoteLineItem
-            WHERE QuoteId = :quoteId
-            WITH USER_MODE
-        ];
-        if (lines.isEmpty()) {
-            impact.message = 'Add amendment quantity and reprice to model impact.';
-            return impact;
-        }
-
-        Boolean hasDecrease = false;
-        Boolean hasAdd = false;
-        List<HistoryRow> amendTranches = new List<HistoryRow>();
-        Decimal amendQty = 0;
-        Decimal amendPaidWeight = 0;
-        Decimal amendDiscWeight = 0;
-
-        for (QuoteLineItem qli : lines) {
-            Decimal qty = qli.Quantity != null ? qli.Quantity : 0;
-            if (qty < 0) {
-                hasDecrease = true;
-                continue;
-            }
-            if (qty == 0) {
-                continue;
-            }
-            hasAdd = true;
-            Decimal effectiveNet = resolveEffectiveNetUnitPrice(
-                qli.NetUnitPrice,
-                qli.ListPrice,
-                qli.Discount
-            );
-            HistoryRow tranche = new HistoryRow();
-            tranche.category = 'This amendment';
-            tranche.assetName = qli.Product2 != null ? qli.Product2.Name : null;
-            tranche.quantity = qty;
-            tranche.listPrice = qli.ListPrice;
-            tranche.netUnitPrice = effectiveNet;
-            tranche.discountPercent = resolveDiscountPercent(
-                qli.Discount,
-                qli.ListPrice,
-                effectiveNet
-            );
-            if (qli.StartDate != null) {
-                tranche.periodStart = Datetime.newInstance(qli.StartDate, Time.newInstance(0, 0, 0, 0));
-            }
-            if (qli.EndDate != null) {
-                tranche.periodEnd = Datetime.newInstance(qli.EndDate, Time.newInstance(23, 59, 59, 0));
-            }
-            enrichLineEconomics(tranche);
-            amendTranches.add(tranche);
-            amendQty += qty;
-            if (effectiveNet != null) {
-                amendPaidWeight += effectiveNet * qty;
-            }
-            if (tranche.discountPercent != null) {
-                amendDiscWeight += tranche.discountPercent * qty;
-            }
-        }
-
-        if (hasDecrease && !hasAdd) {
-            impact.mode = 'DecreaseParked';
-            impact.message =
-                'License decrease detected. Impact modeling for reductions is not enabled yet — history still applies.';
-            return impact;
-        }
-        if (hasDecrease && hasAdd) {
-            impact.mode = 'DecreaseParked';
-            impact.message =
-                'This quote mixes adds and decreases. Impact modeling supports add/upsell only for now.';
-            return impact;
-        }
-        if (!hasAdd) {
-            impact.message = 'Set a positive amendment quantity and reprice to model add/upsell impact.';
-            return impact;
-        }
-
-        List<HistoryRow> combined = new List<HistoryRow>();
-        if (historyRows != null) {
-            combined.addAll(historyRows);
-        }
-        combined.addAll(amendTranches);
-
-        impact.mode = 'Add';
-        impact.projected = buildSummaryFromRows(combined, assetNames);
-        impact.amendmentQuantity = amendQty;
-        if (amendQty > 0) {
-            impact.amendmentPaid = (amendPaidWeight / amendQty).setScale(2, RoundingMode.HALF_UP);
-            impact.amendmentDiscountPercent =
-                (amendDiscWeight / amendQty).setScale(2, RoundingMode.HALF_UP);
-        }
-        impact.deltaQuantity = deltaDec(
-            impact.projected != null ? impact.projected.totalQuantity : null,
-            baseline != null ? baseline.totalQuantity : null
-        );
-        impact.deltaAveragePaid = deltaDec(
-            impact.projected != null ? impact.projected.averagePaid : null,
-            baseline != null ? baseline.averagePaid : null
-        );
-        impact.deltaAverageDiscountPercent = deltaDec(
-            impact.projected != null ? impact.projected.averageDiscountPercent : null,
-            baseline != null ? baseline.averageDiscountPercent : null
-        );
-        impact.deltaMrr = deltaDec(
-            impact.projected != null ? impact.projected.currentMrr : null,
-            baseline != null ? baseline.currentMrr : null
-        );
-        impact.deltaArr = deltaDec(
-            impact.projected != null ? impact.projected.currentArr : null,
-            baseline != null ? baseline.currentArr : null
-        );
-        impact.message =
-            'Proposed if this add/upsell closes at the current line price. Reprice or refresh after changing Discount %. Values are stamped on the Quote for proposals.';
-        return impact;
-    }
-
-    private static Decimal deltaDec(Decimal projected, Decimal baseline) {
-        if (projected == null) {
-            return null;
-        }
-        Decimal base = baseline != null ? baseline : 0;
-        return (projected - base).setScale(2, RoundingMode.HALF_UP);
-    }
-
-    /**
-     * Roll up contributing rows: qty-weighted averages, total quantity,
-     * ARR/MRR from Σ(net × qty). Skips non-positive quantities.
-     */
-    private static HistorySummary buildSummaryFromRows(
-        List<HistoryRow> rows,
-        Map<Id, String> assetNames
-    ) {
-        HistorySummary summary = new HistorySummary();
-        if (rows == null || rows.isEmpty()) {
-            return summary;
-        }
-
-        Decimal qtyTotal = 0;
-        Decimal paidWeight = 0;
-        Decimal discountWeight = 0;
-        Decimal arrTotal = 0;
-        Set<String> names = new Set<String>();
-
-        for (HistoryRow row : rows) {
-            if (String.isNotBlank(row.assetName)) {
-                names.add(row.assetName);
-            }
-            Decimal qty = row.quantity != null ? row.quantity : 0;
-            if (qty <= 0) {
-                continue;
-            }
-            qtyTotal += qty;
-            if (row.netUnitPrice != null) {
-                paidWeight += row.netUnitPrice * qty;
-                arrTotal += row.netUnitPrice * qty;
-            }
-            if (row.discountPercent != null) {
-                discountWeight += row.discountPercent * qty;
-            }
-        }
-
-        summary.assetName = names.isEmpty() ? null : String.join(new List<String>(names), ', ');
-        summary.totalQuantity = qtyTotal;
-        if (qtyTotal > 0) {
-            summary.averagePaid = (paidWeight / qtyTotal).setScale(2, RoundingMode.HALF_UP);
-            summary.averageDiscountPercent =
-                (discountWeight / qtyTotal).setScale(2, RoundingMode.HALF_UP);
-        }
-        summary.currentArr = arrTotal.setScale(2, RoundingMode.HALF_UP);
-        summary.currentMrr = (arrTotal / 12).setScale(2, RoundingMode.HALF_UP);
-        return summary;
-    }
-
-    private static void enrichLineEconomics(HistoryRow row) {
-        if (row == null) {
-            return;
-        }
-        Decimal qty = row.quantity != null ? row.quantity : row.quantityChange;
-        if (qty == null || qty <= 0 || row.netUnitPrice == null) {
-            row.arr = 0;
-            row.mrr = 0;
-            return;
-        }
-        row.arr = (row.netUnitPrice * qty).setScale(2, RoundingMode.HALF_UP);
-        row.mrr = (row.arr / 12).setScale(2, RoundingMode.HALF_UP);
-    }
-
-    /**
-     * Net unit for ARR/MRR KPIs. Prefer platform NetUnitPrice; when Quote Line
-     * Details own sales price the QLI NetUnitPrice is often null — fall back to
-     * List × (1 − Discount%) so Finalized / This Add stay consistent with Studio preview.
-     */
-    @TestVisible
-    private static Decimal resolveEffectiveNetUnitPrice(
+    public static Decimal resolveEffectiveNetUnitPrice(
         Decimal netUnitPrice,
         Decimal listPrice,
         Decimal discountPercent
     ) {
-        if (netUnitPrice != null) {
-            return netUnitPrice;
-        }
-        if (listPrice == null) {
-            return null;
-        }
-        Decimal disc = discountPercent != null ? discountPercent : 0;
-        return (listPrice * (1 - (disc / 100))).setScale(6, RoundingMode.HALF_UP);
+        return RLM_AmendDifferenceService.resolveEffectiveNetUnitPrice(
+            netUnitPrice,
+            listPrice,
+            discountPercent
+        );
     }
 
-    private static Decimal resolveDiscountPercent(
-        Decimal discountField,
-        Decimal listPrice,
-        Decimal netUnitPrice
-    ) {
-        if (discountField != null) {
-            return discountField;
-        }
-        if (listPrice != null && listPrice != 0 && netUnitPrice != null) {
-            Decimal pct = ((listPrice - netUnitPrice) / listPrice) * 100;
-            return pct.setScale(2, RoundingMode.HALF_UP);
-        }
-        return null;
-    }
-
-    private static HistoryRow baseRow(AssetAction aa, Map<Id, String> assetNames) {
-        HistoryRow row = new HistoryRow();
-        row.assetId = aa.AssetId;
-        row.assetName = assetNames.get(aa.AssetId);
-        row.actionId = aa.Id;
-        row.actionType = aa.Type;
-        row.category = aa.CategoryEnum;
-        row.actionDate = aa.ActionDate;
-        row.quantityChange = aa.QuantityChange;
-        row.amount = aa.Amount;
-        return row;
-    }
 }

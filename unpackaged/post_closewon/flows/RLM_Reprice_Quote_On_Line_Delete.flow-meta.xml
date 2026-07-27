@@ -18,7 +18,7 @@
         <offset>0</offset>
     </actionCalls>
     <apiVersion>67.0</apiVersion>
-    <description>Keeps a synced quote's pricing current when a line item is deleted after sync. Fires before a QuoteLineItem of a synced quote (Quote.IsSyncing = true) is deleted, and reprices the parent quote via RLM_RepriceQuoteInvocable. The invocable reprices asynchronously and skips the quote if it no longer exists (full-quote cascade delete).</description>
+    <description>Keeps a synced quote's pricing current when a line item is deleted after sync. Fires before a QuoteLineItem of a synced quote (Quote.IsSyncing = true) is deleted, and reprices the parent quote via RLM_RepriceQuoteInvocable. Skips Amend quotes (same race avoidance as On Line Change). The invocable reprices asynchronously and skips the quote if it no longer exists (full-quote cascade delete).</description>
     <environments>Default</environments>
     <interviewLabel>RLM Reprice Quote On Line Delete {!$Flow.CurrentDateTime}</interviewLabel>
     <label>RLM Reprice Quote On Line Delete</label>
@@ -42,7 +42,10 @@
         <connector>
             <targetReference>Reprice_Parent_Quote</targetReference>
         </connector>
-        <filterFormula>{!$Record.Quote.IsSyncing}</filterFormula>
+        <filterFormula>AND(
+    {!$Record.Quote.IsSyncing},
+    TEXT({!$Record.Quote.OriginalActionType}) &lt;&gt; "Amend"
+)</filterFormula>
         <object>QuoteLineItem</object>
         <recordTriggerType>Delete</recordTriggerType>
         <triggerType>RecordBeforeDelete</triggerType>

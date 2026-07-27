@@ -1,186 +1,22 @@
 feature: closewon
 feature_flag: closewon
-# 1) Amendment Studio inside Quote Lines tab when OriginalActionType = Amend
-#    (primary AE workspace after Managed Asset Viewer → initiateAmendment).
-#    Base page uses recordHomeSingleColTemplateDesktop (like Order): highlights →
-#    path → tabs → Studio in Quote Lines (SimpleView pinned chrome under content).
-# 2) Hide classic TLE + transaction summary (+ RLM progress) on Amend Quotes so
-#    Studio is the default commercial surface (Advanced line editor remains escape hatch).
-# 3) Difference quoting field section on Details (Current / Proposed / Net Increase).
-#    Field sections support at most 2 columns — Current | Proposed+Net.
+# 1) Link Opportunity in Quote highlights next to Browse Catalog.
+# 2) Hide OOTB Progress Indicator on Amend Quotes — it RefreshEvent-reloads the
+#    page during Instant Pricing, which turns Instant Pricing off and surfaces
+#    the "outdated quote / refresh" prompt under QLE edits.
 #
-# Anchor must match ElementTree's post-indent serialization (see AssembleAndDeployUX
-# _apply_raw_xml_patch). Use an escaped string so YAML does not collapse relative indents.
+# Note: Amendment Studio placement patches for this page also live in committed
+# post_ux (patch file was emptied during Studio iteration). Restore Studio
+# placement from git history before relying on assemble alone for Studio.
 patches:
-  # First item in Quote Lines tab so Path + tabs stay above Catalog / Working.
-  - type: add_component
-    region: Facet-52d27c4f-406f-43ea-a233-ce73598e4677
-    before_identifier: runtime_revenue_foundation_progressIndicator
-    component: rlmAmendmentStudio
-    identifier: rlm_amendment_studio
+  - type: insert_action
+    after: "BrowseCatalog"
+    actions:
+      - "Quote.RLM_Link_Opportunity"
 
-  - type: set_component_visibility
-    identifier: rlm_amendment_studio
-    visibility:
-      - field: Record.OriginalActionType
-        operator: EQUAL
-        value: Amend
-
-  # Studio-first Amend: keep OOTB line table / summary for new-sale Quotes only.
   - type: set_component_visibility
     identifier: runtime_revenue_foundation_progressIndicator
     visibility:
       - field: Record.OriginalActionType
         operator: NE
         value: Amend
-
-  - type: set_component_visibility
-    identifier: runtime_rca_salesTxnLineTable
-    visibility:
-      - field: Record.OriginalActionType
-        operator: NE
-        value: Amend
-
-  - type: set_component_visibility
-    identifier: runtime_revenue_foundation_transactionSummary
-    visibility:
-      - field: Record.OriginalActionType
-        operator: NE
-        value: Amend
-
-  # Facets for the Difference quoting field section (inserted before Address Information).
-  - type: insert_after_xml
-    anchor: "<name>Facet-faedd9c7-e69c-4942-80db-ac3fd24d69c7</name>\n        <type>Facet</type>\n    </flexiPageRegions>"
-    xml: |
-      <flexiPageRegions>
-          <itemInstances>
-              <fieldInstance>
-                  <fieldInstanceProperties>
-                      <name>uiBehavior</name>
-                      <value>readonly</value>
-                  </fieldInstanceProperties>
-                  <fieldItem>Record.RLM_Amend_Current_ARR__c</fieldItem>
-                  <identifier>RecordRLM_Amend_Current_ARR_cField</identifier>
-              </fieldInstance>
-          </itemInstances>
-          <itemInstances>
-              <fieldInstance>
-                  <fieldInstanceProperties>
-                      <name>uiBehavior</name>
-                      <value>readonly</value>
-                  </fieldInstanceProperties>
-                  <fieldItem>Record.RLM_Amend_Current_MRR__c</fieldItem>
-                  <identifier>RecordRLM_Amend_Current_MRR_cField</identifier>
-              </fieldInstance>
-          </itemInstances>
-          <itemInstances>
-              <fieldInstance>
-                  <fieldInstanceProperties>
-                      <name>uiBehavior</name>
-                      <value>readonly</value>
-                  </fieldInstanceProperties>
-                  <fieldItem>Record.RLM_Amend_Current_Qty__c</fieldItem>
-                  <identifier>RecordRLM_Amend_Current_Qty_cField</identifier>
-              </fieldInstance>
-          </itemInstances>
-          <name>Facet-rlm-amend-current</name>
-          <type>Facet</type>
-      </flexiPageRegions>
-      <flexiPageRegions>
-          <itemInstances>
-              <fieldInstance>
-                  <fieldInstanceProperties>
-                      <name>uiBehavior</name>
-                      <value>readonly</value>
-                  </fieldInstanceProperties>
-                  <fieldItem>Record.RLM_Amend_Proposed_ARR__c</fieldItem>
-                  <identifier>RecordRLM_Amend_Proposed_ARR_cField</identifier>
-              </fieldInstance>
-          </itemInstances>
-          <itemInstances>
-              <fieldInstance>
-                  <fieldInstanceProperties>
-                      <name>uiBehavior</name>
-                      <value>readonly</value>
-                  </fieldInstanceProperties>
-                  <fieldItem>Record.RLM_Amend_Proposed_MRR__c</fieldItem>
-                  <identifier>RecordRLM_Amend_Proposed_MRR_cField</identifier>
-              </fieldInstance>
-          </itemInstances>
-          <itemInstances>
-              <fieldInstance>
-                  <fieldInstanceProperties>
-                      <name>uiBehavior</name>
-                      <value>readonly</value>
-                  </fieldInstanceProperties>
-                  <fieldItem>Record.RLM_Amend_Proposed_Qty__c</fieldItem>
-                  <identifier>RecordRLM_Amend_Proposed_Qty_cField</identifier>
-              </fieldInstance>
-          </itemInstances>
-          <itemInstances>
-              <fieldInstance>
-                  <fieldInstanceProperties>
-                      <name>uiBehavior</name>
-                      <value>readonly</value>
-                  </fieldInstanceProperties>
-                  <fieldItem>Record.RLM_Amend_Net_Increase_ARR__c</fieldItem>
-                  <identifier>RecordRLM_Amend_Net_Increase_ARR_cField</identifier>
-              </fieldInstance>
-          </itemInstances>
-          <itemInstances>
-              <fieldInstance>
-                  <fieldInstanceProperties>
-                      <name>uiBehavior</name>
-                      <value>readonly</value>
-                  </fieldInstanceProperties>
-                  <fieldItem>Record.RLM_Amend_Net_Increase_MRR__c</fieldItem>
-                  <identifier>RecordRLM_Amend_Net_Increase_MRR_cField</identifier>
-              </fieldInstance>
-          </itemInstances>
-          <itemInstances>
-              <fieldInstance>
-                  <fieldInstanceProperties>
-                      <name>uiBehavior</name>
-                      <value>readonly</value>
-                  </fieldInstanceProperties>
-                  <fieldItem>Record.RLM_Amend_Net_Increase_Qty__c</fieldItem>
-                  <identifier>RecordRLM_Amend_Net_Increase_Qty_cField</identifier>
-              </fieldInstance>
-          </itemInstances>
-          <name>Facet-rlm-amend-proposed-net</name>
-          <type>Facet</type>
-      </flexiPageRegions>
-      <flexiPageRegions>
-          <itemInstances>
-              <componentInstance>
-                  <componentInstanceProperties>
-                      <name>body</name>
-                      <value>Facet-rlm-amend-current</value>
-                  </componentInstanceProperties>
-                  <componentName>flexipage:column</componentName>
-                  <identifier>flexipage_column_amend_current</identifier>
-              </componentInstance>
-          </itemInstances>
-          <itemInstances>
-              <componentInstance>
-                  <componentInstanceProperties>
-                      <name>body</name>
-                      <value>Facet-rlm-amend-proposed-net</value>
-                  </componentInstanceProperties>
-                  <componentName>flexipage:column</componentName>
-                  <identifier>flexipage_column_amend_proposed_net</identifier>
-              </componentInstance>
-          </itemInstances>
-          <name>Facet-rlm-amend-diff-columns</name>
-          <type>Facet</type>
-      </flexiPageRegions>
-
-  - type: add_component
-    region: detailTabContent
-    after_identifier: flexipage_fieldSection2
-    component: flexipage:fieldSection
-    identifier: flexipage_fieldSection_amend_diff
-    properties:
-      columns: Facet-rlm-amend-diff-columns
-      horizontalAlignment: "true"
-      label: Difference quoting

@@ -10,6 +10,9 @@
                             <value>BrowseCatalog</value>
                         </valueListItems>
                         <valueListItems>
+                            <value>Quote.RLM_Link_Opportunity</value>
+                        </valueListItems>
+                        <valueListItems>
                             <value>CreateRampSchedule</value>
                         </valueListItems>
                         <valueListItems>
@@ -78,7 +81,7 @@
                 </componentInstanceProperties>
                 <componentInstanceProperties>
                     <name>numVisibleActions</name>
-                    <value>4</value>
+                    <value>6</value>
                 </componentInstanceProperties>
                 <componentName>force:highlightsPanel</componentName>
                 <identifier>force_highlightsPanel</identifier>
@@ -290,13 +293,6 @@
                 </componentInstanceProperties>
                 <componentName>runtime_rca:salesTxnLineTable</componentName>
                 <identifier>runtime_rca_salesTxnLineTable</identifier>
-                <visibilityRule>
-                    <criteria>
-                        <leftValue>{!Record.OriginalActionType}</leftValue>
-                        <operator>NE</operator>
-                        <rightValue>Amend</rightValue>
-                    </criteria>
-                </visibilityRule>
             </componentInstance>
         </itemInstances>
         <itemInstances>
@@ -311,13 +307,6 @@
                 </componentInstanceProperties>
                 <componentName>runtime_revenue_foundation:transactionSummary</componentName>
                 <identifier>runtime_revenue_foundation_transactionSummary</identifier>
-                <visibilityRule>
-                    <criteria>
-                        <leftValue>{!Record.OriginalActionType}</leftValue>
-                        <operator>NE</operator>
-                        <rightValue>Amend</rightValue>
-                    </criteria>
-                </visibilityRule>
             </componentInstance>
         </itemInstances>
         <name>Facet-52d27c4f-406f-43ea-a233-ce73598e4677</name>

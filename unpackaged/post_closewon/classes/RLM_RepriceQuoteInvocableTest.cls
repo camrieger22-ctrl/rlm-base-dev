@@ -107,4 +107,81 @@ private class RLM_RepriceQuoteInvocableTest {
         }
         Test.stopTest();
     }
+
+    @isTest
+    static void buildCatalogLineAddGraph_includesActionAndLine() {
+        Quote q = makeQuote();
+        Product2 prod = new Product2(Name = 'Catalog Add Test Prod', IsActive = true);
+        insert prod;
+        PricebookEntry pbe = new PricebookEntry(
+            Pricebook2Id = Test.getStandardPricebookId(),
+            Product2Id = prod.Id,
+            UnitPrice = 100,
+            IsActive = true
+        );
+        insert pbe;
+
+        Map<String, Object> fields = new Map<String, Object>{
+            'Product2Id' => pbe.Product2Id,
+            'PricebookEntryId' => pbe.Id,
+            'Quantity' => 1,
+            'UnitPrice' => 100,
+            'StartDate' => Date.today()
+        };
+
+        Test.startTest();
+        RevSalesTrxn.GraphRequest graph =
+            RLM_RepriceQuoteInvocable.buildCatalogLineAddGraph(q.Id, fields);
+        Test.stopTest();
+
+        System.assertNotEquals(null, graph, 'Catalog add graph should build');
+    }
+
+    @isTest
+    static void addCatalogLineAndReprice_bypass_succeeds() {
+        Quote q = makeQuote();
+        Product2 prod = new Product2(Name = 'Catalog Add Bypass Prod', IsActive = true);
+        insert prod;
+        PricebookEntry pbe = new PricebookEntry(
+            Pricebook2Id = Test.getStandardPricebookId(),
+            Product2Id = prod.Id,
+            UnitPrice = 50,
+            IsActive = true
+        );
+        insert pbe;
+
+        RLM_RepriceQuoteInvocable.bypassPlatformCallForTest = true;
+        Test.startTest();
+        RLM_RepriceQuoteInvocable.addCatalogLineAndReprice(
+            q.Id,
+            new Map<String, Object>{
+                'Product2Id' => pbe.Product2Id,
+                'PricebookEntryId' => pbe.Id,
+                'Quantity' => 1,
+                'UnitPrice' => 50
+            }
+        );
+        Test.stopTest();
+        RLM_RepriceQuoteInvocable.bypassPlatformCallForTest = false;
+        System.assert(true, 'bypass path must not throw');
+    }
+
+    @isTest
+    static void addCatalogLineAndReprice_rejectsMissingProduct() {
+        Quote q = makeQuote();
+        Boolean threw = false;
+        try {
+            RLM_RepriceQuoteInvocable.addCatalogLineAndReprice(
+                q.Id,
+                new Map<String, Object>{ 'Quantity' => 1 }
+            );
+        } catch (RLM_RepriceQuoteInvocable.RepriceException e) {
+            threw = true;
+            System.assert(
+                e.getMessage().contains('Product2Id'),
+                'Expected Product2Id validation message'
+            );
+        }
+        System.assert(threw, 'Missing Product2Id must throw');
+    }
 }

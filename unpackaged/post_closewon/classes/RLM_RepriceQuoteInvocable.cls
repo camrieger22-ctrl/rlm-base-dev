@@ -164,6 +164,29 @@ public with sharing class RLM_RepriceQuoteInvocable {
         executeGraph(buildLinePatchGraph(quoteId, lineItemId, lineFieldValues), quoteId);
     }
 
+    /**
+     * OOTB Place Sales Transaction: add a catalog line (QuoteAction Type=Add +
+     * QuoteLineItem POST) with FORCE pricing. Prefer this over Apex insert of
+     * QuoteAction / QuoteLineItem. lineFieldValues should include Product2Id,
+     * PricebookEntryId, Quantity, UnitPrice, and optional dates — QuoteId and
+     * QuoteActionId are set by the graph builder.
+     */
+    public static void addCatalogLineAndReprice(
+        Id quoteId,
+        Map<String, Object> lineFieldValues
+    ) {
+        if (quoteId == null || quoteId.getSObjectType() != Quote.SObjectType) {
+            throw new RepriceException('Quote Id is required to add a line.');
+        }
+        if (lineFieldValues == null || lineFieldValues.isEmpty()) {
+            throw new RepriceException('Line field values are required to add a line.');
+        }
+        if (lineFieldValues.get('Product2Id') == null || lineFieldValues.get('PricebookEntryId') == null) {
+            throw new RepriceException('Product2Id and PricebookEntryId are required to add a line.');
+        }
+        executeGraph(buildCatalogLineAddGraph(quoteId, lineFieldValues), quoteId);
+    }
+
     /** Force-reprices a single quote. Throws RepriceException on failure. */
     @TestVisible
     private static void reprice(Id quoteId) {
@@ -246,10 +269,61 @@ public with sharing class RLM_RepriceQuoteInvocable {
                 'PATCH',
                 String.valueOf(lineItemId)
             );
-        // PST JSON codec rejects Apex Date objects — send ISO date strings.
+        line.fieldValues = normalizePstFieldValues(lineFieldValues);
+        records.add(new RevSalesTrxn.RecordWithReferenceRequest('refLine', line));
+        return new RevSalesTrxn.GraphRequest('RLM_Studio_LinePatch', records);
+    }
+
+    /**
+     * PATCH Quote + POST QuoteAction(Type=Add) + POST QuoteLineItem linked via
+     * @{refAction.id}. Verified live on amend Quotes (platform does not auto-
+     * stamp QuoteAction when only the QLI is POSTed).
+     */
+    @TestVisible
+    private static RevSalesTrxn.GraphRequest buildCatalogLineAddGraph(
+        Id quoteId,
+        Map<String, Object> lineFieldValues
+    ) {
+        String quoteIdStr = String.valueOf(quoteId);
+        List<RevSalesTrxn.RecordWithReferenceRequest> records =
+            new List<RevSalesTrxn.RecordWithReferenceRequest>();
+
+        RevSalesTrxn.RecordResource header =
+            new RevSalesTrxn.RecordResource(Quote.getSObjectType(), 'PATCH', quoteIdStr);
+        header.fieldValues = new Map<String, Object>();
+        records.add(new RevSalesTrxn.RecordWithReferenceRequest('refHeader', header));
+
+        RevSalesTrxn.RecordResource action =
+            new RevSalesTrxn.RecordResource(QuoteAction.getSObjectType(), 'POST');
+        action.fieldValues = new Map<String, Object>{
+            'QuoteId' => quoteIdStr,
+            'Type' => 'Add'
+        };
+        records.add(new RevSalesTrxn.RecordWithReferenceRequest('refAction', action));
+
+        Map<String, Object> fields = normalizePstFieldValues(lineFieldValues);
+        fields.put('QuoteId', quoteIdStr);
+        fields.put('QuoteActionId', '@{refAction.id}');
+        // Caller must not override action linkage / identity fields.
+        fields.remove('Id');
+
+        RevSalesTrxn.RecordResource line =
+            new RevSalesTrxn.RecordResource(QuoteLineItem.getSObjectType(), 'POST');
+        line.fieldValues = fields;
+        records.add(new RevSalesTrxn.RecordWithReferenceRequest('refLine', line));
+
+        return new RevSalesTrxn.GraphRequest('RLM_Studio_CatalogLineAdd', records);
+    }
+
+    /** PST JSON codec rejects Apex Date objects — send yyyy-MM-dd strings. */
+    @TestVisible
+    private static Map<String, Object> normalizePstFieldValues(Map<String, Object> fieldValues) {
         Map<String, Object> normalized = new Map<String, Object>();
-        for (String key : lineFieldValues.keySet()) {
-            Object val = lineFieldValues.get(key);
+        if (fieldValues == null) {
+            return normalized;
+        }
+        for (String key : fieldValues.keySet()) {
+            Object val = fieldValues.get(key);
             if (val instanceof Date) {
                 Date d = (Date) val;
                 normalized.put(
@@ -266,9 +340,7 @@ public with sharing class RLM_RepriceQuoteInvocable {
                 normalized.put(key, val);
             }
         }
-        line.fieldValues = normalized;
-        records.add(new RevSalesTrxn.RecordWithReferenceRequest('refLine', line));
-        return new RevSalesTrxn.GraphRequest('RLM_Studio_LinePatch', records);
+        return normalized;
     }
 
     public class RepriceException extends Exception {}

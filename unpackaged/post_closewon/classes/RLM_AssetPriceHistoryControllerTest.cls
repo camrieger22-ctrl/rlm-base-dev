@@ -4,11 +4,12 @@ private class RLM_AssetPriceHistoryControllerTest {
     @isTest
     static void getHistoryForQuote_null_returnsEmpty() {
         Test.startTest();
-        RLM_AssetPriceHistoryController.HistoryResponse resp =
+        RLM_AmendDifferenceService.HistoryResponse resp =
             RLM_AssetPriceHistoryController.getHistoryForQuote(null);
         Test.stopTest();
         System.assertEquals(false, resp.isAmendmentQuote);
         System.assertEquals(0, resp.rows.size());
+        System.assertEquals(0, resp.assets.size());
     }
 
     @isTest
@@ -31,14 +32,140 @@ private class RLM_AssetPriceHistoryControllerTest {
         insert q;
 
         Test.startTest();
-        RLM_AssetPriceHistoryController.HistoryResponse resp =
+        RLM_AmendDifferenceService.HistoryResponse resp =
             RLM_AssetPriceHistoryController.getHistoryForQuote(q.Id);
         Test.stopTest();
         System.assertEquals(false, resp.isAmendmentQuote);
         System.assert(resp.message != null && resp.message.contains('amendment'));
         System.assertEquals(0, resp.rows.size());
+        System.assertEquals(0, resp.assets.size());
         System.assertEquals(null, resp.summary);
         System.assertEquals(null, resp.projection);
+    }
+
+    @isTest
+    static void classifyChangeKind_and_assetCards_groupByAsset() {
+        String assetPrefix = Asset.SObjectType.getDescribe().getKeyPrefix();
+        String actionPrefix = AssetAction.SObjectType.getDescribe().getKeyPrefix();
+        Id assetA = Id.valueOf(assetPrefix + '000000000001');
+        Id assetB = Id.valueOf(assetPrefix + '000000000002');
+        Id action1 = Id.valueOf(actionPrefix + '000000000001');
+        Id action2 = Id.valueOf(actionPrefix + '000000000002');
+        Id action3 = Id.valueOf(actionPrefix + '000000000003');
+
+        RLM_AmendDifferenceService.HistoryRow initial =
+            new RLM_AmendDifferenceService.HistoryRow();
+        initial.assetId = assetA;
+        initial.assetName = 'Gen AI';
+        initial.actionId = action1;
+        initial.actionType = 'Generate';
+        initial.category = 'Initial Sale';
+        initial.quantityChange = 10;
+        initial.netUnitPrice = 100;
+        initial.quantity = 10;
+        initial.changeKind = RLM_AmendDifferenceService.classifyChangeKind(initial);
+
+        RLM_AmendDifferenceService.HistoryRow addOn =
+            new RLM_AmendDifferenceService.HistoryRow();
+        addOn.assetId = assetA;
+        addOn.assetName = 'Gen AI';
+        addOn.actionId = action2;
+        addOn.actionType = 'Amend';
+        addOn.category = 'Upsells';
+        addOn.quantityChange = 5;
+        addOn.netUnitPrice = 90;
+        addOn.quantity = 5;
+        addOn.changeKind = RLM_AmendDifferenceService.classifyChangeKind(addOn);
+
+        RLM_AmendDifferenceService.HistoryRow decrease =
+            new RLM_AmendDifferenceService.HistoryRow();
+        decrease.assetId = assetB;
+        decrease.assetName = 'Subscription';
+        decrease.actionId = action3;
+        decrease.actionType = 'Amend';
+        decrease.category = 'Downsells';
+        decrease.quantityChange = -2;
+        decrease.netUnitPrice = 50;
+        decrease.quantity = 2;
+        decrease.changeKind = RLM_AmendDifferenceService.classifyChangeKind(decrease);
+
+        System.assertEquals('Initial', initial.changeKind);
+        System.assertEquals('Add', addOn.changeKind);
+        System.assertEquals('Decrease', decrease.changeKind);
+
+        Map<Id, String> names = new Map<Id, String>{
+            assetA => 'Gen AI',
+            assetB => 'Subscription'
+        };
+        List<RLM_AmendDifferenceService.AssetHistoryCard> cards =
+            RLM_AmendDifferenceService.buildAssetHistoryCards(
+                new Set<Id>{ assetA, assetB },
+                names,
+                new List<RLM_AmendDifferenceService.HistoryRow>{ initial, addOn, decrease }
+            );
+        System.assertEquals(2, cards.size());
+        RLM_AmendDifferenceService.AssetHistoryCard cardA;
+        RLM_AmendDifferenceService.AssetHistoryCard cardB;
+        for (RLM_AmendDifferenceService.AssetHistoryCard c : cards) {
+            if (c.assetId == assetA) {
+                cardA = c;
+            } else if (c.assetId == assetB) {
+                cardB = c;
+            }
+        }
+        System.assertNotEquals(null, cardA);
+        System.assertNotEquals(null, cardB);
+        System.assertEquals(2, cardA.timeline.size());
+        System.assertEquals(1, cardA.counts.initialSale);
+        System.assertEquals(1, cardA.counts.addOn);
+        System.assertEquals(0, cardA.counts.decrease);
+        System.assertEquals(1, cardB.counts.decrease);
+
+        // Only assetA is "amending" — card order puts amending first; flag is set.
+        List<RLM_AmendDifferenceService.AssetHistoryCard> flagged =
+            RLM_AmendDifferenceService.buildAssetHistoryCards(
+                new Set<Id>{ assetA, assetB },
+                names,
+                new List<RLM_AmendDifferenceService.HistoryRow>{ initial, addOn, decrease },
+                new Set<Id>{ assetA }
+            );
+        System.assertEquals(true, flagged[0].isAmending);
+        System.assertEquals(assetA, flagged[0].assetId);
+        System.assertEquals(false, flagged[1].isAmending);
+
+        RLM_AmendDifferenceService.HistorySummary footprint =
+            RLM_AmendDifferenceService.buildSummaryFromAssetCards(flagged);
+        // Without ASP snaps in unit test, timeline rollups still sum across cards.
+        System.assertNotEquals(null, footprint.totalQuantity);
+
+        Account acct = new Account(Name = 'Asset Impact Acct');
+        insert acct;
+        Opportunity opp = new Opportunity(
+            Name = 'Asset Impact Opp',
+            AccountId = acct.Id,
+            StageName = 'Prospecting',
+            CloseDate = Date.today().addDays(30)
+        );
+        insert opp;
+        Quote q = new Quote(
+            Name = 'Asset Impact Quote',
+            OpportunityId = opp.Id,
+            Pricebook2Id = Test.getStandardPricebookId(),
+            Status = 'Draft'
+        );
+        insert q;
+        // No SourceAsset QLIs — cards stay impactMode None with finalized = current.
+        cardA.summary = new RLM_AmendDifferenceService.HistorySummary();
+        cardA.summary.totalQuantity = 10;
+        cardA.summary.currentArr = 1000;
+        cardA.summary.currentMrr = 83.33;
+        RLM_AmendDifferenceService.applyQuoteLineImpactToAssetCards(
+            q.Id,
+            new List<RLM_AmendDifferenceService.AssetHistoryCard>{ cardA, cardB }
+        );
+        System.assertEquals('None', cardA.impactMode);
+        System.assertEquals(10, cardA.finalizedQty);
+        System.assertEquals(0, cardA.deltaQty);
     }
 
     @isTest
@@ -108,7 +235,7 @@ private class RLM_AssetPriceHistoryControllerTest {
     }
 
     @isTest
-    static void searchCatalogProducts_shortTerm_returnsEmptyOrCommon() {
+    static void searchCatalogProducts_blankWithoutScope_returnsEmpty() {
         Account acct = new Account(Name = 'Search Acct');
         insert acct;
         Opportunity opp = new Opportunity(
@@ -127,10 +254,10 @@ private class RLM_AssetPriceHistoryControllerTest {
         insert q;
 
         Product2 prod = new Product2(
-            Name = 'Studio Common Widget ZZ',
+            Name = 'Studio Discovery Widget ZZ',
             IsActive = true,
-            StockKeepingUnit = 'RLM-STUDIO-TEST-COMMON',
-            ProductCode = 'RLM-STUDIO-TEST-COMMON'
+            StockKeepingUnit = 'RLM-STUDIO-TEST-DISC',
+            ProductCode = 'RLM-STUDIO-TEST-DISC'
         );
         insert prod;
         insert new PricebookEntry(
@@ -141,35 +268,34 @@ private class RLM_AssetPriceHistoryControllerTest {
         );
 
         Test.startTest();
-        List<RLM_AssetPriceHistoryController.CatalogProductHit> commonHits =
+        List<RLM_CatalogDiscoveryService.CatalogProductHit> blankHits =
             RLM_AssetPriceHistoryController.searchCatalogProducts(q.Id, '', null, null);
-        List<RLM_AssetPriceHistoryController.CatalogProductHit> oneChar =
+        List<RLM_CatalogDiscoveryService.CatalogProductHit> oneChar =
             RLM_AssetPriceHistoryController.searchCatalogProducts(q.Id, 'a', null, null);
-        List<RLM_AssetPriceHistoryController.CatalogProductHit> named =
+        List<RLM_CatalogDiscoveryService.CatalogProductHit> named =
             RLM_AssetPriceHistoryController.searchCatalogProducts(
                 q.Id,
-                'Studio Common Widget ZZ',
+                'Studio Discovery Widget ZZ',
                 null,
                 null
             );
-        RLM_AssetPriceHistoryController.CatalogBrowseContext browseCtx =
+        RLM_CatalogDiscoveryService.CatalogBrowseContext browseCtx =
             RLM_AssetPriceHistoryController.getCatalogBrowseContext(q.Id);
         Test.stopTest();
 
         System.assertNotEquals(null, browseCtx);
         System.assertNotEquals(null, browseCtx.catalogs);
-
-        System.assert(commonHits.size() >= 1, 'Blank term seeds common products');
-        Boolean sawCommonFlag = false;
-        for (RLM_AssetPriceHistoryController.CatalogProductHit h : commonHits) {
-            if (h.isCommon == true) {
-                sawCommonFlag = true;
-                break;
-            }
-        }
-        System.assertEquals(true, sawCommonFlag, 'Common rail marks hits as isCommon');
-        System.assert(oneChar.size() >= 1, 'Short term still shows common rail seed');
-        System.assert(named.size() >= 1, 'Name search finds the product');
+        System.assertEquals(
+            0,
+            blankHits.size(),
+            'Blank term without catalog scope must not seed curated products'
+        );
+        System.assertEquals(
+            0,
+            oneChar.size(),
+            'Short term without catalog scope must not seed curated products'
+        );
+        System.assert(named.size() >= 1, 'Name search finds the product via price book fallback');
         System.assertEquals(false, named[0].isCommon);
     }
 
@@ -252,8 +378,8 @@ private class RLM_AssetPriceHistoryControllerTest {
                 + '"pricingModel":{"id":"0jPgL0000007HvNUAU","name":"Evergreen Monthly"}}'
                 + ']}]';
         Object raw = JSON.deserializeUntyped(payload);
-        List<RLM_AssetPriceHistoryController.CatalogProductHit> hits =
-            RLM_AssetPriceHistoryController.mapDiscoveryResults(raw);
+        List<RLM_CatalogDiscoveryService.CatalogProductHit> hits =
+            RLM_CatalogDiscoveryService.mapDiscoveryResults(raw);
         // Prefer default price only → 1 hit
         System.assertEquals(1, hits.size());
         System.assertEquals('Discovery', hits[0].source);
@@ -277,6 +403,9 @@ private class RLM_AssetPriceHistoryControllerTest {
                     + '"pricingElement":{"elementType":"AssignmentElement","name":"Assign date","adjustments":[]},'
                     + '"outputParameters":{}},'
                     + '{"sequence":3,"hideWaterfall":false,'
+                    + '"pricingElement":{"elementType":"Proration","name":"Proration","adjustments":[]},'
+                    + '"outputParameters":{"ProratedAmount":45}},'
+                    + '{"sequence":4,"hideWaterfall":false,'
                     + '"pricingElement":{"elementType":"ManualDiscount","name":"Percentage discount",'
                     + '"adjustments":[{"AdjustmentType":"Percentage","AdjustmentValue":10}]},'
                     + '"outputParameters":{"NetUnitPrice":90}}'
@@ -340,14 +469,19 @@ private class RLM_AssetPriceHistoryControllerTest {
             resp.success,
             'waterfall failed: ' + String.valueOf(resp.message)
         );
-        System.assert(resp.steps.size() >= 2, 'Assignment steps filtered; list+discount remain');
+        System.assert(resp.steps.size() >= 3, 'List + Proration + Discount; Assignment filtered');
         Boolean sawDiscount = false;
+        Boolean sawProration = false;
         for (RLM_AssetPriceHistoryController.PlatformWaterfallStep s : resp.steps) {
             if (s.isAdjustment == true) {
                 sawDiscount = true;
             }
+            if (s.elementType == 'Proration' || (s.label != null && s.label.toLowerCase().contains('proration'))) {
+                sawProration = true;
+            }
         }
         System.assertEquals(true, sawDiscount, 'Expected a ManualDiscount adjustment step');
+        System.assertEquals(true, sawProration, 'Proration must not be filtered from OOTB waterfall');
     }
 
     @isTest
@@ -370,6 +504,118 @@ private class RLM_AssetPriceHistoryControllerTest {
             threw = true;
         }
         System.assertEquals(true, threw, 'Null quote Id must raise AuraHandledException');
+    }
+
+    @isTest
+    static void addCatalogProductLine_rejectsInactiveOrMissingPbe() {
+        Account acct = new Account(Name = 'Catalog Add Acct');
+        insert acct;
+        Opportunity opp = new Opportunity(
+            Name = 'Catalog Add Opp',
+            AccountId = acct.Id,
+            StageName = 'Prospecting',
+            CloseDate = Date.today().addDays(30)
+        );
+        insert opp;
+        Quote q = new Quote(
+            Name = 'Catalog Add Quote',
+            OpportunityId = opp.Id,
+            Pricebook2Id = Test.getStandardPricebookId(),
+            Status = 'Draft'
+        );
+        insert q;
+
+        Boolean threw = false;
+        try {
+            RLM_AssetPriceHistoryController.addCatalogProductLine(q.Id, q.Id);
+        } catch (AuraHandledException e) {
+            threw = true;
+        }
+        System.assertEquals(true, threw, 'Non-PBE Id must raise AuraHandledException');
+    }
+
+    @isTest
+    static void addCatalogProductLine_pstPath_bypassSucceeds() {
+        Account acct = new Account(Name = 'Catalog PST Acct');
+        insert acct;
+        Opportunity opp = new Opportunity(
+            Name = 'Catalog PST Opp',
+            AccountId = acct.Id,
+            StageName = 'Prospecting',
+            CloseDate = Date.today().addDays(30)
+        );
+        insert opp;
+        Quote q = new Quote(
+            Name = 'Catalog PST Quote',
+            OpportunityId = opp.Id,
+            Pricebook2Id = Test.getStandardPricebookId(),
+            Status = 'Draft'
+        );
+        insert q;
+        Product2 prod = new Product2(Name = 'Catalog PST Prod', IsActive = true);
+        insert prod;
+        PricebookEntry pbe = new PricebookEntry(
+            Pricebook2Id = Test.getStandardPricebookId(),
+            Product2Id = prod.Id,
+            UnitPrice = 25,
+            IsActive = true
+        );
+        insert pbe;
+
+        RLM_RepriceQuoteInvocable.bypassPlatformCallForTest = true;
+        Test.startTest();
+        RLM_AssetPriceHistoryController.StudioPayload payload =
+            RLM_AssetPriceHistoryController.addCatalogProductLine(q.Id, pbe.Id);
+        Test.stopTest();
+        RLM_RepriceQuoteInvocable.bypassPlatformCallForTest = false;
+
+        System.assertNotEquals(null, payload, 'Studio payload should return after PST add');
+        System.assertEquals('Catalog PST Quote', payload.quoteName);
+    }
+
+    @isTest
+    static void applySellingModelFieldsForCatalogAdd_termDefined_setsPeriodBoundary() {
+        System.assertEquals(
+            'Annual',
+            RLM_AssetPriceHistoryController.billingFrequencyForPricingTerm('Annual')
+        );
+        System.assertEquals(
+            'Monthly',
+            RLM_AssetPriceHistoryController.billingFrequencyForPricingTerm('Months')
+        );
+        System.assertEquals(
+            null,
+            RLM_AssetPriceHistoryController.billingFrequencyForPricingTerm(null)
+        );
+
+        // One-Time / blank model: StartDate only, no EndDate / PeriodBoundary.
+        Map<String, Object> oneTimeFields = new Map<String, Object>();
+        RLM_AssetPriceHistoryController.applySellingModelFieldsForCatalogAdd(
+            oneTimeFields,
+            new PricebookEntry(),
+            Date.newInstance(2026, 7, 25),
+            Date.newInstance(2027, 7, 25)
+        );
+        System.assertEquals(Date.newInstance(2026, 7, 25), oneTimeFields.get('StartDate'));
+        System.assertEquals(false, oneTimeFields.containsKey('PeriodBoundary'));
+        System.assertEquals(false, oneTimeFields.containsKey('EndDate'));
+
+        // TermDefined Annual — PeriodBoundary + BillingFrequency required by PST.
+        PricebookEntry termPbe = (PricebookEntry) JSON.deserialize(
+            '{"ProductSellingModel":{"SellingModelType":"TermDefined","PricingTermUnit":"Annual"}}',
+            PricebookEntry.class
+        );
+        Map<String, Object> termFields = new Map<String, Object>();
+        RLM_AssetPriceHistoryController.applySellingModelFieldsForCatalogAdd(
+            termFields,
+            termPbe,
+            Date.newInstance(2026, 7, 25),
+            null
+        );
+        System.assertEquals('Anniversary', termFields.get('PeriodBoundary'));
+        System.assertEquals('Annual', termFields.get('BillingFrequency'));
+        System.assertEquals(Date.newInstance(2026, 7, 25), termFields.get('StartDate'));
+        System.assertEquals(Date.newInstance(2027, 7, 25), termFields.get('EndDate'));
     }
 
     @isTest
@@ -487,7 +733,7 @@ private class RLM_AssetPriceHistoryControllerTest {
         insert newSale;
 
         Test.startTest();
-        List<RLM_AssetPriceHistoryController.ScenarioSummary> rows =
+        List<RLM_AmendScenarioService.ScenarioSummary> rows =
             RLM_AssetPriceHistoryController.listScenarios(opp.Id);
         Test.stopTest();
 
@@ -512,8 +758,8 @@ private class RLM_AssetPriceHistoryControllerTest {
         // No amend quotes on opp — live compare returns empty message.
         // Column builder is unit-tested with an in-memory sibling + payload.
 
-        RLM_AssetPriceHistoryController.ScenarioSummary sibling =
-            new RLM_AssetPriceHistoryController.ScenarioSummary();
+        RLM_AmendScenarioService.ScenarioSummary sibling =
+            new RLM_AmendScenarioService.ScenarioSummary();
         sibling.quoteId = opp.Id; // placeholder Id shape for DTO only
         sibling.quoteNumber = '00009999';
         sibling.name = 'Compare Scenario';
@@ -533,33 +779,33 @@ private class RLM_AssetPriceHistoryControllerTest {
         line.totalPrice = 1200;
         payload.workingLines.add(line);
 
-        RLM_AssetPriceHistoryController.HistorySummary current =
-            new RLM_AssetPriceHistoryController.HistorySummary();
+        RLM_AmendDifferenceService.HistorySummary current =
+            new RLM_AmendDifferenceService.HistorySummary();
         current.totalQuantity = 70000;
         current.currentArr = 2999800;
         current.currentMrr = 249983.33;
-        RLM_AssetPriceHistoryController.HistorySummary projected =
-            new RLM_AssetPriceHistoryController.HistorySummary();
+        RLM_AmendDifferenceService.HistorySummary projected =
+            new RLM_AmendDifferenceService.HistorySummary();
         projected.totalQuantity = 70100;
         projected.currentArr = 3004300;
         projected.currentMrr = 250358.33;
-        RLM_AssetPriceHistoryController.ProjectionImpact proj =
-            new RLM_AssetPriceHistoryController.ProjectionImpact();
+        RLM_AmendDifferenceService.ProjectionImpact proj =
+            new RLM_AmendDifferenceService.ProjectionImpact();
         proj.mode = 'Add';
         proj.projected = projected;
         proj.deltaQuantity = 100;
         proj.deltaArr = 4500;
         proj.deltaMrr = 375;
-        payload.history = new RLM_AssetPriceHistoryController.HistoryResponse();
+        payload.history = new RLM_AmendDifferenceService.HistoryResponse();
         payload.history.summary = current;
         payload.history.projection = proj;
 
         Test.startTest();
-        RLM_AssetPriceHistoryController.ScenarioColumn col =
+        RLM_AmendScenarioService.ScenarioColumn col =
             RLM_AssetPriceHistoryController.buildScenarioColumn(sibling, payload);
-        RLM_AssetPriceHistoryController.ScenarioCompareResponse empty =
+        RLM_AmendScenarioService.ScenarioCompareResponse empty =
             RLM_AssetPriceHistoryController.getScenarioCompare(null);
-        RLM_AssetPriceHistoryController.ScenarioCompareResponse live =
+        RLM_AmendScenarioService.ScenarioCompareResponse live =
             RLM_AssetPriceHistoryController.getScenarioCompare(opp.Id);
         Test.stopTest();
 
@@ -581,7 +827,7 @@ private class RLM_AssetPriceHistoryControllerTest {
     }
 
     @isTest
-    static void getStudioPayload_orphanAmend_autoCreatesOpportunity() {
+    static void getStudioPayload_orphanAmend_doesNotAutoCreateOpportunity() {
         Account acct = new Account(Name = 'Orphan Amend Acct');
         insert acct;
         Opportunity seed = new Opportunity(
@@ -598,27 +844,58 @@ private class RLM_AssetPriceHistoryControllerTest {
             Status = 'Draft'
         );
         insert q;
-        // Simulate OOTB amend with no amendOpportunityId (AccountId is not writable).
+        // Simulate OOTB amend with no Opportunity (AccountId is not writable).
         q.OpportunityId = null;
         update q;
 
-        RLM_AssetPriceHistoryController.testBypassAmendScenarioCheck = true;
-        RLM_AssetPriceHistoryController.testEnsureAccountIdOverride = acct.Id;
         Test.startTest();
         RLM_AssetPriceHistoryController.StudioPayload payload =
             RLM_AssetPriceHistoryController.getStudioPayload(q.Id);
         Test.stopTest();
-        RLM_AssetPriceHistoryController.testBypassAmendScenarioCheck = false;
-        RLM_AssetPriceHistoryController.testEnsureAccountIdOverride = null;
 
-        System.assertEquals(true, payload.opportunityAutoCreated);
-        System.assertNotEquals(null, payload.opportunityId);
+        System.assertEquals(false, payload.opportunityAutoCreated);
+        System.assertEquals(null, payload.opportunityId);
+        Quote afterRead = [SELECT OpportunityId FROM Quote WHERE Id = :q.Id];
+        System.assertEquals(null, afterRead.OpportunityId,
+            'Read path must not DML Quote.OpportunityId under the QLE');
+    }
+
+    @isTest
+    static void ensureAmendmentOpportunityForStudio_orphanAmend_createsOpportunity() {
+        Account acct = new Account(Name = 'Orphan Amend Acct 2');
+        insert acct;
+        Opportunity seed = new Opportunity(
+            Name = 'Seed Opp 2',
+            AccountId = acct.Id,
+            StageName = 'Prospecting',
+            CloseDate = Date.today().addDays(30)
+        );
+        insert seed;
+        Quote q = new Quote(
+            Name = 'Orphan Amend Quote 2',
+            OpportunityId = seed.Id,
+            Pricebook2Id = Test.getStandardPricebookId(),
+            Status = 'Draft'
+        );
+        insert q;
+        q.OpportunityId = null;
+        update q;
+
+        RLM_AmendScenarioService.testBypassAmendScenarioCheck = true;
+        RLM_AmendScenarioService.testEnsureAccountIdOverride = acct.Id;
+        Test.startTest();
+        Id oppId = RLM_AssetPriceHistoryController.ensureAmendmentOpportunityForStudio(q.Id);
+        Test.stopTest();
+        RLM_AmendScenarioService.testBypassAmendScenarioCheck = false;
+        RLM_AmendScenarioService.testEnsureAccountIdOverride = null;
+
+        System.assertNotEquals(null, oppId);
         Quote after = [SELECT OpportunityId FROM Quote WHERE Id = :q.Id];
-        System.assertEquals(payload.opportunityId, after.OpportunityId);
+        System.assertEquals(oppId, after.OpportunityId);
         Opportunity created = [
             SELECT Name, AccountId, StageName
             FROM Opportunity
-            WHERE Id = :payload.opportunityId
+            WHERE Id = :oppId
         ];
         System.assertEquals(acct.Id, created.AccountId);
         System.assert(
@@ -627,7 +904,7 @@ private class RLM_AssetPriceHistoryControllerTest {
         );
         System.assertNotEquals(
             seed.Id,
-            payload.opportunityId,
+            oppId,
             'Must create a new Opportunity, not reuse the seed'
         );
     }
@@ -659,12 +936,12 @@ private class RLM_AssetPriceHistoryControllerTest {
         source.OpportunityId = null;
         update source;
 
-        RLM_AssetPriceHistoryController.testBypassAmendScenarioCheck = true;
-        RLM_AssetPriceHistoryController.testEnsureAccountIdOverride = acct.Id;
-        RLM_AssetPriceHistoryController.testCloneSalesTransactionIdOverride = cloneTarget.Id;
+        RLM_AmendScenarioService.testBypassAmendScenarioCheck = true;
+        RLM_AmendScenarioService.testEnsureAccountIdOverride = acct.Id;
+        RLM_AmendScenarioService.testCloneSalesTransactionIdOverride = cloneTarget.Id;
 
         Test.startTest();
-        RLM_AssetPriceHistoryController.ScenarioMutationResult result =
+        RLM_AmendScenarioService.ScenarioMutationResult result =
             RLM_AssetPriceHistoryController.createScenario(
                 source.Id,
                 'Option A',
@@ -672,9 +949,9 @@ private class RLM_AssetPriceHistoryControllerTest {
             );
         Test.stopTest();
 
-        RLM_AssetPriceHistoryController.testBypassAmendScenarioCheck = false;
-        RLM_AssetPriceHistoryController.testEnsureAccountIdOverride = null;
-        RLM_AssetPriceHistoryController.testCloneSalesTransactionIdOverride = null;
+        RLM_AmendScenarioService.testBypassAmendScenarioCheck = false;
+        RLM_AmendScenarioService.testEnsureAccountIdOverride = null;
+        RLM_AmendScenarioService.testCloneSalesTransactionIdOverride = null;
 
         System.assertEquals(true, result.success, result.message == null ? 'expected success' : result.message);
         System.assertNotEquals(null, result.opportunityId);
@@ -711,11 +988,11 @@ private class RLM_AssetPriceHistoryControllerTest {
         );
         insert new List<Quote>{ source, cloneTarget };
 
-        RLM_AssetPriceHistoryController.testBypassAmendScenarioCheck = true;
-        RLM_AssetPriceHistoryController.testCloneSalesTransactionIdOverride = cloneTarget.Id;
+        RLM_AmendScenarioService.testBypassAmendScenarioCheck = true;
+        RLM_AmendScenarioService.testCloneSalesTransactionIdOverride = cloneTarget.Id;
 
         Test.startTest();
-        RLM_AssetPriceHistoryController.ScenarioMutationResult result =
+        RLM_AmendScenarioService.ScenarioMutationResult result =
             RLM_AssetPriceHistoryController.createScenario(
                 source.Id,
                 'Option B — +40k',
@@ -723,8 +1000,8 @@ private class RLM_AssetPriceHistoryControllerTest {
             );
         Test.stopTest();
 
-        RLM_AssetPriceHistoryController.testBypassAmendScenarioCheck = false;
-        RLM_AssetPriceHistoryController.testCloneSalesTransactionIdOverride = null;
+        RLM_AmendScenarioService.testBypassAmendScenarioCheck = false;
+        RLM_AmendScenarioService.testCloneSalesTransactionIdOverride = null;
 
         System.assertEquals(true, result.success, result.message == null ? 'expected success' : result.message);
         System.assertEquals(cloneTarget.Id, result.scenario.quoteId);
@@ -736,7 +1013,7 @@ private class RLM_AssetPriceHistoryControllerTest {
     @isTest
     static void createScenario_rejectsMissingSource() {
         Test.startTest();
-        RLM_AssetPriceHistoryController.ScenarioMutationResult result =
+        RLM_AmendScenarioService.ScenarioMutationResult result =
             RLM_AssetPriceHistoryController.createScenario(null, 'X', null);
         Test.stopTest();
         System.assertEquals(false, result.success);
@@ -765,12 +1042,12 @@ private class RLM_AssetPriceHistoryControllerTest {
         );
         insert q;
 
-        RLM_AssetPriceHistoryController.testBypassAmendScenarioCheck = true;
+        RLM_AmendScenarioService.testBypassAmendScenarioCheck = true;
         Test.startTest();
-        RLM_AssetPriceHistoryController.ScenarioMutationResult result =
+        RLM_AmendScenarioService.ScenarioMutationResult result =
             RLM_AssetPriceHistoryController.renameScenario(q.Id, '  +40k seats  ');
         Test.stopTest();
-        RLM_AssetPriceHistoryController.testBypassAmendScenarioCheck = false;
+        RLM_AmendScenarioService.testBypassAmendScenarioCheck = false;
 
         System.assertEquals(
             true,
@@ -785,7 +1062,7 @@ private class RLM_AssetPriceHistoryControllerTest {
     @isTest
     static void renameScenario_rejectsBlank() {
         Test.startTest();
-        RLM_AssetPriceHistoryController.ScenarioMutationResult result =
+        RLM_AmendScenarioService.ScenarioMutationResult result =
             RLM_AssetPriceHistoryController.renameScenario(null, '  ');
         Test.stopTest();
         System.assertEquals(false, result.success);
@@ -810,16 +1087,16 @@ private class RLM_AssetPriceHistoryControllerTest {
         );
         insert q;
 
-        RLM_AssetPriceHistoryController.testBypassAmendScenarioCheck = true;
+        RLM_AmendScenarioService.testBypassAmendScenarioCheck = true;
         RLM_RepriceQuoteInvocable.bypassPlatformCallForTest = true;
 
         Test.startTest();
-        RLM_AssetPriceHistoryController.ScenarioMutationResult result =
+        RLM_AmendScenarioService.ScenarioMutationResult result =
             RLM_AssetPriceHistoryController.setForecastScenario(opp.Id, q.Id);
         Test.stopTest();
 
         RLM_RepriceQuoteInvocable.bypassPlatformCallForTest = false;
-        RLM_AssetPriceHistoryController.testBypassAmendScenarioCheck = false;
+        RLM_AmendScenarioService.testBypassAmendScenarioCheck = false;
 
         System.assertEquals(true, result.success, result.message == null ? 'expected success' : result.message);
         System.assertEquals(null, result.message, 'reprice should succeed via test bypass');
@@ -853,14 +1130,14 @@ private class RLM_AssetPriceHistoryControllerTest {
         );
         insert q;
 
-        RLM_AssetPriceHistoryController.testBypassAmendScenarioCheck = true;
+        RLM_AmendScenarioService.testBypassAmendScenarioCheck = true;
 
         Test.startTest();
-        RLM_AssetPriceHistoryController.ScenarioMutationResult result =
+        RLM_AmendScenarioService.ScenarioMutationResult result =
             RLM_AssetPriceHistoryController.setForecastScenario(oppB.Id, q.Id);
         Test.stopTest();
 
-        RLM_AssetPriceHistoryController.testBypassAmendScenarioCheck = false;
+        RLM_AmendScenarioService.testBypassAmendScenarioCheck = false;
 
         System.assertEquals(false, result.success);
         System.assert(

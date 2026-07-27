@@ -1,0 +1,64 @@
+<template>
+    <lightning-quick-action-panel header="Link Opportunity">
+        <template if:true={loading}>
+            <div class="slds-align_absolute-center slds-p-around_medium">
+                <lightning-spinner alternative-text="Linking Opportunity" size="small"></lightning-spinner>
+            </div>
+        </template>
+
+        <template if:false={loading}>
+            <template if:true={error}>
+                <div class="slds-notify slds-notify_alert slds-alert_error slds-m-bottom_small" role="alert">
+                    {error}
+                </div>
+            </template>
+
+            <template if:true={alreadyLinked}>
+                <p class="slds-text-body_regular">
+                    This Quote is already linked to an Opportunity. Use Sync Quote when you are ready to Create Order.
+                </p>
+            </template>
+
+            <template if:true={notAmendment}>
+                <p class="slds-text-body_regular">
+                    Link Opportunity is only for amendment Quotes (Original Action Type = Amend).
+                </p>
+            </template>
+
+            <template if:true={canLink}>
+                <p class="slds-text-body_regular slds-m-bottom_small">
+                    OOTB Initiate Amendment often creates Quotes without an Opportunity.
+                    Create a draft Opportunity on the Account and link this Quote so you can Sync and Create Order.
+                </p>
+                <p class="slds-text-body_small slds-text-color_weak">
+                    Save any Quote Line edits first — linking updates the Quote record.
+                </p>
+            </template>
+        </template>
+
+        <div slot="footer">
+            <lightning-button
+                label="Cancel"
+                onclick={handleCancel}
+                disabled={busy}
+                class="slds-m-right_x-small"
+            ></lightning-button>
+            <template if:true={canLink}>
+                <lightning-button
+                    variant="brand"
+                    label="Link Opportunity"
+                    onclick={handleLink}
+                    disabled={busy}
+                ></lightning-button>
+            </template>
+            <template if:true={showDone}>
+                <lightning-button
+                    variant="brand"
+                    label="Done"
+                    onclick={handleCancel}
+                    disabled={busy}
+                ></lightning-button>
+            </template>
+        </div>
+    </lightning-quick-action-panel>
+</template>

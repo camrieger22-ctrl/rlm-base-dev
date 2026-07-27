@@ -18,7 +18,7 @@
         <offset>0</offset>
     </actionCalls>
     <apiVersion>67.0</apiVersion>
-    <description>Keeps a synced quote's pricing current when its line items change after sync. Fires on a QuoteLineItem of a synced quote (Quote.IsSyncing = true) only when a pricing INPUT changes (new line, quantity, or product) — never on price-output fields, so the reprice engine's own price writes cannot re-trigger it. Delegates to RLM_RepriceQuoteInvocable, which dedupes by quote and reprices asynchronously.</description>
+    <description>Keeps a synced quote's pricing current when its line items change after sync. Fires on a QuoteLineItem of a synced quote (Quote.IsSyncing = true) only when a pricing INPUT changes (new line, quantity, or product) — never on price-output fields, so the reprice engine's own price writes cannot re-trigger it. Skips Amend quotes (Instant Pricing + Amendment Studio Reprice All own that path; a second FORCE reprice races the Quote Line Editor). Delegates to RLM_RepriceQuoteInvocable, which dedupes by quote and reprices asynchronously.</description>
     <environments>Default</environments>
     <interviewLabel>RLM Reprice Quote On Line Change {!$Flow.CurrentDateTime}</interviewLabel>
     <label>RLM Reprice Quote On Line Change</label>
@@ -44,6 +44,7 @@
         </connector>
         <filterFormula>AND(
     {!$Record.Quote.IsSyncing},
+    TEXT({!$Record.Quote.OriginalActionType}) &lt;&gt; "Amend",
     OR(
         ISNEW(),
         ISCHANGED({!$Record.Quantity}),

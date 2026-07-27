@@ -1,11 +1,9 @@
 import { LightningElement, api, wire } from 'lwc';
 import { NavigationMixin, CurrentPageReference } from 'lightning/navigation';
-import {
-    RefreshEvent,
-    registerRefreshHandler,
-    unregisterRefreshHandler
-} from 'lightning/refresh';
+import { notifyRecordUpdateAvailable } from 'lightning/uiRecordApi';
 import getStudioPayload from '@salesforce/apex/RLM_AssetPriceHistoryController.getStudioPayload';
+import getQuotePricingPulse from '@salesforce/apex/RLM_AssetPriceHistoryController.getQuotePricingPulse';
+import refreshAmendKpis from '@salesforce/apex/RLM_AssetPriceHistoryController.refreshAmendKpis';
 import updateWorkingLineQuantity from '@salesforce/apex/RLM_AssetPriceHistoryController.updateWorkingLineQuantity';
 import repriceQuote from '@salesforce/apex/RLM_AssetPriceHistoryController.repriceQuote';
 import searchCatalogProducts from '@salesforce/apex/RLM_AssetPriceHistoryController.searchCatalogProducts';
@@ -14,10 +12,6 @@ import getCatalogCategories from '@salesforce/apex/RLM_AssetPriceHistoryControll
 import addCatalogProductLine from '@salesforce/apex/RLM_AssetPriceHistoryController.addCatalogProductLine';
 import removeWorkingLine from '@salesforce/apex/RLM_AssetPriceHistoryController.removeWorkingLine';
 import getLinePricingWaterfall from '@salesforce/apex/RLM_AssetPriceHistoryController.getLinePricingWaterfall';
-import getScenarioCompare from '@salesforce/apex/RLM_AssetPriceHistoryController.getScenarioCompare';
-import createScenario from '@salesforce/apex/RLM_AssetPriceHistoryController.createScenario';
-import setForecastScenario from '@salesforce/apex/RLM_AssetPriceHistoryController.setForecastScenario';
-import renameScenario from '@salesforce/apex/RLM_AssetPriceHistoryController.renameScenario';
 import { ShowToastEvent } from 'lightning/platformShowToastEvent';
 import LightningConfirm from 'lightning/confirm';
 
@@ -43,7 +37,6 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
     _pendingSeq = 0;
     _searchTimers = {};
     _requestSeq = 0;
-    _refreshHandlerId;
     _pageRefQuoteId;
     _recordId;
     /** Left-rail catalog search state. */
@@ -66,18 +59,26 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
     /** lineId → { steps, source, loading, error, identifier } for OOTB waterfall. */
     platformWaterfallByLineId = {};
     _waterfallInflight = {};
-    /** Sibling amend scenario compare (Opportunity-scoped). */
+    /** Opportunity on this amend Quote (auto-created when missing). */
     opportunityId;
-    scenarioCompare;
-    scenarioLoading = false;
-    scenarioBusyQuoteId;
-    scenarioError;
-    draftScenarioQtyByQuoteId = {};
-    draftScenarioDiscByQuoteId = {};
-    /** Draft option titles before renameScenario persists Quote.Name. */
-    draftScenarioNameByQuoteId = {};
-    /** Sibling quoteId → workingLines (hydrated via getStudioPayload; nested compare lists can arrive empty). */
-    scenarioLinesByQuoteId = {};
+    /** Poll TLE/PST pricing so KPIs refresh without a full page reload. */
+    _pricingPollTimer;
+    _softReloadTimer;
+    _pricingPollInFlight = false;
+    _lmdNotifyInFlight = false;
+    _kpiStampInFlight = false;
+    _lastPolledCalcStatus;
+    _lastPolledGrandTotal;
+    _lastPolledLmd;
+    _lastStampedLmd;
+    _stableLmdCount = 0;
+    pricingInProgress = false;
+    /** True until pricing is terminal and Quote LMD has been stable for 2 polls. */
+    quoteSettling = false;
+    /** Collapsed-by-default By product panels under KPI cards. */
+    currentBreakdownOpen = false;
+    thisAddBreakdownOpen = true;
+    finalizedBreakdownOpen = false;
 
 
     @api
@@ -97,15 +98,15 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
     }
 
     connectedCallback() {
-        this._refreshHandlerId = registerRefreshHandler(this, this.handleRefreshContext);
+        // Do not registerRefreshHandler — Progress Indicator / QLE RefreshEvents
+        // during Instant Pricing would soft-reload Studio and participate in the
+        // page refresh that turns Instant Pricing off ("outdated quote").
         this._resolveQuoteId();
+        this._startPricingPoll();
     }
 
     disconnectedCallback() {
-        if (this._refreshHandlerId != null) {
-            unregisterRefreshHandler(this._refreshHandlerId);
-            this._refreshHandlerId = undefined;
-        }
+        this._stopPricingPoll();
     }
 
     @api
@@ -133,24 +134,46 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
         return this.loaded && this.hasQuote && !!this.validationResult;
     }
 
-    get pricingAttentionMessage() {
-        const vr = this.validationResult;
-        const calc = this.calculationStatus;
-        if (vr && calc) {
-            return `Pricing needs attention — ValidationResult: ${vr} · CalculationStatus: ${calc}. Use Reprice All, then review Working lines.`;
-        }
-        if (vr) {
-            return `Pricing needs attention — ValidationResult: ${vr}. Use Reprice All to refresh platform prices.`;
-        }
-        return '';
-    }
-
-    get showMultiPeriodBanner() {
+    get showPricingInProgressBanner() {
         return (
             this.loaded &&
             this.hasQuote &&
-            (this.workingLines || []).some((l) => l.hasQuoteLineDetails === true)
+            !this.validationResult &&
+            (this.pricingInProgress || this.quoteSettling)
         );
+    }
+
+    get pricingInProgressMessage() {
+        if (this.pricingInProgress) {
+            const calc = this.calculationStatus || 'Pricing';
+            return (
+                `${calc} — Instant Pricing is still updating this Quote. ` +
+                'Wait until this clears before editing or saving Quote Lines, or Save will fail with “refresh and try again”.'
+            );
+        }
+        return (
+            'Quote is settling after create. Wait a few seconds until this clears before editing Quote Lines.'
+        );
+    }
+
+    get pricingAttentionMessage() {
+        const vr = this.validationResult;
+        const calc = this.calculationStatus;
+        const statusBits = [vr, calc].filter(Boolean).join(' · ');
+        // Match OOTB Create Order / Path remediation language.
+        if (vr === 'TransactionIncomplete') {
+            return (
+                `Pricing needs attention (${statusBits}). ` +
+                'Use Reprice All, or edit the line in Quote Lines / Configure if financial and non-financial fields were mixed.'
+            );
+        }
+        if (statusBits) {
+            return (
+                `Pricing needs attention (${statusBits}). ` +
+                'Use Reprice All to refresh platform prices before Create Order.'
+            );
+        }
+        return '';
     }
 
     get headerSubtitle() {
@@ -192,7 +215,105 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
     }
 
     get hasHistoryRows() {
-        return Array.isArray(this.history?.rows) && this.history.rows.length > 0;
+        return this.hasAssetHistoryCards || (Array.isArray(this.history?.rows) && this.history.rows.length > 0);
+    }
+
+    get hasAssetHistoryCards() {
+        return Array.isArray(this.history?.assets) && this.history.assets.length > 0;
+    }
+
+    /**
+     * Per-Source-Asset commercial history for the Installed drawer.
+     * Falls back to a single synthetic card from flat rows if assets[] is empty.
+     */
+    get assetHistoryCards() {
+        const assets = this.history?.assets;
+        if (Array.isArray(assets) && assets.length > 0) {
+            return assets.map((card, idx) => this._mapAssetHistoryCard(card, idx));
+        }
+        if (Array.isArray(this.history?.rows) && this.history.rows.length > 0) {
+            return [
+                this._mapAssetHistoryCard(
+                    {
+                        assetId: 'flat',
+                        assetName: this.summary?.assetName || 'Installed products',
+                        timeline: this.history.rows,
+                        counts: null,
+                        summary: this.summary,
+                        installedQuantity: this.summary?.totalQuantity,
+                        installedMrr: this.summary?.currentMrr
+                    },
+                    0
+                )
+            ];
+        }
+        return [];
+    }
+
+    _mapAssetHistoryCard(card, idx) {
+        const counts = card.counts || {};
+        const countParts = [];
+        if (counts.initialSale) {
+            countParts.push(`${counts.initialSale} initial`);
+        }
+        if (counts.addOn) {
+            countParts.push(`${counts.addOn} add-on${counts.addOn === 1 ? '' : 's'}`);
+        }
+        if (counts.decrease) {
+            countParts.push(`${counts.decrease} decrease${counts.decrease === 1 ? '' : 's'}`);
+        }
+        if (counts.renew) {
+            countParts.push(`${counts.renew} renew${counts.renew === 1 ? '' : 's'}`);
+        }
+        if (counts.other) {
+            countParts.push(`${counts.other} other`);
+        }
+        const timeline = (card.timeline || []).map((row, rowIdx) => {
+            const typeBits = [row.changeKind, row.category, row.actionType].filter(Boolean);
+            const lineQty = row.quantity != null ? row.quantity : row.quantityChange;
+            return {
+                ...row,
+                key: `${card.assetId || 'asset'}-${row.actionId || 'evt'}-${rowIdx}`,
+                typeLabel: typeBits.join(' · ') || 'Installed period',
+                startDateLabel: this._formatDateOnly(row.periodStart) || '—',
+                endDateLabel: this._formatDateOnly(row.periodEnd) || '—',
+                lineQty,
+                hasDiscount:
+                    row.discountPercent != null && Number(row.discountPercent) !== 0,
+                qtyDeltaLabel:
+                    row.quantityChange != null && Number.isFinite(Number(row.quantityChange))
+                        ? (Number(row.quantityChange) > 0 ? '+' : '') +
+                          String(Number(row.quantityChange))
+                        : null
+            };
+        });
+        const summary = card.summary || {};
+        const assetId = card.assetId;
+        const canOpenAsset =
+            typeof assetId === 'string' &&
+            assetId !== 'flat' &&
+            /^[a-zA-Z0-9]{15}([a-zA-Z0-9]{3})?$/.test(assetId);
+        const isAmending = card.isAmending === true;
+        return {
+            key: assetId || `asset-${idx}`,
+            assetId,
+            canOpenAsset,
+            isAmending,
+            assetName: card.assetName || `Asset ${idx + 1}`,
+            countLabel: countParts.length ? countParts.join(' · ') : 'No classified events yet',
+            hasTimeline: timeline.length > 0,
+            timeline,
+            averagePaid: summary.averagePaid,
+            currentQty: card.installedQuantity != null ? card.installedQuantity : summary.totalQuantity,
+            currentMrr: card.installedMrr != null ? card.installedMrr : summary.currentMrr,
+            currentArr: summary.currentArr,
+            hasAveragePaid: summary.averagePaid != null,
+            hasCurrentQty: (card.installedQuantity != null ? card.installedQuantity : summary.totalQuantity) != null,
+            hasCurrentMrr: (card.installedMrr != null ? card.installedMrr : summary.currentMrr) != null,
+            hasCurrentArr: summary.currentArr != null,
+            cardClass:
+                'asset-history-card' + (isAmending ? ' asset-history-card_amending' : '')
+        };
     }
 
     get historyRows() {
@@ -271,7 +392,253 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
         return this._thisAddRollup.prorated;
     }
 
+    /**
+     * Per-product / Source Asset contributors to This add (Subscription vs Gen AI, etc.).
+     */
+    get thisAddBreakdown() {
+        const byKey = new Map();
+        const addRow = (key, name, qty, arr, mrr, prorated) => {
+            const q = Number(qty) || 0;
+            const a = Number(arr) || 0;
+            if (q <= 0 && a <= 0) {
+                return;
+            }
+            const prev = byKey.get(key) || {
+                key,
+                productName: name || 'Product',
+                qty: 0,
+                arr: 0,
+                mrr: 0,
+                prorated: 0
+            };
+            prev.qty += q;
+            prev.arr += a;
+            prev.mrr += Number(mrr) || 0;
+            prev.prorated += Number(prorated) || 0;
+            byKey.set(key, prev);
+        };
+
+        for (const r of this.workingLineRows || []) {
+            const q = Number(r.draftQuantity);
+            if (!Number.isFinite(q) || q <= 0) {
+                continue;
+            }
+            addRow(
+                r.sourceAssetId || r.productName || r.id || r.key,
+                r.productName,
+                q,
+                r.previewArr,
+                r.previewMrr,
+                r.previewProrated
+            );
+        }
+
+        // Fallback when working-line previews are empty but Apex asset cards have This add.
+        if (byKey.size === 0) {
+            for (const card of this.history?.assets || []) {
+                if (!(Number(card.thisAddQty) > 0) && !(Number(card.thisAddArr) > 0)) {
+                    continue;
+                }
+                addRow(
+                    card.assetId || card.assetName,
+                    card.assetName,
+                    card.thisAddQty,
+                    card.thisAddArr,
+                    card.thisAddMrr,
+                    card.thisAddProrated
+                );
+            }
+        }
+
+        return Array.from(byKey.values())
+            .map((row) => ({
+                ...row,
+                arr: Number(row.arr.toFixed(2)),
+                mrr: Number(row.mrr.toFixed(2)),
+                prorated: Number(row.prorated.toFixed(2))
+            }))
+            .sort((a, b) => b.arr - a.arr || a.productName.localeCompare(b.productName));
+    }
+
+    get hasThisAddBreakdown() {
+        return this.thisAddBreakdown.length > 0;
+    }
+
+    get showThisAddBreakdown() {
+        // Always offer when This add has any product contribution (incl. single-asset amends).
+        return this.thisAddBreakdown.length > 0;
+    }
+
+    get thisAddBreakdownExpanded() {
+        return this.thisAddBreakdownOpen ? 'true' : 'false';
+    }
+
+    get thisAddBreakdownToggleLabel() {
+        const n = this.thisAddBreakdown.length;
+        return this.thisAddBreakdownOpen
+            ? 'Hide by product'
+            : `By product (${n})`;
+    }
+
+    /**
+     * Per Source Asset contributors to Current (installed Subscription vs Gen AI, etc.).
+     */
+    get currentBreakdown() {
+        return (this.assetHistoryCards || [])
+            .filter((card) => card.assetId && card.assetId !== 'flat')
+            .map((card) => {
+                const qty = Number(card.currentQty);
+                let mrr = Number(card.currentMrr);
+                let arr = Number(card.currentArr);
+                if (!Number.isFinite(arr) && Number.isFinite(mrr)) {
+                    arr = mrr * 12;
+                }
+                if (!Number.isFinite(mrr) && Number.isFinite(arr)) {
+                    mrr = arr / 12;
+                }
+                const isAmending = card.isAmending === true;
+                return {
+                    key: card.key || card.assetId,
+                    productName: card.assetName || 'Asset',
+                    qty: Number.isFinite(qty) ? qty : 0,
+                    arr: Number.isFinite(arr) ? Number(arr.toFixed(2)) : 0,
+                    mrr: Number.isFinite(mrr) ? Number(mrr.toFixed(2)) : 0,
+                    hasAvgPaid: card.hasAveragePaid === true,
+                    averagePaid: card.averagePaid,
+                    isAmending,
+                    rowClass:
+                        'kpi-breakdown__row' +
+                        (isAmending ? ' kpi-breakdown__row_amending' : '')
+                };
+            })
+            .filter((row) => row.qty > 0 || row.arr > 0 || row.mrr > 0)
+            // Amending assets first, then highest ARR — singles out the change against the footprint.
+            .sort(
+                (a, b) =>
+                    Number(b.isAmending) - Number(a.isAmending) ||
+                    b.arr - a.arr ||
+                    a.productName.localeCompare(b.productName)
+            );
+    }
+
+    get showCurrentBreakdown() {
+        return this.currentBreakdown.length > 1;
+    }
+
+    get currentBreakdownExpanded() {
+        return this.currentBreakdownOpen ? 'true' : 'false';
+    }
+
+    get currentBreakdownToggleLabel() {
+        const n = this.currentBreakdown.length;
+        return this.currentBreakdownOpen
+            ? 'Hide by product'
+            : `By product (${n})`;
+    }
+
+    /**
+     * Per-product Finalized = Current + This add (live drafts), with Δ columns.
+     */
+    get finalizedBreakdown() {
+        const byKey = new Map();
+        const ensure = (key, productName) => {
+            if (!byKey.has(key)) {
+                byKey.set(key, {
+                    key,
+                    productName: productName || 'Product',
+                    qty: 0,
+                    arr: 0,
+                    mrr: 0,
+                    deltaQty: 0,
+                    deltaArr: 0,
+                    deltaMrr: 0
+                });
+            }
+            return byKey.get(key);
+        };
+        const findByName = (name) => {
+            for (const row of byKey.values()) {
+                if (row.productName === name) {
+                    return row;
+                }
+            }
+            return null;
+        };
+
+        for (const row of this.currentBreakdown) {
+            const dest = ensure(row.key, row.productName);
+            dest.qty = row.qty;
+            dest.arr = row.arr;
+            dest.mrr = row.mrr;
+        }
+        for (const row of this.thisAddBreakdown) {
+            let dest = byKey.get(row.key) || findByName(row.productName);
+            if (!dest) {
+                dest = ensure(row.key, row.productName);
+            }
+            dest.deltaQty = row.qty;
+            dest.deltaArr = row.arr;
+            dest.deltaMrr = row.mrr;
+            dest.qty = Number(dest.qty || 0) + Number(row.qty || 0);
+            dest.arr = Number(dest.arr || 0) + Number(row.arr || 0);
+            dest.mrr = Number(dest.mrr || 0) + Number(row.mrr || 0);
+        }
+
+        return Array.from(byKey.values())
+            .map((row) => ({
+                ...row,
+                qty: Number(row.qty) || 0,
+                arr: Number((Number(row.arr) || 0).toFixed(2)),
+                mrr: Number((Number(row.mrr) || 0).toFixed(2)),
+                deltaQty: Number(row.deltaQty) || 0,
+                deltaArr: Number((Number(row.deltaArr) || 0).toFixed(2)),
+                deltaMrr: Number((Number(row.deltaMrr) || 0).toFixed(2)),
+                deltaArrClass: this._deltaClass(row.deltaArr),
+                deltaMrrClass: this._deltaClass(row.deltaMrr),
+                deltaQtyClass: this._deltaClass(row.deltaQty)
+            }))
+            .filter((row) => row.qty > 0 || row.arr > 0 || row.deltaQty > 0 || row.deltaArr > 0)
+            .sort((a, b) => b.arr - a.arr || a.productName.localeCompare(b.productName));
+    }
+
+    get showFinalizedBreakdown() {
+        return this.showFinalizedImpact && this.finalizedBreakdown.length > 1;
+    }
+
+    get finalizedBreakdownExpanded() {
+        return this.finalizedBreakdownOpen ? 'true' : 'false';
+    }
+
+    get finalizedBreakdownToggleLabel() {
+        const n = this.finalizedBreakdown.length;
+        return this.finalizedBreakdownOpen
+            ? 'Hide by product'
+            : `By product (${n})`;
+    }
+
+    handleToggleCurrentBreakdown() {
+        this.currentBreakdownOpen = !this.currentBreakdownOpen;
+    }
+
+    handleToggleThisAddBreakdown() {
+        this.thisAddBreakdownOpen = !this.thisAddBreakdownOpen;
+    }
+
+    handleToggleFinalizedBreakdown() {
+        this.finalizedBreakdownOpen = !this.finalizedBreakdownOpen;
+    }
+
     get installedAssetName() {
+        const n = this.assetHistoryCards.length;
+        const amending = (this.assetHistoryCards || []).filter((c) => c.isAmending).length;
+        if (n > 1) {
+            return amending > 0 && amending < n
+                ? `${n} installed assets · amending ${amending}`
+                : `${n} installed assets`;
+        }
+        if (n === 1) {
+            return this.assetHistoryCards[0].assetName;
+        }
         return this.summary?.assetName || 'Installed products';
     }
 
@@ -357,7 +724,7 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
         if (this.catalogShowingCommon) {
             return this.selectedCatalogId || this.selectedCategoryId
                 ? 'Browse'
-                : 'Common products';
+                : 'Product Discovery';
         }
         return this.catalogFromDiscovery ? 'Product Discovery' : 'Search results';
     }
@@ -410,189 +777,33 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
     }
 
     get isBusy() {
-        return this.isLoading || this.saving || this.scenarioLoading || !!this.scenarioBusyQuoteId;
+        return this.isLoading || this.saving;
     }
 
-    get hasOpportunity() {
-        return !!this.opportunityId;
-    }
-
-    get scenarioCurrentArr() {
-        return this.scenarioCompare?.current?.currentArr ?? this.kpiCurrentArr;
-    }
-
-    get scenarioCurrentMrr() {
-        return this.scenarioCompare?.current?.currentMrr ?? this.kpiCurrentMrr;
-    }
-
-    get scenarioCurrentQty() {
-        return this.scenarioCompare?.current?.totalQuantity ?? this.kpiCurrentQty;
-    }
-
-    get hasScenarioOptions() {
-        return this.scenarioOptionViews.length > 0;
-    }
-
-    get scenarioOptionViews() {
-        const cols = this.scenarioCompare?.scenarios;
-        if (cols && cols.length) {
-            // Put the Quote you're on first so Open lands without scrolling.
-            const ordered = [...cols].sort((a, b) => {
-                if (a.quoteId === this.quoteId) {
-                    return -1;
-                }
-                if (b.quoteId === this.quoteId) {
-                    return 1;
-                }
-                return 0;
-            });
-            return ordered.map((col, idx) => this._mapScenarioOption(col, idx));
+    get impactMetaLabel() {
+        const bits = [];
+        if (this.quoteNumber) {
+            bits.push(`Quote ${this.quoteNumber}`);
         }
-        // No Opp / no siblings yet — still show this quote as Option 1.
-        if (this.quoteId && (this.workingLines?.length || this.hasQuote)) {
-            return [
-                this._mapScenarioOption(
-                    {
-                        quoteId: this.quoteId,
-                        quoteNumber: this.quoteNumber,
-                        name: this.quoteName || 'Option 1',
-                        isSynced: false,
-                        grandTotal: null,
-                        thisAddQty: this.thisAddQty,
-                        thisAddArr: this.thisAddArr,
-                        thisAddMrr: this.thisAddMrr,
-                        thisAddProrated: this.thisAddProrated,
-                        finalizedQty: this.projection?.projected?.totalQuantity,
-                        finalizedArr: this.projection?.projected?.currentArr,
-                        finalizedMrr: this.projection?.projected?.currentMrr,
-                        deltaQty: this.projection?.deltaQuantity,
-                        deltaArr: this.projection?.deltaArr,
-                        deltaMrr: this.projection?.deltaMrr,
-                        workingLines: this.workingLines
-                    },
-                    0
-                )
-            ];
+        if (this.quoteName) {
+            bits.push(this.quoteName);
         }
-        return [];
+        if (this.workingLineCount) {
+            bits.push(
+                this.workingLineCount === 1
+                    ? '1 line'
+                    : `${this.workingLineCount} lines`
+            );
+        }
+        return bits.join(' · ') || 'This amendment';
+    }
+
+    get showFinalizedImpact() {
+        return this.impactDeltas.length > 0;
     }
 
     get workingLineRows() {
         return this._buildWorkingLineRows(this.workingLines || []);
-    }
-
-    _mapScenarioOption(col, idx) {
-        const qid = col.quoteId;
-        const isCurrent = qid === this.quoteId;
-        const busy = this.scenarioBusyQuoteId === qid;
-        const lines =
-            isCurrent && this.workingLines?.length
-                ? this.workingLines
-                : this.scenarioLinesByQuoteId[qid] ||
-                  col.workingLines ||
-                  [];
-        const lineRows = this._buildWorkingLineRows(lines).map((row) => ({
-            ...row,
-            quoteId: qid,
-            key: `${qid}-${row.key}`
-        }));
-        const anyDirty = lineRows.some((r) => r.isDirty);
-        const showFinalized =
-            col.finalizedArr != null ||
-            col.finalizedMrr != null ||
-            col.finalizedQty != null;
-        const finalizedRows = showFinalized
-            ? [
-                  {
-                      key: 'arr',
-                      label: 'ARR',
-                      proposed: col.finalizedArr,
-                      delta: col.deltaArr,
-                      deltaClass: this._deltaClass(col.deltaArr),
-                      formatCurrency: true,
-                      formatQty: false
-                  },
-                  {
-                      key: 'mrr',
-                      label: 'MRR',
-                      proposed: col.finalizedMrr,
-                      delta: col.deltaMrr,
-                      deltaClass: this._deltaClass(col.deltaMrr),
-                      formatCurrency: true,
-                      formatQty: false
-                  },
-                  {
-                      key: 'qty',
-                      label: 'Qty',
-                      proposed: col.finalizedQty,
-                      delta: col.deltaQty,
-                      deltaClass: this._deltaClass(col.deltaQty),
-                      formatCurrency: false,
-                      formatQty: true
-                  }
-              ]
-            : [];
-        const optionLabel =
-            col.name ||
-            (idx === 0 ? 'Option 1' : `Option ${idx + 1}`);
-        const draftName = this.draftScenarioNameByQuoteId[qid];
-        const nameValue =
-            draftName !== undefined && draftName !== null ? draftName : optionLabel;
-        const nameDirty =
-            draftName !== undefined &&
-            String(draftName).trim() !== String(optionLabel).trim();
-        const metaBits = [];
-        if (col.quoteNumber) {
-            metaBits.push(`Quote ${col.quoteNumber}`);
-        }
-        if (col.grandTotal != null && Number.isFinite(Number(col.grandTotal))) {
-            metaBits.push(
-                `Grand total ${this._formatCurrency(Number(col.grandTotal))}`
-            );
-        }
-        metaBits.push('Edit name to rename this Quote');
-        return {
-            quoteId: qid,
-            quoteNumber: col.quoteNumber,
-            name: optionLabel,
-            nameValue,
-            nameDirty,
-            metaTitle: metaBits.join(' · '),
-            isSynced: col.isSynced === true,
-            isCurrent,
-            grandTotal: col.grandTotal,
-            currentArr: this.scenarioCurrentArr,
-            currentMrr: this.scenarioCurrentMrr,
-            currentQty: this.scenarioCurrentQty,
-            thisAddQty: col.thisAddQty,
-            thisAddArr: col.thisAddArr,
-            thisAddMrr: col.thisAddMrr,
-            thisAddProrated: col.thisAddProrated,
-            showFinalized,
-            finalizedRows,
-            finalizedEmptyMessage: 'Update lines to see Current → proposed.',
-            lineRows,
-            hasLines: lineRows.length > 0,
-            lineCount: lineRows.length,
-            lineCountLabel:
-                lineRows.length === 1 ? '1 item' : `${lineRows.length} items`,
-            key: qid || `opt-${idx}`,
-            cardClass:
-                'scenario-option' +
-                (col.isSynced ? ' scenario-option_forecast' : '') +
-                (isCurrent ? ' scenario-option_current' : ''),
-            headerBadge: col.isSynced
-                ? 'Forecast'
-                : isCurrent
-                  ? 'Editing'
-                  : 'Draft',
-            openDisabled: this.isBusy || isCurrent,
-            selectDisabled:
-                this.isBusy || busy || !this.opportunityId || col.isSynced === true,
-            updateDisabled: this.isBusy || busy || !anyDirty,
-            nameDisabled: this.isBusy || busy,
-            showPendingAdds: isCurrent
-        };
     }
 
     _buildWorkingLineRows(lines) {
@@ -662,8 +873,6 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
             if (!Number.isFinite(unit)) {
                 unit = 0;
             }
-            const discAmount =
-                Number.isFinite(list) && Number.isFinite(unit) ? list - unit : 0;
             const previewArr =
                 Number.isFinite(addQty) && addQty > 0 && Number.isFinite(unit)
                     ? addQty * unit
@@ -681,46 +890,20 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
             ) {
                 previewProrated = Number(line.totalPrice);
             }
-            const previewSteps = [
-                {
-                    key: 'list',
-                    label: 'List price',
-                    valueLabel: this._formatCurrency(list),
-                    rowClass: 'waterfall-step'
-                },
-                {
-                    key: 'disc',
-                    label:
-                        Number.isFinite(discPct) && discPct > 0
-                            ? `Discount (${discPct}%)`
-                            : 'Discount',
-                    valueLabel:
-                        discAmount > 0
-                            ? `−${this._formatCurrency(discAmount)}`
-                            : this._formatCurrency(0),
-                    rowClass: 'waterfall-step waterfall-step_adj'
-                },
-                {
-                    key: 'net',
-                    label: 'Paying (net unit)',
-                    valueLabel: this._formatCurrency(unit),
-                    rowClass: 'waterfall-step waterfall-step_total'
-                }
-            ];
+            // Waterfall popover = OOTB Connect only (no custom List→Discount→Net).
             const platformWf = this.platformWaterfallByLineId[line.id];
-            let waterfallSteps = previewSteps;
-            let waterfallNote = dirty
-                ? 'Preview until Update (platform waterfall after reprice).'
-                : 'Prorated = term bill — ARR/MRR stay annualized.';
-            let waterfallTitle = 'Price waterfall (preview)';
-            if (!dirty && platformWf?.loading) {
-                waterfallTitle = 'Price waterfall';
-                waterfallNote = 'Loading OOTB pricing procedure waterfall…';
-            } else if (!dirty && platformWf?.error && !platformWf?.steps?.length) {
-                waterfallTitle = 'Price waterfall (preview)';
-                waterfallNote = `Platform waterfall unavailable — ${platformWf.error}`;
-            } else if (!dirty && platformWf?.steps?.length) {
-                waterfallTitle = 'Price waterfall';
+            let waterfallSteps = [];
+            let waterfallTitle = 'Salesforce Pricing waterfall';
+            let waterfallNote;
+            if (dirty) {
+                waterfallNote =
+                    'Update / Reprice to load the Salesforce Pricing procedure waterfall.';
+            } else if (!line.priceWaterfallIdentifier) {
+                waterfallNote =
+                    'No persisted waterfall yet — Update / Reprice this line first.';
+            } else if (platformWf?.loading) {
+                waterfallNote = 'Loading Salesforce Pricing procedure waterfall…';
+            } else if (platformWf?.steps?.length) {
                 waterfallSteps = platformWf.steps.map((s, sIdx) => ({
                     key: s.key || `pwf-${sIdx}`,
                     label: s.label,
@@ -733,9 +916,11 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
                             : '')
                 }));
                 waterfallNote = 'Salesforce Pricing procedure';
-            } else if (!dirty && line.priceWaterfallIdentifier) {
+            } else if (platformWf?.error) {
+                waterfallNote = `Platform waterfall unavailable — ${platformWf.error}`;
+            } else {
                 waterfallNote =
-                    'Hover again or wait — loading OOTB pricing procedure waterfall.';
+                    'Hover again or wait — loading Salesforce Pricing procedure waterfall.';
             }
             const draftIncomplete =
                 (hasQtyDraft &&
@@ -788,36 +973,50 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
     }
 
     get impactDeltas() {
-        if (!this.showAddProjection) {
+        const add = this._thisAddRollup;
+        const hasLiveAdd = (Number(add.qty) || 0) > 0 || (Number(add.arr) || 0) > 0;
+        if (!hasLiveAdd && !this.showAddProjection) {
             return [];
         }
-        const p = this.projection;
+        const currentArr = Number(this.kpiCurrentArr) || 0;
+        const currentMrr = Number(this.kpiCurrentMrr) || 0;
+        const currentQty = Number(this.kpiCurrentQty) || 0;
+        // Prefer live Working-line drafts so Finalized tracks This add before reprice.
+        const deltaArr = hasLiveAdd
+            ? Number(add.arr) || 0
+            : Number(this.projection?.deltaArr) || 0;
+        const deltaMrr = hasLiveAdd
+            ? Number(add.mrr) || 0
+            : Number(this.projection?.deltaMrr) || 0;
+        const deltaQty = hasLiveAdd
+            ? Number(add.qty) || 0
+            : Number(this.projection?.deltaQuantity) || 0;
         return [
             {
                 key: 'arr',
                 label: 'ARR',
-                current: this.summary.currentArr,
-                proposed: p.projected.currentArr,
-                delta: p.deltaArr,
-                deltaClass: this._deltaClass(p.deltaArr),
+                current: currentArr,
+                proposed: currentArr + deltaArr,
+                delta: deltaArr,
+                deltaClass: this._deltaClass(deltaArr),
                 format: 'currency'
             },
             {
                 key: 'mrr',
                 label: 'MRR',
-                current: this.summary.currentMrr,
-                proposed: p.projected.currentMrr,
-                delta: p.deltaMrr,
-                deltaClass: this._deltaClass(p.deltaMrr),
+                current: currentMrr,
+                proposed: currentMrr + deltaMrr,
+                delta: deltaMrr,
+                deltaClass: this._deltaClass(deltaMrr),
                 format: 'currency'
             },
             {
                 key: 'qty',
                 label: 'Qty',
-                current: this.summary.totalQuantity,
-                proposed: p.projected.totalQuantity,
-                delta: p.deltaQuantity,
-                deltaClass: this._deltaClass(p.deltaQuantity),
+                current: currentQty,
+                proposed: currentQty + deltaQty,
+                delta: deltaQty,
+                deltaClass: this._deltaClass(deltaQty),
                 format: 'qty'
             }
         ].map((row) => ({
@@ -828,13 +1027,167 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
     }
 
     handleRefresh() {
-        this.dispatchEvent(new RefreshEvent());
-        this._load();
+        // Manual Studio KPI reload only — never fire RefreshEvent (kills Instant Pricing).
+        this._load({ silent: true });
     }
 
-    handleRefreshContext() {
-        this._load();
-        return Promise.resolve(true);
+    _startPricingPoll() {
+        this._stopPricingPoll();
+        if (!this.quoteId) {
+            return;
+        }
+        // Fast poll while a new amend Quote is still being priced (~10–20s).
+        this._pricingPollTimer = setInterval(() => {
+            this._tickPricingPulse();
+        }, 1500);
+        this._tickPricingPulse();
+    }
+
+    _stopPricingPoll() {
+        if (this._pricingPollTimer) {
+            clearInterval(this._pricingPollTimer);
+            this._pricingPollTimer = undefined;
+        }
+    }
+
+    _isPricingTerminal(status) {
+        if (!status) {
+            return true;
+        }
+        const s = String(status);
+        return (
+            s.startsWith('Completed') ||
+            s.includes('Failed') ||
+            s.includes('Error') ||
+            s === 'NotRequired'
+        );
+    }
+
+    /**
+     * Instant Pricing / PST rewrite Quote.LastModifiedDate after page open.
+     * QLE still holds the old version → Save fails with “couldn't save… refresh”.
+     * notifyRecordUpdateAvailable refreshes LDS without a full-page RefreshEvent
+     * (which would turn Instant Pricing off).
+     */
+    _notifyQuoteRecordUpdated() {
+        if (!this.quoteId || this._lmdNotifyInFlight) {
+            return;
+        }
+        this._lmdNotifyInFlight = true;
+        notifyRecordUpdateAvailable([{ recordId: this.quoteId }])
+            .catch(() => {
+                // Best-effort; next pulse can retry if LMD moves again.
+            })
+            .finally(() => {
+                this._lmdNotifyInFlight = false;
+            });
+    }
+
+    /**
+     * Re-stamp Quote KPIs and Amend Breakdown rows once pricing has settled.
+     * Quote Line Editor edits (quantity, discount, catalog adds) do not run the
+     * reprice invocable on Amend quotes, so without this the proposal renders
+     * whatever was stamped at the last reprice.
+     */
+    _refreshAmendKpisIfStale(settledLmd) {
+        if (
+            !this.quoteId ||
+            !settledLmd ||
+            this._kpiStampInFlight ||
+            this._lastStampedLmd === settledLmd
+        ) {
+            return;
+        }
+        this._kpiStampInFlight = true;
+        refreshAmendKpis({ quoteId: this.quoteId })
+            .then((data) => {
+                // Stamping may bump LastModifiedDate; re-baseline so the next
+                // pulse does not read its own write as a fresh external change.
+                const stampedLmd = data?.lastModifiedDate
+                    ? String(data.lastModifiedDate)
+                    : settledLmd;
+                this._lastStampedLmd = stampedLmd;
+                this._lastPolledLmd = stampedLmd;
+                this._applyPayload(data);
+                this._notifyQuoteRecordUpdated();
+            })
+            .catch(() => {
+                // Best-effort: proposal figures stay as last stamped.
+                this._lastStampedLmd = settledLmd;
+            })
+            .finally(() => {
+                this._kpiStampInFlight = false;
+            });
+    }
+
+    _tickPricingPulse() {
+        if (!this.quoteId || this._pricingPollInFlight) {
+            return;
+        }
+        this._pricingPollInFlight = true;
+        getQuotePricingPulse({ quoteId: this.quoteId })
+            .then((pulse) => {
+                const status = pulse?.calculationStatus || '';
+                const terminal = this._isPricingTerminal(status);
+                const prevStatus = this._lastPolledCalcStatus;
+                const nextTotal =
+                    pulse?.grandTotal != null ? Number(pulse.grandTotal) : null;
+                const nextLmd = pulse?.lastModifiedDate
+                    ? String(pulse.lastModifiedDate)
+                    : null;
+
+                this._lastPolledCalcStatus = status;
+                if (nextTotal != null && Number.isFinite(nextTotal)) {
+                    this._lastPolledGrandTotal = nextTotal;
+                    this.grandTotal = nextTotal;
+                }
+                if (Object.prototype.hasOwnProperty.call(pulse || {}, 'validationResult')) {
+                    this.validationResult = pulse.validationResult;
+                }
+                if (status) {
+                    this.calculationStatus = status;
+                }
+
+                const wasInProgress = prevStatus
+                    ? !this._isPricingTerminal(prevStatus)
+                    : false;
+                this.pricingInProgress = !terminal;
+
+                const lmdChanged =
+                    nextLmd &&
+                    this._lastPolledLmd &&
+                    nextLmd !== this._lastPolledLmd;
+                if (nextLmd) {
+                    this._lastPolledLmd = nextLmd;
+                }
+
+                // LMD moved (or pricing just finished) → LDS/QLE still hold old version.
+                if (lmdChanged || (wasInProgress && terminal)) {
+                    this._notifyQuoteRecordUpdated();
+                }
+
+                if (!terminal || lmdChanged) {
+                    this.quoteSettling = true;
+                    this._stableLmdCount = 0;
+                } else if (nextLmd) {
+                    this._stableLmdCount += 1;
+                    // Two consecutive identical LMD samples at terminal = safe to edit.
+                    if (this._stableLmdCount >= 2) {
+                        this.quoteSettling = false;
+                        this._refreshAmendKpisIfStale(nextLmd);
+                    }
+                }
+
+                if (wasInProgress && terminal) {
+                    this._load({ silent: true });
+                }
+            })
+            .catch(() => {
+                // Transient pulse failures are non-fatal; next interval retries.
+            })
+            .finally(() => {
+                this._pricingPollInFlight = false;
+            });
     }
 
     handleQtyInput(event) {
@@ -881,12 +1234,6 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
     }
 
     _findLineRow(lineId) {
-        for (const opt of this.scenarioOptionViews) {
-            const row = (opt.lineRows || []).find((r) => r.id === lineId);
-            if (row) {
-                return row;
-            }
-        }
         return this.workingLineRows.find((r) => r.id === lineId);
     }
 
@@ -950,12 +1297,10 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
                         variant: 'success'
                     })
                 );
-                this.dispatchEvent(new RefreshEvent());
                 if (quoteId === this.quoteId) {
                     this._applyPayload(data);
-                } else {
-                    this._loadScenarioCompare();
                 }
+                this._requestQuietPageSync();
             })
             .catch((e) => {
                 this.error = this._reduceError(e);
@@ -970,6 +1315,15 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
             .finally(() => {
                 this.saving = false;
             });
+    }
+
+    /** Keep Studio KPIs current without refreshing the page.
+     * RefreshEvent reloads QLE and turns Instant Pricing off (platform behavior),
+     * which immediately surfaces the outdated-quote / Refresh Prices warning.
+     */
+    _requestQuietPageSync() {
+        this._load({ silent: true });
+        this._tickPricingPulse();
     }
 
     async handleRemoveLine(event) {
@@ -1009,7 +1363,7 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
                         variant: 'success'
                     })
                 );
-                this.dispatchEvent(new RefreshEvent());
+                this._requestQuietPageSync();
             })
             .catch((e) => {
                 this.error = this._reduceError(e);
@@ -1389,7 +1743,7 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
                         variant: 'success'
                     })
                 );
-                this.dispatchEvent(new RefreshEvent());
+                this._requestQuietPageSync();
             })
             .catch((e) => {
                 const msg = this._reduceError(e);
@@ -1485,7 +1839,7 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
                         variant: 'success'
                     })
                 );
-                this.dispatchEvent(new RefreshEvent());
+                this._requestQuietPageSync();
             })
             .catch((e) => {
                 const msg = this._reduceError(e);
@@ -1511,15 +1865,6 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
         this.pendingAddRows = this.pendingAddRows.filter((row) => row.key !== key);
     }
 
-    handleBrowseCatalog() {
-        // Prefer in-Studio blank line + search (Browse Catalog quick action hangs in this shell).
-        this.handleAddLineBelow();
-    }
-
-    handleAddProductSoon() {
-        this.handleAddLineBelow();
-    }
-
     handleRepriceAll(event) {
         const quoteId =
             event?.currentTarget?.dataset?.quoteId || this.quoteId;
@@ -1537,12 +1882,8 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
                         variant: 'success'
                     })
                 );
-                this.dispatchEvent(new RefreshEvent());
-                if (quoteId === this.quoteId) {
-                    this._applyPayload(data);
-                } else {
-                    this._loadScenarioCompare();
-                }
+                this._applyPayload(data);
+                this._requestQuietPageSync();
             })
             .catch((e) => {
                 this.error = this._reduceError(e);
@@ -1560,43 +1901,28 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
     }
 
     /**
-     * TLE parity actions that still live in the standard line editor.
-     * Opens the OOTB Quote Line Items surface with a short guide toast.
+     * Escape hatch to the standard Quote Line Items related list (header
+     * adjustment, bulk tools, etc.). Not a fake Instant Pricing / TLE toolbar.
      */
-    handleTleTool(event) {
-        const tool = event.currentTarget?.dataset?.tool;
+    handleOpenAdvancedEditor(event) {
         const quoteId =
-            event.currentTarget?.dataset?.quoteId || this.quoteId;
-        const labels = {
-            headerAdjustment: 'Manage Header Adjustment',
-            addAssets: 'Add Assets',
-            importLines: 'Import Lines',
-            bulkDelete: 'Bulk Delete',
-            addGroup: 'Add Group'
-        };
-        const label = labels[tool] || 'That tool';
+            event?.currentTarget?.dataset?.quoteId || this.quoteId;
+        if (!quoteId) {
+            return;
+        }
         this.dispatchEvent(
             new ShowToastEvent({
-                title: label,
-                message: `${label} runs in the standard Quote Line Items editor — opening it now.`,
+                title: 'Advanced line editor',
+                message:
+                    'Opening Quote Line Items. For Manage Header Adjustment, use that action on the Quote highlights.',
                 variant: 'info',
                 mode: 'dismissible'
             })
         );
-        this.handleOpenLineEditor(quoteId);
-    }
-
-    handleOpenLineEditor(quoteId) {
-        // Escape hatch only — scroll/focus is not available across page regions;
-        // keep a path to the classic Quote surface for advanced TLE work.
-        const targetId = quoteId || this.quoteId;
-        if (!targetId) {
-            return;
-        }
         this[NavigationMixin.Navigate]({
             type: 'standard__recordRelationshipPage',
             attributes: {
-                recordId: targetId,
+                recordId: quoteId,
                 objectApiName: 'Quote',
                 relationshipApiName: 'QuoteLineItems',
                 actionName: 'view'
@@ -1611,24 +1937,32 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
             this.draftQtyByLineId = {};
             this.draftDiscountByLineId = {};
             this.draftStartByLineId = {};
+            this._lastPolledCalcStatus = undefined;
+            this._lastPolledGrandTotal = undefined;
+            this._lastPolledLmd = undefined;
+            this._lastStampedLmd = undefined;
+            this._stableLmdCount = 0;
+            this.quoteSettling = true;
             this._load();
+            this._startPricingPoll();
         } else if (!this.loaded && next) {
             this._load();
         } else if (!next) {
             this.loaded = true;
-            this.error = undefined;
-            this.history = undefined;
-            this.workingLines = [];
+            this._stopPricingPoll();
         }
     }
 
-    _load() {
+    _load(options = {}) {
         if (!this.quoteId) {
             this.loaded = true;
             return;
         }
+        const silent = options.silent === true && this.loaded;
         const seq = ++this._requestSeq;
-        this.loaded = false;
+        if (!silent) {
+            this.loaded = false;
+        }
         getStudioPayload({ quoteId: this.quoteId })
             .then((data) => {
                 if (seq !== this._requestSeq) {
@@ -1660,17 +1994,27 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
         this.opportunityId = data.opportunityId;
         this.calculationStatus = data.calculationStatus;
         this.validationResult = data.validationResult;
+        this.pricingInProgress = !this._isPricingTerminal(data.calculationStatus);
+        if (this.pricingInProgress) {
+            this.quoteSettling = true;
+            this._stableLmdCount = 0;
+        }
+        this._lastPolledCalcStatus = data.calculationStatus || '';
+        this._lastPolledGrandTotal =
+            data.grandTotal != null ? Number(data.grandTotal) : this._lastPolledGrandTotal;
         if (data.opportunityAutoCreated && data.opportunityId) {
             this.dispatchEvent(
                 new ShowToastEvent({
                     title: 'Opportunity ready',
                     message:
-                        'Created an Opportunity for this amendment so you can model scenarios and set a forecast.',
+                        'Created an Opportunity for this amendment so you can sync and Create Order.',
                     variant: 'success',
                     mode: 'dismissable'
                 })
             );
         }
+        // Do not auto-link Opportunity on page load — Quote DML races QLE and
+        // Instant Pricing. Create Opp from Sync / scenario actions when needed.
         // Invalidate waterfall cache when identifiers change after reprice.
         const nextCache = { ...this.platformWaterfallByLineId };
         for (const line of this.workingLines) {
@@ -1680,7 +2024,6 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
             }
         }
         this.platformWaterfallByLineId = nextCache;
-        this._loadScenarioCompare();
         // Seed taxonomy once, then browse/search the rail.
         const seedRail = () => {
             if (!this.catalogSearchTerm || this.catalogSearchTerm.trim().length < 2) {
@@ -1692,471 +2035,6 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
         } else {
             seedRail();
         }
-    }
-
-    _loadScenarioCompare() {
-        if (!this.opportunityId) {
-            this.scenarioCompare = undefined;
-            this.scenarioError = undefined;
-            this.scenarioLoading = false;
-            this.scenarioLinesByQuoteId = {};
-            return;
-        }
-        this.scenarioLoading = true;
-        this.scenarioError = undefined;
-        getScenarioCompare({ opportunityId: this.opportunityId })
-            .then((data) => {
-                this.scenarioCompare = data;
-                const nextQty = { ...this.draftScenarioQtyByQuoteId };
-                const nextDisc = { ...this.draftScenarioDiscByQuoteId };
-                for (const col of data?.scenarios || []) {
-                    if (
-                        nextQty[col.quoteId] !== undefined &&
-                        Number(nextQty[col.quoteId]) === Number(col.thisAddQty)
-                    ) {
-                        delete nextQty[col.quoteId];
-                    }
-                    if (
-                        nextDisc[col.quoteId] !== undefined &&
-                        Number(nextDisc[col.quoteId]) ===
-                            Number(col.thisAddDiscountPercent || 0)
-                    ) {
-                        delete nextDisc[col.quoteId];
-                    }
-                }
-                this.draftScenarioQtyByQuoteId = nextQty;
-                this.draftScenarioDiscByQuoteId = nextDisc;
-                return this._hydrateScenarioLines(data?.scenarios || []);
-            })
-            .then(() => {
-                this.scenarioLoading = false;
-            })
-            .catch((e) => {
-                this.scenarioLoading = false;
-                this.scenarioError = this._reduceError(e);
-            });
-    }
-
-    /**
-     * Load working lines for sibling options. Nested workingLines on
-     * getScenarioCompare often arrive empty in LWC even when This add KPIs
-     * were computed server-side from those same lines.
-     */
-    _hydrateScenarioLines(scenarios) {
-        const lineMap = { ...this.scenarioLinesByQuoteId };
-        const fetches = [];
-        for (const col of scenarios || []) {
-            const qid = col.quoteId;
-            if (!qid || qid === this.quoteId) {
-                continue;
-            }
-            const embedded = col.workingLines;
-            if (Array.isArray(embedded) && embedded.length) {
-                lineMap[qid] = embedded;
-                continue;
-            }
-            fetches.push(
-                getStudioPayload({ quoteId: qid })
-                    .then((payload) => {
-                        lineMap[qid] = payload?.workingLines || [];
-                    })
-                    .catch(() => {
-                        lineMap[qid] = lineMap[qid] || [];
-                    })
-            );
-        }
-        const apply = () => {
-            this.scenarioLinesByQuoteId = lineMap;
-        };
-        if (!fetches.length) {
-            apply();
-            return Promise.resolve();
-        }
-        return Promise.all(fetches).then(apply);
-    }
-
-    handleScenarioQtyInput(event) {
-        const quoteId = event.target.dataset.quoteId;
-        if (!quoteId) {
-            return;
-        }
-        this.draftScenarioQtyByQuoteId = {
-            ...this.draftScenarioQtyByQuoteId,
-            [quoteId]: event.target.value
-        };
-    }
-
-    handleScenarioDiscInput(event) {
-        const quoteId = event.target.dataset.quoteId;
-        if (!quoteId) {
-            return;
-        }
-        this.draftScenarioDiscByQuoteId = {
-            ...this.draftScenarioDiscByQuoteId,
-            [quoteId]: event.target.value
-        };
-    }
-
-    handleScenarioUpdate(event) {
-        const quoteId = event.currentTarget.dataset.quoteId;
-        const lineId = event.currentTarget.dataset.lineId;
-        if (!quoteId || !lineId) {
-            return;
-        }
-        const col = (this.scenarioCompare?.scenarios || []).find(
-            (c) => c.quoteId === quoteId
-        );
-        const qtyRaw = this.draftScenarioQtyByQuoteId[quoteId];
-        const discRaw = this.draftScenarioDiscByQuoteId[quoteId];
-        const qty =
-            qtyRaw !== undefined && qtyRaw !== ''
-                ? Number(qtyRaw)
-                : Number(col?.thisAddQty);
-        const disc =
-            discRaw !== undefined && discRaw !== ''
-                ? Number(discRaw)
-                : Number(col?.thisAddDiscountPercent || 0);
-        if (!Number.isFinite(qty) || qty < 0) {
-            this.dispatchEvent(
-                new ShowToastEvent({
-                    title: 'Invalid quantity',
-                    message: 'Enter a non-negative quantity for this scenario.',
-                    variant: 'error'
-                })
-            );
-            return;
-        }
-        this.scenarioBusyQuoteId = quoteId;
-        updateWorkingLineQuantity({
-            quoteId,
-            lineItemId: lineId,
-            newQuantity: qty,
-            discountPercent: Number.isFinite(disc) ? disc : null,
-            startDate: null
-        })
-            .then(() => {
-                this.scenarioBusyQuoteId = undefined;
-                this.dispatchEvent(
-                    new ShowToastEvent({
-                        title: 'Scenario updated',
-                        message: 'Qty / discount applied and repriced.',
-                        variant: 'success'
-                    })
-                );
-                if (quoteId === this.quoteId) {
-                    this._load();
-                } else {
-                    this._loadScenarioCompare();
-                }
-            })
-            .catch((e) => {
-                this.scenarioBusyQuoteId = undefined;
-                this.dispatchEvent(
-                    new ShowToastEvent({
-                        title: 'Could not update scenario',
-                        message: this._reduceError(e),
-                        variant: 'error'
-                    })
-                );
-            });
-    }
-
-    handleScenarioNameInput(event) {
-        const quoteId = event.target.dataset.quoteId;
-        if (!quoteId) {
-            return;
-        }
-        const raw =
-            event.detail && event.detail.value !== undefined
-                ? event.detail.value
-                : event.target.value;
-        this.draftScenarioNameByQuoteId = {
-            ...this.draftScenarioNameByQuoteId,
-            [quoteId]: raw == null ? '' : String(raw)
-        };
-    }
-
-    handleScenarioNameKeydown(event) {
-        if (event.key === 'Enter') {
-            event.preventDefault();
-            event.target.blur();
-        } else if (event.key === 'Escape') {
-            const quoteId = event.target.dataset.quoteId;
-            if (!quoteId) {
-                return;
-            }
-            const next = { ...this.draftScenarioNameByQuoteId };
-            delete next[quoteId];
-            this.draftScenarioNameByQuoteId = next;
-            event.target.blur();
-        }
-    }
-
-    handleScenarioNameCommit(event) {
-        const quoteId = event.target.dataset.quoteId;
-        if (!quoteId || this.isBusy) {
-            return;
-        }
-        const opt = this.scenarioOptionViews.find((o) => o.quoteId === quoteId);
-        if (!opt) {
-            return;
-        }
-        const nextName = String(opt.nameValue || '').trim();
-        if (!nextName) {
-            const revert = { ...this.draftScenarioNameByQuoteId };
-            delete revert[quoteId];
-            this.draftScenarioNameByQuoteId = revert;
-            this.dispatchEvent(
-                new ShowToastEvent({
-                    title: 'Name required',
-                    message: 'Option name cannot be blank.',
-                    variant: 'warning'
-                })
-            );
-            return;
-        }
-        if (nextName === String(opt.name || '').trim()) {
-            const clear = { ...this.draftScenarioNameByQuoteId };
-            delete clear[quoteId];
-            this.draftScenarioNameByQuoteId = clear;
-            return;
-        }
-        this.scenarioBusyQuoteId = quoteId;
-        renameScenario({ quoteId, name: nextName })
-            .then((result) => {
-                this.scenarioBusyQuoteId = undefined;
-                if (!result?.success) {
-                    this.dispatchEvent(
-                        new ShowToastEvent({
-                            title: 'Could not rename option',
-                            message: result?.message || 'Unknown error',
-                            variant: 'error'
-                        })
-                    );
-                    return;
-                }
-                const clear = { ...this.draftScenarioNameByQuoteId };
-                delete clear[quoteId];
-                this.draftScenarioNameByQuoteId = clear;
-                if (quoteId === this.quoteId) {
-                    this.quoteName = nextName;
-                }
-                // Patch local compare cache so the new name shows without a full reload.
-                if (this.scenarioCompare?.scenarios) {
-                    this.scenarioCompare = {
-                        ...this.scenarioCompare,
-                        scenarios: this.scenarioCompare.scenarios.map((col) =>
-                            col.quoteId === quoteId ? { ...col, name: nextName } : col
-                        )
-                    };
-                }
-            })
-            .catch((e) => {
-                this.scenarioBusyQuoteId = undefined;
-                this.dispatchEvent(
-                    new ShowToastEvent({
-                        title: 'Could not rename option',
-                        message: this._reduceError(e),
-                        variant: 'error'
-                    })
-                );
-            });
-    }
-
-    handleScenarioOptionUpdate(event) {
-        const quoteId = event.currentTarget.dataset.quoteId;
-        if (!quoteId) {
-            return;
-        }
-        const opt = this.scenarioOptionViews.find((o) => o.quoteId === quoteId);
-        const dirty = (opt?.lineRows || []).filter(
-            (r) => r.isDirty && !r.updateDisabled
-        );
-        if (!dirty.length) {
-            return;
-        }
-        this.scenarioBusyQuoteId = quoteId;
-        const runNext = (index) => {
-            if (index >= dirty.length) {
-                this.scenarioBusyQuoteId = undefined;
-                this.dispatchEvent(
-                    new ShowToastEvent({
-                        title: 'Option updated',
-                        message: 'Lines saved and repriced.',
-                        variant: 'success'
-                    })
-                );
-                if (quoteId === this.quoteId) {
-                    this._load();
-                } else {
-                    this._loadScenarioCompare();
-                }
-                return;
-            }
-            const row = dirty[index];
-            const qty = Number(row.draftQuantity);
-            const discount = Number(row.draftDiscount);
-            const startDate = row.draftStartDate || null;
-            const qtyChanged = Number(qty) !== Number(row.quantity);
-            const discChanged =
-                Number(discount) !== Number(row.discountPercent || 0);
-            const startChanged =
-                (startDate || '') !== (this._toDateInput(row.startDate) || '');
-            updateWorkingLineQuantity({
-                quoteId,
-                lineItemId: row.id,
-                newQuantity: qtyChanged ? qty : null,
-                discountPercent: discChanged ? discount : null,
-                startDate: startChanged ? startDate : null
-            })
-                .then(() => {
-                    const nextQty = { ...this.draftQtyByLineId };
-                    const nextDisc = { ...this.draftDiscountByLineId };
-                    const nextStart = { ...this.draftStartByLineId };
-                    delete nextQty[row.id];
-                    delete nextDisc[row.id];
-                    delete nextStart[row.id];
-                    this.draftQtyByLineId = nextQty;
-                    this.draftDiscountByLineId = nextDisc;
-                    this.draftStartByLineId = nextStart;
-                    runNext(index + 1);
-                })
-                .catch((e) => {
-                    this.scenarioBusyQuoteId = undefined;
-                    this.dispatchEvent(
-                        new ShowToastEvent({
-                            title: 'Could not update option',
-                            message: this._reduceError(e),
-                            variant: 'error'
-                        })
-                    );
-                });
-        };
-        runNext(0);
-    }
-
-    handleScenarioOpen(event) {
-        const quoteId = event.currentTarget.dataset.quoteId;
-        if (!quoteId || quoteId === this.quoteId) {
-            return;
-        }
-        // Open the sibling option's Quote record (Studio is embedded there).
-        this[NavigationMixin.Navigate]({
-            type: 'standard__recordPage',
-            attributes: {
-                recordId: quoteId,
-                objectApiName: 'Quote',
-                actionName: 'view'
-            }
-        });
-    }
-
-    handleScenarioSelectForecast(event) {
-        const quoteId = event.currentTarget.dataset.quoteId;
-        if (!quoteId || !this.opportunityId) {
-            return;
-        }
-        this.scenarioBusyQuoteId = quoteId;
-        setForecastScenario({
-            opportunityId: this.opportunityId,
-            quoteId
-        })
-            .then((result) => {
-                this.scenarioBusyQuoteId = undefined;
-                if (!result?.success) {
-                    this.dispatchEvent(
-                        new ShowToastEvent({
-                            title: 'Could not set forecast',
-                            message: result?.message || 'Unknown error',
-                            variant: 'error'
-                        })
-                    );
-                    return;
-                }
-                if (result.message) {
-                    this.dispatchEvent(
-                        new ShowToastEvent({
-                            title: 'Forecast set — reprice needed',
-                            message: result.message,
-                            variant: 'warning',
-                            mode: 'sticky'
-                        })
-                    );
-                } else {
-                    this.dispatchEvent(
-                        new ShowToastEvent({
-                            title: 'Forecast updated',
-                            message:
-                                'Synced to the Opportunity and repriced — ready for Create Order.',
-                            variant: 'success'
-                        })
-                    );
-                }
-                this._loadScenarioCompare();
-                if (quoteId === this.quoteId) {
-                    this._load();
-                }
-            })
-            .catch((e) => {
-                this.scenarioBusyQuoteId = undefined;
-                this.dispatchEvent(
-                    new ShowToastEvent({
-                        title: 'Could not set forecast',
-                        message: this._reduceError(e),
-                        variant: 'error'
-                    })
-                );
-            });
-    }
-
-    handleDuplicateScenario(event) {
-        const sourceQuoteId =
-            event?.currentTarget?.dataset?.quoteId || this.quoteId;
-        if (!sourceQuoteId) {
-            return;
-        }
-        const n = Math.max(this.scenarioOptionViews.length, 1) + 1;
-        const label = `Option ${n}`;
-        this.scenarioLoading = true;
-        createScenario({
-            sourceQuoteId,
-            label,
-            opportunityId: this.opportunityId || null
-        })
-            .then((result) => {
-                this.scenarioLoading = false;
-                if (!result?.success) {
-                    this.dispatchEvent(
-                        new ShowToastEvent({
-                            title: 'Could not duplicate scenario',
-                            message: result?.message || 'Unknown error',
-                            variant: 'error'
-                        })
-                    );
-                    return;
-                }
-                if (result.opportunityId) {
-                    this.opportunityId = result.opportunityId;
-                }
-                this.dispatchEvent(
-                    new ShowToastEvent({
-                        title: 'Scenario created',
-                        message: `${label} added below — edit lines, then Set forecast when ready.`,
-                        variant: 'success'
-                    })
-                );
-                this._load();
-            })
-            .catch((e) => {
-                this.scenarioLoading = false;
-                this.dispatchEvent(
-                    new ShowToastEvent({
-                        title: 'Could not duplicate scenario',
-                        message: this._reduceError(e),
-                        variant: 'error'
-                    })
-                );
-            });
     }
 
     _deltaClass(value) {

@@ -3,7 +3,7 @@
     <apiVersion>67.0</apiVersion>
     <isExposed>true</isExposed>
     <masterLabel>RLM Amendment Studio</masterLabel>
-    <description>Amendment workspace: catalog rail, working Quote lines, KPI impact, and installed ledger drawer.</description>
+    <description>Amendment workspace: catalog rail, Current / This add / Finalized KPIs, and Asset history drawer. Line edits use OOTB TLE.</description>
     <targets>
         <target>lightning__AppPage</target>
         <target>lightning__RecordPage</target>

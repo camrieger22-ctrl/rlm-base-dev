@@ -1,198 +1,198 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version='1.0' encoding='UTF-8'?>
 <OmniDataTransform xmlns="http://soap.sforce.com/2006/04/metadata">
     <active>false</active>
     <assignmentRulesUsed>false</assignmentRulesUsed>
     <deletedOnSuccess>false</deletedOnSuccess>
     <errorIgnored>false</errorIgnored>
     <expectedInputJson>{
-  &quot;BillingCity&quot; : &quot;New York&quot;,
-  &quot;QuoteId&quot; : &quot;0Q0Ka000000EXAMPLE&quot;,
-  &quot;ShippingStreet&quot; : &quot;10 Main Rd.&quot;,
-  &quot;Line&quot; : [ {
-    &quot;NetUnitPrice&quot; : &quot;$0.00&quot;,
-    &quot;ProductName&quot; : &quot;QuantumBit Complete Solution&quot;,
-    &quot;NetTotalPrice&quot; : &quot;$0.00&quot;,
-    &quot;Quantity&quot; : 1,
-    &quot;ListPrice&quot; : &quot;$0.00&quot;,
-    &quot;CQL&quot; : [ {
-      &quot;NetUnitPrice&quot; : &quot;$0.00&quot;,
-      &quot;ProductName&quot; : &quot;QuantumBit Services Project&quot;,
-      &quot;NetTotalPrice&quot; : &quot;$0.00&quot;,
-      &quot;Quantity&quot; : 1,
-      &quot;CQL2&quot; : [ {
-        &quot;NetUnitPrice&quot; : &quot;$240.00&quot;,
-        &quot;Discount&quot; : &quot;20&quot;,
-        &quot;ProductName&quot; : &quot;Project Manager&quot;,
-        &quot;NetTotalPrice&quot; : &quot;$1,920.00&quot;,
-        &quot;Quantity&quot; : 8,
-        &quot;ListPrice&quot; : &quot;$300.00&quot;
+  "BillingCity" : "New York",
+  "QuoteId" : "0Q0Ka000000EXAMPLE",
+  "ShippingStreet" : "10 Main Rd.",
+  "Line" : [ {
+    "NetUnitPrice" : "$0.00",
+    "ProductName" : "QuantumBit Complete Solution",
+    "NetTotalPrice" : "$0.00",
+    "Quantity" : 1,
+    "ListPrice" : "$0.00",
+    "CQL" : [ {
+      "NetUnitPrice" : "$0.00",
+      "ProductName" : "QuantumBit Services Project",
+      "NetTotalPrice" : "$0.00",
+      "Quantity" : 1,
+      "CQL2" : [ {
+        "NetUnitPrice" : "$240.00",
+        "Discount" : "20",
+        "ProductName" : "Project Manager",
+        "NetTotalPrice" : "$1,920.00",
+        "Quantity" : 8,
+        "ListPrice" : "$300.00"
       }, {
-        &quot;NetUnitPrice&quot; : &quot;$300.00&quot;,
-        &quot;ProductName&quot; : &quot;Implementation Engineer&quot;,
-        &quot;NetTotalPrice&quot; : &quot;$2,400.00&quot;,
-        &quot;Quantity&quot; : 8,
-        &quot;ListPrice&quot; : &quot;$300.00&quot;
+        "NetUnitPrice" : "$300.00",
+        "ProductName" : "Implementation Engineer",
+        "NetTotalPrice" : "$2,400.00",
+        "Quantity" : 8,
+        "ListPrice" : "$300.00"
       }, {
-        &quot;NetUnitPrice&quot; : &quot;$500.00&quot;,
-        &quot;ProductName&quot; : &quot;Solutions Architect&quot;,
-        &quot;NetTotalPrice&quot; : &quot;$4,000.00&quot;,
-        &quot;Quantity&quot; : 8,
-        &quot;ListPrice&quot; : &quot;$500.00&quot;
+        "NetUnitPrice" : "$500.00",
+        "ProductName" : "Solutions Architect",
+        "NetTotalPrice" : "$4,000.00",
+        "Quantity" : 8,
+        "ListPrice" : "$500.00"
       } ],
-      &quot;ListPrice&quot; : &quot;$0.00&quot;
+      "ListPrice" : "$0.00"
     }, {
-      &quot;NetUnitPrice&quot; : &quot;$45.00&quot;,
-      &quot;ProductName&quot; : &quot;API Access Requests (AEH)&quot;,
-      &quot;NetTotalPrice&quot; : &quot;$9,000.00&quot;,
-      &quot;Quantity&quot; : 100,
-      &quot;ListPrice&quot; : &quot;$45.00&quot;
+      "NetUnitPrice" : "$45.00",
+      "ProductName" : "API Access Requests (AEH)",
+      "NetTotalPrice" : "$9,000.00",
+      "Quantity" : 100,
+      "ListPrice" : "$45.00"
     }, {
-      &quot;NetUnitPrice&quot; : &quot;$12,000.00&quot;,
-      &quot;ProductName&quot; : &quot;QuantumBit Database&quot;,
-      &quot;NetTotalPrice&quot; : &quot;$24,000.00&quot;,
-      &quot;Quantity&quot; : 1,
-      &quot;ListPrice&quot; : &quot;$12,000.00&quot;
+      "NetUnitPrice" : "$12,000.00",
+      "ProductName" : "QuantumBit Database",
+      "NetTotalPrice" : "$24,000.00",
+      "Quantity" : 1,
+      "ListPrice" : "$12,000.00"
     }, {
-      &quot;NetUnitPrice&quot; : &quot;$12,000.00&quot;,
-      &quot;ProductName&quot; : &quot;QB API Management Solution&quot;,
-      &quot;NetTotalPrice&quot; : &quot;$24,000.00&quot;,
-      &quot;Quantity&quot; : 1,
-      &quot;ListPrice&quot; : &quot;$12,000.00&quot;
+      "NetUnitPrice" : "$12,000.00",
+      "ProductName" : "QB API Management Solution",
+      "NetTotalPrice" : "$24,000.00",
+      "Quantity" : 1,
+      "ListPrice" : "$12,000.00"
     }, {
-      &quot;NetUnitPrice&quot; : &quot;$250.00&quot;,
-      &quot;ProductName&quot; : &quot;Professional Services Daily Rate&quot;,
-      &quot;NetTotalPrice&quot; : &quot;$62,500.00&quot;,
-      &quot;Quantity&quot; : 250,
-      &quot;ListPrice&quot; : &quot;$250.00&quot;
+      "NetUnitPrice" : "$250.00",
+      "ProductName" : "Professional Services Daily Rate",
+      "NetTotalPrice" : "$62,500.00",
+      "Quantity" : 250,
+      "ListPrice" : "$250.00"
     }, {
-      &quot;NetUnitPrice&quot; : &quot;$8,500.00&quot;,
-      &quot;ProductName&quot; : &quot;QuantumBit Essentials Training&quot;,
-      &quot;NetTotalPrice&quot; : &quot;$8,500.00&quot;,
-      &quot;Quantity&quot; : 1,
-      &quot;ListPrice&quot; : &quot;$8,500.00&quot;
+      "NetUnitPrice" : "$8,500.00",
+      "ProductName" : "QuantumBit Essentials Training",
+      "NetTotalPrice" : "$8,500.00",
+      "Quantity" : 1,
+      "ListPrice" : "$8,500.00"
     } ]
   }, {
-    &quot;NetUnitPrice&quot; : &quot;$9,000.00&quot;,
-    &quot;Discount&quot; : &quot;10&quot;,
-    &quot;ProductName&quot; : &quot;Additional API&quot;,
-    &quot;NetTotalPrice&quot; : &quot;$9,000.00&quot;,
-    &quot;Quantity&quot; : 1,
-    &quot;ListPrice&quot; : &quot;$15,000.00&quot;
+    "NetUnitPrice" : "$9,000.00",
+    "Discount" : "10",
+    "ProductName" : "Additional API",
+    "NetTotalPrice" : "$9,000.00",
+    "Quantity" : 1,
+    "ListPrice" : "$15,000.00"
   } ],
-  &quot;QuoteNumber&quot; : &quot;00000138&quot;,
-  &quot;ExpirationDate&quot; : &quot;02/11/2026&quot;,
-  &quot;BillingStreet&quot; : &quot;10 Main Rd.&quot;,
-  &quot;GrandTotal&quot; : &quot;$145,320.00&quot;,
-  &quot;CreatedDate&quot; : &quot;01/13/2026&quot;,
-  &quot;BillingPostalCode&quot; : &quot;31349&quot;,
-  &quot;BillingState&quot; : &quot;NY&quot;,
-  &quot;AccountName&quot; : &quot;Acme&quot;,
-  &quot;SalesRep&quot; : &quot;Sample User&quot;,
-  &quot;SellerCompanyName&quot; : &quot;Sample Company&quot;,
-  &quot;SellerStreet&quot; : &quot;100 Main St&quot;,
-  &quot;SellerCity&quot; : &quot;Chicago&quot;,
-  &quot;SellerState&quot; : &quot;IL&quot;,
-  &quot;SellerPostalCode&quot; : &quot;60601&quot;,
-  &quot;SellerPhone&quot; : &quot;312-555-0100&quot;,
-  &quot;SellerFax&quot; : &quot;312-555-0101&quot;,
-  &quot;SellerEmail&quot; : &quot;admin@example.com&quot;,
-  &quot;SellerWebsite&quot; : &quot;www.example.com&quot;,
-  &quot;SellerCountry&quot; : &quot;US&quot;
+  "QuoteNumber" : "00000138",
+  "ExpirationDate" : "02/11/2026",
+  "BillingStreet" : "10 Main Rd.",
+  "GrandTotal" : "$145,320.00",
+  "CreatedDate" : "01/13/2026",
+  "BillingPostalCode" : "31349",
+  "BillingState" : "NY",
+  "AccountName" : "Acme",
+  "SalesRep" : "Sample User",
+  "SellerCompanyName" : "Sample Company",
+  "SellerStreet" : "100 Main St",
+  "SellerCity" : "Chicago",
+  "SellerState" : "IL",
+  "SellerPostalCode" : "60601",
+  "SellerPhone" : "312-555-0100",
+  "SellerFax" : "312-555-0101",
+  "SellerEmail" : "admin@example.com",
+  "SellerWebsite" : "www.example.com",
+  "SellerCountry" : "US"
 }</expectedInputJson>
     <expectedOutputJson>{
-  &quot;BillingCity&quot; : &quot;New York&quot;,
-  &quot;QuoteId&quot; : &quot;0Q0Ka000000EXAMPLE&quot;,
-  &quot;ShippingStreet&quot; : &quot;10 Main Rd.&quot;,
-  &quot;Line&quot; : [ {
-    &quot;NetUnitPrice&quot; : &quot;$0.00&quot;,
-    &quot;ProductName&quot; : &quot;QuantumBit Complete Solution&quot;,
-    &quot;NetTotalPrice&quot; : &quot;$0.00&quot;,
-    &quot;Quantity&quot; : 1,
-    &quot;ListPrice&quot; : &quot;$0.00&quot;,
-    &quot;CQL&quot; : [ {
-      &quot;NetUnitPrice&quot; : &quot;$0.00&quot;,
-      &quot;ProductName&quot; : &quot;QuantumBit Services Project&quot;,
-      &quot;NetTotalPrice&quot; : &quot;$0.00&quot;,
-      &quot;Quantity&quot; : 1,
-      &quot;CQL2&quot; : [ {
-        &quot;NetUnitPrice&quot; : &quot;$240.00&quot;,
-        &quot;Discount&quot; : &quot;20&quot;,
-        &quot;ProductName&quot; : &quot;Project Manager&quot;,
-        &quot;NetTotalPrice&quot; : &quot;$1,920.00&quot;,
-        &quot;Quantity&quot; : 8,
-        &quot;ListPrice&quot; : &quot;$300.00&quot;
+  "BillingCity" : "New York",
+  "QuoteId" : "0Q0Ka000000EXAMPLE",
+  "ShippingStreet" : "10 Main Rd.",
+  "Line" : [ {
+    "NetUnitPrice" : "$0.00",
+    "ProductName" : "QuantumBit Complete Solution",
+    "NetTotalPrice" : "$0.00",
+    "Quantity" : 1,
+    "ListPrice" : "$0.00",
+    "CQL" : [ {
+      "NetUnitPrice" : "$0.00",
+      "ProductName" : "QuantumBit Services Project",
+      "NetTotalPrice" : "$0.00",
+      "Quantity" : 1,
+      "CQL2" : [ {
+        "NetUnitPrice" : "$240.00",
+        "Discount" : "20",
+        "ProductName" : "Project Manager",
+        "NetTotalPrice" : "$1,920.00",
+        "Quantity" : 8,
+        "ListPrice" : "$300.00"
       }, {
-        &quot;NetUnitPrice&quot; : &quot;$300.00&quot;,
-        &quot;ProductName&quot; : &quot;Implementation Engineer&quot;,
-        &quot;NetTotalPrice&quot; : &quot;$2,400.00&quot;,
-        &quot;Quantity&quot; : 8,
-        &quot;ListPrice&quot; : &quot;$300.00&quot;
+        "NetUnitPrice" : "$300.00",
+        "ProductName" : "Implementation Engineer",
+        "NetTotalPrice" : "$2,400.00",
+        "Quantity" : 8,
+        "ListPrice" : "$300.00"
       }, {
-        &quot;NetUnitPrice&quot; : &quot;$500.00&quot;,
-        &quot;ProductName&quot; : &quot;Solutions Architect&quot;,
-        &quot;NetTotalPrice&quot; : &quot;$4,000.00&quot;,
-        &quot;Quantity&quot; : 8,
-        &quot;ListPrice&quot; : &quot;$500.00&quot;
+        "NetUnitPrice" : "$500.00",
+        "ProductName" : "Solutions Architect",
+        "NetTotalPrice" : "$4,000.00",
+        "Quantity" : 8,
+        "ListPrice" : "$500.00"
       } ],
-      &quot;ListPrice&quot; : &quot;$0.00&quot;
+      "ListPrice" : "$0.00"
     }, {
-      &quot;NetUnitPrice&quot; : &quot;$45.00&quot;,
-      &quot;ProductName&quot; : &quot;API Access Requests (AEH)&quot;,
-      &quot;NetTotalPrice&quot; : &quot;$9,000.00&quot;,
-      &quot;Quantity&quot; : 100,
-      &quot;ListPrice&quot; : &quot;$45.00&quot;
+      "NetUnitPrice" : "$45.00",
+      "ProductName" : "API Access Requests (AEH)",
+      "NetTotalPrice" : "$9,000.00",
+      "Quantity" : 100,
+      "ListPrice" : "$45.00"
     }, {
-      &quot;NetUnitPrice&quot; : &quot;$12,000.00&quot;,
-      &quot;ProductName&quot; : &quot;QuantumBit Database&quot;,
-      &quot;NetTotalPrice&quot; : &quot;$24,000.00&quot;,
-      &quot;Quantity&quot; : 1,
-      &quot;ListPrice&quot; : &quot;$12,000.00&quot;
+      "NetUnitPrice" : "$12,000.00",
+      "ProductName" : "QuantumBit Database",
+      "NetTotalPrice" : "$24,000.00",
+      "Quantity" : 1,
+      "ListPrice" : "$12,000.00"
     }, {
-      &quot;NetUnitPrice&quot; : &quot;$12,000.00&quot;,
-      &quot;ProductName&quot; : &quot;QB API Management Solution&quot;,
-      &quot;NetTotalPrice&quot; : &quot;$24,000.00&quot;,
-      &quot;Quantity&quot; : 1,
-      &quot;ListPrice&quot; : &quot;$12,000.00&quot;
+      "NetUnitPrice" : "$12,000.00",
+      "ProductName" : "QB API Management Solution",
+      "NetTotalPrice" : "$24,000.00",
+      "Quantity" : 1,
+      "ListPrice" : "$12,000.00"
     }, {
-      &quot;NetUnitPrice&quot; : &quot;$250.00&quot;,
-      &quot;ProductName&quot; : &quot;Professional Services Daily Rate&quot;,
-      &quot;NetTotalPrice&quot; : &quot;$62,500.00&quot;,
-      &quot;Quantity&quot; : 250,
-      &quot;ListPrice&quot; : &quot;$250.00&quot;
+      "NetUnitPrice" : "$250.00",
+      "ProductName" : "Professional Services Daily Rate",
+      "NetTotalPrice" : "$62,500.00",
+      "Quantity" : 250,
+      "ListPrice" : "$250.00"
     }, {
-      &quot;NetUnitPrice&quot; : &quot;$8,500.00&quot;,
-      &quot;ProductName&quot; : &quot;QuantumBit Essentials Training&quot;,
-      &quot;NetTotalPrice&quot; : &quot;$8,500.00&quot;,
-      &quot;Quantity&quot; : 1,
-      &quot;ListPrice&quot; : &quot;$8,500.00&quot;
+      "NetUnitPrice" : "$8,500.00",
+      "ProductName" : "QuantumBit Essentials Training",
+      "NetTotalPrice" : "$8,500.00",
+      "Quantity" : 1,
+      "ListPrice" : "$8,500.00"
     } ]
   }, {
-    &quot;NetUnitPrice&quot; : &quot;$9,000.00&quot;,
-    &quot;Discount&quot; : &quot;10&quot;,
-    &quot;ProductName&quot; : &quot;Additional API&quot;,
-    &quot;NetTotalPrice&quot; : &quot;$9,000.00&quot;,
-    &quot;Quantity&quot; : 1,
-    &quot;ListPrice&quot; : &quot;$15,000.00&quot;
+    "NetUnitPrice" : "$9,000.00",
+    "Discount" : "10",
+    "ProductName" : "Additional API",
+    "NetTotalPrice" : "$9,000.00",
+    "Quantity" : 1,
+    "ListPrice" : "$15,000.00"
   } ],
-  &quot;QuoteNumber&quot; : &quot;00000138&quot;,
-  &quot;ExpirationDate&quot; : &quot;02/11/2026&quot;,
-  &quot;BillingStreet&quot; : &quot;10 Main Rd.&quot;,
-  &quot;GrandTotal&quot; : &quot;$145,320.00&quot;,
-  &quot;CreatedDate&quot; : &quot;01/13/2026&quot;,
-  &quot;BillingPostalCode&quot; : &quot;31349&quot;,
-  &quot;BillingState&quot; : &quot;NY&quot;,
-  &quot;AccountName&quot; : &quot;Acme&quot;,
-  &quot;SalesRep&quot; : &quot;Sample User&quot;,
-  &quot;SellerCompanyName&quot; : &quot;Sample Company&quot;,
-  &quot;SellerStreet&quot; : &quot;100 Main St&quot;,
-  &quot;SellerCity&quot; : &quot;Chicago&quot;,
-  &quot;SellerState&quot; : &quot;IL&quot;,
-  &quot;SellerPostalCode&quot; : &quot;60601&quot;,
-  &quot;SellerPhone&quot; : &quot;312-555-0100&quot;,
-  &quot;SellerFax&quot; : &quot;312-555-0101&quot;,
-  &quot;SellerEmail&quot; : &quot;admin@example.com&quot;,
-  &quot;SellerWebsite&quot; : &quot;www.example.com&quot;,
-  &quot;SellerCountry&quot; : &quot;US&quot;
+  "QuoteNumber" : "00000138",
+  "ExpirationDate" : "02/11/2026",
+  "BillingStreet" : "10 Main Rd.",
+  "GrandTotal" : "$145,320.00",
+  "CreatedDate" : "01/13/2026",
+  "BillingPostalCode" : "31349",
+  "BillingState" : "NY",
+  "AccountName" : "Acme",
+  "SalesRep" : "Sample User",
+  "SellerCompanyName" : "Sample Company",
+  "SellerStreet" : "100 Main St",
+  "SellerCity" : "Chicago",
+  "SellerState" : "IL",
+  "SellerPostalCode" : "60601",
+  "SellerPhone" : "312-555-0100",
+  "SellerFax" : "312-555-0101",
+  "SellerEmail" : "admin@example.com",
+  "SellerWebsite" : "www.example.com",
+  "SellerCountry" : "US"
 }</expectedOutputJson>
     <fieldLevelSecurityEnabled>false</fieldLevelSecurityEnabled>
     <inputType>JSON</inputType>
@@ -871,101 +871,101 @@
         <requiredForUpsert>false</requiredForUpsert>
         <upsertKey>false</upsertKey>
     </omniDataTransformItem>
-    <outputType>JSON</outputType>
+    <omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>98d2ef7c-6b34-4be9-ab25-cf1f5354f482</globalKey><inputFieldName>AmendProduct:ProductName</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProduct:ProductName</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>e1baaf13-f3ea-4d03-8654-f501384106d5</globalKey><inputFieldName>AmendProduct:IsAmending</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProduct:IsAmending</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>a1f2dcad-91f0-4bea-b72e-c4ef66cab47f</globalKey><inputFieldName>AmendProduct:CurrentQty</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProduct:CurrentQty</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>f7890c09-71f8-4c97-a2f4-229341c3124e</globalKey><inputFieldName>AmendProduct:CurrentARR</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProduct:CurrentARR</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>b8db0915-83ab-40bd-bc59-8b639a49f7dd</globalKey><inputFieldName>AmendProduct:CurrentMRR</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProduct:CurrentMRR</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>7515b98a-160f-4bbc-ad8e-a40a0d359e26</globalKey><inputFieldName>AmendProduct:ThisAddQty</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProduct:ThisAddQty</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>0404a940-d34d-43fb-87bf-93b52b03bcd6</globalKey><inputFieldName>AmendProduct:ThisAddARR</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProduct:ThisAddARR</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>b775ab99-e57e-4c24-87c9-7fe0d27d9e12</globalKey><inputFieldName>AmendProduct:ThisAddMRR</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProduct:ThisAddMRR</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>228a15b3-ee36-4227-9209-7cb017bcf339</globalKey><inputFieldName>AmendProduct:FinalizedQty</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProduct:FinalizedQty</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>788991d4-e933-4711-842b-8bdc1a465ce4</globalKey><inputFieldName>AmendProduct:FinalizedARR</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProduct:FinalizedARR</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>987c1df9-0968-4151-abb7-758c55afa40b</globalKey><inputFieldName>AmendProduct:FinalizedMRR</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProduct:FinalizedMRR</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>6bf66143-b292-4484-8983-f9f91a323dec</globalKey><inputFieldName>AmendThisAddProrated</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendThisAddProrated</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>b5c004f1-e3c5-4e0c-afba-e2f54cc0c9d0</globalKey><inputFieldName>AmendProduct:AmendingBadge</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProduct:AmendingBadge</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>00a5bb2b-3160-403f-9bbd-1f60f6e8bcfe</globalKey><inputFieldName>AmendProduct:ThisAddProrated</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProduct:ThisAddProrated</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>13f5aaf7-d6a7-448e-a8a3-c7ddb9243378</globalKey><inputFieldName>AmendAddProduct:ProductName</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendAddProduct:ProductName</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>ffa02406-0766-43c8-8a56-2b129b7f8318</globalKey><inputFieldName>AmendAddProduct:Qty</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendAddProduct:Qty</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>e1f2454a-f4db-4a02-82e7-52f93b926d4a</globalKey><inputFieldName>AmendAddProduct:ARR</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendAddProduct:ARR</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>f6d1ee95-a6cb-4bae-a9dc-3fa606dfc366</globalKey><inputFieldName>AmendAddProduct:MRR</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendAddProduct:MRR</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>50c00abe-796f-4364-9019-91b9856892d9</globalKey><inputFieldName>AmendAddProduct:Prorated</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendAddProduct:Prorated</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>69fdc6f2-2b1c-4a14-bc04-f667fb1eba7b</globalKey><inputFieldName>AmendProductAmending:ProductName</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProductAmending:ProductName</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>efdc9231-396a-430b-8eb9-dfd48ad2bca2</globalKey><inputFieldName>AmendProductAmending:AmendingBadge</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProductAmending:AmendingBadge</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>a1b3e30c-c5fc-48e8-a8e2-a27cb4a09195</globalKey><inputFieldName>AmendProductAmending:CurrentQty</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProductAmending:CurrentQty</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>50ab3475-f35c-4dec-a5fd-b14311da35fe</globalKey><inputFieldName>AmendProductAmending:CurrentARR</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProductAmending:CurrentARR</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>cf7408c3-2275-4204-a130-94d85b2ea648</globalKey><inputFieldName>AmendProductAmending:CurrentMRR</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProductAmending:CurrentMRR</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>9ff5bb33-8588-4a8a-bad0-1a6d1bbd04e5</globalKey><inputFieldName>AmendProductAmending:ThisAddQty</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProductAmending:ThisAddQty</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>2bdbcdeb-e56d-4c67-8533-e069cc5c2654</globalKey><inputFieldName>AmendProductAmending:ThisAddARR</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProductAmending:ThisAddARR</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>89c01233-9b09-437a-b0c9-9a46c9f791f8</globalKey><inputFieldName>AmendProductAmending:ThisAddMRR</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProductAmending:ThisAddMRR</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>b88747ab-4c83-42ca-808f-42f1006f7c27</globalKey><inputFieldName>AmendProductAmending:FinalizedQty</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProductAmending:FinalizedQty</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>4e13895e-bc1a-4dbb-a6a1-a97b94dd31a0</globalKey><inputFieldName>AmendProductAmending:FinalizedARR</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProductAmending:FinalizedARR</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>d5accc14-4ba1-4704-93d5-cc6dde8edd7f</globalKey><inputFieldName>AmendProductAmending:FinalizedMRR</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProductAmending:FinalizedMRR</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>def1dd33-bd3d-4f74-9a69-c10492c1f83b</globalKey><inputFieldName>AmendProductOther:ProductName</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProductOther:ProductName</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>5bdd7924-5b9c-4bdb-b085-bc903b8cc66a</globalKey><inputFieldName>AmendProductOther:CurrentQty</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProductOther:CurrentQty</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>3dd82c8e-205a-42cf-ae37-d5b441e70f3b</globalKey><inputFieldName>AmendProductOther:CurrentARR</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProductOther:CurrentARR</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>23be4be3-b77e-465b-b12a-9c0e3f1b822a</globalKey><inputFieldName>AmendProductOther:CurrentMRR</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProductOther:CurrentMRR</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>f8f918b0-f2dc-42ee-b069-48780afc6413</globalKey><inputFieldName>AmendProductOther:FinalizedQty</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProductOther:FinalizedQty</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>91dac979-01f2-4ecb-a98d-c20278660a40</globalKey><inputFieldName>AmendProductOther:FinalizedARR</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProductOther:FinalizedARR</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>7fe010e4-0a1f-46ca-ab8d-1f1636a2347b</globalKey><inputFieldName>AmendProductOther:FinalizedMRR</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProductOther:FinalizedMRR</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>2dd4e0bc-a710-4f84-8546-249be214133b</globalKey><inputFieldName>AmendAddProduct:StartDate</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendAddProduct:StartDate</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>c2eb8521-be2a-4d6f-bc81-15ea3ddeb8b1</globalKey><inputFieldName>AmendAddProduct:EndDate</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendAddProduct:EndDate</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>49f92c0f-7cd0-4d6c-b6e6-02bfdf766935</globalKey><inputFieldName>AmendAddProduct:DiscountLabel</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendAddProduct:DiscountLabel</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>1b1de70a-7575-4fb7-b5c2-8c55e017fe61</globalKey><inputFieldName>AmendAddProduct:DiscountLabel</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendAddProduct:DiscountLabel</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><outputType>JSON</outputType>
     <previewJsonData>{
-  &quot;BillingCity&quot; : &quot;New York&quot;,
-  &quot;QuoteId&quot; : &quot;0Q0Ka000000EXAMPLE&quot;,
-  &quot;ShippingStreet&quot; : &quot;10 Main Rd.&quot;,
-  &quot;Line&quot; : [ {
-    &quot;NetUnitPrice&quot; : &quot;$0.00&quot;,
-    &quot;ProductName&quot; : &quot;QuantumBit Complete Solution&quot;,
-    &quot;NetTotalPrice&quot; : &quot;$0.00&quot;,
-    &quot;Quantity&quot; : 1,
-    &quot;ListPrice&quot; : &quot;$0.00&quot;,
-    &quot;CQL&quot; : [ {
-      &quot;NetUnitPrice&quot; : &quot;$0.00&quot;,
-      &quot;ProductName&quot; : &quot;QuantumBit Services Project&quot;,
-      &quot;NetTotalPrice&quot; : &quot;$0.00&quot;,
-      &quot;Quantity&quot; : 1,
-      &quot;CQL2&quot; : [ {
-        &quot;NetUnitPrice&quot; : &quot;$240.00&quot;,
-        &quot;Discount&quot; : &quot;20&quot;,
-        &quot;ProductName&quot; : &quot;Project Manager&quot;,
-        &quot;NetTotalPrice&quot; : &quot;$1,920.00&quot;,
-        &quot;Quantity&quot; : 8,
-        &quot;ListPrice&quot; : &quot;$300.00&quot;
+  "BillingCity" : "New York",
+  "QuoteId" : "0Q0Ka000000EXAMPLE",
+  "ShippingStreet" : "10 Main Rd.",
+  "Line" : [ {
+    "NetUnitPrice" : "$0.00",
+    "ProductName" : "QuantumBit Complete Solution",
+    "NetTotalPrice" : "$0.00",
+    "Quantity" : 1,
+    "ListPrice" : "$0.00",
+    "CQL" : [ {
+      "NetUnitPrice" : "$0.00",
+      "ProductName" : "QuantumBit Services Project",
+      "NetTotalPrice" : "$0.00",
+      "Quantity" : 1,
+      "CQL2" : [ {
+        "NetUnitPrice" : "$240.00",
+        "Discount" : "20",
+        "ProductName" : "Project Manager",
+        "NetTotalPrice" : "$1,920.00",
+        "Quantity" : 8,
+        "ListPrice" : "$300.00"
       }, {
-        &quot;NetUnitPrice&quot; : &quot;$300.00&quot;,
-        &quot;ProductName&quot; : &quot;Implementation Engineer&quot;,
-        &quot;NetTotalPrice&quot; : &quot;$2,400.00&quot;,
-        &quot;Quantity&quot; : 8,
-        &quot;ListPrice&quot; : &quot;$300.00&quot;
+        "NetUnitPrice" : "$300.00",
+        "ProductName" : "Implementation Engineer",
+        "NetTotalPrice" : "$2,400.00",
+        "Quantity" : 8,
+        "ListPrice" : "$300.00"
       }, {
-        &quot;NetUnitPrice&quot; : &quot;$500.00&quot;,
-        &quot;ProductName&quot; : &quot;Solutions Architect&quot;,
-        &quot;NetTotalPrice&quot; : &quot;$4,000.00&quot;,
-        &quot;Quantity&quot; : 8,
-        &quot;ListPrice&quot; : &quot;$500.00&quot;
+        "NetUnitPrice" : "$500.00",
+        "ProductName" : "Solutions Architect",
+        "NetTotalPrice" : "$4,000.00",
+        "Quantity" : 8,
+        "ListPrice" : "$500.00"
       } ],
-      &quot;ListPrice&quot; : &quot;$0.00&quot;
+      "ListPrice" : "$0.00"
     }, {
-      &quot;NetUnitPrice&quot; : &quot;$45.00&quot;,
-      &quot;ProductName&quot; : &quot;API Access Requests (AEH)&quot;,
-      &quot;NetTotalPrice&quot; : &quot;$9,000.00&quot;,
-      &quot;Quantity&quot; : 100,
-      &quot;ListPrice&quot; : &quot;$45.00&quot;
+      "NetUnitPrice" : "$45.00",
+      "ProductName" : "API Access Requests (AEH)",
+      "NetTotalPrice" : "$9,000.00",
+      "Quantity" : 100,
+      "ListPrice" : "$45.00"
     }, {
-      &quot;NetUnitPrice&quot; : &quot;$12,000.00&quot;,
-      &quot;ProductName&quot; : &quot;QuantumBit Database&quot;,
-      &quot;NetTotalPrice&quot; : &quot;$24,000.00&quot;,
-      &quot;Quantity&quot; : 1,
-      &quot;ListPrice&quot; : &quot;$12,000.00&quot;
+      "NetUnitPrice" : "$12,000.00",
+      "ProductName" : "QuantumBit Database",
+      "NetTotalPrice" : "$24,000.00",
+      "Quantity" : 1,
+      "ListPrice" : "$12,000.00"
     }, {
-      &quot;NetUnitPrice&quot; : &quot;$12,000.00&quot;,
-      &quot;ProductName&quot; : &quot;QB API Management Solution&quot;,
-      &quot;NetTotalPrice&quot; : &quot;$24,000.00&quot;,
-      &quot;Quantity&quot; : 1,
-      &quot;ListPrice&quot; : &quot;$12,000.00&quot;
+      "NetUnitPrice" : "$12,000.00",
+      "ProductName" : "QB API Management Solution",
+      "NetTotalPrice" : "$24,000.00",
+      "Quantity" : 1,
+      "ListPrice" : "$12,000.00"
     }, {
-      &quot;NetUnitPrice&quot; : &quot;$250.00&quot;,
-      &quot;ProductName&quot; : &quot;Professional Services Daily Rate&quot;,
-      &quot;NetTotalPrice&quot; : &quot;$62,500.00&quot;,
-      &quot;Quantity&quot; : 250,
-      &quot;ListPrice&quot; : &quot;$250.00&quot;
+      "NetUnitPrice" : "$250.00",
+      "ProductName" : "Professional Services Daily Rate",
+      "NetTotalPrice" : "$62,500.00",
+      "Quantity" : 250,
+      "ListPrice" : "$250.00"
     }, {
-      &quot;NetUnitPrice&quot; : &quot;$8,500.00&quot;,
-      &quot;ProductName&quot; : &quot;QuantumBit Essentials Training&quot;,
-      &quot;NetTotalPrice&quot; : &quot;$8,500.00&quot;,
-      &quot;Quantity&quot; : 1,
-      &quot;ListPrice&quot; : &quot;$8,500.00&quot;
+      "NetUnitPrice" : "$8,500.00",
+      "ProductName" : "QuantumBit Essentials Training",
+      "NetTotalPrice" : "$8,500.00",
+      "Quantity" : 1,
+      "ListPrice" : "$8,500.00"
     } ]
   }, {
-    &quot;NetUnitPrice&quot; : &quot;$9,000.00&quot;,
-    &quot;Discount&quot; : &quot;10&quot;,
-    &quot;ProductName&quot; : &quot;Additional API&quot;,
-    &quot;NetTotalPrice&quot; : &quot;$9,000.00&quot;,
-    &quot;Quantity&quot; : 1,
-    &quot;ListPrice&quot; : &quot;$15,000.00&quot;
+    "NetUnitPrice" : "$9,000.00",
+    "Discount" : "10",
+    "ProductName" : "Additional API",
+    "NetTotalPrice" : "$9,000.00",
+    "Quantity" : 1,
+    "ListPrice" : "$15,000.00"
   } ],
-  &quot;QuoteNumber&quot; : &quot;00000138&quot;,
-  &quot;ExpirationDate&quot; : &quot;02/11/2026&quot;,
-  &quot;BillingStreet&quot; : &quot;10 Main Rd.&quot;,
-  &quot;GrandTotal&quot; : &quot;$145,320.00&quot;,
-  &quot;CreatedDate&quot; : &quot;01/13/2026&quot;,
-  &quot;BillingPostalCode&quot; : &quot;31349&quot;,
-  &quot;BillingState&quot; : &quot;NY&quot;,
-  &quot;AccountName&quot; : &quot;Acme&quot;,
-  &quot;SalesRep&quot; : &quot;Sample User&quot;,
-  &quot;SellerCompanyName&quot; : &quot;Sample Company&quot;,
-  &quot;SellerStreet&quot; : &quot;100 Main St&quot;,
-  &quot;SellerCity&quot; : &quot;Chicago&quot;,
-  &quot;SellerState&quot; : &quot;IL&quot;,
-  &quot;SellerPostalCode&quot; : &quot;60601&quot;,
-  &quot;SellerPhone&quot; : &quot;312-555-0100&quot;,
-  &quot;SellerFax&quot; : &quot;312-555-0101&quot;,
-  &quot;SellerEmail&quot; : &quot;admin@example.com&quot;,
-  &quot;SellerWebsite&quot; : &quot;www.example.com&quot;,
-  &quot;SellerCountry&quot; : &quot;US&quot;
+  "QuoteNumber" : "00000138",
+  "ExpirationDate" : "02/11/2026",
+  "BillingStreet" : "10 Main Rd.",
+  "GrandTotal" : "$145,320.00",
+  "CreatedDate" : "01/13/2026",
+  "BillingPostalCode" : "31349",
+  "BillingState" : "NY",
+  "AccountName" : "Acme",
+  "SalesRep" : "Sample User",
+  "SellerCompanyName" : "Sample Company",
+  "SellerStreet" : "100 Main St",
+  "SellerCity" : "Chicago",
+  "SellerState" : "IL",
+  "SellerPostalCode" : "60601",
+  "SellerPhone" : "312-555-0100",
+  "SellerFax" : "312-555-0101",
+  "SellerEmail" : "admin@example.com",
+  "SellerWebsite" : "www.example.com",
+  "SellerCountry" : "US"
 }</previewJsonData>
     <processSuperBulk>false</processSuperBulk>
     <responseCacheTtlMinutes>0.0</responseCacheTtlMinutes>

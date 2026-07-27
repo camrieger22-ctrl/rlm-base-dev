@@ -23,7 +23,9 @@
     <enableTransactionCloning>true</enableTransactionCloning>
     <enableTransactionProcessor>true</enableTransactionProcessor>
     <groupsEnabled>true</groupsEnabled>
-    <hidePriceRefreshNtfcn>false</hidePriceRefreshNtfcn>
+    <!-- Hide QLE "prices outdated / refresh" banner. Instant Pricing + Studio
+         Reprice All still keep prices current; banner was racing edits on Amend. -->
+    <hidePriceRefreshNtfcn>true</hidePriceRefreshNtfcn>
     <persistChunkSizeOverride>true</persistChunkSizeOverride>
     <relaxUniqueCipValidation>true</relaxUniqueCipValidation>
     <skipOrgSttPricing>false</skipOrgSttPricing>
