@@ -182,7 +182,31 @@ patches:
     properties:
       - key: "recordId"
         value: "{!recordId}"
+
+  - type: set_component_visibility
+    identifier: rlm_amendment_studio     # componentInstance identifier
+    visibility:
+      - field: Record.OriginalActionType
+        operator: EQUAL                  # EQUAL | NE | ...
+        value: Amend
+
+  - type: set_component_property
+    identifier: force_highlightsPanel    # componentInstance identifier
+    property: numVisibleActions          # scalar <value> property only
+    value: "6"                           # added when the base omits it
+
+  - type: insert_after_xml
+    anchor: "<name>Facet-abc</name>\n        <type>Facet</type>\n    </flexiPageRegions>"
+    xml: |
+      <flexiPageRegions>
+          ...
+      </flexiPageRegions>
 ```
+
+`set_component_property` targets scalar `<value>` properties; use
+`add_sales_txn_line_editor_field` for `<valueList>` properties. `insert_after_xml`
+is the text-level escape hatch for structures no semantic op builds — notably a
+whole new `flexiPageRegions` block.
 
 **Patch idempotency**: All patch operations deduplicate before inserting. An action or field
 that already exists (from a previous patch in the same run, or from the base file) will not
@@ -194,6 +218,7 @@ be added again.
 1. `templates/layouts/base/` — always
 2. `templates/layouts/billing/` — when `billing=true`
 3. `templates/layouts/constraints/` — when `constraints=true` (overrides `OrderItem` and `QuoteLineItem`)
+4. `templates/layouts/closewon/` — when `closewon=true` (overrides `Quote` to add the Link Opportunity action)
 
 No patching — layouts are copied as-is.
 
@@ -363,7 +388,7 @@ For flexipages with active patches:
 For standalone flexipages (no patches): copy org file directly to the standalone
 template directory.
 
-For layouts: resolve tier ownership (base → billing → constraints, last-wins) and
+For layouts: resolve tier ownership (base → billing → constraints → closewon, last-wins) and
 copy the org file to the correct template directory.
 
 Profile writeback is not automated — profile changes require manual review and

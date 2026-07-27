@@ -51,7 +51,7 @@ a feature is on (custom fields/objects/components under `unpackaged/post_<featur
 
 - Flexipages → `templates/flexipages/patches/<feature>/<Page>.yml` (applied when the flag is on).
 - Layouts → the feature tier in `tasks/rlm_ux_assembly.py::_assemble_layouts` (base → billing →
-  constraints …). Layouts use **full-file tier override** (no field-level layout patches); if a
+  constraints → closewon …). Layouts use **full-file tier override** (no field-level layout patches); if a
   base layout must not carry a gated field, **remove it from base** and surface the field via the
   feature **flexipage** patch (the Lightning record page), which is usually where it belongs anyway.
 

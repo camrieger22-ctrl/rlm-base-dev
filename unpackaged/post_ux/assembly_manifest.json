@@ -1,5 +1,5 @@
 {
-  "assembled_at": "2026-07-27T18:19:29.629953Z",
+  "assembled_at": "2026-07-27T18:30:31.338205Z",
   "feature_flags": {
     "quantumbit": true,
     "billing": true,
@@ -325,7 +325,18 @@
       "name": "RLM_Opportunity_Record_Page.flexipage-meta.xml",
       "dest": "unpackaged/post_ux/flexipages/RLM_Opportunity_Record_Page.flexipage-meta.xml",
       "source": "templates/flexipages/base/RLM_Opportunity_Record_Page.flexipage-meta.xml",
-      "patches": []
+      "patches": [
+        {
+          "feature": "closewon",
+          "patch_type": "add_component",
+          "description": "add component: flowruntime:interview"
+        },
+        {
+          "feature": "closewon",
+          "patch_type": "set_component_visibility",
+          "description": "set visibility on rlm_close_won_create_order_flow"
+        }
+      ]
     },
     {
       "type": "flexipage",
@@ -499,13 +510,38 @@
         },
         {
           "feature": "closewon",
+          "patch_type": "add_component",
+          "description": "add component: rlmAmendmentStudio"
+        },
+        {
+          "feature": "closewon",
+          "patch_type": "set_component_visibility",
+          "description": "set visibility on rlm_amendment_studio"
+        },
+        {
+          "feature": "closewon",
           "patch_type": "insert_action",
           "description": "insert actions: Quote.RLM_Link_Opportunity"
         },
         {
           "feature": "closewon",
+          "patch_type": "set_component_property",
+          "description": "set numVisibleActions on force_highlightsPanel"
+        },
+        {
+          "feature": "closewon",
           "patch_type": "set_component_visibility",
           "description": "set visibility on runtime_revenue_foundation_progressIndicator"
+        },
+        {
+          "feature": "closewon",
+          "patch_type": "add_component",
+          "description": "add component: flexipage:fieldSection"
+        },
+        {
+          "feature": "closewon",
+          "patch_type": "insert_after_xml",
+          "description": "insert XML after <name>Facet-faedd9c7-e69c-4942-80db-ac3fd24d69c7</name>"
         }
       ]
     },
@@ -759,6 +795,13 @@
       "name": "QuoteLineItem-RLM Quote Line Item Layout.layout-meta.xml",
       "dest": "unpackaged/post_ux/layouts/QuoteLineItem-RLM Quote Line Item Layout.layout-meta.xml",
       "source_tier": "constraints",
+      "action": "override"
+    },
+    {
+      "type": "layout",
+      "name": "Quote-RLM Quote Layout.layout-meta.xml",
+      "dest": "unpackaged/post_ux/layouts/Quote-RLM Quote Layout.layout-meta.xml",
+      "source_tier": "closewon",
       "action": "override"
     },
     {

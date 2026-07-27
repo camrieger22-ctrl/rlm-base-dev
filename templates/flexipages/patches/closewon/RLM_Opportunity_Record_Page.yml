@@ -1,1 +1,20 @@
+feature: closewon
+feature_flag: closewon
+# Close-won prompt: offer Create Order from the Opportunity once it is Closed Won.
+patches:
+  - type: add_component
+    region: main
+    component: flowruntime:interview
+    identifier: rlm_close_won_create_order_flow
+    before_identifier: flexipage_tabset
+    properties:
+      flowArguments: '[{"label":"recordId","dataType":"String","supportsRecordId":true,"value":"{!Record.Id}"}]'
+      flowLayout: oneColumn
+      flowName: RLM_Opp_Create_Orders_Prompt
 
+  - type: set_component_visibility
+    identifier: rlm_close_won_create_order_flow
+    visibility:
+      - field: Record.StageName
+        operator: EQUAL
+        value: Closed Won

@@ -231,6 +231,52 @@ def _patch_set_component_visibility(
     return False
 
 
+def _patch_set_component_property(
+    root: ET.Element,
+    identifier: str,
+    property_name: str,
+    value: str,
+) -> bool:
+    """Set a scalar componentInstanceProperties value on a component.
+
+    Adds the property when the component does not already declare it, so a
+    patch can both override a base value (e.g. highlights panel
+    numVisibleActions) and introduce one that the base template omits.
+    Only touches scalar <value> properties — use
+    _patch_add_component_value_list_items for <valueList> properties.
+    """
+    if not identifier or not property_name:
+        return False
+    for ci in root.iter(f"{SF_NS_TAG}componentInstance"):
+        id_el = _find_elem(ci, "identifier")
+        if id_el is None or id_el.text != identifier:
+            continue
+        for ci_props in _findall_elem(ci, "componentInstanceProperties"):
+            name_el = _find_elem(ci_props, "name")
+            if name_el is None or name_el.text != property_name:
+                continue
+            if _find_elem(ci_props, "valueList") is not None:
+                return False
+            val_el = _find_elem(ci_props, "value")
+            if val_el is None:
+                val_el = _sub_elem(ci_props, "value", str(value))
+            else:
+                val_el.text = str(value)
+            return True
+        # Property absent — componentInstanceProperties precede componentName.
+        new_props = _make_elem("componentInstanceProperties")
+        _sub_elem(new_props, "name", property_name)
+        _sub_elem(new_props, "value", str(value))
+        insert_at = len(list(ci))
+        for i, child in enumerate(list(ci)):
+            if child.tag.rsplit("}", 1)[-1] == "componentName":
+                insert_at = i
+                break
+        ci.insert(insert_at, new_props)
+        return True
+    return False
+
+
 def _patch_insert_action(root: ET.Element, anchor: str, actions: List[Any]) -> bool:
     """Insert action valueListItems immediately after the anchor action.
     Skips actions already present anywhere in the list (idempotent). Each action
@@ -559,6 +605,9 @@ def _patch_description(patch: Dict[str, Any]) -> str:
     if ptype == "set_component_visibility":
         ident = patch.get("identifier", "?")
         return f"set visibility on {ident}"
+    if ptype == "set_component_property":
+        ident = patch.get("identifier", "?")
+        return f"set {patch.get('property', '?')} on {ident}"
     if ptype == "insert_after_xml":
         anchor = patch.get("anchor", "")
         # Extract a recognizable identifier from the anchor
@@ -687,6 +736,23 @@ def _apply_flexipage_patch(root: ET.Element, patch: Dict[str, Any], logger=None)
         if not ok and logger:
             logger.warning(
                 f"set_component_visibility: component '{identifier}' not found"
+            )
+
+    elif ptype == "set_component_property":
+        identifier = patch.get("identifier")
+        property_name = patch.get("property")
+        value = patch.get("value")
+        if not identifier or not property_name or value is None:
+            log(
+                f"set_component_property patch missing 'identifier', 'property' "
+                f"or 'value': {patch}"
+            )
+            return
+        ok = _patch_set_component_property(root, identifier, property_name, value)
+        if not ok and logger:
+            logger.warning(
+                f"set_component_property: could not set '{property_name}' on "
+                f"component '{identifier}'"
             )
 
     elif ptype == "insert_after_xml":
@@ -1083,6 +1149,7 @@ class AssembleAndDeployUX(SFDXBaseTask):
             ("base", templates_path / "layouts" / "base", True),
             ("billing", templates_path / "layouts" / "billing", features.get("billing", False)),
             ("constraints", templates_path / "layouts" / "constraints", features.get("constraints", False)),
+            ("closewon", templates_path / "layouts" / "closewon", features.get("closewon", False)),
         ]
 
         copied_names: Set[str] = set()
