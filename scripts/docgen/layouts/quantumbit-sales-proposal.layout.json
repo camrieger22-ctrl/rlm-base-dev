@@ -1,0 +1,145 @@
+{
+  "_comment": "Source layout for the RLM_QuantumBit_Proposal document template. Build with: python scripts/docgen/docgen_template_build.py create scripts/docgen/layouts/quantumbit-sales-proposal.layout.json -o out.docx. Tokens are served by RLMQuoteExtractBasic + RLMQuoteTransformBasic and are live-verified against quotes 00000442 (standard) and 00000440 (amendment). Contract-impact pages are gated on {{#AmendCurrentARR}}, a scalar present only on amendment quotes -- do NOT gate on an array token such as AmendProduct, which would repeat the section once per element.",
+  "page": {
+    "margin_inches": 0.8
+  },
+  "elements": [
+    { "type": "paragraph", "text": "QUANTUMBIT", "bold": true, "size_pt": 26, "color": "#0B5CAB" },
+    { "type": "paragraph", "text": "Solution proposal", "size_pt": 20 },
+    { "type": "spacer" },
+    { "type": "spacer" },
+    { "type": "paragraph", "text": "Prepared for", "size_pt": 10, "color": "#666666" },
+    { "type": "paragraph", "text": "{{AccountName}}", "bold": true, "size_pt": 22 },
+    { "type": "paragraph", "text": "{{ContactName}}{{#ContactTitle}}, {{ContactTitle}}{{/ContactTitle}}", "size_pt": 12 },
+    { "type": "spacer" },
+    {
+      "type": "table",
+      "columns": 2,
+      "style": "Table Grid",
+      "rows": [
+        ["Proposal number", "{{QuoteNumber}}"],
+        ["Date issued", "{{QuoteStartDate}}"],
+        ["{{#ExpirationDate}}Valid through", "{{ExpirationDate}}{{/ExpirationDate}}"],
+        ["Payment terms", "{{PaymentTerms}}"]
+      ]
+    },
+    { "type": "spacer" },
+    { "type": "paragraph", "text": "Prepared by {{SalesRep}}  |  {{SellerEmail}}{{#SellerPhone}}  |  {{SellerPhone}}{{/SellerPhone}}", "size_pt": 10, "color": "#666666" },
+
+    { "type": "page_break" },
+    { "type": "heading", "text": "A proposal built for {{AccountName}}", "level": 1 },
+    { "type": "paragraph", "text": "Dear {{ContactFirstName}}," },
+    { "type": "paragraph", "text": "Thank you for the opportunity to present this proposal. The pages that follow describe the solution we discussed, the investment summary generated directly from quote {{QuoteNumber}} in our system, and the commercial terms that govern the agreement." },
+    { "type": "paragraph", "text": "Every figure in the investment summary reflects the configuration on that quote, so this document and your record in Salesforce never disagree. If we adjust quantities, terms, or discounts, the proposal regenerates from the same source." },
+    { "type": "paragraph", "text": "We built this program around the outcomes your team told us matter most: getting to production quickly, keeping data governed as you scale, and holding predictable costs across the term. We look forward to refining any element of it with you." },
+    { "type": "spacer" },
+    { "type": "paragraph", "text": "Sincerely," },
+    { "type": "paragraph", "text": "{{SalesRep}}", "bold": true },
+    { "type": "paragraph", "text": "QuantumBit  |  {{SellerEmail}}", "size_pt": 10, "color": "#666666" },
+
+    { "type": "page_break" },
+    { "type": "heading", "text": "Why QuantumBit", "level": 1 },
+    { "type": "paragraph", "text": "QuantumBit builds the data and AI platform that teams use to move from prototype to production without re-architecting. Customers consolidate their operational data, apply governance once, and expose it to the applications and models that depend on it." },
+    { "type": "paragraph", "text": "What this program includes", "bold": true, "size_pt": 13 },
+    { "type": "paragraph", "text": "\u25aa  Platform licensing sized to the quantities on your quote, with entitlement tracked per subscription term." },
+    { "type": "paragraph", "text": "\u25aa  Governed data foundations, so access policies and lineage are defined once and enforced everywhere." },
+    { "type": "paragraph", "text": "\u25aa  Generative AI capability licensed alongside the platform rather than bolted on afterward." },
+    { "type": "paragraph", "text": "\u25aa  Onboarding and success support across the full term, not just the first weeks." },
+    { "type": "paragraph", "text": "The specific components included for {{AccountName}} are itemized in the investment summary on the next page. Only the lines on your quote appear there, so this document always reflects the current configuration." },
+
+    { "type": "page_break" },
+    { "type": "heading", "text": "Investment summary", "level": 1 },
+    { "type": "paragraph", "text": "Generated from quote {{QuoteNumber}}. One row appears for each line on the quote, with bundle components listed beneath their parent. Amounts are in US dollars and exclude applicable taxes." },
+    {
+      "_comment": "Repeating rows follow the proven RLM_Sales_Proposal_Document pattern: each section opens in the first cell of its row, and all three closing tags stack in the last cell of the last row.",
+      "type": "table",
+      "columns": 6,
+      "style": "Table Grid",
+      "header": ["Item description", "Qty", "List price", "Disc. (%)", "Net unit price", "Net total"],
+      "rows": [
+        ["{{#Line}}{{ProductName}}", "{{Quantity}}", "{{ListPrice}}", "{{Discount}}", "{{NetUnitPrice}}", "{{NetTotalPrice}}"],
+        ["{{#CQL}}{{ProductName}}", "{{Quantity}}", "{{ListPrice}}", "{{Discount}}", "{{NetUnitPrice}}", "{{NetTotalPrice}}"],
+        ["{{#CQL2}}{{ProductName}}", "{{Quantity}}", "{{ListPrice}}", "{{Discount}}", "{{NetUnitPrice}}", "{{NetTotalPrice}}{{/CQL2}}{{/CQL}}{{/Line}}"]
+      ]
+    },
+    { "type": "spacer" },
+    {
+      "type": "table",
+      "columns": 2,
+      "style": "Table Grid",
+      "rows": [
+        ["Subtotal", "{{Subtotal}}"],
+        ["{{#IF_has_discount}}Discount applied", "{{QDiscount}}%{{/IF_has_discount}}"],
+        ["Total investment", "{{GrandTotal}}"]
+      ]
+    },
+    { "type": "spacer" },
+    { "type": "paragraph", "text": "Payment terms are {{PaymentTerms}}. Invoices are issued on execution of the agreement and, for multi-year programs, at the start of each subsequent contract year. Amounts shown reflect the discount configuration approved on the referenced quote.", "size_pt": 10 },
+
+    { "type": "page_break" },
+    { "type": "heading", "text": "{{#AmendCurrentARR}}Contract impact", "level": 1 },
+    { "type": "paragraph", "text": "Quote {{QuoteNumber}} amends your existing agreement. The three views below show the contract as it stands today, the economics of this change on its own, and the finalized contract if you accept." },
+    {
+      "type": "table",
+      "columns": 4,
+      "style": "Table Grid",
+      "header": ["View", "ARR", "MRR", "Licensed qty"],
+      "rows": [
+        ["Current contract", "{{AmendCurrentARR}}", "{{AmendCurrentMRR}}", "{{AmendCurrentQty}}"],
+        ["This change", "{{AmendNetIncreaseARR}}", "{{AmendNetIncreaseMRR}}", "{{AmendNetIncreaseQty}}"],
+        ["Finalized contract", "{{AmendProposedARR}}", "{{AmendProposedMRR}}", "{{AmendProposedQty}}"]
+      ]
+    },
+    { "type": "paragraph", "text": "Prorated charge for the remainder of the current term: {{AmendThisAddProrated}}", "size_pt": 10 },
+    { "type": "spacer" },
+    { "type": "paragraph", "text": "New and amended lines on this quote", "bold": true, "size_pt": 13 },
+    {
+      "type": "table",
+      "columns": 6,
+      "style": "Table Grid",
+      "header": ["Product", "Qty", "ARR", "MRR", "Term", "Prorated"],
+      "rows": [
+        ["{{#AmendAddProduct}}{{ProductName}}", "{{Qty}}", "{{ARR}}", "{{MRR}}", "{{StartDate}} to {{EndDate}}", "{{Prorated}}{{/AmendAddProduct}}"]
+      ]
+    },
+    { "type": "spacer" },
+    { "type": "paragraph", "text": "Assets changed by this amendment", "bold": true, "size_pt": 13 },
+    {
+      "type": "table",
+      "columns": 6,
+      "style": "Table Grid",
+      "header": ["Product", "Current qty", "Current ARR", "After qty", "After ARR", "Status"],
+      "rows": [
+        ["{{#AmendProductAmending}}{{ProductName}}", "{{CurrentQty}}", "{{CurrentARR}}", "{{FinalizedQty}}", "{{FinalizedARR}}", "{{AmendingBadge}}{{/AmendProductAmending}}"]
+      ]
+    },
+    { "type": "paragraph", "text": "Assets not listed above carry forward unchanged. Term dates and discounts apply to the amending lines only.", "size_pt": 10 },
+    {
+      "_comment": "This page break sits INSIDE the AmendCurrentARR section so it collapses along with the section on standard quotes. Moving it after the closing token would leave two consecutive breaks and a blank page.",
+      "type": "page_break"
+    },
+    { "type": "paragraph", "text": "{{/AmendCurrentARR}}", "size_pt": 1 },
+
+    { "type": "heading", "text": "Commercial terms", "level": 1 },
+    { "type": "paragraph", "text": "Validity. This proposal and the pricing herein are valid through the date shown on the cover page. After that date, pricing is subject to reconfirmation." },
+    { "type": "paragraph", "text": "Agreement. This proposal summarizes commercial intent and does not itself create a binding obligation. The program becomes effective on execution of an agreement between {{AccountName}} and QuantumBit, which incorporates the components and pricing set out in the investment summary." },
+    { "type": "paragraph", "text": "Taxes and fees. Prices exclude applicable federal, state, and local taxes, which are itemized on invoices where applicable." },
+    { "type": "paragraph", "text": "Billing. Payment terms are {{PaymentTerms}}. Quantities and entitlements are those stated on quote {{QuoteNumber}}." },
+    { "type": "paragraph", "text": "Confidentiality. The pricing and program structure in this proposal are confidential to {{AccountName}} and QuantumBit and may not be shared with third parties without written consent." },
+    { "type": "spacer" },
+    { "type": "heading", "text": "Acceptance", "level": 2 },
+    { "type": "paragraph", "text": "Executed by the authorized representatives of each party as of the dates written below." },
+    {
+      "type": "table",
+      "columns": 2,
+      "style": "Table Grid",
+      "header": ["{{AccountName}}", "QuantumBit"],
+      "rows": [
+        ["Signature:", "Signature:"],
+        ["Name: {{ContactName}}", "Name: {{SalesRep}}"],
+        ["Title: {{ContactTitle}}", "Title: Account Executive"],
+        ["Date:", "Date:"]
+      ]
+    }
+  ]
+}

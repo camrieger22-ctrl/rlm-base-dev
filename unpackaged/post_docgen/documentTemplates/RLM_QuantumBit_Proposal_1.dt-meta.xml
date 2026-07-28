@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<DocumentTemplate xmlns="http://soap.sforce.com/2006/04/metadata">
+    <documentGenerationMechanism>ServerSide</documentGenerationMechanism>
+    <extractOmniDataTransformName>RLMQuoteExtractBasic</extractOmniDataTransformName>
+    <fileExtension>docx</fileExtension>
+    <hasBatchableSection>false</hasBatchableSection>
+    <isActive>true</isActive>
+    <isSectionProcessed>false</isSectionProcessed>
+    <mapperOmniDataTransformName>RLMQuoteTransformBasic</mapperOmniDataTransformName>
+    <name>RLM_QuantumBit_Proposal</name>
+    <shouldDisplayUnmappedToken>false</shouldDisplayUnmappedToken>
+    <shouldExtractEmbeddedTmplToken>false</shouldExtractEmbeddedTmplToken>
+    <status>Active</status>
+    <tokenList>AccountName,ContactName,ContactTitle:ContactTitle,QuoteNumber,QuoteStartDate,ExpirationDate:ExpirationDate,PaymentTerms,SalesRep,SellerEmail,SellerPhone:SellerPhone,ContactFirstName,Line:ProductName,Line:Quantity,Line:ListPrice,Line:Discount,Line:NetUnitPrice,Line:NetTotalPrice,Line:CQL:ProductName,Line:CQL:Quantity,Line:CQL:ListPrice,Line:CQL:Discount,Line:CQL:NetUnitPrice,Line:CQL:NetTotalPrice,Line:CQL:CQL2:ProductName,Line:CQL:CQL2:Quantity,Line:CQL:CQL2:ListPrice,Line:CQL:CQL2:Discount,Line:CQL:CQL2:NetUnitPrice,Line:CQL:CQL2:NetTotalPrice,Subtotal,IF_has_discount:QDiscount,GrandTotal,AmendCurrentARR:QuoteNumber,AmendCurrentARR:AmendCurrentARR,AmendCurrentARR:AmendCurrentMRR,AmendCurrentARR:AmendCurrentQty,AmendCurrentARR:AmendNetIncreaseARR,AmendCurrentARR:AmendNetIncreaseMRR,AmendCurrentARR:AmendNetIncreaseQty,AmendCurrentARR:AmendProposedARR,AmendCurrentARR:AmendProposedMRR,AmendCurrentARR:AmendProposedQty,AmendCurrentARR:AmendThisAddProrated,AmendCurrentARR:AmendAddProduct:ProductName,AmendCurrentARR:AmendAddProduct:Qty,AmendCurrentARR:AmendAddProduct:ARR,AmendCurrentARR:AmendAddProduct:MRR,AmendCurrentARR:AmendAddProduct:StartDate,AmendCurrentARR:AmendAddProduct:EndDate,AmendCurrentARR:AmendAddProduct:Prorated,AmendCurrentARR:AmendProductAmending:ProductName,AmendCurrentARR:AmendProductAmending:CurrentQty,AmendCurrentARR:AmendProductAmending:CurrentARR,AmendCurrentARR:AmendProductAmending:FinalizedQty,AmendCurrentARR:AmendProductAmending:FinalizedARR,AmendCurrentARR:AmendProductAmending:AmendingBadge,ContactTitle</tokenList>
+    <tokenMappingMethodType>OmniDataTransform</tokenMappingMethodType>
+    <tokenMappingType>JSON</tokenMappingType>
+    <type>MicrosoftWord</type>
+    <uniqueName>RLM_QuantumBit_Proposal_1</uniqueName>
+    <usageType>Revenue_Lifecycle_Management</usageType>
+    <versionNumber>1</versionNumber>
+</DocumentTemplate>
