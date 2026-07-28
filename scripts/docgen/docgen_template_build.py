@@ -198,6 +198,11 @@ def create_from_layout(layout, output_path):
             p = doc.add_heading(elem.get("text", ""), level=elem.get("level", 1))
             if elem.get("alignment"):
                 apply_alignment(p, elem["alignment"])
+            if elem.get("color") and p.runs:
+                rgb = elem["color"].lstrip("#")
+                p.runs[0].font.color.rgb = RGBColor(
+                    int(rgb[0:2], 16), int(rgb[2:4], 16), int(rgb[4:6], 16)
+                )
 
         elif elem_type == "image":
             p = doc.add_paragraph()
@@ -218,6 +223,17 @@ def create_from_layout(layout, output_path):
             table = doc.add_table(rows=total_rows, cols=cols)
             table.style = elem.get("style", "Table Grid")
 
+            def _shade_cell(cell, hex_color):
+                from docx.oxml.ns import qn
+                from docx.oxml import OxmlElement
+
+                tc = cell._tc
+                tc_pr = tc.get_or_add_tcPr()
+                shd = OxmlElement("w:shd")
+                shd.set(qn("w:fill"), hex_color.lstrip("#"))
+                shd.set(qn("w:val"), "clear")
+                tc_pr.append(shd)
+
             row_offset = 0
             if header:
                 for i, cell_text in enumerate(header[:cols]):
@@ -225,6 +241,13 @@ def create_from_layout(layout, output_path):
                     cell.text = cell_text
                     for run in cell.paragraphs[0].runs:
                         run.bold = True
+                        if elem.get("header_text_color"):
+                            rgb = elem["header_text_color"].lstrip("#")
+                            run.font.color.rgb = RGBColor(
+                                int(rgb[0:2], 16), int(rgb[2:4], 16), int(rgb[4:6], 16)
+                            )
+                    if elem.get("header_fill"):
+                        _shade_cell(cell, elem["header_fill"])
                 row_offset = 1
 
             for r, row_data in enumerate(rows_data):

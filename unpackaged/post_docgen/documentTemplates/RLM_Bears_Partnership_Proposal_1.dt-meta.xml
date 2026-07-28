@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<DocumentTemplate xmlns="http://soap.sforce.com/2006/04/metadata">
+    <documentGenerationMechanism>ServerSide</documentGenerationMechanism>
+    <extractOmniDataTransformName>RLMQuoteExtractBasic</extractOmniDataTransformName>
+    <fileExtension>docx</fileExtension>
+    <hasBatchableSection>false</hasBatchableSection>
+    <isActive>true</isActive>
+    <isSectionProcessed>false</isSectionProcessed>
+    <mapperOmniDataTransformName>RLMQuoteTransformBasic</mapperOmniDataTransformName>
+    <name>RLM_Bears_Partnership_Proposal</name>
+    <shouldDisplayUnmappedToken>false</shouldDisplayUnmappedToken>
+    <shouldExtractEmbeddedTmplToken>false</shouldExtractEmbeddedTmplToken>
+    <status>Active</status>
+    <tokenList>AccountName,ContactName,ContactTitle:ContactTitle,QuoteNumber,QuoteStartDate,ExpirationDate:ExpirationDate,SalesRep,SellerEmail,SellerPhone:SellerPhone,ContactFirstName,Line:ProductName,Line:Quantity,Line:NetUnitPrice,Line:NetTotalPrice,Subtotal,IF_has_discount:QDiscount,GrandTotal,PaymentTerms,AmendCurrentARR:AccountName,AmendCurrentARR:QuoteNumber,AmendCurrentARR:AmendCurrentARR,AmendCurrentARR:AmendCurrentMRR,AmendCurrentARR:AmendCurrentQty,AmendCurrentARR:AmendProductAmending:ProductName,AmendCurrentARR:AmendProductAmending:CurrentQty,AmendCurrentARR:AmendProductAmending:CurrentARR,AmendCurrentARR:AmendProductAmending:CurrentMRR,AmendCurrentARR:AmendNetIncreaseARR,AmendCurrentARR:AmendNetIncreaseMRR,AmendCurrentARR:AmendNetIncreaseQty,AmendCurrentARR:AmendThisAddProrated,AmendCurrentARR:AmendAddProduct:ProductName,AmendCurrentARR:AmendAddProduct:Qty,AmendCurrentARR:AmendAddProduct:ARR,AmendCurrentARR:AmendAddProduct:MRR,AmendCurrentARR:AmendAddProduct:StartDate,AmendCurrentARR:AmendAddProduct:EndDate,AmendCurrentARR:AmendAddProduct:Prorated,AmendCurrentARR:AmendProposedARR,AmendCurrentARR:AmendProposedMRR,AmendCurrentARR:AmendProposedQty,AmendCurrentARR:AmendProductAmending:FinalizedQty,AmendCurrentARR:AmendProductAmending:FinalizedARR</tokenList>
+    <tokenMappingMethodType>OmniDataTransform</tokenMappingMethodType>
+    <tokenMappingType>JSON</tokenMappingType>
+    <type>MicrosoftWord</type>
+    <uniqueName>RLM_Bears_Partnership_Proposal_1</uniqueName>
+    <usageType>Revenue_Lifecycle_Management</usageType>
+    <versionNumber>1</versionNumber>
+</DocumentTemplate>

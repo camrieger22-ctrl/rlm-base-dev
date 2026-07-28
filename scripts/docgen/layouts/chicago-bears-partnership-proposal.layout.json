@@ -1,0 +1,543 @@
+{
+  "_comment": "Source layout for RLM_Bears_Partnership_Proposal. Page-for-page replica of Bears_Proposal_Preview.pdf with Chicago Bears branding (#0B162A / #C83803) and tokens remapped to RLMQuoteExtractBasic + RLMQuoteTransformBasic (same payload as the Bears deck and QuantumBit Word proposal). Contract impact gates on AmendCurrentARR. Program IF_Includes* gates dropped (not in org) — all four program sections always render. Appendix pages document remapped token names and must NOT contain live {{#}} examples. Build: python scripts/docgen/docgen_template_build.py create scripts/docgen/layouts/chicago-bears-partnership-proposal.layout.json -o out.docx",
+  "page": { "margin_inches": 0.75 },
+  "elements": [
+    {
+      "_comment": "PAGE 1 — Cover",
+      "type": "paragraph",
+      "text": "CHICAGO BEARS FOOTBALL CLUB",
+      "bold": true,
+      "size_pt": 14,
+      "color": "#0B162A",
+      "alignment": "center"
+    },
+    {
+      "type": "paragraph",
+      "text": "CORPORATE PARTNERSHIPS",
+      "bold": true,
+      "size_pt": 11,
+      "color": "#C83803",
+      "alignment": "center"
+    },
+    { "type": "spacer" },
+    {
+      "type": "image",
+      "path": "scripts/docgen/assets/chicago-bears-logo.png",
+      "width_inches": 1.6,
+      "alignment": "center"
+    },
+    { "type": "spacer" },
+    {
+      "type": "paragraph",
+      "text": "Corporate partnership proposal",
+      "bold": true,
+      "size_pt": 28,
+      "color": "#0B162A",
+      "alignment": "center"
+    },
+    {
+      "type": "paragraph",
+      "text": "2026 season",
+      "bold": true,
+      "size_pt": 14,
+      "color": "#C83803",
+      "alignment": "center"
+    },
+    { "type": "spacer" },
+    { "type": "spacer" },
+    {
+      "type": "paragraph",
+      "text": "Prepared for",
+      "size_pt": 10,
+      "color": "#666666",
+      "alignment": "center"
+    },
+    {
+      "type": "paragraph",
+      "text": "{{AccountName}}",
+      "bold": true,
+      "size_pt": 20,
+      "color": "#0B162A",
+      "alignment": "center"
+    },
+    {
+      "type": "paragraph",
+      "text": "{{ContactName}}{{#ContactTitle}}, {{ContactTitle}}{{/ContactTitle}}",
+      "size_pt": 11,
+      "color": "#666666",
+      "alignment": "center"
+    },
+    { "type": "spacer" },
+    {
+      "type": "table",
+      "columns": 3,
+      "style": "Table Grid",
+      "header_fill": "#0B162A",
+      "header_text_color": "#FFFFFF",
+      "header": ["PROPOSAL NUMBER", "DATE ISSUED", "VALID THROUGH"],
+      "rows": [
+        ["{{QuoteNumber}}", "{{QuoteStartDate}}", "{{#ExpirationDate}}{{ExpirationDate}}{{/ExpirationDate}}"]
+      ]
+    },
+    { "type": "spacer" },
+    {
+      "type": "paragraph",
+      "text": "Prepared by {{SalesRep}}, Corporate Partnerships  |  {{SellerEmail}}{{#SellerPhone}}  |  {{SellerPhone}}{{/SellerPhone}}",
+      "size_pt": 10,
+      "color": "#666666",
+      "alignment": "center"
+    },
+    { "type": "spacer" },
+    {
+      "type": "paragraph",
+      "text": "Unofficial concept template for demonstration. Not affiliated with or endorsed by the Chicago Bears or the NFL.",
+      "size_pt": 8,
+      "color": "#999999",
+      "alignment": "center"
+    },
+
+    { "type": "page_break" },
+    {
+      "_comment": "PAGE 2 — Cover letter",
+      "type": "paragraph",
+      "text": "CHICAGO BEARS  ·  Corporate partnership proposal  ·  {{AccountName}}",
+      "size_pt": 9,
+      "color": "#C83803"
+    },
+    { "type": "heading", "text": "A partnership built for {{AccountName}}", "level": 1, "color": "#0B162A" },
+    { "type": "paragraph", "text": "Dear {{ContactFirstName}}," },
+    {
+      "type": "paragraph",
+      "text": "Thank you for the opportunity to present this proposal on behalf of the Chicago Bears Football Club. Since 1920, this franchise has stood at the center of Chicago sports, and the partners who stand with us share in one of the most recognized brands in American professional football. This document outlines a partnership program designed specifically for {{AccountName}}, combining premium hospitality at Soldier Field, in-stadium brand visibility, and year-round engagement with our organization."
+    },
+    {
+      "type": "paragraph",
+      "text": "The pages that follow describe the full scope of the proposed program, the investment summary generated directly from your quote in our system, and the commercial terms that govern the agreement. Every figure in the investment summary reflects the configuration we discussed.{{#ExpirationDate}} The proposal remains valid through {{ExpirationDate}}.{{/ExpirationDate}}"
+    },
+    {
+      "type": "paragraph",
+      "text": "We built this program around what your team told us matters most: meaningful client hospitality, brand presence in front of a passionate fan base, and a partner relationship that extends beyond ten Sundays a season. We are confident the program delivers on all three, and we look forward to refining any element of it with you."
+    },
+    {
+      "type": "paragraph",
+      "text": "On behalf of the entire organization, thank you for considering a partnership with the Chicago Bears. Bear Down."
+    },
+    { "type": "spacer" },
+    { "type": "paragraph", "text": "Sincerely," },
+    { "type": "paragraph", "text": "{{SalesRep}}", "bold": true },
+    { "type": "paragraph", "text": "Corporate Partnerships", "size_pt": 11 },
+    {
+      "type": "paragraph",
+      "text": "Chicago Bears Football Club  |  {{SellerEmail}}{{#SellerPhone}}  |  {{SellerPhone}}{{/SellerPhone}}",
+      "size_pt": 10,
+      "color": "#666666"
+    },
+
+    { "type": "page_break" },
+    {
+      "_comment": "PAGE 3 — Why partner",
+      "type": "paragraph",
+      "text": "CHICAGO BEARS  ·  Corporate partnership proposal  ·  {{AccountName}}",
+      "size_pt": 9,
+      "color": "#C83803"
+    },
+    { "type": "heading", "text": "Why partner with the Chicago Bears", "level": 1, "color": "#0B162A" },
+    {
+      "type": "paragraph",
+      "text": "The Chicago Bears are a charter franchise of the National Football League and one of the most storied organizations in professional sports, with nine league championships and more than a century of continuous play. The club's home at Soldier Field sits on Chicago's lakefront and hosts one of the most loyal fan bases in the league, with season ticket waitlists that span generations of Chicago families."
+    },
+    {
+      "type": "paragraph",
+      "text": "A corporate partnership with the Bears places your brand inside that relationship. Partners gain access to premium spaces on game day, brand placement across in-stadium media, and hospitality moments that are difficult to replicate anywhere else in the market. Just as importantly, partners work with a dedicated partnerships team year-round, from training camp in the summer through the end of the season, so the program keeps producing value well beyond the home schedule."
+    },
+    { "type": "paragraph", "text": "What a partnership includes", "bold": true, "size_pt": 13, "color": "#0B162A" },
+    {
+      "type": "paragraph",
+      "text": "Each program is configured to the partner's objectives, and the specific elements included in this proposal are itemized in the investment summary. Across our partner portfolio, programs typically draw from four categories:"
+    },
+    {
+      "type": "paragraph",
+      "text": "▪  Premium hospitality, including executive suite licenses and club level season tickets at Soldier Field."
+    },
+    {
+      "type": "paragraph",
+      "text": "▪  In-stadium brand visibility, including LED ribbon board rotations and tunnel placements on game days."
+    },
+    {
+      "type": "paragraph",
+      "text": "▪  Money-can't-buy experiences, including training camp visits, player and alumni appearances, and behind-the-scenes access."
+    },
+    {
+      "type": "paragraph",
+      "text": "▪  Year-round hospitality credits and event access that extend the relationship across the full calendar."
+    },
+    {
+      "type": "paragraph",
+      "text": "The sections that follow describe each element of a typical partner program. Line-level pricing for {{AccountName}} appears in the investment summary."
+    },
+
+    { "type": "page_break" },
+    {
+      "_comment": "PAGE 4 — Proposed program (always shown; IF_Includes* not in org)",
+      "type": "paragraph",
+      "text": "CHICAGO BEARS  ·  Corporate partnership proposal  ·  {{AccountName}}",
+      "size_pt": 9,
+      "color": "#C83803"
+    },
+    { "type": "heading", "text": "Your proposed program", "level": 1, "color": "#0B162A" },
+    { "type": "paragraph", "text": "Executive suite at Soldier Field", "bold": true, "size_pt": 14, "color": "#C83803" },
+    {
+      "type": "paragraph",
+      "text": "Your program includes a licensed executive suite for the full 2026 home schedule, covering all preseason and regular season games. The suite accommodates your guests in a private, climate-controlled environment with dedicated attendant service, premium in-suite catering access, and VIP parking passes for game day. Suites are the anchor of most partner programs because they turn ten home dates into ten owned hospitality events, hosted in one of the most recognizable venues in American sports."
+    },
+    {
+      "type": "paragraph",
+      "text": "Your partnerships manager will coordinate suite logistics for each game, including guest lists, catering pre-orders, and parking distribution, so your team can focus on the guests rather than the operations."
+    },
+    { "type": "paragraph", "text": "Club level season tickets", "bold": true, "size_pt": 14, "color": "#C83803" },
+    {
+      "type": "paragraph",
+      "text": "Club level seating places your guests in padded seats with access to climate-controlled concourses, upgraded food and beverage options, and dedicated entry gates. Club seats work alongside a suite as overflow hospitality, or as a standalone program for partners who want a consistent game day presence with a smaller footprint. Tickets are delivered digitally and can be reassigned game by game through your account."
+    },
+    { "type": "paragraph", "text": "In-stadium brand visibility", "bold": true, "size_pt": 14, "color": "#C83803" },
+    {
+      "type": "paragraph",
+      "text": "Your brand appears in LED ribbon board rotations during every home game, with creative displayed at moments of peak attention throughout the game experience. Tunnel LED placements on game days put your brand alongside the team as players take the field. All creative is produced to Bears brand and broadcast standards, and our team works with yours on asset production, scheduling, and proof-of-performance reporting after each game."
+    },
+    { "type": "paragraph", "text": "Experiences and hospitality credit", "bold": true, "size_pt": 14, "color": "#C83803" },
+    {
+      "type": "paragraph",
+      "text": "Your program includes a hospitality credit applied against in-suite catering and beverage orders across the season, plus a training camp VIP experience at Halas Hall for your guests, with private practice viewing and a hosted reception. These elements are where partnerships become memorable. A morning at training camp or a hosted moment before kickoff regularly becomes the touchpoint your clients talk about for the rest of the year."
+    },
+
+    { "type": "page_break" },
+    {
+      "_comment": "PAGE 5 — Partnership management",
+      "type": "paragraph",
+      "text": "CHICAGO BEARS  ·  Corporate partnership proposal  ·  {{AccountName}}",
+      "size_pt": 9,
+      "color": "#C83803"
+    },
+    { "type": "heading", "text": "Partnership management", "level": 1, "color": "#0B162A" },
+    {
+      "type": "paragraph",
+      "text": "Every partner is assigned a dedicated manager on the corporate partnerships team. Your manager owns fulfillment across all program elements, provides mid-season and end-of-season recaps, and serves as your single point of contact for anything involving the club. Partners also receive first right of discussion on renewals and on new inventory as it becomes available."
+    },
+
+    { "type": "page_break" },
+    {
+      "_comment": "PAGE 6 — Investment summary",
+      "type": "paragraph",
+      "text": "CHICAGO BEARS  ·  Corporate partnership proposal  ·  {{AccountName}}",
+      "size_pt": 9,
+      "color": "#C83803"
+    },
+    { "type": "heading", "text": "Investment summary", "level": 1, "color": "#0B162A" },
+    {
+      "type": "paragraph",
+      "text": "The table below is generated directly from quote {{QuoteNumber}} and repeats one row for each program element on the quote. All amounts are stated in US dollars and exclude applicable taxes."
+    },
+    {
+      "type": "table",
+      "columns": 4,
+      "style": "Table Grid",
+      "header_fill": "#0B162A",
+      "header_text_color": "#FFFFFF",
+      "header": ["Program element", "Qty", "Unit price", "Amount"],
+      "rows": [
+        ["{{#Line}}{{ProductName}}", "{{Quantity}}", "{{NetUnitPrice}}", "{{NetTotalPrice}}{{/Line}}"]
+      ]
+    },
+    { "type": "spacer" },
+    {
+      "type": "table",
+      "columns": 2,
+      "style": "Table Grid",
+      "rows": [
+        ["Subtotal", "{{Subtotal}}"],
+        ["{{#IF_has_discount}}Partnership discount", "{{QDiscount}}%{{/IF_has_discount}}"],
+        ["Total investment", "{{GrandTotal}}"]
+      ]
+    },
+    { "type": "spacer" },
+    { "type": "paragraph", "text": "Payment terms", "bold": true, "size_pt": 12, "color": "#0B162A" },
+    {
+      "type": "paragraph",
+      "text": "Payment terms are {{PaymentTerms}}. Invoices are issued by the Chicago Bears Football Club upon execution of the partnership agreement and, for multi-year programs, at the start of each subsequent contract year. Amounts shown reflect the discount configuration approved on the referenced quote.",
+      "size_pt": 10
+    },
+
+    { "type": "page_break" },
+    {
+      "_comment": "PAGES 7–8 — Contract impact (gated; page break inside gate)",
+      "type": "paragraph",
+      "text": "{{#AmendCurrentARR}}CHICAGO BEARS  ·  Corporate partnership proposal  ·  {{AccountName}}",
+      "size_pt": 9,
+      "color": "#C83803"
+    },
+    { "type": "heading", "text": "Contract impact", "level": 1, "color": "#0B162A" },
+    {
+      "type": "paragraph",
+      "text": "This quote amends your existing agreement. The three views below show the contract as it stands today, the economics of this add on its own, and the finalized contract if you accept quote {{QuoteNumber}}. Orange figures under Finalized show the net increase driven by this add."
+    },
+    { "type": "paragraph", "text": "Current contract", "bold": true, "size_pt": 13, "color": "#0B162A" },
+    {
+      "type": "table",
+      "columns": 2,
+      "style": "Table Grid",
+      "rows": [
+        ["ARR", "{{AmendCurrentARR}}"],
+        ["MRR", "{{AmendCurrentMRR}}"],
+        ["Licensed quantity", "{{AmendCurrentQty}}"]
+      ]
+    },
+    { "type": "spacer" },
+    { "type": "paragraph", "text": "Amending on this quote", "bold": true, "size_pt": 12, "color": "#0B162A" },
+    {
+      "type": "table",
+      "columns": 4,
+      "style": "Table Grid",
+      "header_fill": "#0B162A",
+      "header_text_color": "#FFFFFF",
+      "header": ["Product", "Qty", "ARR", "MRR"],
+      "rows": [
+        ["{{#AmendProductAmending}}{{ProductName}}", "{{CurrentQty}}", "{{CurrentARR}}", "{{CurrentMRR}}{{/AmendProductAmending}}"]
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": "Products listed under Amending on this quote are the assets this amendment changes.",
+      "size_pt": 10,
+      "color": "#666666"
+    },
+    { "type": "spacer" },
+    { "type": "paragraph", "text": "This add", "bold": true, "size_pt": 13, "color": "#C83803" },
+    {
+      "type": "table",
+      "columns": 2,
+      "style": "Table Grid",
+      "rows": [
+        ["ARR", "{{AmendNetIncreaseARR}}"],
+        ["MRR", "{{AmendNetIncreaseMRR}}"],
+        ["Quantity", "{{AmendNetIncreaseQty}}"],
+        ["Prorated this term", "{{AmendThisAddProrated}}"]
+      ]
+    },
+    { "type": "spacer" },
+    { "type": "paragraph", "text": "By product", "bold": true, "size_pt": 12, "color": "#0B162A" },
+    {
+      "type": "table",
+      "columns": 7,
+      "style": "Table Grid",
+      "header_fill": "#0B162A",
+      "header_text_color": "#FFFFFF",
+      "header": ["Product", "Qty", "ARR", "MRR", "Start", "End", "Prorated"],
+      "rows": [
+        ["{{#AmendAddProduct}}{{ProductName}}", "{{Qty}}", "{{ARR}}", "{{MRR}}", "{{StartDate}}", "{{EndDate}}", "{{Prorated}}{{/AmendAddProduct}}"]
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": "Add-on economics for this quote only, including term dates and the discount on each amending line.",
+      "size_pt": 10,
+      "color": "#666666"
+    },
+    { "type": "spacer" },
+    { "type": "paragraph", "text": "Finalized contract if you accept", "bold": true, "size_pt": 13, "color": "#0B162A" },
+    {
+      "type": "table",
+      "columns": 2,
+      "style": "Table Grid",
+      "rows": [
+        ["ARR", "{{AmendProposedARR}}"],
+        ["Net increase (ARR)", "{{AmendNetIncreaseARR}}"],
+        ["MRR", "{{AmendProposedMRR}}"],
+        ["Net increase (MRR)", "{{AmendNetIncreaseMRR}}"],
+        ["Licensed quantity", "{{AmendProposedQty}}"],
+        ["Net increase (qty)", "{{AmendNetIncreaseQty}}"]
+      ]
+    },
+
+    {
+      "_comment": "Page break stays inside AmendCurrentARR so standard quotes do not leave a blank page.",
+      "type": "page_break"
+    },
+    {
+      "type": "paragraph",
+      "text": "CHICAGO BEARS  ·  Corporate partnership proposal  ·  {{AccountName}}",
+      "size_pt": 9,
+      "color": "#C83803"
+    },
+    { "type": "paragraph", "text": "Changed by this add", "bold": true, "size_pt": 13, "color": "#0B162A" },
+    {
+      "type": "table",
+      "columns": 5,
+      "style": "Table Grid",
+      "header_fill": "#0B162A",
+      "header_text_color": "#FFFFFF",
+      "header": ["Product", "Current qty", "Current ARR", "After qty", "After ARR"],
+      "rows": [
+        ["{{#AmendProductAmending}}{{ProductName}}", "{{CurrentQty}}", "{{CurrentARR}}", "{{FinalizedQty}}", "{{FinalizedARR}}{{/AmendProductAmending}}"]
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": "Deltas are shown as Current vs After. Assets not listed carry forward unchanged.",
+      "size_pt": 10,
+      "color": "#666666"
+    },
+    { "type": "paragraph", "text": "{{/AmendCurrentARR}}", "size_pt": 1 },
+
+    { "type": "page_break" },
+    {
+      "_comment": "PAGE 9 — Commercial terms + acceptance",
+      "type": "paragraph",
+      "text": "CHICAGO BEARS  ·  Corporate partnership proposal  ·  {{AccountName}}",
+      "size_pt": 9,
+      "color": "#C83803"
+    },
+    { "type": "heading", "text": "Commercial terms", "level": 1, "color": "#0B162A" },
+    {
+      "type": "paragraph",
+      "text": "Validity. This proposal and the pricing herein are valid through {{#ExpirationDate}}{{ExpirationDate}}{{/ExpirationDate}}. After that date, pricing and inventory availability are subject to reconfirmation by the Chicago Bears Football Club."
+    },
+    {
+      "type": "paragraph",
+      "text": "Agreement. This proposal is a summary of commercial intent and does not itself create a binding obligation. The partnership becomes effective upon execution of a master partnership agreement between {{AccountName}} and the Chicago Bears Football Club, which will incorporate the program elements and pricing set out in the investment summary."
+    },
+    {
+      "type": "paragraph",
+      "text": "Taxes and fees. Prices exclude applicable federal, state, and local taxes, amusement taxes, and venue fees, which will be itemized on invoices where applicable."
+    },
+    {
+      "type": "paragraph",
+      "text": "Inventory. Suite locations, seat locations, and media inventory are assigned at contracting and remain subject to league and venue requirements. The club will consult the partner before any substitution and will provide inventory of equal or greater value if a substitution is required."
+    },
+    {
+      "type": "paragraph",
+      "text": "Confidentiality. The pricing and program structure in this proposal are confidential to {{AccountName}} and the Chicago Bears Football Club and may not be shared with third parties without written consent."
+    },
+    { "type": "spacer" },
+    { "type": "heading", "text": "Acceptance", "level": 2, "color": "#0B162A" },
+    {
+      "type": "paragraph",
+      "text": "Executed by the authorized representatives of each party as of the dates written below."
+    },
+    { "type": "spacer" },
+    {
+      "type": "table",
+      "columns": 2,
+      "style": "Table Grid",
+      "rows": [
+        ["{{AccountName}}", "Chicago Bears Football Club"],
+        ["Signature: ____________________", "Signature: ____________________"],
+        ["Name: {{ContactName}}", "Name: {{SalesRep}}"],
+        ["Title: {{#ContactTitle}}{{ContactTitle}}{{/ContactTitle}}", "Title: Corporate Partnerships"],
+        ["Date: ____________________", "Date: ____________________"]
+      ]
+    },
+
+    { "type": "page_break" },
+    {
+      "_comment": "PAGES 10–11 — Appendix A (static docs; no live section gates)",
+      "type": "paragraph",
+      "text": "CHICAGO BEARS  ·  Corporate partnership proposal  ·  {{AccountName}}",
+      "size_pt": 9,
+      "color": "#C83803"
+    },
+    { "type": "heading", "text": "Appendix A. Token reference", "level": 1, "color": "#0B162A" },
+    {
+      "type": "paragraph",
+      "text": "This template is built for OmniStudio Document Generation and is wired to RLMQuoteExtractBasic + RLMQuoteTransformBasic — the same payload as RLM_Bears_Partnership_Deck and RLM_QuantumBit_Proposal. Token names below are the org-mapped names (not the original Bears sample names)."
+    },
+    {
+      "type": "table",
+      "columns": 3,
+      "style": "Table Grid",
+      "header_fill": "#0B162A",
+      "header_text_color": "#FFFFFF",
+      "header": ["Token", "Type", "Notes"],
+      "rows": [
+        ["AccountName / ContactName / ContactFirstName / ContactTitle", "Variable", "Customer and contact on the quote."],
+        ["QuoteNumber / QuoteStartDate / ExpirationDate", "Variable", "Quote identifiers. ExpirationDate is gated when null."],
+        ["SalesRep / SellerEmail / SellerPhone", "Variable", "Quote owner shown as preparer and club signer. SellerPhone gated when null."],
+        ["PaymentTerms", "Variable", "For example Net 30."],
+        ["Line (+ ProductName, Quantity, NetUnitPrice, NetTotalPrice)", "Repeating", "Open Line in the first pricing cell; close in the last cell of the same row."],
+        ["Subtotal / QDiscount / GrandTotal", "Variable", "Roll-ups. Discount row gated by IF_has_discount."],
+        ["IF_has_discount", "Condition", "Boolean. Shows or hides the discount row."],
+        ["AmendCurrentARR (gate)", "Condition", "Scalar present only on amendments. Gates the full Contract impact section."],
+        ["AmendCurrentARR / MRR / Qty", "Variable", "Current contract roll-ups."],
+        ["AmendNetIncreaseARR / MRR / Qty / AmendThisAddProrated", "Variable", "This-add roll-ups including prorated charge."],
+        ["AmendProposedARR / MRR / Qty", "Variable", "Finalized contract roll-ups after accept."],
+        ["AmendAddProduct", "Repeating", "This-add lines: ProductName, Qty, ARR, MRR, StartDate, EndDate, Prorated, DiscountLabel."],
+        ["AmendProductAmending", "Repeating", "Changed assets: ProductName, CurrentQty/ARR/MRR, FinalizedQty/ARR/MRR, ThisAdd*, AmendingBadge."]
+      ]
+    },
+
+    { "type": "page_break" },
+    {
+      "type": "paragraph",
+      "text": "CHICAGO BEARS  ·  Corporate partnership proposal  ·  {{AccountName}}",
+      "size_pt": 9,
+      "color": "#C83803"
+    },
+    { "type": "paragraph", "text": "Implementation notes", "bold": true, "size_pt": 13, "color": "#0B162A" },
+    {
+      "type": "paragraph",
+      "text": "▪  Variable tokens render plain strings. Keep descriptions to a single paragraph."
+    },
+    {
+      "type": "paragraph",
+      "text": "▪  Condition tokens require true Boolean values (or a present scalar for AmendCurrentARR self-gating)."
+    },
+    {
+      "type": "paragraph",
+      "text": "▪  Do all number and date formatting in the Transform. The template expects display-ready strings such as $285,000 and 08/27/2026."
+    },
+    {
+      "type": "paragraph",
+      "text": "▪  The club logo is embedded as a static image. ProductDescription, ServiceTerm, BillingFrequency, OwnerTitle, IF_Includes*, and preformatted Final*Delta / Ch*Delta strings are not in the current org payload and were remapped or dropped."
+    },
+    {
+      "type": "paragraph",
+      "text": "▪  AlsoOnContract / UnchangedProducts arrays are not produced by RLMQuoteTransformBasic; only amending products are listed."
+    },
+    {
+      "type": "paragraph",
+      "text": "▪  Page breaks that belong to amendment-only content sit inside the AmendCurrentARR gate so standard quotes do not leave a blank page."
+    },
+
+    { "type": "page_break" },
+    {
+      "_comment": "PAGES 12–13 — Appendix B sample (illustrative; remapped names)",
+      "type": "paragraph",
+      "text": "CHICAGO BEARS  ·  Corporate partnership proposal  ·  {{AccountName}}",
+      "size_pt": 9,
+      "color": "#C83803"
+    },
+    { "type": "heading", "text": "Appendix B. Sample token payload", "level": 1, "color": "#0B162A" },
+    {
+      "type": "paragraph",
+      "text": "Illustrative shape of the Transform output this template expects. Live values come from RLMQuoteTransformBasic against the quote record."
+    },
+    {
+      "type": "paragraph",
+      "text": "{  AccountName, ContactName, ContactFirstName, ContactTitle, QuoteNumber, QuoteStartDate, ExpirationDate, SalesRep, SellerEmail, SellerPhone, PaymentTerms, Subtotal, QDiscount, GrandTotal, IF_has_discount, Line[ ], AmendCurrentARR/MRR/Qty, AmendNetIncreaseARR/MRR/Qty, AmendThisAddProrated, AmendProposedARR/MRR/Qty, AmendAddProduct[ ], AmendProductAmending[ ]  }",
+      "size_pt": 9,
+      "color": "#333333"
+    },
+    { "type": "spacer" },
+    {
+      "type": "paragraph",
+      "text": "This template and its sample data are an unofficial concept for demonstration purposes. The Chicago Bears name, logo, and marks are the property of the Chicago Bears Football Club and the NFL, and any customer-facing use requires the owner's permission.",
+      "size_pt": 9,
+      "color": "#666666"
+    },
+    {
+      "type": "paragraph",
+      "text": "Unofficial concept template for demonstration. Not affiliated with or endorsed by the Chicago Bears or the NFL.",
+      "size_pt": 8,
+      "color": "#999999"
+    }
+  ]
+}
