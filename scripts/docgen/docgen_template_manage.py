@@ -12,6 +12,7 @@ Usage:
   python scripts/docgen/docgen_template_manage.py upload RLM_QuoteProposal template.docx --org dev-scratch
   python scripts/docgen/docgen_template_manage.py replace RLM_QuoteProposal template.docx --org dev-scratch
   python scripts/docgen/docgen_template_manage.py create RLM_NewTemplate template.docx --org dev-scratch --extract-odt RLMQuoteProposalExtract --transform-odt RLMQuoteProposalTransform --activate
+  python scripts/docgen/docgen_template_manage.py create RLM_NewDeck deck.pptx --org dev-scratch --extract-odt RLMQuoteExtractBasic --transform-odt RLMQuoteTransformBasic --activate
   python scripts/docgen/docgen_template_manage.py update RLM_QuoteProposal --org dev-scratch --extract-odt RLMQuoteProposalExtractV2
   python scripts/docgen/docgen_template_manage.py download --template RLM_QuoteProposal --org dev-scratch --output template.docx
   python scripts/docgen/docgen_template_manage.py download --version-id 068XXXXXXXXXXXXAAA --org dev-scratch --output output.pdf
@@ -24,6 +25,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import zipfile
 
 from _soql import soql_escape
 
@@ -37,11 +39,50 @@ except ImportError:
 
 LIBRARY_DEV_NAME = "DocgenDocumentTemplateLibrary"
 
+TYPE_FOR_EXT = {"docx": "MicrosoftWord", "pptx": "MicrosoftPowerpoint"}
+EXT_FOR_TYPE = {v: k for k, v in TYPE_FOR_EXT.items()}
+
 TEMPLATE_FIELDS = (
     "Id, Name, VersionNumber, IsActive, Status, Type, UsageType, "
     "ExtractOmniDataTransformName, MapperOmniDataTransformName, "
     "TokenMappingMethodType, DocumentGenerationMechanism, TokenList"
 )
+
+
+def _sniff_ooxml(path):
+    """Return 'docx'/'pptx' by inspecting an OOXML package, or None."""
+    try:
+        with zipfile.ZipFile(path) as archive:
+            names = archive.namelist()
+    except (zipfile.BadZipFile, OSError):
+        return None
+    if any(n.startswith("ppt/") for n in names):
+        return "pptx"
+    if any(n.startswith("word/") for n in names):
+        return "docx"
+    return None
+
+
+def _binary_kind(path, override=None):
+    """Resolve (DocumentTemplate.Type, file extension) for a template binary.
+
+    Repo templates are stored as extension-less `.dt` files, so fall back to
+    sniffing the package rather than assuming Word.
+    """
+    if override:
+        return override, EXT_FOR_TYPE.get(override, "docx")
+    ext = os.path.splitext(path)[1].lower().lstrip(".")
+    if ext not in TYPE_FOR_EXT:
+        ext = _sniff_ooxml(path) or "docx"
+    return TYPE_FOR_EXT[ext], ext
+
+
+def _warn_type_mismatch(template, file_type):
+    """Warn when a binary's format disagrees with the template's declared Type."""
+    declared = template.get("Type")
+    if declared in EXT_FOR_TYPE and declared != file_type:
+        print(f"  WARNING: template Type is {declared} but this file is {file_type}. "
+              f"Generation will fail unless the Type is updated too.", file=sys.stderr)
 
 
 def _sf_query(query, org):
@@ -85,27 +126,36 @@ def _sf_update(sobject, record_id, values_str, org):
         return False
 
 
-def _get_rest_auth(org):
-    """Get instance_url and access_token from sf org display --json."""
+def _sf_json(sf_args, org):
+    """Run an `sf ... --json` command and return its `result` payload."""
     result = subprocess.run(
-        ["sf", "org", "display", "--target-org", org, "--json"],
+        ["sf", *sf_args, "--target-org", org, "--json"],
         capture_output=True, text=True,
     )
     try:
-        data = json.loads(result.stdout)
-        info = data.get("result", {})
-        token = info.get("accessToken")
-        url = info.get("instanceUrl")
-        if not token or not url:
-            print("ERROR: Could not get accessToken/instanceUrl from sf org display. "
-                  "Ensure the org is authenticated and the alias is correct.",
-                  file=sys.stderr)
-            sys.exit(1)
-        return url, token
-    except (json.JSONDecodeError, KeyError):
-        print(f"ERROR: Failed to parse sf org display output: {result.stderr}",
-              file=sys.stderr)
+        return json.loads(result.stdout).get("result", {})
+    except json.JSONDecodeError:
+        print(f"ERROR: Failed to parse `sf {' '.join(sf_args)}` output: "
+              f"{result.stderr or result.stdout}", file=sys.stderr)
         sys.exit(1)
+
+
+def _get_rest_auth(org):
+    """Get (instance_url, access_token) for direct REST calls.
+
+    Two commands, because `org display` redacts the token on current CLI
+    versions while `org auth show-access-token` returns only the token.
+    """
+    token_result = _sf_json(["org", "auth", "show-access-token"], org)
+    token = (token_result.get("accessToken")
+             if isinstance(token_result, dict) else token_result)
+    url = _sf_json(["org", "display"], org).get("instanceUrl")
+    if not token or not url:
+        print(f"ERROR: Could not resolve REST auth for org '{org}'. Check "
+              f"`sf org auth show-access-token --target-org {org} --json` and "
+              f"`sf org display --target-org {org} --json`.", file=sys.stderr)
+        sys.exit(1)
+    return url.rstrip("/"), token
 
 
 def _find_library(org):
@@ -326,8 +376,10 @@ def cmd_upload(args):
     library_id = _find_library(args.org)
     doc_id = _find_content_doc(template["Name"], library_id, args.org, args.content_doc_id)
 
+    file_type, file_ext = _binary_kind(args.file)
     print(f"Uploading to: {template['Name']} (ContentDocument: {doc_id})")
-    print(f"  File: {args.file} ({file_size // 1024}KB)")
+    print(f"  File: {args.file} ({file_size // 1024}KB) -> {file_type}")
+    _warn_type_mismatch(template, file_type)
 
     instance_url, token = _get_rest_auth(args.org)
     with open(args.file, "rb") as f:
@@ -339,7 +391,7 @@ def cmd_upload(args):
         json={
             "ContentDocumentId": doc_id,
             "Title": template["Name"],
-            "PathOnClient": f"{template['Name']}.docx",
+            "PathOnClient": f"{template['Name']}.{file_ext}",
             "VersionData": version_data,
         },
     )
@@ -353,8 +405,9 @@ def cmd_upload(args):
 
 
 def cmd_create(args):
-    """Create a new DocumentTemplate and upload the .docx to the library."""
+    """Create a new DocumentTemplate and upload its binary to the library."""
     file_size = _validate_file(args.file)
+    dt_type, file_ext = _binary_kind(args.file, args.type)
     library_id = _find_library(args.org)
 
     existing = _sf_query(
@@ -367,7 +420,7 @@ def cmd_create(args):
         sys.exit(1)
 
     print(f"Creating template: {args.name}")
-    print(f"  File: {args.file} ({file_size // 1024}KB)")
+    print(f"  File: {args.file} ({file_size // 1024}KB) -> {dt_type}")
 
     instance_url, token = _get_rest_auth(args.org)
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
@@ -380,7 +433,7 @@ def cmd_create(args):
         headers=headers,
         json={
             "Title": args.name,
-            "PathOnClient": f"{args.name}.docx",
+            "PathOnClient": f"{args.name}.{file_ext}",
             "VersionData": version_data,
             "FirstPublishLocationId": library_id,
         },
@@ -394,7 +447,7 @@ def cmd_create(args):
 
     dt_body = {
         "Name": args.name,
-        "Type": "MicrosoftWord",
+        "Type": dt_type,
         "TokenMappingType": "JSON",
         "Status": "Draft",
         "IsActive": False,
@@ -475,8 +528,10 @@ def cmd_replace(args):
     library_id = _find_library(args.org)
     doc_id = _find_content_doc(template["Name"], library_id, args.org, args.content_doc_id)
 
+    file_type, file_ext = _binary_kind(args.file)
     print(f"Replace lifecycle for: {template['Name']}")
-    print(f"  File: {args.file} ({file_size // 1024}KB)")
+    print(f"  File: {args.file} ({file_size // 1024}KB) -> {file_type}")
+    _warn_type_mismatch(template, file_type)
 
     was_active = template["IsActive"]
     if was_active:
@@ -500,7 +555,7 @@ def cmd_replace(args):
         json={
             "ContentDocumentId": doc_id,
             "Title": template["Name"],
-            "PathOnClient": f"{template['Name']}.docx",
+            "PathOnClient": f"{template['Name']}.{file_ext}",
             "VersionData": version_data,
         },
     )
@@ -559,7 +614,7 @@ def cmd_download(args):
                   file=sys.stderr)
             sys.exit(1)
         cv_id = cv_records[0]["Id"]
-        default_filename = f"{template['Name']}.docx"
+        default_filename = f"{template['Name']}.{EXT_FOR_TYPE.get(template.get('Type'), 'docx')}"
     else:
         print("ERROR: Specify --template <name> or --version-id <068XXXXXXXXXXXXAAA>",
               file=sys.stderr)
@@ -618,7 +673,7 @@ def main():
     # upload
     up_p = subparsers.add_parser("upload", help="Upload new binary to existing template")
     up_p.add_argument("name", help="Template name or Id")
-    up_p.add_argument("file", help="Path to .docx or .dt file")
+    up_p.add_argument("file", help="Path to .docx, .pptx, or .dt file")
     up_p.add_argument("--org", required=True, help="SF CLI target org alias")
     up_p.add_argument("--template-id", help="Explicit template Id for disambiguation")
     up_p.add_argument("--content-doc-id", help="Explicit ContentDocument Id (069...)")
@@ -626,8 +681,10 @@ def main():
     # create
     cr_p = subparsers.add_parser("create", help="Create new template + upload file")
     cr_p.add_argument("name", help="Template name")
-    cr_p.add_argument("file", help="Path to .docx or .dt file")
+    cr_p.add_argument("file", help="Path to .docx, .pptx, or .dt file")
     cr_p.add_argument("--org", required=True, help="SF CLI target org alias")
+    cr_p.add_argument("--type", choices=sorted(EXT_FOR_TYPE),
+                      help="DocumentTemplate Type (default: inferred from the file)")
     cr_p.add_argument("--extract-odt", help="Extract ODT name")
     cr_p.add_argument("--transform-odt", help="Transform ODT name")
     cr_p.add_argument("--usage-type", help="Usage type (Revenue_Lifecycle_Management, Invoice, etc.)")
@@ -649,7 +706,7 @@ def main():
     # replace
     rep_p = subparsers.add_parser("replace", help="Full lifecycle: deactivate -> upload -> reactivate")
     rep_p.add_argument("name", help="Template name or Id")
-    rep_p.add_argument("file", help="Path to .docx or .dt file")
+    rep_p.add_argument("file", help="Path to .docx, .pptx, or .dt file")
     rep_p.add_argument("--org", required=True, help="SF CLI target org alias")
     rep_p.add_argument("--template-id", help="Explicit template Id for disambiguation")
     rep_p.add_argument("--content-doc-id", help="Explicit ContentDocument Id (069...)")
