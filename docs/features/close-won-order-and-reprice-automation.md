@@ -172,10 +172,29 @@ Verified live on order 00000163 (Infinitech, `QB-GEN-AI-LIC` × 1000): one
 asset, and a `BillingSchedule` of 149,990 matching the order total. A prior
 activation had created the asset with no billing schedule at all.
 
-**When reaching for DRO**, note that `RLM_Assetize_Order_DRO_Fulfillment` exists
-only as a **Draft** flow in the demo org and is not tracked in this repo. A
-decomposing order needs it active, or it produces fulfillment orders and no
-assets. No `FulfillmentOrder` has ever been created in the demo org, so that
-path is unproven there. Verify `FulfillmentOrder` →
-`FulfillmentOrderLineItem` → `Asset` on an activated `QB-DB` order before
-relying on it.
+**A decomposing order assetizes on fulfillment, not on activation.** This
+surprises anyone who has just debugged the non-decomposing path, where the asset
+appears seconds after activation. Verified live on order `00000164`
+(Infinitech, `QB-DB` × 1, the one QB SKU that decomposes — it matches its two
+`ProductFulfillmentDecompRule` rows by `SourceProductClassificationId`, not
+`SourceProductId`):
+
+| Stage | What appears |
+| --- | --- |
+| Activation | Two `FulfillmentOrder`s (`QB-DRO-QBD`, `QB-DRO-BILL`), one `FulfillmentPlan` of four steps, three `BillingSchedule`s (two at 0 for the service lines, one at 12,000 for the revenue line) |
+| Plan completion | One `Asset` with a single `Generate / Initial Sale` action, two `FulfillmentAsset` records (one per fulfillment order line), two completed `AssetizationAsyncJob` trackers |
+
+Nothing assetizes in between, and that is correct — Salesforce creates assets
+from order line items and fulfillment assets from fulfillment order line items
+[after the order is fulfilled](https://help.salesforce.com/s/articleView?id=ind.dro_assetization_in_dynamic_revenue_orchestrator.htm&type=5&release=262).
+The plan's four steps are `ManualTask`s and a `Milestone`, so in a demo a human
+completes them; until then a decomposing order legitimately shows fulfillment
+orders, billing, and no asset.
+
+Two things follow. `RLM_Assetize_Order_DRO_Fulfillment` (tracked in
+`force-app/main/default/flows/`, shipped `Draft`) is **not** part of this path —
+assetization is platform-native, and no `FulfillmentStepDefinition` in
+`datasets/sfdmu/qb/en-US/qb-dro/` invokes it. Leave it Draft. And any harness or
+test that activates a decomposing order cannot assert on assets at
+`order_activated`; see
+`scripts/txn_data_harness/scenarios/sales_txn_quote/17-dro-decomposition.yaml`.

@@ -52,7 +52,7 @@ Upsert all DRO objects in dependency order
 | 6  | User                            | ReadOnly  | `Name`                                                             | 1       | Lookup only — dynamic user resolution for AssignedTo |
 | 7  | Group                           | ReadOnly  | `Name`                                                             | 0       | Lookup only — Queue references (`WHERE Type = 'Queue'`) |
 | 8  | IntegrationProviderDef          | ReadOnly  | `DeveloperName`                                                    | 4       | Lookup only — referenced by FSD/FFR/FSJR |
-| 9  | FulfillmentStepDefinition       | Upsert    | `Name`                                                             | 10      | Simplified from 17; removed Order Processing/Asset Conversion/Tenant Provisioning steps |
+| 9  | FulfillmentStepDefinition       | Upsert    | `Name`                                                             | 10      | Simplified from 17; removed Order Processing/Asset Conversion/Tenant Provisioning steps. The Asset Conversion steps are **not** needed — see note below |
 | 10 | FulfillmentStepDependencyDef    | Upsert    | `Name`                                                             | 9       | Simplified from 13; removed dependencies on deleted steps |
 | 11 | ProductFulfillmentScenario      | Upsert    | `Name`                                                             | 10      | Simplified from 13; removed standalone QB-DB-TOKEN scenarios |
 | 12 | FulfillmentWorkspace            | Upsert    | `Name`                                                             | 1       | QuantumBit Complete Solution Bundle (Ramp Deal Orchestration removed) |
@@ -62,6 +62,18 @@ Upsert all DRO objects in dependency order
 | 16 | FulfillmentTaskAssignmentRule   | Upsert    | `Name`                                                             | 0       | |
 
 **Note:** Objects 3-4 (ValTfrmGrp, ValTfrm) and Object 16 (FulfillmentTaskAssignmentRule) have empty CSVs (0 data records) — placeholders for future data. ProductDecompEnrichmentRule is excluded (`excluded: true` in export.json) and has no CSV on disk. Product2 is Update-only (sets `CustomDecompositionScope`, `DecompositionScope`, `FulfillmentQtyCalcMethod`).
+
+**Assetization needs no step of its own.** The 17-step version of this plan
+carried two `Convert Order to Asset` steps wired to
+`RLM_Assetize_Order_DRO_Fulfillment`; both were dropped in the consolidation and
+should stay dropped. Assetization is platform-native on fulfillment-plan
+completion — verified on R262 order `00000164`, where completing the plan's four
+steps produced one `Asset` (single `Generate / Initial Sale` action) and one
+`FulfillmentAsset` per fulfillment order line, with no step invoking that flow
+and the flow itself still `Draft`. Re-adding such a step risks a second
+assetization run per plan. The lone surviving reference to the flow, a
+`StepType = AutoTask` row in `FulfillmentStepJeopardyRule.csv`, is a vestige of
+the removed steps: jeopardy rules are SLA templates and do not invoke anything.
 
 ## Dynamic User Resolution
 

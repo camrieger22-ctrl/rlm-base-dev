@@ -39,6 +39,7 @@ Scenarios are grouped by [`kind`](#fields-by-kind) under one subfolder each:
 | `12-usage-consumption.yaml` | `usage_upload` | 5 | Usage-based products (`QB-DB`, `QB-TOKENS-PACK`) with `TransactionJournal` consumption rows against each activated asset. Stops after journals; kick off org-wide rating separately. |
 | `13-multi-year-terms.yaml` | `invoice_posted` | 5 | Multi-year and non-month subscription cadences: 1-Annual, 3-Annual, bare-int (count-only) form, PSM-default fallback, and mixed terms on one quote. Exercises the per-line `(count, unit)` term model. |
 | `14-end-date-overrides.yaml` | `order_activated` | 5 | Explicit `EndDate` override examples for co-terming and off-cycle spans: absolute anchors, day/month/quarter/year offsets, per-line overrides, and mixed cadence orders. |
+| `17-dro-decomposition.yaml` | `order_activated` | 1 | **DRO decomposition** — sells `QB-DB`, the one QB SKU that decomposes (matched by `SourceProductClassificationId`). Activation produces two `FulfillmentOrder`s, a `FulfillmentPlan`, and `BillingSchedule`s but **no Asset**: DRO assetizes on fulfillment-plan completion, so the run's "no AssetActionSource rows" warning is expected, not a failure. Complete the plan's ManualTask steps to get one `Asset` plus one `FulfillmentAsset` per fulfillment order line. Live-verified on R262 — see the DRO section of [`../../../docs/features/close-won-order-and-reprice-automation.md`](../../../docs/features/close-won-order-and-reprice-automation.md). |
 
 ### `sales_txn_order/`
 

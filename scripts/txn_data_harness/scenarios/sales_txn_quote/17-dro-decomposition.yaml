@@ -1,0 +1,35 @@
+# DRO decomposition — activate an order whose product decomposes.
+#
+#   python -m scripts.txn_data_harness.generate --org <sf-alias> \
+#       --config scripts/txn_data_harness/scenarios/sales_txn_quote/17-dro-decomposition.yaml
+#
+# Every other sales_txn_quote scenario sells a product that assetizes directly.
+# QB-DB is the one QB SKU that decomposes: it matches two
+# ProductFulfillmentDecompRule rows (-> QB-DRO-QBD and -> QB-DRO-BILL), and it
+# matches them by SourceProductClassificationId rather than SourceProductId.
+#
+# Expect the run to report `reached=order_activated` **with a warning that no
+# AssetActionSource rows appeared**. That is correct for DRO, not a failure.
+# Activation decomposes the order and bills it — two FulfillmentOrders, one
+# FulfillmentPlan, and BillingSchedules (zero-amount for each service line plus
+# one for the revenue line). Assets are created only when the fulfillment plan
+# completes, and this plan's steps are ManualTasks a human completes. So the
+# asset poll at activation legitimately finds nothing.
+#
+# To see assetization, complete the plan's steps, then verify:
+#   Asset            — one, with a single Generate / Initial Sale action
+#   FulfillmentAsset — one per fulfillment order line item
+# Live-verified on R262 (order 00000164): 1 Asset + 2 FulfillmentAssets, no
+# duplicates. See the DRO section of
+# docs/features/close-won-order-and-reprice-automation.md.
+defaults:
+  kind: sales_txn_quote        # Quote -> Order -> Activate (no invoicing)
+
+scenarios:
+  - account: "Infinitech"        # billing-ready, so activation is not capped
+    target_stage: order_activated
+    products:
+      - sku: "QB-DB"             # decomposes; QB-DRO-QBD + QB-DRO-BILL
+        quantity: 1
+        selling_model: "Term Annual"
+    count: 1
