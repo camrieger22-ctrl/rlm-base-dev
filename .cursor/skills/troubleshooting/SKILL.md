@@ -13,6 +13,8 @@ data loading, metadata deployment, or local environment setup.
 6. Deploy fails → check for missing fields or wrong deploy order.
 7. Source tracking corrupt → `rm -rf .sf/orgs/<org-id>/localSourceTracking`
 8. Active billing records → can NEVER be deleted (platform constraint).
+9. Decomposing order activated but no Asset → **expected**; DRO assetizes on
+   fulfillment-plan completion, not activation. See [DRO Errors](#dro-errors).
 
 ---
 
@@ -435,6 +437,39 @@ import.
 ---
 
 ## DRO Errors
+
+### Decomposing order activated but no Asset appeared
+
+**Symptom:** an order containing a decomposing SKU activates cleanly —
+`FulfillmentOrder`s and `BillingSchedule`s appear — but no `Asset` or
+`AssetAction` is ever written, and polling for `AssetActionSource` times out.
+In the QB catalog the decomposing SKUs are `QB-DB` and its variants plus the
+Services/training products; they match their decomp rules by
+`SourceProductClassificationId`, not `SourceProductId`.
+
+**Cause:** not a defect. DRO assetizes on **fulfillment-plan completion**, not
+on activation ([Fulfillment Assets](https://help.salesforce.com/s/articleView?id=ind.dro_assetization_in_dynamic_revenue_orchestrator.htm&type=5&release=262)).
+The plan's steps are `ManualTask`s and `Milestone`s, so in a demo org they sit
+unfinished until a human completes them.
+
+**Fix:** complete the plan's steps, then verify assets:
+
+```bash
+sf data query --target-org $ORG -q "SELECT Id, Name, State, StepType FROM FulfillmentStep"
+sf data update record --sobject FulfillmentStep --record-id <id> --values "State=Completed" --target-org $ORG
+# after the last step completes
+sf data query --target-org $ORG -q "SELECT Name, Product.StockKeepingUnit, Quantity, Status FROM FulfillmentAsset"
+```
+
+**Do not** reach for `RLM_Assetize_Order_DRO_Fulfillment` (shipped `Draft`) or
+re-add an `Asset Conversion` step to the DRO data plan. Nothing invokes that
+flow, assetization is platform-native, and a per-plan assetize step risks a
+second assetization run. Verified on R262 order `00000164`: completing four
+steps produced one `Asset` (single `Generate / Initial Sale` action) and two
+`FulfillmentAsset`s. Reproducer:
+`scripts/txn_data_harness/scenarios/sales_txn_quote/17-dro-decomposition.yaml`.
+Detail: DRO section of
+`docs/features/close-won-order-and-reprice-automation.md`.
 
 ### ProductFulfillmentDecompRule missing ExecuteOnRuleId
 
