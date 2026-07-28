@@ -391,8 +391,10 @@ python scripts/docgen/docgen_odt_create.py spec.json --org <alias>             #
 python scripts/docgen/docgen_odt_inspect_hierarchy.py <name_or_id> --org <alias>  # Visualize Extract hierarchy tree + validate depth uniformity
 python scripts/docgen/docgen_odt_execute.py <odt_name> --record-id <id> --org <alias>  # Execute Extract via REST API (--json, --count for modes)
 python scripts/docgen/docgen_odt_execute.py <odt_name> --input extract.json --org <alias>  # Execute Transform (pass Extract output as input)
-python scripts/docgen/docgen_template_extract_tokens.py template.docx          # List all {{mustache}} tokens in a .docx
+python scripts/docgen/docgen_template_extract_tokens.py template.docx          # List all {{mustache}} tokens in a .docx/.pptx
+python scripts/docgen/docgen_template_extract_tokens.py template.docx --token-list  # Emit colon-scoped <tokenList> for .dt-meta.xml
 python scripts/docgen/docgen_template_build.py create layout.json -o out.docx  # Build .docx from JSON layout (requires python-docx)
+python scripts/docgen/docgen_template_build.py create deck.json -o out.pptx    # Build .pptx from slide layout ("format": "pptx", requires python-pptx)
 python scripts/docgen/docgen_template_generate.py --record-id <id> --template-id <id> --org <alias>  # Full doc generation (DGP): triggers Extract→Transform→render→PDF
 python scripts/docgen/docgen_template_manage.py list --org <alias>             # List all DocumentTemplates (name, status, ODTs, usage type)
 python scripts/docgen/docgen_template_manage.py status <name> --org <alias>    # Show template detail + ContentDocument info

@@ -4,8 +4,12 @@ This directory is organized by two user-facing domains:
 
 - **ODT operations** (`docgen_odt_*`) for OmniDataTransform authoring, validation,
   comparison, execution, and hierarchy analysis.
-- **Template operations** (`docgen_template_*`) for `.docx` template build/token
-  work, DocumentTemplate lifecycle management, and end-to-end generation.
+- **Template operations** (`docgen_template_*`) for `.docx`/`.pptx` template
+  build/token work, DocumentTemplate lifecycle management, and end-to-end
+  generation.
+
+Reviewable layout specs for repo templates live in `layouts/`. Rebuild a
+template's `.dt` binary from its spec rather than editing the binary by hand.
 
 ## Canonical entrypoints
 

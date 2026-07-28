@@ -1,7 +1,7 @@
 # OmniStudio Document Generation
 
 Use this skill when creating, modifying, or troubleshooting Salesforce OmniStudio
-document templates (`.docx`) and DocumentTemplate lifecycle operations.
+document templates (`.docx` and `.pptx`) and DocumentTemplate lifecycle operations.
 For ODT mapper architecture and deep ODT troubleshooting, use
 `../odt-authoring/SKILL.md`.
 
@@ -16,13 +16,22 @@ For ODT mapper architecture and deep ODT troubleshooting, use
 4. **Deactivate before mutable edits** — set template to Draft before binary or
    metadata updates; reactivate only after changes are complete.
 5. **Generate to verify behavior** — use `docgen_template_generate.py` for
-   end-to-end smoke tests after template or mapper updates.
+   end-to-end smoke tests after template or mapper updates. Rendering is the only
+   real proof; token inventory alone never catches layout defects.
 6. **Keep template and mapper changes in sync** — if token structure changes,
    confirm Extract/Transform output alignment before reactivation.
 7. **Route ODT deep work to ODT skill** — hierarchy design, mapper structure,
    filter semantics, and array-depth debugging live in `../odt-authoring/SKILL.md`.
 8. **Dynamic image contract is strict** — `IMG_*:src` must resolve to
    ContentDocument (`069`) plus width/height; see `dynamic-images.md`.
+9. **Deploy new templates through the Metadata API** — templates created via the
+   REST API cannot generate documents at all (see DO NOT below).
+10. **PowerPoint is fully supported** — `.pptx` renders scalars, repeating table
+    rows, and conditional row removal exactly as `.docx` does. See
+    **PowerPoint Templates** below for the one structural limit (no slide gating).
+11. **Build templates from a committed layout spec** — author with
+    `docgen_template_build.py` so the binary is reproducible and reviewable
+    instead of a hand-edited blob. Repo examples live in `scripts/docgen/layouts/`.
 
 
 ## DO NOT
@@ -42,6 +51,17 @@ For ODT mapper architecture and deep ODT troubleshooting, use
 - **DO NOT** use the SObject REST API to create/edit/delete ODTs in shared,
   production, or customer orgs — the official docs say these records are "for
   internal use only." Use Metadata API XML instead.
+- **DO NOT** create a new DocumentTemplate through the REST API and expect it to
+  generate. A REST-created template deploys and looks correct in the UI, but
+  every generation attempt fails with a misleading
+  `You must specify templateContentVersionId for your Request`. The error is not
+  about PowerPoint, API version, `tokenList`, or library membership — it is the
+  creation path itself. Ship new templates as `.dt` + `.dt-meta.xml` through
+  `unpackaged/post_docgen/documentTemplates/`. REST is still fine for *updating*
+  an existing template's binary (`docgen_template_manage.py replace`).
+- **DO NOT** wrap a whole PowerPoint slide in a conditional section. DocGen
+  removes gated *content* but cannot delete a slide, so a false gate leaves a
+  blank slide. Put conditional material in the Word document instead.
 
 ---
 
@@ -50,6 +70,7 @@ For ODT mapper architecture and deep ODT troubleshooting, use
 | Task | Use this skill? |
 |------|-----------------|
 | Create a new `.docx` invoice/quote/contract template | Yes |
+| Create a `.pptx` presentation template | Yes — see **PowerPoint Templates** |
 | Wire up Extract + Transform ODTs for a template | Use `../odt-authoring/SKILL.md` |
 | Add fields/tokens to an existing template | Yes |
 | Troubleshoot blank output or generation errors | Yes |
@@ -216,14 +237,14 @@ Use this for:
    - Receives: Extract output JSON (entire response, as-is)
    - Applies: pass-through renames, formula computations (LIST, IF, CONCAT),
      object builders (IMG_, HYP_), Boolean casts (IF_ conditions)
-   - Returns: template-ready JSON (keys = exact token names in .docx)
+   - Returns: template-ready JSON (keys = exact token names in the template)
 
-4. RENDER: Engine merges Transform output with .docx template
+4. RENDER: Engine merges Transform output with the .docx or .pptx template
    - Scalar tokens: {{TokenName}} → replaced with string value
    - Repeating sections: {{#Array}}...{{/Array}} → one row per array element
    - Conditional sections: {{#IF_x}}...{{/IF_x}} → rendered/hidden by Boolean
    - Dynamic content: IMG_, HYP_, RTB_ → rendered per their contract
-   - Output: .docx (intermediate)
+   - Output: .docx or .pptx (intermediate)
 
 5. CONVERT (optional): .docx → .pdf via Microsoft 365 service
    - Only when DGP.Type = "GenerateAndConvert"
@@ -285,6 +306,12 @@ Use `IF(expression, true, false)` formula in the Transform.
 - **DO NOT** place page breaks directly after `{{/IF_` or `{{/Section}}` end
   tokens — same blank page issue.
 - **DO** place page breaks **between** sections, not adjacent to token markers.
+- **DO** put the break that *ends* a conditional page **inside** the gated region,
+  immediately before the closing token. Breaks within a section are removed along
+  with its content, so the page disappears cleanly when the gate is false. A break
+  placed after the closing token survives, lands next to the following section's
+  break, and yields a blank page. Verified: moving one break inside a gate took a
+  standard quote from 6 pages to 5.
 - **Remove empty lines between adjacent conditional tokens** — the engine
   interprets whitespace between tokens as content, creating blank pages.
 
@@ -298,6 +325,55 @@ each array element:
 | Product                         | Qty          | Amount                        |
 | {{#InvoiceLines}}{{ProductName}}| {{Quantity}} | {{Subtotal}}{{/InvoiceLines}} |
 ```
+
+To nest bundle children, add one row per level and stack every closing tag in the
+final cell of the last row (the pattern `RLM_Sales_Proposal_Document` uses):
+
+```
+| {{#Line}}{{ProductName}} | {{Quantity}} | {{NetTotalPrice}}                    |
+| {{#CQL}}{{ProductName}}  | {{Quantity}} | {{NetTotalPrice}}                    |
+| {{#CQL2}}{{ProductName}} | {{Quantity}} | {{NetTotalPrice}}{{/CQL2}}{{/CQL}}{{/Line}} |
+```
+
+Rows whose section is empty collapse, so a quote with no bundle children renders
+only the `{{#Line}}` row.
+
+**Conditional rows.** To make an entire row disappear, open the gate in the first
+cell and close it in the last: `{{#IF_has_discount}}Discount` … `{{QDiscount}}%{{/IF_has_discount}}`.
+Verified in both Word and PowerPoint.
+
+---
+
+## PowerPoint Templates
+
+Server-side generation supports `.pptx` with `type: MicrosoftPowerpoint` and
+`fileExtension: pptx`. Confirmed working on Release 262 for scalar tokens,
+`{{#Section}}` repeating table rows, and conditional row removal — the mustache
+contract is identical to Word.
+
+Two differences matter when authoring:
+
+| Concern | Word | PowerPoint |
+|---------|------|------------|
+| Conditional *content* | Collapses | Collapses |
+| Conditional *container* | Page break inside gate removes the page | **A slide cannot be removed** — a false gate leaves it blank |
+| Layout | Reflows | Fixed; every shape is absolutely positioned and does not reflow when text grows |
+
+Because slides cannot be deleted, keep decks to content that renders for every
+record and put record-dependent sections in the Word document. Since slides do not
+reflow, leave vertical room for repeating tables to grow.
+
+Build decks from a slide layout spec (`"format": "pptx"`), which keeps the binary
+reproducible:
+
+```bash
+python scripts/docgen/docgen_template_build.py --example-pptx > deck.json
+python scripts/docgen/docgen_template_build.py create deck.json -o template.pptx
+```
+
+Reference implementation: `scripts/docgen/layouts/quantumbit-sales-deck.layout.json`
+→ `RLM_QuantumBit_Deck`, sharing one ODT pair with
+`quantumbit-sales-proposal.layout.json` → `RLM_QuantumBit_Proposal`.
 
 ---
 
@@ -404,14 +480,33 @@ After a formula builds an array, map it to the template:
 | Field | Value | Notes |
 |-------|-------|-------|
 | `Name` | Template name | No underscores in API Name |
-| `Type` | `MicrosoftWord` | For `.docx` templates |
+| `Type` | `MicrosoftWord` / `MicrosoftPowerpoint` | Must match the binary; `docgen_template_manage.py` sniffs the OOXML package rather than trusting the extension |
+| `fileExtension` | `docx` / `pptx` | Keep aligned with `Type` |
 | `TokenMappingType` | `JSON` | Always JSON for ODT approach |
 | `TokenMappingMethodType` | `OmniDataTransform` | Links to ODT framework |
 | `ExtractOmniDataTransformName` | Extract ODT name | Must match exactly |
 | `MapperOmniDataTransformName` | Transform ODT name | Must match exactly |
 | `UsageType` | `Invoice`, `Quote`, etc. | Object context |
-| `Status` | `Active` / `Draft` | Must be Draft to edit |
+| `Status` | `Active` / `Draft` | Must be Draft to edit; templates always **deploy** as Draft regardless of this value |
 | `IsActive` | `true` / `false` | Must be false to edit |
+| `tokenList` | Colon-scoped token paths | See below |
+
+### tokenList scoping
+
+`tokenList` reflects **template nesting, not payload nesting**. A token inside one
+or more sections is prefixed with the enclosing section names, even when the value
+is flat in the JSON — which is why the working Sales Proposal lists
+`IF_has_discount:QDiscount` for a top-level `QDiscount`:
+
+```
+QuoteNumber,AccountName,IF_has_discount:QDiscount,Line:ProductName,Line:CQL:ProductName
+```
+
+Generate it rather than hand-maintaining it:
+
+```bash
+python scripts/docgen/docgen_template_extract_tokens.py template.docx --token-list
+```
 
 ---
 
@@ -455,6 +550,11 @@ After a formula builds an array, map it to the template:
 | Engine crash: `Cannot read properties of undefined (reading '0')` | `src` has ContentVersion ID (`068`) or file Title | Use ContentDocument ID (`069`) only |
 | HYP_ shows red "URL is invalid" error | Wrong field name (`src` instead of `url`) or token formatted as Word hyperlink | Use `"url"` field (not `"src"`); ensure token is plain text in template |
 | Template locked for edits | Active status | Deactivate (`IsActive: false, Status: Draft`) first |
+| `You must specify templateContentVersionId for your Request` | Template was created through the REST API | Recreate it as `.dt` + `.dt-meta.xml` and deploy via Metadata API. Not a PowerPoint, API-version, `tokenList`, or library issue |
+| Template deploys as Draft despite `<isActive>true</isActive>` | DocumentTemplates always deploy inactive | Run `cci task run activate_docgen_templates` (or `scripts/apex/activateDocgenTemplates.apex`) |
+| Blank page where a conditional section was | Page break sits outside the gate, adjacent to the next section's break | Move the break inside the gated region, before the closing token |
+| Blank slide in a generated deck | A conditional section wraps slide content | Slides cannot be deleted — move conditional content into the Word template |
+| First data row styled as a header (PowerPoint) | PowerPoint emphasises row 0 by default | Build headerless tables with `emphasise_first_row: false` |
 | Specific token blank | Field not in Extract or Transform | Trace: is field queried? Is it mapped through both ODTs? |
 | Repeating section empty | Formula item missing or wrong ResultPath | Check formula at `OutputCreationSequence: 0` |
 | Formula produces no output | Unsupported function (FormulaConverted is null) | Check `FormulaConverted` field — if null, the function isn't supported. See Formula Function Catalog below |
@@ -482,6 +582,9 @@ read the sub-file when designing or debugging complex Extracts.
 | **Depth uniformity** | ALL field mappings for the same output array must read from the same internal hierarchy depth. Mixed depths → parent entries leak into child array. |
 | **Redundant join for parent fields** | To get a parent's field at child level without leaking grantless parents, re-join the parent object at the child level (Seq N filtering by child FK). |
 | **Section-as-conditional** | `{{#FieldName}}...{{/FieldName}}` acts as truthy/falsy gate — renders when non-empty string/array/object; skips when absent, null, false, or empty. |
+| **Self-referential gates work** | A nullable scalar can gate itself: `{{#ExpirationDate}}Valid through {{ExpirationDate}}{{/ExpirationDate}}` renders the value when present and removes the surrounding label when null. Resolution falls back to the parent context frame. This avoids adding an `IF_` formula per nullable field, at the cost of odd-looking `Name:Name` entries in `tokenList`. |
+| **Never gate on an array** | Gating a page or block on an array token repeats the whole block once per element. Gate on a scalar that exists only in the intended case. |
+| **Single-element collections are objects** | One child record serialises as an object, not a one-element array. `{{#Section}}` iterates it once, so templates are unaffected — but payload-shape assertions that test `isinstance(list)` will wrongly report the data missing. |
 | **FilterGroup = OR** | Multiple FilterGroups are UNION ALL — on nested sequences this causes N×M×G cartesian explosion. Use only on root queries. |
 | **Literals must be quoted** | `FilterValue: "'Active'"` not `FilterValue: "Active"`. Unquoted literals generate no WHERE clause. |
 | **No subqueries** | Cannot filter "only parents with children." Use child-first hierarchy + redundant join pattern. |
@@ -530,17 +633,23 @@ Install deps first: `pip install -r scripts/docgen/requirements.txt`
 ```bash
 # ODT workflows are covered by ../odt-authoring/SKILL.md (docgen_odt_* commands).
 
-# Extract all mustache tokens from a .docx template
+# Extract all mustache tokens from a .docx or .pptx template (also reads .dt binaries)
 python scripts/docgen/docgen_template_extract_tokens.py template.docx
+python scripts/docgen/docgen_template_extract_tokens.py deck.pptx
 python scripts/docgen/docgen_template_extract_tokens.py template.docx --validate-transform RLMQuoteProposalTransform --org dev-scratch
 
-# Build/modify .docx templates programmatically (requires python-docx)
+# Emit the colon-scoped <tokenList> value for the .dt-meta.xml
+python scripts/docgen/docgen_template_extract_tokens.py template.docx --token-list
+
+# Build templates programmatically (requires python-docx; python-pptx for decks)
 # NOTE: replace/audit operate on body + tables only — headers/footers NOT searched.
 # Use docgen_template_extract_tokens.py for full-template token inventory (includes headers/footers).
 python scripts/docgen/docgen_template_build.py create layout.json --output template.docx
+python scripts/docgen/docgen_template_build.py create deck.json --output template.pptx   # "format": "pptx"
 python scripts/docgen/docgen_template_build.py replace template.docx --tokens '{"Old": "New"}'
 python scripts/docgen/docgen_template_build.py audit template.docx
-python scripts/docgen/docgen_template_build.py --example > layout.json   # generate layout spec
+python scripts/docgen/docgen_template_build.py --example > layout.json        # Word layout spec
+python scripts/docgen/docgen_template_build.py --example-pptx > deck.json     # PowerPoint slide spec
 
 # Full document generation (DGP): Extract → Transform → .docx → PDF
 python scripts/docgen/docgen_template_generate.py --record-id 0Q0XXXXXXXXXXXXAAA --template-id 2dtXXXXXXXXXXXXAAA --org dev-scratch
@@ -557,6 +666,12 @@ For the full deployment guide, see **`docs/guides/docgen-setup.md`**.
 ### Key points:
 
 - **Metadata path**: `unpackaged/post_docgen/omniDataTransforms/*.rpt-meta.xml`
+- **Template path**: `unpackaged/post_docgen/documentTemplates/<Name>_1.dt` plus a
+  matching `.dt-meta.xml`. This is the **only** path that yields a template capable
+  of generating — do not create templates via REST.
+- **Template sources**: layout specs in `scripts/docgen/layouts/*.layout.json` are
+  the reviewable source for repo templates; rebuild the `.dt` from them rather than
+  editing binaries.
 - **Deploy flow**: `cci flow run prepare_docgen --org dev-scratch` (10 steps)
 - **Fresh-org bug**: ODT INSERT fails when formula fields referenced in
   `inputFieldName` don't exist yet. Steps 3–5 of `prepare_docgen` pre-deploy
