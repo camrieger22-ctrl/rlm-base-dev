@@ -843,7 +843,8 @@ class SFDMUValidator:
 
         try:
             with open(csv_path, 'w', encoding='utf-8', newline='') as f:
-                writer = csv.writer(f)
+                # csv defaults to CRLF; .gitattributes pins *.csv to LF.
+                writer = csv.writer(f, lineterminator='\n')
                 writer.writerow(headers)
             print(f"  ✅ Added header to: {csv_path.name} ({len(headers)} columns)")
             self.fixes_applied["headers"] += 1
@@ -946,7 +947,8 @@ class SFDMUValidator:
         # Write updated CSV
         try:
             with open(csv_path, 'w', encoding='utf-8', newline='') as f:
-                writer = csv.DictWriter(f, fieldnames=new_headers)
+                # csv defaults to CRLF; .gitattributes pins *.csv to LF.
+                writer = csv.DictWriter(f, fieldnames=new_headers, lineterminator='\n')
                 writer.writeheader()
                 writer.writerows(new_rows)
             print(f"  ✅ Added composite key column to: {csv_path.name} ({len(new_rows)} rows)")
