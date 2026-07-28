@@ -1,26 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Flow xmlns="http://soap.sforce.com/2006/04/metadata">
     <actionCalls>
-        <description>Direct assetization for orders with nothing to decompose. Mutually exclusive with Submit_Order: both paths assetize, so chaining them raised two assetization jobs.</description>
-        <name>Assetize_Order</name>
-        <label>Assetize Order</label>
-        <locationX>0</locationX>
-        <locationY>0</locationY>
-        <actionName>createOrUpdateAssetFromOrder</actionName>
-        <actionType>createOrUpdateAssetFromOrder</actionType>
-        <flowTransactionModel>CurrentTransaction</flowTransactionModel>
-        <inputParameters>
-            <name>orderId</name>
-            <value>
-                <elementReference>$Record.Id</elementReference>
-            </value>
-        </inputParameters>
-        <nameSegment>createOrUpdateAssetFromOrder</nameSegment>
-        <offset>0</offset>
-        <storeOutputAutomatically>true</storeOutputAutomatically>
-    </actionCalls>
-    <actionCalls>
-        <description>DRO path for orders carrying a product that decomposes. Decomposition drives assetization from fulfillment order products, so this branch must not also call Assetize_Order.</description>
+        <description>The single entry point for an activated order. submitOrder generates the billing schedules and triggers assetization, and it decomposes the order first when a ProductFulfillmentDecompRule applies. Do not chain createOrUpdateAssetFromOrder after it: that assetizes a second time.</description>
         <name>Submit_Order</name>
         <label>Submit Order</label>
         <locationX>0</locationX>
@@ -40,50 +21,9 @@
     </actionCalls>
     <apiVersion>67.0</apiVersion>
     <areMetricsLoggedToDataCloud>false</areMetricsLoggedToDataCloud>
-    <description>Overrides the standard Order-to-Asset flow. Submit_Order and Assetize_Order both trigger assetization, so chaining them raised two AssetizationAsyncJob runs per activation whenever the second trigger landed after the first job had finished, intermittently duplicating assets and applying amendment quantity deltas twice. The two are now mutually exclusive, decided by whether the order carries a product that decomposes: a ProductFulfillmentDecompRule matching an order product, or the classification an order product is based on, takes the DRO path through Submit_Order; everything else assetizes directly. Decomposition rules are the correct signal because ProductFulfillmentScenario records hang off the destination service products, which are never sold and so never appear on an order.</description>
-    <assignments>
-        <description>Gathers the order's product ids so the decomposition lookups run once instead of once per order item.</description>
-        <name>Add_Order_Product_Id</name>
-        <label>Add Order Product Id</label>
-        <locationX>0</locationX>
-        <locationY>0</locationY>
-        <assignmentItems>
-            <assignToReference>OrderProductIds</assignToReference>
-            <operator>Add</operator>
-            <value>
-                <elementReference>Collect_Order_Product_Ids.Product2Id</elementReference>
-            </value>
-        </assignmentItems>
-        <connector>
-            <targetReference>Collect_Order_Product_Ids</targetReference>
-        </connector>
-    </assignments>
-    <assignments>
-        <description>Gathers the classifications the order's products are based on, for the decomposition rules keyed on a classification rather than a specific product. The flag guards the lookup: filtering on an empty collection would be meaningless, and a null in the collection would match the rules that leave SourceProductClassificationId empty and send every order down the DRO path.</description>
-        <name>Add_Order_Product_Classification_Id</name>
-        <label>Add Order Product Classification Id</label>
-        <locationX>0</locationX>
-        <locationY>0</locationY>
-        <assignmentItems>
-            <assignToReference>OrderProductClassificationIds</assignToReference>
-            <operator>Add</operator>
-            <value>
-                <elementReference>Collect_Order_Product_Classification_Ids.BasedOnId</elementReference>
-            </value>
-        </assignmentItems>
-        <assignmentItems>
-            <assignToReference>OrderProductHasClassification</assignToReference>
-            <operator>Assign</operator>
-            <value>
-                <booleanValue>true</booleanValue>
-            </value>
-        </assignmentItems>
-        <connector>
-            <targetReference>Collect_Order_Product_Classification_Ids</targetReference>
-        </connector>
-    </assignments>
+    <description>Overrides the standard Order-to-Asset flow, which called submitOrder and then createOrUpdateAssetFromOrder in sequence. Both trigger assetization, so an activation could raise two runs and apply an amendment's quantity delta twice. Dropping submitOrder instead was worse: it is also what generates and maintains the billing schedules, so billing went silent while assets looked correct. Only submitOrder remains. It covers every case — decomposition when a ProductFulfillmentDecompRule matches an order product or its classification, billing schedule generation, and assetization — which is why chaining a second assetizing action was the defect all along.</description>
     <decisions>
-        <description>Check if the order has an AppUsageType of RevenueLifecycleManagement before calling Order-to-Asset. Otherwise do nothing.</description>
+        <description>Check if the order has an AppUsageType of RevenueLifecycleManagement before submitting it. Otherwise do nothing.</description>
         <name>IsRevenueLifecycleManagement</name>
         <label>Is RevenueLifecycleManagement</label>
         <locationX>0</locationX>
@@ -100,122 +40,14 @@
                 </rightValue>
             </conditions>
             <connector>
-                <targetReference>Get_Order_Products</targetReference>
+                <targetReference>Submit_Order</targetReference>
             </connector>
             <label>Record is RevenueLifecycleManagement</label>
-        </rules>
-    </decisions>
-    <decisions>
-        <description>A decomposition rule naming one of the order's products means DRO owns this order.</description>
-        <name>DoesOrderDecomposeByProduct</name>
-        <label>Does Order Decompose by Product</label>
-        <locationX>0</locationX>
-        <locationY>0</locationY>
-        <defaultConnector>
-            <targetReference>HasProductClassifications</targetReference>
-        </defaultConnector>
-        <defaultConnectorLabel>No product-keyed rule</defaultConnectorLabel>
-        <rules>
-            <name>OrderDecomposesByProduct</name>
-            <conditionLogic>and</conditionLogic>
-            <conditions>
-                <leftValueReference>Get_Decomp_Rule_By_Product.Id</leftValueReference>
-                <operator>IsNull</operator>
-                <rightValue>
-                    <booleanValue>false</booleanValue>
-                </rightValue>
-            </conditions>
-            <connector>
-                <targetReference>Submit_Order</targetReference>
-            </connector>
-            <label>Order decomposes by product</label>
-        </rules>
-    </decisions>
-    <decisions>
-        <description>Skips the classification lookup when none of the order's products is based on a classification, so the lookup never filters on an empty collection.</description>
-        <name>HasProductClassifications</name>
-        <label>Has Product Classifications</label>
-        <locationX>0</locationX>
-        <locationY>0</locationY>
-        <defaultConnector>
-            <targetReference>Assetize_Order</targetReference>
-        </defaultConnector>
-        <defaultConnectorLabel>No classifications to check</defaultConnectorLabel>
-        <rules>
-            <name>OrderHasProductClassifications</name>
-            <conditionLogic>and</conditionLogic>
-            <conditions>
-                <leftValueReference>OrderProductHasClassification</leftValueReference>
-                <operator>EqualTo</operator>
-                <rightValue>
-                    <booleanValue>true</booleanValue>
-                </rightValue>
-            </conditions>
-            <connector>
-                <targetReference>Get_Decomp_Rule_By_Classification</targetReference>
-            </connector>
-            <label>Has classifications</label>
-        </rules>
-    </decisions>
-    <decisions>
-        <description>A decomposition rule naming a classification one of the order's products is based on also means DRO owns this order.</description>
-        <name>DoesOrderDecomposeByClassification</name>
-        <label>Does Order Decompose by Classification</label>
-        <locationX>0</locationX>
-        <locationY>0</locationY>
-        <defaultConnector>
-            <targetReference>Assetize_Order</targetReference>
-        </defaultConnector>
-        <defaultConnectorLabel>No classification-keyed rule</defaultConnectorLabel>
-        <rules>
-            <name>OrderDecomposesByClassification</name>
-            <conditionLogic>and</conditionLogic>
-            <conditions>
-                <leftValueReference>Get_Decomp_Rule_By_Classification.Id</leftValueReference>
-                <operator>IsNull</operator>
-                <rightValue>
-                    <booleanValue>false</booleanValue>
-                </rightValue>
-            </conditions>
-            <connector>
-                <targetReference>Submit_Order</targetReference>
-            </connector>
-            <label>Order decomposes by classification</label>
         </rules>
     </decisions>
     <environments>Default</environments>
     <interviewLabel>RLM Submit Order on Activation {!$Flow.CurrentDateTime}</interviewLabel>
     <label>RLM Submit Order on Activation</label>
-    <loops>
-        <description>Repeats an action for each order item so its product id joins the collection the decomposition lookup filters on.</description>
-        <name>Collect_Order_Product_Ids</name>
-        <label>Collect Order Product Ids</label>
-        <locationX>0</locationX>
-        <locationY>0</locationY>
-        <collectionReference>Get_Order_Products</collectionReference>
-        <iterationOrder>Asc</iterationOrder>
-        <nextValueConnector>
-            <targetReference>Add_Order_Product_Id</targetReference>
-        </nextValueConnector>
-        <noMoreValuesConnector>
-            <targetReference>Get_Order_Product_Classifications</targetReference>
-        </noMoreValuesConnector>
-    </loops>
-    <loops>
-        <description>Repeats an action for each of the order's products that is based on a classification.</description>
-        <name>Collect_Order_Product_Classification_Ids</name>
-        <label>Collect Order Product Classification Ids</label>
-        <locationX>0</locationX>
-        <locationY>0</locationY>
-        <collectionReference>Get_Order_Product_Classifications</collectionReference>
-        <iterationOrder>Asc</iterationOrder>
-        <nextValueConnector>
-            <targetReference>Add_Order_Product_Classification_Id</targetReference>
-        </nextValueConnector>
-        <noMoreValuesConnector>
-            <targetReference>Get_Decomp_Rule_By_Product</targetReference>
-        </noMoreValuesConnector>
-    </loops>
     <overriddenFlow>revenue_o2aflows__o2aFlow</overriddenFlow>
     <processMetadataValues>
         <name>BuilderType</name>
@@ -259,101 +91,6 @@
         <object>AppUsageAssignment</object>
         <storeOutputAutomatically>true</storeOutputAutomatically>
     </recordLookups>
-    <recordLookups>
-        <description>Looks for a decomposition rule naming a classification one of the order's products is based on. One match routes the whole order down the DRO path.</description>
-        <name>Get_Decomp_Rule_By_Classification</name>
-        <label>Get Decomp Rule by Classification</label>
-        <locationX>0</locationX>
-        <locationY>0</locationY>
-        <assignNullValuesIfNoRecordsFound>false</assignNullValuesIfNoRecordsFound>
-        <connector>
-            <targetReference>DoesOrderDecomposeByClassification</targetReference>
-        </connector>
-        <filterLogic>and</filterLogic>
-        <filters>
-            <field>SourceProductClassificationId</field>
-            <operator>In</operator>
-            <value>
-                <elementReference>OrderProductClassificationIds</elementReference>
-            </value>
-        </filters>
-        <getFirstRecordOnly>true</getFirstRecordOnly>
-        <object>ProductFulfillmentDecompRule</object>
-        <storeOutputAutomatically>true</storeOutputAutomatically>
-    </recordLookups>
-    <recordLookups>
-        <description>Looks for a decomposition rule naming one of the order's products. One match routes the whole order down the DRO path.</description>
-        <name>Get_Decomp_Rule_By_Product</name>
-        <label>Get Decomp Rule by Product</label>
-        <locationX>0</locationX>
-        <locationY>0</locationY>
-        <assignNullValuesIfNoRecordsFound>false</assignNullValuesIfNoRecordsFound>
-        <connector>
-            <targetReference>DoesOrderDecomposeByProduct</targetReference>
-        </connector>
-        <filterLogic>and</filterLogic>
-        <filters>
-            <field>SourceProductId</field>
-            <operator>In</operator>
-            <value>
-                <elementReference>OrderProductIds</elementReference>
-            </value>
-        </filters>
-        <getFirstRecordOnly>true</getFirstRecordOnly>
-        <object>ProductFulfillmentDecompRule</object>
-        <storeOutputAutomatically>true</storeOutputAutomatically>
-    </recordLookups>
-    <recordLookups>
-        <description>Gets the classifications the order's products are based on. Products with no classification are filtered out so no null reaches the collection.</description>
-        <name>Get_Order_Product_Classifications</name>
-        <label>Get Order Product Classifications</label>
-        <locationX>0</locationX>
-        <locationY>0</locationY>
-        <assignNullValuesIfNoRecordsFound>false</assignNullValuesIfNoRecordsFound>
-        <connector>
-            <targetReference>Collect_Order_Product_Classification_Ids</targetReference>
-        </connector>
-        <filterLogic>and</filterLogic>
-        <filters>
-            <field>Id</field>
-            <operator>In</operator>
-            <value>
-                <elementReference>OrderProductIds</elementReference>
-            </value>
-        </filters>
-        <filters>
-            <field>BasedOnId</field>
-            <operator>IsNull</operator>
-            <value>
-                <booleanValue>false</booleanValue>
-            </value>
-        </filters>
-        <getFirstRecordOnly>false</getFirstRecordOnly>
-        <object>Product2</object>
-        <storeOutputAutomatically>true</storeOutputAutomatically>
-    </recordLookups>
-    <recordLookups>
-        <description>Gets the order's items so their product ids can be gathered for the decomposition lookups.</description>
-        <name>Get_Order_Products</name>
-        <label>Get Order Products</label>
-        <locationX>0</locationX>
-        <locationY>0</locationY>
-        <assignNullValuesIfNoRecordsFound>false</assignNullValuesIfNoRecordsFound>
-        <connector>
-            <targetReference>Collect_Order_Product_Ids</targetReference>
-        </connector>
-        <filterLogic>and</filterLogic>
-        <filters>
-            <field>OrderId</field>
-            <operator>EqualTo</operator>
-            <value>
-                <elementReference>$Record.Id</elementReference>
-            </value>
-        </filters>
-        <getFirstRecordOnly>false</getFirstRecordOnly>
-        <object>OrderItem</object>
-        <storeOutputAutomatically>true</storeOutputAutomatically>
-    </recordLookups>
     <start>
         <locationX>0</locationX>
         <locationY>0</locationY>
@@ -377,31 +114,4 @@
         <triggerType>RecordAfterSave</triggerType>
     </start>
     <status>Active</status>
-    <variables>
-        <description>Classifications the order's products are based on, for the decomposition rules keyed on a classification.</description>
-        <name>OrderProductClassificationIds</name>
-        <dataType>String</dataType>
-        <isCollection>true</isCollection>
-        <isInput>false</isInput>
-        <isOutput>false</isOutput>
-    </variables>
-    <variables>
-        <description>True once at least one of the order's products is based on a classification, so the classification lookup is skipped when the collection would be empty.</description>
-        <name>OrderProductHasClassification</name>
-        <dataType>Boolean</dataType>
-        <isCollection>false</isCollection>
-        <isInput>false</isInput>
-        <isOutput>false</isOutput>
-        <value>
-            <booleanValue>false</booleanValue>
-        </value>
-    </variables>
-    <variables>
-        <description>Product ids from the order's items, so a single query can test the whole order for a decomposition rule.</description>
-        <name>OrderProductIds</name>
-        <dataType>String</dataType>
-        <isCollection>true</isCollection>
-        <isInput>false</isInput>
-        <isOutput>false</isOutput>
-    </variables>
 </Flow>
