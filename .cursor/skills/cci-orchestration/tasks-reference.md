@@ -3,7 +3,7 @@
 > **Auto-generated** by `scripts/ai/generate_cci_reference.py` from `cumulusci.yml`.  
 > Do not edit manually — re-run the script after changing `cumulusci.yml`.
 
-**272 tasks** across **10 groups**.
+**273 tasks** across **10 groups**.
 
 ---
 
@@ -1050,7 +1050,7 @@
 
 ## Revenue Lifecycle Management
 
-*163 task(s)*
+*164 task(s)*
 
 ### `activate_agents`
 
@@ -2890,6 +2890,19 @@
 **Options:**
 
 - `api_names`: `['RLM_Sales_Representative']`
+
+---
+
+### `reconcile_renewal_arr`
+
+**Description:** Compare Amendment Studio's current ARR against the open renewal forecast opportunity for every account. Studio annualizes the latest AssetStatePeriod MRR while the renewal flow builds opportunity products from getRenewableAssetsSummary, so a delta points at a hand-edited record, a renewal opportunity that never refreshed, or a corrupt asset. Useful as a pre-demo preflight check. Only drifting accounts are logged unless verbose=true; pass fail_on_drift=true to exit non-zero. Note that a mid-term ramp, renewal uplift, or partial term separates the two legitimately.
+
+**Class:** `tasks.rlm_reconcile_renewal_arr.ReconcileRenewalArr`
+
+**Options:**
+
+- `tolerance`: `0.01`
+- `fail_on_drift`: `False`
 
 ---
 

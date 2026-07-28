@@ -2257,6 +2257,23 @@ tasks:
       required_sfdmu_version: "5.0.0"
       fail_on_error: true
 
+  reconcile_renewal_arr:
+    group: Revenue Lifecycle Management
+    description: >
+      Compare Amendment Studio's current ARR against the open renewal
+      forecast opportunity for every account. Studio annualizes the latest
+      AssetStatePeriod MRR while the renewal flow builds opportunity products
+      from getRenewableAssetsSummary, so a delta points at a hand-edited
+      record, a renewal opportunity that never refreshed, or a corrupt asset.
+      Useful as a pre-demo preflight check. Only drifting accounts are logged
+      unless verbose=true; pass fail_on_drift=true to exit non-zero. Note that
+      a mid-term ramp, renewal uplift, or partial term separates the two
+      legitimately.
+    class_path: tasks.rlm_reconcile_renewal_arr.ReconcileRenewalArr
+    options:
+      tolerance: 0.01
+      fail_on_drift: false
+
   configure_revenue_settings:
     group: Revenue Lifecycle Management
     description: "Configure Revenue Settings page defaults: Pricing Procedure, Usage Rating, Instant Pricing toggle, Create Orders from Quote flow, and optionally Create Contracts from Quote and Manage Assets flows (Robot test). Must run after all data/metadata is deployed and before decision table refresh."
