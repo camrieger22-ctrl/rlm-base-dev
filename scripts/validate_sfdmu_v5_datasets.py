@@ -310,9 +310,15 @@ class SFDMUValidator:
             if headers_fixed > 0 or composite_keys_fixed > 0:
                 print(f"\n  Fixed {headers_fixed} header(s) and {composite_keys_fixed} composite key column(s)")
 
-        # Validate each object's CSV and composite key configuration
+        # Validate each object's CSV and composite key configuration. Objects whose
+        # CSV lives in objectset_source/object-set-N/ have no root-level CSV by
+        # design; they are validated separately below.
+        overridden_objects = {obj_name for (obj_name, _) in objectset_source_overrides}
         for obj_name, obj_config in object_configs.items():
-            self._validate_object(dataset_path, obj_name, obj_config, result)
+            self._validate_object(
+                dataset_path, obj_name, obj_config, result,
+                has_objectset_source_csv=obj_name in overridden_objects,
+            )
 
         # Validate per-pass CSV overrides
         if objectset_source_overrides:
@@ -565,7 +571,8 @@ class SFDMUValidator:
         # Validate CSV file with pass context
         self._validate_csv_file(csv_path, obj_name, obj_config, result, pass_index=pass_index)
 
-    def _validate_object(self, dataset_path: Path, obj_name: str, obj_config: dict, result: ValidationResult):
+    def _validate_object(self, dataset_path: Path, obj_name: str, obj_config: dict, result: ValidationResult,
+                         has_objectset_source_csv: bool = False):
         """Validate a single object's CSV and configuration.
 
         Args:
@@ -573,6 +580,8 @@ class SFDMUValidator:
             obj_name: Object API name
             obj_config: Object configuration from export.json
             result: ValidationResult to add issues to
+            has_objectset_source_csv: True when the object's CSV lives under
+                objectset_source/object-set-N/ rather than the dataset root
         """
         self.log(f"\nValidating object: {obj_name}", level="DEBUG")
 
@@ -591,9 +600,10 @@ class SFDMUValidator:
         external_id = obj_config.get("externalId", "")
         self._validate_external_id(obj_name, external_id, obj_config, result)
 
-        # Validate CSV file
-        csv_path = dataset_path / f"{obj_name}.csv"
-        self._validate_csv_file(csv_path, obj_name, obj_config, result)
+        # Validate CSV file. Per-pass CSVs are validated by _validate_per_pass_csv.
+        if not has_objectset_source_csv:
+            csv_path = dataset_path / f"{obj_name}.csv"
+            self._validate_csv_file(csv_path, obj_name, obj_config, result)
 
         # Check deleteOldData usage
         if obj_config.get("deleteOldData"):

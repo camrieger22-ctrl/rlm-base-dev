@@ -135,6 +135,7 @@ procedure-plans/
 ├── ProcedurePlanSection.csv             # 2 records (Upsert)
 │
 │  Source CSVs (Pass 2 — Options)
+├── ExpressionSetDefinition.csv          # 2 records (Readonly)
 ├── objectset_source/
 │   └── object-set-2/
 │       └── ProcedurePlanOption.csv      # 2 records (Upsert)
