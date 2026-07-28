@@ -1,0 +1,594 @@
+{
+  "_comment": "Source layout for RLM_Bears_Partnership_Deck. Exact visual replica of BearsPPT.pdf with Chicago Bears branding (#0B162A / #C83803) and tokens remapped to RLMQuoteExtractBasic + RLMQuoteTransformBasic (same payload as the Word proposal). Contract-impact slides use Amend* tokens that already render in Word: gate on AmendCurrentARR (not IF_IsAmendment). Flagged Bears-only tokens handled as: OwnerTitle→static 'Corporate Partnerships'; BillingFrequency/ProductDescription/ServiceTerm/IF_Includes* dropped or ungated static cards; Final*Delta→AmendNetIncrease*; Ch*Delta omitted in favor of Current/Finalized columns. Build: python scripts/docgen/docgen_template_build.py create scripts/docgen/layouts/chicago-bears-partnership-deck.layout.json -o out.pptx. PPT caveat: DocGen cannot delete slides, so amendment slides stay (content collapses) on standard quotes.",
+  "format": "pptx",
+  "slide_size": { "width_inches": 13.333, "height_inches": 7.5 },
+  "theme": {
+    "navy": "#0B162A",
+    "orange": "#C83803",
+    "ink": "#0B162A",
+    "body": "#3A4555",
+    "muted": "#8A93A2",
+    "card": "#F2F3F5",
+    "line": "#D9DEE5",
+    "white": "#FFFFFF"
+  },
+  "slides": [
+    {
+      "_comment": "1 — Cover",
+      "background": "@navy",
+      "elements": [
+        {
+          "type": "image",
+          "path": "scripts/docgen/assets/chicago-bears-logo.png",
+          "left": 5.916, "top": 0.85, "width": 1.5, "height": 1.5
+        },
+        {
+          "type": "textbox", "left": 0, "top": 2.5, "width": 13.333, "height": 0.4,
+          "lines": [{ "text": "CHICAGO BEARS FOOTBALL CLUB", "size_pt": 14, "bold": true, "color": "@white", "letter_spacing_pt": 4, "align": "center" }]
+        },
+        {
+          "type": "textbox", "left": 0, "top": 3.05, "width": 13.333, "height": 0.85,
+          "lines": [{ "text": "Corporate partnership proposal", "size_pt": 40, "bold": true, "color": "@white", "align": "center" }]
+        },
+        {
+          "type": "textbox", "left": 0, "top": 3.95, "width": 13.333, "height": 0.5,
+          "lines": [{ "text": "Prepared for {{AccountName}}", "size_pt": 20, "bold": true, "color": "@orange", "align": "center" }]
+        },
+        {
+          "type": "textbox", "left": 1.5, "top": 4.85, "width": 3.4, "height": 0.85,
+          "lines": [
+            { "text": "PROPOSAL", "size_pt": 11, "bold": true, "color": "@orange", "letter_spacing_pt": 2.5, "align": "center", "space_after_pt": 6 },
+            { "text": "{{QuoteNumber}}", "size_pt": 16, "bold": true, "color": "@white", "align": "center" }
+          ]
+        },
+        {
+          "type": "textbox", "left": 4.967, "top": 4.85, "width": 3.4, "height": 0.85,
+          "lines": [
+            { "text": "ISSUED", "size_pt": 11, "bold": true, "color": "@orange", "letter_spacing_pt": 2.5, "align": "center", "space_after_pt": 6 },
+            { "text": "{{QuoteStartDate}}", "size_pt": 16, "bold": true, "color": "@white", "align": "center" }
+          ]
+        },
+        {
+          "type": "textbox", "left": 8.433, "top": 4.85, "width": 3.4, "height": 0.85,
+          "lines": [
+            { "text": "VALID THROUGH", "size_pt": 11, "bold": true, "color": "@orange", "letter_spacing_pt": 2.5, "align": "center", "space_after_pt": 6 },
+            { "text": "{{#ExpirationDate}}{{ExpirationDate}}{{/ExpirationDate}}", "size_pt": 16, "bold": true, "color": "@white", "align": "center" }
+          ]
+        },
+        {
+          "type": "textbox", "left": 0, "top": 6.05, "width": 13.333, "height": 0.35,
+          "lines": [{ "text": "2026 season", "size_pt": 12, "color": "@muted", "align": "center" }]
+        },
+        {
+          "type": "textbox", "left": 0.8, "top": 6.9, "width": 11.7, "height": 0.35,
+          "lines": [{ "text": "Unofficial concept template for demonstration. Not affiliated with or endorsed by the Chicago Bears or the NFL.", "size_pt": 8, "color": "@muted", "align": "center" }]
+        }
+      ]
+    },
+
+    {
+      "_comment": "2 — Cover letter",
+      "elements": [
+        {
+          "type": "textbox", "left": 0.85, "top": 0.55, "width": 10.5, "height": 0.7,
+          "lines": [{ "text": "A partnership built for {{AccountName}}", "size_pt": 28, "bold": true, "color": "@navy" }]
+        },
+        {
+          "type": "image",
+          "path": "scripts/docgen/assets/chicago-bears-logo.png",
+          "left": 12.15, "top": 0.4, "width": 0.7, "height": 0.7
+        },
+        {
+          "type": "textbox", "left": 0.85, "top": 1.55, "width": 7.0, "height": 4.6,
+          "lines": [
+            { "text": "Dear {{ContactFirstName}},", "size_pt": 14, "color": "@ink", "space_after_pt": 14, "line_spacing": 1.3 },
+            { "text": "Thank you for the opportunity to present this proposal on behalf of the Chicago Bears Football Club. This program was configured specifically for {{AccountName}}, combining premium hospitality at Soldier Field, in-stadium brand visibility, and year-round engagement with our organization.", "size_pt": 13.5, "color": "@body", "space_after_pt": 14, "line_spacing": 1.35 },
+            { "text": "The slides that follow outline the program, the investment summary generated directly from quote {{QuoteNumber}}, and the commercial terms.{{#ExpirationDate}} Pricing is valid through {{ExpirationDate}}.{{/ExpirationDate}}", "size_pt": 13.5, "color": "@body", "space_after_pt": 14, "line_spacing": 1.35 },
+            { "text": "We look forward to refining any element of this program with you. Bear Down.", "size_pt": 13.5, "color": "@body", "line_spacing": 1.35 }
+          ]
+        },
+        {
+          "type": "shape", "shape": "rounded_rect", "corner_radius": 0.06,
+          "left": 8.35, "top": 1.55, "width": 4.15, "height": 4.2, "fill": "@navy",
+          "anchor": "middle", "align": "center",
+          "lines": [
+            { "text": " ", "size_pt": 8, "align": "center", "space_after_pt": 4 },
+            { "text": "Prepared by", "size_pt": 12, "bold": true, "color": "@orange", "align": "center", "space_after_pt": 10 },
+            { "text": "{{SalesRep}}", "size_pt": 20, "bold": true, "color": "@white", "align": "center", "space_after_pt": 6 },
+            { "text": "Corporate Partnerships", "size_pt": 12, "color": "@white", "align": "center", "space_after_pt": 14 },
+            { "text": "{{SellerEmail}}", "size_pt": 12, "color": "@white", "align": "center", "space_after_pt": 4 },
+            { "text": "{{#SellerPhone}}{{SellerPhone}}{{/SellerPhone}}", "size_pt": 12, "color": "@white", "align": "center" }
+          ]
+        },
+        {
+          "type": "image",
+          "path": "scripts/docgen/assets/chicago-bears-logo.png",
+          "left": 9.85, "top": 1.85, "width": 1.15, "height": 1.15
+        }
+      ]
+    },
+
+    {
+      "_comment": "3 — Why partner",
+      "elements": [
+        {
+          "type": "textbox", "left": 0.85, "top": 0.5, "width": 10.5, "height": 0.6,
+          "lines": [{ "text": "Why partner with the Chicago Bears", "size_pt": 28, "bold": true, "color": "@navy" }]
+        },
+        {
+          "type": "textbox", "left": 0.85, "top": 1.15, "width": 10.8, "height": 0.45,
+          "lines": [{ "text": "A charter franchise of the National Football League and one of the most storied organizations in professional sports.", "size_pt": 13, "color": "@muted" }]
+        },
+        {
+          "type": "image",
+          "path": "scripts/docgen/assets/chicago-bears-logo.png",
+          "left": 12.15, "top": 0.4, "width": 0.7, "height": 0.7
+        },
+        { "type": "shape", "shape": "rounded_rect", "corner_radius": 0.05, "left": 0.85, "top": 2.0, "width": 3.7, "height": 4.2, "fill": "@card" },
+        { "type": "shape", "shape": "oval", "left": 2.24, "top": 2.35, "width": 0.9, "height": 0.9, "fill": "@orange",
+          "anchor": "middle", "align": "center", "margin_left": 0, "margin_right": 0, "margin_top": 0, "margin_bottom": 0,
+          "lines": [{ "text": "◆", "size_pt": 22, "color": "@white", "align": "center" }] },
+        { "type": "textbox", "left": 1.05, "top": 3.45, "width": 3.3, "height": 2.5,
+          "lines": [
+            { "text": "1920", "size_pt": 28, "bold": true, "color": "@orange", "align": "center", "space_after_pt": 4 },
+            { "text": "Charter franchise", "size_pt": 14, "bold": true, "color": "@ink", "align": "center", "space_after_pt": 10 },
+            { "text": "Founded in 1920 and playing continuously ever since, the Bears are one of the NFL's two remaining charter franchises.", "size_pt": 12, "color": "@body", "align": "center", "line_spacing": 1.25 }
+          ] },
+
+        { "type": "shape", "shape": "rounded_rect", "corner_radius": 0.05, "left": 4.815, "top": 2.0, "width": 3.7, "height": 4.2, "fill": "@card" },
+        { "type": "shape", "shape": "oval", "left": 6.205, "top": 2.35, "width": 0.9, "height": 0.9, "fill": "@orange",
+          "anchor": "middle", "align": "center", "margin_left": 0, "margin_right": 0, "margin_top": 0, "margin_bottom": 0,
+          "lines": [{ "text": "★", "size_pt": 22, "color": "@white", "align": "center" }] },
+        { "type": "textbox", "left": 5.015, "top": 3.45, "width": 3.3, "height": 2.5,
+          "lines": [
+            { "text": "9", "size_pt": 28, "bold": true, "color": "@orange", "align": "center", "space_after_pt": 4 },
+            { "text": "League championships", "size_pt": 14, "bold": true, "color": "@ink", "align": "center", "space_after_pt": 10 },
+            { "text": "Nine league championships across more than a century of football, including the 1985 season capped by Super Bowl XX.", "size_pt": 12, "color": "@body", "align": "center", "line_spacing": 1.25 }
+          ] },
+
+        { "type": "shape", "shape": "rounded_rect", "corner_radius": 0.05, "left": 8.78, "top": 2.0, "width": 3.7, "height": 4.2, "fill": "@card" },
+        { "type": "shape", "shape": "oval", "left": 10.17, "top": 2.35, "width": 0.9, "height": 0.9, "fill": "@orange",
+          "anchor": "middle", "align": "center", "margin_left": 0, "margin_right": 0, "margin_top": 0, "margin_bottom": 0,
+          "lines": [{ "text": "●", "size_pt": 22, "color": "@white", "align": "center" }] },
+        { "type": "textbox", "left": 8.98, "top": 3.45, "width": 3.3, "height": 2.5,
+          "lines": [
+            { "text": "Soldier Field", "size_pt": 22, "bold": true, "color": "@orange", "align": "center", "space_after_pt": 4 },
+            { "text": "Lakefront home", "size_pt": 14, "bold": true, "color": "@ink", "align": "center", "space_after_pt": 10 },
+            { "text": "Game days on Chicago's lakefront, with one of the most loyal season ticket bases in the league.", "size_pt": 12, "color": "@body", "align": "center", "line_spacing": 1.25 }
+          ] }
+      ]
+    },
+
+    {
+      "_comment": "4 — Proposed program (cards always shown; IF_Includes* not in org payload)",
+      "elements": [
+        {
+          "type": "textbox", "left": 0.85, "top": 0.45, "width": 10.5, "height": 0.55,
+          "lines": [{ "text": "Your proposed program", "size_pt": 28, "bold": true, "color": "@navy" }]
+        },
+        {
+          "type": "textbox", "left": 0.85, "top": 1.05, "width": 10.8, "height": 0.4,
+          "lines": [{ "text": "Program elements available for partnership configuration. Line-level pricing appears on the investment summary.", "size_pt": 13, "color": "@muted" }]
+        },
+        {
+          "type": "image",
+          "path": "scripts/docgen/assets/chicago-bears-logo.png",
+          "left": 12.15, "top": 0.4, "width": 0.7, "height": 0.7
+        },
+
+        { "type": "shape", "shape": "rounded_rect", "corner_radius": 0.05, "left": 0.85, "top": 1.7, "width": 5.7, "height": 2.35, "fill": "@card" },
+        { "type": "shape", "shape": "oval", "left": 1.15, "top": 2.15, "width": 0.7, "height": 0.7, "fill": "@orange",
+          "anchor": "middle", "align": "center", "margin_left": 0, "margin_right": 0, "margin_top": 0, "margin_bottom": 0,
+          "lines": [{ "text": "▣", "size_pt": 16, "color": "@white", "align": "center" }] },
+        { "type": "textbox", "left": 2.05, "top": 2.05, "width": 4.25, "height": 1.8,
+          "lines": [
+            { "text": "Executive suite at Soldier Field", "size_pt": 15, "bold": true, "color": "@ink", "space_after_pt": 6 },
+            { "text": "A licensed private suite for all 2026 preseason and regular season home games, with dedicated attendant service, premium catering access, and VIP parking.", "size_pt": 12, "color": "@body", "line_spacing": 1.25 }
+          ] },
+
+        { "type": "shape", "shape": "rounded_rect", "corner_radius": 0.05, "left": 6.8, "top": 1.7, "width": 5.7, "height": 2.35, "fill": "@card" },
+        { "type": "shape", "shape": "oval", "left": 7.1, "top": 2.15, "width": 0.7, "height": 0.7, "fill": "@orange",
+          "anchor": "middle", "align": "center", "margin_left": 0, "margin_right": 0, "margin_top": 0, "margin_bottom": 0,
+          "lines": [{ "text": "◆", "size_pt": 16, "color": "@white", "align": "center" }] },
+        { "type": "textbox", "left": 8.0, "top": 2.05, "width": 4.25, "height": 1.8,
+          "lines": [
+            { "text": "Club level season tickets", "size_pt": 15, "bold": true, "color": "@ink", "space_after_pt": 6 },
+            { "text": "Padded club seating with climate-controlled concourse access and dedicated entry, delivered digitally and reassignable game by game.", "size_pt": 12, "color": "@body", "line_spacing": 1.25 }
+          ] },
+
+        { "type": "shape", "shape": "rounded_rect", "corner_radius": 0.05, "left": 0.85, "top": 4.3, "width": 5.7, "height": 2.35, "fill": "@card" },
+        { "type": "shape", "shape": "oval", "left": 1.15, "top": 4.75, "width": 0.7, "height": 0.7, "fill": "@orange",
+          "anchor": "middle", "align": "center", "margin_left": 0, "margin_right": 0, "margin_top": 0, "margin_bottom": 0,
+          "lines": [{ "text": "▣", "size_pt": 16, "color": "@white", "align": "center" }] },
+        { "type": "textbox", "left": 2.05, "top": 4.65, "width": 4.25, "height": 1.8,
+          "lines": [
+            { "text": "In-stadium brand visibility", "size_pt": 15, "bold": true, "color": "@ink", "space_after_pt": 6 },
+            { "text": "LED ribbon board rotations every home game plus tunnel LED placements, produced to Bears brand and broadcast standards with per-game reporting.", "size_pt": 12, "color": "@body", "line_spacing": 1.25 }
+          ] },
+
+        { "type": "shape", "shape": "rounded_rect", "corner_radius": 0.05, "left": 6.8, "top": 4.3, "width": 5.7, "height": 2.35, "fill": "@card" },
+        { "type": "shape", "shape": "oval", "left": 7.1, "top": 4.75, "width": 0.7, "height": 0.7, "fill": "@orange",
+          "anchor": "middle", "align": "center", "margin_left": 0, "margin_right": 0, "margin_top": 0, "margin_bottom": 0,
+          "lines": [{ "text": "★", "size_pt": 16, "color": "@white", "align": "center" }] },
+        { "type": "textbox", "left": 8.0, "top": 4.65, "width": 4.25, "height": 1.8,
+          "lines": [
+            { "text": "Experiences and hospitality", "size_pt": 15, "bold": true, "color": "@ink", "space_after_pt": 6 },
+            { "text": "A season hospitality credit plus a training camp VIP experience at Halas Hall, with private practice viewing and a hosted reception.", "size_pt": 12, "color": "@body", "line_spacing": 1.25 }
+          ] }
+      ]
+    },
+
+    {
+      "_comment": "5 — Investment summary (Line array; no ProductDescription/ServiceTerm/BillingFrequency)",
+      "elements": [
+        {
+          "type": "textbox", "left": 0.85, "top": 0.45, "width": 10.5, "height": 0.55,
+          "lines": [{ "text": "Investment summary", "size_pt": 28, "bold": true, "color": "@navy" }]
+        },
+        {
+          "type": "textbox", "left": 0.85, "top": 1.05, "width": 10.8, "height": 0.4,
+          "lines": [{ "text": "Generated directly from quote {{QuoteNumber}}. One row repeats per line. Amounts in US dollars, taxes excluded.", "size_pt": 13, "color": "@muted" }]
+        },
+        {
+          "type": "image",
+          "path": "scripts/docgen/assets/chicago-bears-logo.png",
+          "left": 12.15, "top": 0.4, "width": 0.7, "height": 0.7
+        },
+        {
+          "type": "table",
+          "left": 0.85, "top": 1.65, "width": 11.65, "height": 1.0,
+          "columns": 4,
+          "col_widths": [5.85, 1.5, 2.1, 2.2],
+          "row_heights": [0.42, 0.55],
+          "align": ["left", "center", "right", "right"],
+          "size_pt": 13,
+          "header_size_pt": 12,
+          "header_fill": "@navy",
+          "header_text_color": "@white",
+          "text_color": "@ink",
+          "border": "@line",
+          "border_width_pt": 0.75,
+          "cell_margins_pt": { "left": 10, "right": 10, "top": 5, "bottom": 5 },
+          "header": ["Program element", "Qty", "Unit price", "Amount"],
+          "rows": [
+            ["{{#Line}}{{ProductName}}", "{{Quantity}}", "{{NetUnitPrice}}", "{{NetTotalPrice}}{{/Line}}"]
+          ]
+        },
+        {
+          "type": "table",
+          "left": 7.5, "top": 2.95, "width": 5.0, "height": 0.85,
+          "columns": 2,
+          "col_widths": [3.0, 2.0],
+          "row_heights": [0.38, 0.42],
+          "align": ["right", "right"],
+          "size_pt": 13,
+          "text_color": "@body",
+          "cell_margins_pt": { "left": 6, "right": 10, "top": 3, "bottom": 3 },
+          "rows": [
+            ["Subtotal", "{{Subtotal}}"],
+            ["{{#IF_has_discount}}Partnership discount", "{{QDiscount}}%{{/IF_has_discount}}"]
+          ]
+        },
+        { "type": "shape", "shape": "rounded_rect", "corner_radius": 0.05, "left": 6.3, "top": 4.15, "width": 6.2, "height": 1.05, "fill": "@navy" },
+        {
+          "type": "textbox", "left": 6.7, "top": 4.3, "width": 2.7, "height": 0.75, "anchor": "middle",
+          "lines": [{ "text": "Total investment", "size_pt": 15, "bold": true, "color": "@white" }]
+        },
+        {
+          "type": "textbox", "left": 9.2, "top": 4.25, "width": 3.0, "height": 0.85, "anchor": "middle",
+          "lines": [{ "text": "{{GrandTotal}}", "size_pt": 26, "bold": true, "color": "@orange", "align": "right" }]
+        },
+        {
+          "type": "textbox", "left": 0.85, "top": 6.5, "width": 11.5, "height": 0.4,
+          "lines": [{ "text": "Payment terms: {{PaymentTerms}}.", "size_pt": 12, "color": "@muted" }]
+        }
+      ]
+    },
+
+    {
+      "_comment": "6 — Contract impact (Current / This Add / Finalized) — same Amend* tokens as Word proposal",
+      "elements": [
+        {
+          "type": "textbox", "left": 0.85, "top": 0.4, "width": 10.5, "height": 0.55,
+          "lines": [{ "text": "Contract impact", "size_pt": 28, "bold": true, "color": "@navy" }]
+        },
+        {
+          "type": "image",
+          "path": "scripts/docgen/assets/chicago-bears-logo.png",
+          "left": 12.15, "top": 0.35, "width": 0.7, "height": 0.7
+        },
+        {
+          "type": "textbox", "left": 0.85, "top": 1.05, "width": 11.5, "height": 0.45,
+          "lines": [{ "text": "{{#AmendCurrentARR}}Quote {{QuoteNumber}} amends your existing agreement. Current contract, this add, and the finalized contract if you accept.", "size_pt": 13, "color": "@muted" }]
+        },
+
+        { "type": "shape", "shape": "rounded_rect", "corner_radius": 0.05, "left": 0.85, "top": 1.75, "width": 3.55, "height": 4.35, "fill": "@card" },
+        { "type": "textbox", "left": 1.05, "top": 2.0, "width": 3.15, "height": 3.8,
+          "lines": [
+            { "text": "CURRENT", "size_pt": 12, "bold": true, "color": "@muted", "letter_spacing_pt": 2, "align": "center", "space_after_pt": 16 },
+            { "text": "ARR", "size_pt": 11, "color": "@muted", "align": "center", "space_after_pt": 2 },
+            { "text": "{{AmendCurrentARR}}", "size_pt": 18, "bold": true, "color": "@navy", "align": "center", "space_after_pt": 14 },
+            { "text": "MRR", "size_pt": 11, "color": "@muted", "align": "center", "space_after_pt": 2 },
+            { "text": "{{AmendCurrentMRR}}", "size_pt": 18, "bold": true, "color": "@navy", "align": "center", "space_after_pt": 14 },
+            { "text": "Licensed quantity", "size_pt": 11, "color": "@muted", "align": "center", "space_after_pt": 2 },
+            { "text": "{{AmendCurrentQty}}", "size_pt": 18, "bold": true, "color": "@navy", "align": "center" }
+          ] },
+
+        { "type": "shape", "shape": "rounded_rect", "corner_radius": 0.05, "left": 4.9, "top": 1.75, "width": 3.55, "height": 4.35, "fill": "@white", "line": "@orange", "line_width_pt": 2.5 },
+        { "type": "textbox", "left": 5.1, "top": 2.0, "width": 3.15, "height": 3.9,
+          "lines": [
+            { "text": "THIS ADD", "size_pt": 12, "bold": true, "color": "@orange", "letter_spacing_pt": 2, "align": "center", "space_after_pt": 14 },
+            { "text": "ARR", "size_pt": 11, "color": "@muted", "align": "center", "space_after_pt": 2 },
+            { "text": "{{AmendNetIncreaseARR}}", "size_pt": 18, "bold": true, "color": "@navy", "align": "center", "space_after_pt": 10 },
+            { "text": "MRR", "size_pt": 11, "color": "@muted", "align": "center", "space_after_pt": 2 },
+            { "text": "{{AmendNetIncreaseMRR}}", "size_pt": 18, "bold": true, "color": "@navy", "align": "center", "space_after_pt": 10 },
+            { "text": "Quantity", "size_pt": 11, "color": "@muted", "align": "center", "space_after_pt": 2 },
+            { "text": "{{AmendNetIncreaseQty}}", "size_pt": 18, "bold": true, "color": "@navy", "align": "center", "space_after_pt": 10 },
+            { "text": "Prorated this term", "size_pt": 11, "color": "@muted", "align": "center", "space_after_pt": 2 },
+            { "text": "{{AmendThisAddProrated}}", "size_pt": 16, "bold": true, "color": "@orange", "align": "center" }
+          ] },
+
+        { "type": "shape", "shape": "rounded_rect", "corner_radius": 0.05, "left": 8.95, "top": 1.75, "width": 3.55, "height": 4.35, "fill": "@navy" },
+        { "type": "textbox", "left": 9.15, "top": 2.0, "width": 3.15, "height": 3.9,
+          "lines": [
+            { "text": "FINALIZED CONTRACT", "size_pt": 11, "bold": true, "color": "@orange", "letter_spacing_pt": 1.5, "align": "center", "space_after_pt": 14 },
+            { "text": "ARR", "size_pt": 11, "color": "@muted", "align": "center", "space_after_pt": 2 },
+            { "text": "{{AmendProposedARR}}", "size_pt": 18, "bold": true, "color": "@white", "align": "center", "space_after_pt": 2 },
+            { "text": "{{AmendNetIncreaseARR}}", "size_pt": 11, "color": "@orange", "align": "center", "space_after_pt": 10 },
+            { "text": "MRR", "size_pt": 11, "color": "@muted", "align": "center", "space_after_pt": 2 },
+            { "text": "{{AmendProposedMRR}}", "size_pt": 18, "bold": true, "color": "@white", "align": "center", "space_after_pt": 2 },
+            { "text": "{{AmendNetIncreaseMRR}}", "size_pt": 11, "color": "@orange", "align": "center", "space_after_pt": 10 },
+            { "text": "Licensed quantity", "size_pt": 11, "color": "@muted", "align": "center", "space_after_pt": 2 },
+            { "text": "{{AmendProposedQty}}", "size_pt": 18, "bold": true, "color": "@white", "align": "center", "space_after_pt": 2 },
+            { "text": "{{AmendNetIncreaseQty}}", "size_pt": 11, "color": "@orange", "align": "center" }
+          ] },
+
+        {
+          "type": "textbox", "left": 0.85, "top": 6.35, "width": 11.5, "height": 0.55,
+          "lines": [{ "text": "Prorated reflects charges for the remainder of the current term. Orange figures under Finalized show the net increase driven by this add. {{/AmendCurrentARR}}", "size_pt": 11, "color": "@muted" }]
+        }
+      ]
+    },
+
+    {
+      "_comment": "7 — Contract impact by product (AmendAddProduct + AmendProductAmending)",
+      "elements": [
+        {
+          "type": "textbox", "left": 0.85, "top": 0.35, "width": 10.5, "height": 0.5,
+          "lines": [{ "text": "Contract impact by product", "size_pt": 26, "bold": true, "color": "@navy" }]
+        },
+        {
+          "type": "image",
+          "path": "scripts/docgen/assets/chicago-bears-logo.png",
+          "left": 12.15, "top": 0.3, "width": 0.7, "height": 0.7
+        },
+        {
+          "type": "textbox", "left": 0.85, "top": 0.95, "width": 11.5, "height": 0.35,
+          "lines": [{ "text": "{{#AmendCurrentARR}}Add-on economics for this quote, and each asset on the finalized contract that this add changes.", "size_pt": 12, "color": "@muted" }]
+        },
+        {
+          "type": "textbox", "left": 0.85, "top": 1.4, "width": 5, "height": 0.35,
+          "lines": [{ "text": "This add", "size_pt": 14, "bold": true, "color": "@navy" }]
+        },
+        {
+          "type": "table",
+          "left": 0.85, "top": 1.8, "width": 11.65, "height": 1.0,
+          "columns": 7,
+          "col_widths": [3.35, 0.9, 1.55, 1.4, 1.35, 1.35, 1.75],
+          "row_heights": [0.38, 0.55],
+          "align": ["left", "center", "right", "right", "center", "center", "right"],
+          "size_pt": 11,
+          "header_size_pt": 10,
+          "header_fill": "@navy",
+          "header_text_color": "@white",
+          "text_color": "@ink",
+          "border": "@line",
+          "border_width_pt": 0.6,
+          "cell_margins_pt": { "left": 6, "right": 6, "top": 3, "bottom": 3 },
+          "header": ["Product", "Qty", "ARR", "MRR", "Start", "End", "Prorated"],
+          "rows": [
+            ["{{#AmendAddProduct}}{{ProductName}}", "{{Qty}}", "{{ARR}}", "{{MRR}}", "{{StartDate}}", "{{EndDate}}", "{{Prorated}}{{/AmendAddProduct}}"]
+          ]
+        },
+        {
+          "type": "textbox", "left": 0.85, "top": 3.2, "width": 10, "height": 0.35,
+          "lines": [{ "text": "Finalized contract, changed by this add", "size_pt": 14, "bold": true, "color": "@navy" }]
+        },
+        {
+          "type": "table",
+          "left": 0.85, "top": 3.6, "width": 11.65, "height": 1.0,
+          "columns": 5,
+          "col_widths": [3.8, 1.5, 2.3, 1.5, 2.55],
+          "row_heights": [0.38, 0.55],
+          "align": ["left", "center", "right", "center", "right"],
+          "size_pt": 11,
+          "header_size_pt": 10,
+          "header_fill": "@navy",
+          "header_text_color": "@white",
+          "text_color": "@ink",
+          "border": "@line",
+          "border_width_pt": 0.6,
+          "cell_margins_pt": { "left": 6, "right": 6, "top": 3, "bottom": 3 },
+          "header": ["Product", "Current qty", "Current ARR", "After qty", "After ARR"],
+          "rows": [
+            ["{{#AmendProductAmending}}{{ProductName}}", "{{CurrentQty}}", "{{CurrentARR}}", "{{FinalizedQty}}", "{{FinalizedARR}}{{/AmendProductAmending}}"]
+          ]
+        },
+        {
+          "type": "textbox", "left": 0.85, "top": 5.1, "width": 11.5, "height": 0.55,
+          "lines": [{ "text": "Assets not listed carry forward unchanged. Term dates and discounts apply to the amending lines only. {{/AmendCurrentARR}}", "size_pt": 11, "color": "@muted" }]
+        }
+      ]
+    },
+
+    {
+      "_comment": "8 — Commercial terms",
+      "elements": [
+        {
+          "type": "textbox", "left": 0.85, "top": 0.45, "width": 10.5, "height": 0.55,
+          "lines": [{ "text": "Commercial terms", "size_pt": 28, "bold": true, "color": "@navy" }]
+        },
+        {
+          "type": "image",
+          "path": "scripts/docgen/assets/chicago-bears-logo.png",
+          "left": 12.15, "top": 0.4, "width": 0.7, "height": 0.7
+        },
+        { "type": "shape", "shape": "rounded_rect", "corner_radius": 0.05, "left": 0.85, "top": 1.4, "width": 5.7, "height": 4.6, "fill": "@card" },
+        { "type": "shape", "shape": "oval", "left": 1.2, "top": 1.75, "width": 0.7, "height": 0.7, "fill": "@orange",
+          "anchor": "middle", "align": "center", "margin_left": 0, "margin_right": 0, "margin_top": 0, "margin_bottom": 0,
+          "lines": [{ "text": "✎", "size_pt": 16, "color": "@white", "align": "center" }] },
+        { "type": "textbox", "left": 2.1, "top": 1.85, "width": 4.15, "height": 0.5,
+          "lines": [{ "text": "Agreement and validity", "size_pt": 16, "bold": true, "color": "@navy" }] },
+        { "type": "textbox", "left": 1.2, "top": 2.7, "width": 5.05, "height": 3.0,
+          "lines": [
+            { "text": "•  Pricing valid through {{#ExpirationDate}}{{ExpirationDate}}{{/ExpirationDate}}.", "size_pt": 13, "color": "@body", "space_after_pt": 12, "line_spacing": 1.3 },
+            { "text": "•  The partnership becomes effective upon execution of a master partnership agreement between {{AccountName}} and the club.", "size_pt": 13, "color": "@body", "space_after_pt": 12, "line_spacing": 1.3 },
+            { "text": "•  Suite, seat, and media inventory are assigned at contracting, subject to league and venue requirements.", "size_pt": 13, "color": "@body", "line_spacing": 1.3 }
+          ] },
+
+        { "type": "shape", "shape": "rounded_rect", "corner_radius": 0.05, "left": 6.8, "top": 1.4, "width": 5.7, "height": 4.6, "fill": "@card" },
+        { "type": "shape", "shape": "oval", "left": 7.15, "top": 1.75, "width": 0.7, "height": 0.7, "fill": "@orange",
+          "anchor": "middle", "align": "center", "margin_left": 0, "margin_right": 0, "margin_top": 0, "margin_bottom": 0,
+          "lines": [{ "text": "✓", "size_pt": 16, "color": "@white", "align": "center" }] },
+        { "type": "textbox", "left": 8.05, "top": 1.85, "width": 4.15, "height": 0.5,
+          "lines": [{ "text": "Billing and confidentiality", "size_pt": 16, "bold": true, "color": "@navy" }] },
+        { "type": "textbox", "left": 7.15, "top": 2.7, "width": 5.05, "height": 3.0,
+          "lines": [
+            { "text": "•  Payment terms are {{PaymentTerms}}, billed upon execution and at the start of each contract year.", "size_pt": 13, "color": "@body", "space_after_pt": 12, "line_spacing": 1.3 },
+            { "text": "•  Prices exclude applicable federal, state, local, and amusement taxes and venue fees.", "size_pt": 13, "color": "@body", "space_after_pt": 12, "line_spacing": 1.3 },
+            { "text": "•  Pricing and program structure are confidential between {{AccountName}} and the club.", "size_pt": 13, "color": "@body", "line_spacing": 1.3 }
+          ] }
+      ]
+    },
+
+    {
+      "_comment": "9 — First year timeline",
+      "elements": [
+        {
+          "type": "textbox", "left": 0.85, "top": 0.45, "width": 10.5, "height": 0.55,
+          "lines": [{ "text": "Your first year as a partner", "size_pt": 28, "bold": true, "color": "@navy" }]
+        },
+        {
+          "type": "image",
+          "path": "scripts/docgen/assets/chicago-bears-logo.png",
+          "left": 12.15, "top": 0.4, "width": 0.7, "height": 0.7
+        },
+
+        { "type": "shape", "shape": "rounded_rect", "corner_radius": 0.05, "left": 0.7, "top": 1.5, "width": 2.25, "height": 4.5, "fill": "@card" },
+        { "type": "textbox", "left": 0.85, "top": 1.7, "width": 1.95, "height": 4.1,
+          "lines": [
+            { "text": "1", "size_pt": 14, "bold": true, "color": "@muted", "align": "center", "space_after_pt": 10 },
+            { "text": "◆", "size_pt": 22, "color": "@orange", "align": "center", "space_after_pt": 12 },
+            { "text": "Contract", "size_pt": 14, "bold": true, "color": "@navy", "align": "center", "space_after_pt": 8 },
+            { "text": "Execute the agreement and lock inventory", "size_pt": 12, "color": "@body", "align": "center", "line_spacing": 1.25 }
+          ] },
+
+        { "type": "shape", "shape": "rounded_rect", "corner_radius": 0.05, "left": 3.15, "top": 1.5, "width": 2.25, "height": 4.5, "fill": "@card" },
+        { "type": "textbox", "left": 3.3, "top": 1.7, "width": 1.95, "height": 4.1,
+          "lines": [
+            { "text": "2", "size_pt": 14, "bold": true, "color": "@muted", "align": "center", "space_after_pt": 10 },
+            { "text": "●", "size_pt": 22, "color": "@orange", "align": "center", "space_after_pt": 12 },
+            { "text": "Training camp", "size_pt": 14, "bold": true, "color": "@navy", "align": "center", "space_after_pt": 8 },
+            { "text": "VIP visit to Halas Hall with your guests", "size_pt": 12, "color": "@body", "align": "center", "line_spacing": 1.25 }
+          ] },
+
+        { "type": "shape", "shape": "rounded_rect", "corner_radius": 0.05, "left": 5.6, "top": 1.5, "width": 2.25, "height": 4.5, "fill": "@card" },
+        { "type": "textbox", "left": 5.75, "top": 1.7, "width": 1.95, "height": 4.1,
+          "lines": [
+            { "text": "3", "size_pt": 14, "bold": true, "color": "@muted", "align": "center", "space_after_pt": 10 },
+            { "text": "▣", "size_pt": 22, "color": "@orange", "align": "center", "space_after_pt": 12 },
+            { "text": "Kickoff", "size_pt": 14, "bold": true, "color": "@navy", "align": "center", "space_after_pt": 8 },
+            { "text": "Suite and seats live for the home opener", "size_pt": 12, "color": "@body", "align": "center", "line_spacing": 1.25 }
+          ] },
+
+        { "type": "shape", "shape": "rounded_rect", "corner_radius": 0.05, "left": 8.05, "top": 1.5, "width": 2.25, "height": 4.5, "fill": "@card" },
+        { "type": "textbox", "left": 8.2, "top": 1.7, "width": 1.95, "height": 4.1,
+          "lines": [
+            { "text": "4", "size_pt": 14, "bold": true, "color": "@muted", "align": "center", "space_after_pt": 10 },
+            { "text": "★", "size_pt": 22, "color": "@orange", "align": "center", "space_after_pt": 12 },
+            { "text": "Mid-season review", "size_pt": 13, "bold": true, "color": "@navy", "align": "center", "space_after_pt": 8 },
+            { "text": "Fulfillment recap and reporting", "size_pt": 12, "color": "@body", "align": "center", "line_spacing": 1.25 }
+          ] },
+
+        { "type": "shape", "shape": "rounded_rect", "corner_radius": 0.05, "left": 10.5, "top": 1.5, "width": 2.25, "height": 4.5, "fill": "@navy" },
+        { "type": "textbox", "left": 10.65, "top": 1.7, "width": 1.95, "height": 4.1,
+          "lines": [
+            { "text": "5", "size_pt": 14, "bold": true, "color": "@orange", "align": "center", "space_after_pt": 10 },
+            { "text": "◆", "size_pt": 22, "color": "@orange", "align": "center", "space_after_pt": 12 },
+            { "text": "Renewal", "size_pt": 14, "bold": true, "color": "@white", "align": "center", "space_after_pt": 8 },
+            { "text": "First right on renewal and new inventory", "size_pt": 12, "color": "@white", "align": "center", "line_spacing": 1.25 }
+          ] },
+
+        {
+          "type": "textbox", "left": 0.85, "top": 6.4, "width": 11.5, "height": 0.4,
+          "lines": [{ "text": "Your dedicated partnerships manager owns fulfillment across every element, all season long.", "size_pt": 12, "color": "@muted", "align": "center" }]
+        }
+      ]
+    },
+
+    {
+      "_comment": "10 — Admin notes (internal)",
+      "elements": [
+        {
+          "type": "textbox", "left": 0.85, "top": 0.45, "width": 11.5, "height": 0.55,
+          "lines": [{ "text": "Template notes for your DocGen admin", "size_pt": 26, "bold": true, "color": "@navy" }]
+        },
+        {
+          "type": "image",
+          "path": "scripts/docgen/assets/chicago-bears-logo.png",
+          "left": 12.15, "top": 0.4, "width": 0.7, "height": 0.7
+        },
+        {
+          "type": "textbox", "left": 0.85, "top": 1.15, "width": 11.5, "height": 0.4,
+          "lines": [{ "text": "This slide is for internal setup. Delete it from the template before customer-facing use.", "size_pt": 13, "color": "@muted" }]
+        },
+        {
+          "type": "textbox", "left": 0.85, "top": 1.75, "width": 11.6, "height": 5.0,
+          "lines": [
+            { "text": "•  Tokens are remapped to RLMQuoteExtractBasic + RLMQuoteTransformBasic — the same payload as the Word proposal.", "size_pt": 13, "color": "@body", "space_after_pt": 10, "line_spacing": 1.25 },
+            { "text": "•  Pricing table repeats one row per Line array element. Contract impact is gated on AmendCurrentARR (present only on amendments).", "size_pt": 13, "color": "@body", "space_after_pt": 10, "line_spacing": 1.25 },
+            { "text": "•  Current / This Add / Finalized use AmendCurrent*, AmendNetIncrease*, AmendProposed*, AmendThisAddProrated.", "size_pt": 13, "color": "@body", "space_after_pt": 10, "line_spacing": 1.25 },
+            { "text": "•  Product tables use AmendAddProduct and AmendProductAmending — same arrays as Word.", "size_pt": 13, "color": "@body", "space_after_pt": 10, "line_spacing": 1.25 },
+            { "text": "•  PowerPoint cannot delete slides: on non-amendment quotes, slides 6–7 stay with collapsed content.", "size_pt": 13, "color": "@body", "space_after_pt": 10, "line_spacing": 1.25 },
+            { "text": "•  Dropped (no org source): OwnerTitle, BillingFrequency, ProductDescription, ServiceTerm, IF_Includes*, Final*Delta / Ch*Delta strings.", "size_pt": 13, "color": "@body", "line_spacing": 1.25 }
+          ]
+        }
+      ]
+    },
+
+    {
+      "_comment": "11 — Close",
+      "background": "@navy",
+      "elements": [
+        {
+          "type": "image",
+          "path": "scripts/docgen/assets/chicago-bears-logo.png",
+          "left": 5.916, "top": 1.0, "width": 1.5, "height": 1.5
+        },
+        {
+          "type": "textbox", "left": 0, "top": 2.75, "width": 13.333, "height": 0.8,
+          "lines": [{ "text": "Bear Down.", "size_pt": 42, "bold": true, "color": "@white", "align": "center" }]
+        },
+        {
+          "type": "textbox", "left": 0, "top": 3.6, "width": 13.333, "height": 0.45,
+          "lines": [{ "text": "Let's build the 2026 season together.", "size_pt": 18, "color": "@white", "align": "center" }]
+        },
+        {
+          "type": "textbox", "left": 0, "top": 4.4, "width": 13.333, "height": 0.9,
+          "lines": [
+            { "text": "{{SalesRep}}  ·  Corporate Partnerships", "size_pt": 14, "bold": true, "color": "@orange", "align": "center", "space_after_pt": 4 },
+            { "text": "{{SellerEmail}}{{#SellerPhone}}  ·  {{SellerPhone}}{{/SellerPhone}}", "size_pt": 14, "color": "@orange", "align": "center" }
+          ]
+        },
+        {
+          "type": "textbox", "left": 0, "top": 5.5, "width": 13.333, "height": 0.4,
+          "lines": [{ "text": "{{#ExpirationDate}}Respond by {{ExpirationDate}} to hold pricing and inventory.{{/ExpirationDate}}", "size_pt": 13, "color": "@muted", "align": "center" }]
+        },
+        {
+          "type": "textbox", "left": 0.8, "top": 6.85, "width": 11.7, "height": 0.35,
+          "lines": [{ "text": "Unofficial concept template for demonstration. Not affiliated with or endorsed by the Chicago Bears or the NFL.", "size_pt": 8, "color": "@muted", "align": "center" }]
+        }
+      ]
+    }
+  ]
+}

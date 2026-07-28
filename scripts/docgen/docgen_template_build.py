@@ -238,24 +238,99 @@ def create_from_layout(layout, output_path):
     print(f"Created: {output_path}")
 
 
-def _pptx_rgb(color):
+def _pptx_rgb(color, theme=None):
+    """Resolve a colour to RGBColor. `@name` looks up the layout's theme block."""
     from pptx.dml.color import RGBColor as PptxRGBColor
 
+    if color.startswith("@"):
+        if not theme or color[1:] not in theme:
+            raise SystemExit(
+                f"ERROR: colour '{color}' not found in the layout's theme block"
+            )
+        color = theme[color[1:]]
     rgb = color.lstrip("#")
     return PptxRGBColor(int(rgb[0:2], 16), int(rgb[2:4], 16), int(rgb[4:6], 16))
 
 
-def _style_pptx_run(run, spec):
+def _style_pptx_run(run, spec, theme=None):
+    from pptx.util import Pt as PptxPt
+
     if spec.get("bold"):
         run.font.bold = True
     if spec.get("italic"):
         run.font.italic = True
     if spec.get("size_pt"):
-        from pptx.util import Pt as PptxPt
-
         run.font.size = PptxPt(spec["size_pt"])
+    if spec.get("font"):
+        run.font.name = spec["font"]
     if spec.get("color"):
-        run.font.color.rgb = _pptx_rgb(spec["color"])
+        run.font.color.rgb = _pptx_rgb(spec["color"], theme)
+    # Letter spacing has no python-pptx accessor; `spc` is in 1/100 pt.
+    if spec.get("letter_spacing_pt"):
+        run.font._rPr.set("spc", str(int(spec["letter_spacing_pt"] * 100)))
+
+
+def _pptx_align(name):
+    from pptx.enum.text import PP_ALIGN
+
+    return {
+        "left": PP_ALIGN.LEFT,
+        "center": PP_ALIGN.CENTER,
+        "right": PP_ALIGN.RIGHT,
+    }.get((name or "left").lower(), PP_ALIGN.LEFT)
+
+
+def _fill_text_frame(frame, spec, theme, default_size=14):
+    """Write `lines` (or `text`) into a text frame with per-line styling."""
+    from pptx.util import Pt as PptxPt
+    from pptx.enum.text import MSO_ANCHOR
+
+    frame.word_wrap = spec.get("word_wrap", True)
+    for attr in ("margin_left", "margin_right", "margin_top", "margin_bottom"):
+        if attr in spec:
+            setattr(frame, attr, PptxPt(spec[attr]))
+    if spec.get("anchor"):
+        frame.vertical_anchor = {
+            "top": MSO_ANCHOR.TOP,
+            "middle": MSO_ANCHOR.MIDDLE,
+            "bottom": MSO_ANCHOR.BOTTOM,
+        }[spec["anchor"].lower()]
+
+    lines = spec.get("lines") or [{"text": spec.get("text", "")}]
+    for i, line in enumerate(lines):
+        para = frame.paragraphs[0] if i == 0 else frame.add_paragraph()
+        para.alignment = _pptx_align(line.get("align", spec.get("align")))
+        if line.get("line_spacing"):
+            para.line_spacing = line["line_spacing"]
+        if line.get("space_before_pt"):
+            para.space_before = PptxPt(line["space_before_pt"])
+        if line.get("space_after_pt"):
+            para.space_after = PptxPt(line["space_after_pt"])
+        run = para.add_run()
+        run.text = line.get("text", "")
+        merged = {"size_pt": default_size, **line}
+        _style_pptx_run(run, merged, theme)
+
+
+def _set_cell_borders(cell, color=None, width_pt=1.0, theme=None):
+    """Set or clear all four cell borders (python-pptx exposes no API for this)."""
+    from lxml import etree
+
+    ns = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
+    tc_pr = cell._tc.get_or_add_tcPr()
+    # Order matters in the CT_TableCellProperties schema.
+    for tag in ("lnL", "lnR", "lnT", "lnB"):
+        for existing in tc_pr.findall(f"{ns}{tag}"):
+            tc_pr.remove(existing)
+        ln = etree.SubElement(tc_pr, f"{ns}{tag}")
+        if color is None:
+            etree.SubElement(ln, f"{ns}noFill")
+        else:
+            ln.set("w", str(int(width_pt * 12700)))
+            fill = etree.SubElement(ln, f"{ns}solidFill")
+            clr = etree.SubElement(fill, f"{ns}srgbClr")
+            rgb = _pptx_rgb(color, theme)
+            clr.set("val", f"{rgb[0]:02X}{rgb[1]:02X}{rgb[2]:02X}")
 
 
 def create_pptx_from_layout(layout, output_path):
@@ -277,15 +352,36 @@ def create_pptx_from_layout(layout, output_path):
         )
         sys.exit(1)
 
+    from pptx.enum.shapes import MSO_SHAPE
+
+    SHAPES = {
+        "rect": MSO_SHAPE.RECTANGLE,
+        "rounded_rect": MSO_SHAPE.ROUNDED_RECTANGLE,
+        "oval": MSO_SHAPE.OVAL,
+    }
+
     prs = Presentation()
     size = layout.get("slide_size", {})
     prs.slide_width = PptxInches(size.get("width_inches", 13.333))
     prs.slide_height = PptxInches(size.get("height_inches", 7.5))
+    theme = layout.get("theme", {})
 
     blank = prs.slide_layouts[6]
 
     for slide_spec in layout.get("slides", []):
         slide = prs.slides.add_slide(blank)
+
+        # A full-bleed background rectangle must be added first so it sits behind
+        # everything else; shape z-order follows insertion order.
+        bg = slide_spec.get("background")
+        if bg:
+            shape = slide.shapes.add_shape(
+                MSO_SHAPE.RECTANGLE, 0, 0, prs.slide_width, prs.slide_height
+            )
+            shape.fill.solid()
+            shape.fill.fore_color.rgb = _pptx_rgb(bg, theme)
+            shape.line.fill.background()
+            shape.shadow.inherit = False
 
         for elem in slide_spec.get("elements", []):
             elem_type = elem.get("type", "")
@@ -296,15 +392,27 @@ def create_pptx_from_layout(layout, output_path):
 
             if elem_type == "textbox":
                 frame = slide.shapes.add_textbox(left, top, width, height).text_frame
-                frame.word_wrap = True
-                lines = elem.get("lines") or [{"text": elem.get("text", "")}]
-                for i, line in enumerate(lines):
-                    para = frame.paragraphs[0] if i == 0 else frame.add_paragraph()
-                    run = para.add_run()
-                    run.text = line.get("text", "")
-                    _style_pptx_run(run, line)
-                    if line.get("space_after_pt"):
-                        para.space_after = PptxPt(line["space_after_pt"])
+                _fill_text_frame(frame, elem, theme)
+
+            elif elem_type == "shape":
+                shape = slide.shapes.add_shape(
+                    SHAPES[elem.get("shape", "rect")], left, top, width, height
+                )
+                if elem.get("fill"):
+                    shape.fill.solid()
+                    shape.fill.fore_color.rgb = _pptx_rgb(elem["fill"], theme)
+                else:
+                    shape.fill.background()
+                if elem.get("line"):
+                    shape.line.color.rgb = _pptx_rgb(elem["line"], theme)
+                    shape.line.width = PptxPt(elem.get("line_width_pt", 1))
+                else:
+                    shape.line.fill.background()
+                shape.shadow.inherit = False
+                if "corner_radius" in elem and shape.adjustments:
+                    shape.adjustments[0] = elem["corner_radius"]
+                if elem.get("lines") or elem.get("text"):
+                    _fill_text_frame(shape.text_frame, elem, theme)
 
             elif elem_type == "table":
                 cols = elem.get("columns", 2)
@@ -316,37 +424,67 @@ def create_pptx_from_layout(layout, output_path):
                     total_rows, cols, left, top, width, height
                 ).table
 
-                # PowerPoint emphasises the first row by default, which would
-                # style a plain label/value table's first data row as a header.
-                table.first_row = elem.get(
-                    "emphasise_first_row", bool(header)
-                )
-                if "banded_rows" in elem:
-                    table.horz_banding = elem["banded_rows"]
+                # PowerPoint emphasises the first row and bands the body by
+                # default; both fight explicit per-cell styling.
+                table.first_row = elem.get("emphasise_first_row", False)
+                table.horz_banding = elem.get("banded_rows", False)
 
-                col_widths = elem.get("col_widths")
-                if col_widths:
-                    for i, w in enumerate(col_widths[:cols]):
-                        table.columns[i].width = PptxInches(w)
+                for i, w in enumerate((elem.get("col_widths") or [])[:cols]):
+                    table.columns[i].width = PptxInches(w)
+                for i, h in enumerate((elem.get("row_heights") or [])):
+                    if i < total_rows:
+                        table.rows[i].height = PptxInches(h)
 
                 size_pt = elem.get("size_pt", 12)
+                aligns = elem.get("align") or []
+                border = elem.get("border")
+                margins = elem.get("cell_margins_pt")
+
+                def style_cell(cell, text, col, spec):
+                    cell.text = ""
+                    if spec.get("fill"):
+                        cell.fill.solid()
+                        cell.fill.fore_color.rgb = _pptx_rgb(spec["fill"], theme)
+                    else:
+                        cell.fill.background()
+                    if margins:
+                        for attr, key in (
+                            ("margin_left", "left"), ("margin_right", "right"),
+                            ("margin_top", "top"), ("margin_bottom", "bottom"),
+                        ):
+                            if key in margins:
+                                setattr(cell, attr, PptxPt(margins[key]))
+                    _set_cell_borders(cell, border, elem.get("border_width_pt", 1.0), theme)
+                    frame_spec = {
+                        "lines": [{
+                            "text": text,
+                            "align": aligns[col] if col < len(aligns) else "left",
+                            **{k: v for k, v in spec.items() if k != "fill"},
+                        }],
+                        "anchor": elem.get("cell_anchor", "middle"),
+                    }
+                    _fill_text_frame(cell.text_frame, frame_spec, theme, size_pt)
+
                 row_offset = 0
                 if header:
+                    hspec = {
+                        "bold": True,
+                        "size_pt": elem.get("header_size_pt", size_pt),
+                        **({"color": elem["header_text_color"]} if elem.get("header_text_color") else {}),
+                        **({"fill": elem["header_fill"]} if elem.get("header_fill") else {}),
+                    }
                     for i, text in enumerate(header[:cols]):
-                        cell = table.cell(0, i)
-                        cell.text = text
-                        for para in cell.text_frame.paragraphs:
-                            for run in para.runs:
-                                _style_pptx_run(run, {"bold": True, "size_pt": size_pt})
+                        style_cell(table.cell(0, i), text, i, hspec)
                     row_offset = 1
 
                 for r, row_data in enumerate(rows_data):
+                    bspec = {
+                        "size_pt": size_pt,
+                        **({"color": elem["text_color"]} if elem.get("text_color") else {}),
+                        **({"fill": elem["body_fill"]} if elem.get("body_fill") else {}),
+                    }
                     for c, text in enumerate(row_data[:cols]):
-                        cell = table.cell(r + row_offset, c)
-                        cell.text = text
-                        for para in cell.text_frame.paragraphs:
-                            for run in para.runs:
-                                _style_pptx_run(run, {"size_pt": size_pt})
+                        style_cell(table.cell(r + row_offset, c), text, c, bspec)
 
             elif elem_type == "image":
                 try:
