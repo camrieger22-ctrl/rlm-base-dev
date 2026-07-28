@@ -30,7 +30,10 @@ without breaking any standard function.
 ### Tier 2 — Foundations repo baseline (shipped with the base org build)
 
 These `RLM_*` flows already exist in `force-app/` and orchestrate the Tier‑1
-actions. They were **not** authored as part of this feature:
+actions. They were **not** authored as part of this feature, though
+`RLM_Submit_Order_on_Activation` and `RLM_CreateUpdateRenewalOpportunities` were
+both amended by it to stop duplicating assets and renewal opportunities — see
+*Assetization routing* below:
 
 - `RLM_CreateOrdersFromQuote`
 - `RLM_Submit_Order_on_Activation`
@@ -134,3 +137,40 @@ Decrease/cancel projection is parked; when no add projection exists, Proposed is
   (OLI quantity 1→2, amount $450→$900). No second renewal opp was created.
 - `RLM_RepriceQuoteInvocable` unit tests pass (reprice paths, deleted-quote
   skip, surfaced-failure path, never-throws guarantee).
+
+## Assetization routing — and the DRO path's open gap
+
+`RLM_Submit_Order_on_Activation` (Tier 2) was amended by this feature. It used to
+call `Submit_Order` and then `Assetize_Order` in sequence, but both trigger
+assetization, so an activation raised two `AssetizationAsyncJob` runs whenever
+the second landed after the first had finished. That intermittently duplicated
+assets and applied an amendment's quantity delta twice. The two calls are now
+mutually exclusive, chosen by whether the order carries a product that
+decomposes:
+
+- a `ProductFulfillmentDecompRule` whose `SourceProductId` is one of the order's
+  products, **or** whose `SourceProductClassificationId` is a classification an
+  order product is `BasedOn` → `Submit_Order` (DRO owns assetization)
+- neither → `Assetize_Order` (direct)
+
+Both keys must be read. Most rules name a source product, but a handful name a
+classification instead, and `QB-DB` (QuantumBit Database) — the headline DRO
+product — matches only that way. Products with no classification are filtered
+out of the collection, because a null would match every rule that leaves
+`SourceProductClassificationId` empty and route all orders to DRO.
+
+`ProductFulfillmentScenario` is **not** the right signal even though it looks
+like one: those records hang off the *destination* service products that
+decomposition creates (`QB-DRO-*`, no pricebook entries), which are never sold
+and so never appear on an order.
+
+**Open gap.** Roughly twenty sellable QB products match a decomposition rule and
+therefore now take the DRO path exclusively. Completing it requires
+`RLM_Assetize_Order_DRO_Fulfillment`, which exists only as a **Draft** flow in
+the demo org and is not tracked in this repo. Until that flow is activated and
+verified, an order carrying one of those products decomposes into fulfillment
+orders and produces **no assets**. No such product has been ordered in the demo
+org, so nothing regressed there, but selling one before DRO is finished is a
+live failure mode. Before reaching for DRO: activate that flow (or author a
+tracked replacement), then verify `FulfillmentOrder` → `FulfillmentOrderLineItem`
+→ `Asset` on an activated `QB-DB` order.
