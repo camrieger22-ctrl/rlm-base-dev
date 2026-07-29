@@ -223,8 +223,13 @@ foundations:
 
     - id: document-generation
       path: .cursor/skills/document-generation/SKILL.md
-      purpose: "Document template (.docx) authoring, token extraction, template lifecycle, and end-to-end generation"
+      purpose: "Document template (.docx/.pptx) authoring, token extraction, template lifecycle, and end-to-end generation"
       consumed_by_pmos: []
+      sub_skills:
+        - .cursor/skills/document-generation/powerpoint-templates.md
+        - .cursor/skills/document-generation/dynamic-images.md
+        - .cursor/skills/document-generation/data-mapper-authoring.md
+        - .cursor/skills/document-generation/extract-engine-reference.md
       tooling:
         - scripts/docgen/docgen_template_extract_tokens.py
         - scripts/docgen/docgen_template_build.py

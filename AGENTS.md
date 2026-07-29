@@ -297,7 +297,8 @@ that topic.
 | Generate the QuantumBit demo-script canvas (per-release SE/partner artifact) | `.cursor/skills/qb-demo-script/SKILL.md` |
 | Ground product claims against Salesforce Help (Trailhead, internal docs, SME review) | `.cursor/skills/revenue-cloud-docs/SKILL.md` |
 | Author/debug OmniDataTransform (ODT) data mappers | `.cursor/skills/odt-authoring/SKILL.md` |
-| Create/modify .docx document templates + DocumentTemplate lifecycle | `.cursor/skills/document-generation/SKILL.md` |
+| Create/modify .docx / .pptx document templates + DocumentTemplate lifecycle | `.cursor/skills/document-generation/SKILL.md` |
+| Create or iterate a Revenue Cloud PowerPoint DocGen deck | `.cursor/skills/document-generation/powerpoint-templates.md` |
 
 Every top-level skill has a **Quick Rules** section, and most have **DO NOT**;
 new and migrated skills should also include **Entry Conditions**, **Examples**,
@@ -338,6 +339,7 @@ Read the sub-file only when you need that specific detail:
 | `document-generation/data-mapper-authoring.md` | Document Generation | Programmatic ODT creation via REST API, cloning patterns, shell escaping pitfalls |
 | `document-generation/dynamic-images.md` | Document Generation | Dynamic image rendering: ContentDocument ID + width/height contract, known issues, RTB alternative |
 | `document-generation/extract-engine-reference.md` | Document Generation | Extract/Transform engine deep-dive: formula catalog, filter mechanics, hierarchy semantics, depth-uniformity rule, redundant join pattern, Preview API |
+| `document-generation/powerpoint-templates.md` | Document Generation | PowerPoint DocGen decks: layout JSON, theme fonts, branding, amend/line token wiring, replace/generate loop (Bears/QB reference) |
 | `docs/references/expression-set-connect-api-reference.md` | Expression Sets | Object/ID model, OAS-confirmed schema enums, every Connect/Metadata error + resolution, Metadata API authoring path, verification checklist |
 
 ### File-Specific Rules (Cursor Only)

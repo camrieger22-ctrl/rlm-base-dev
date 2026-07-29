@@ -27,8 +27,10 @@ For ODT mapper architecture and deep ODT troubleshooting, use
 9. **Deploy new templates through the Metadata API** — templates created via the
    REST API cannot generate documents at all (see DO NOT below).
 10. **PowerPoint is fully supported** — `.pptx` renders scalars, repeating table
-    rows, and conditional row removal exactly as `.docx` does. See
-    **PowerPoint Templates** below for the one structural limit (no slide gating).
+    rows, and conditional row removal exactly as `.docx` does. Full PPTX workflow
+    (layout JSON, branding, amend tokens, replace/generate):
+    [`powerpoint-templates.md`](./powerpoint-templates.md). One structural limit:
+    DocGen cannot delete slides — never gate an entire slide.
 11. **Build templates from a committed layout spec** — author with
     `docgen_template_build.py` so the binary is reproducible and reviewable
     instead of a hand-edited blob. Repo examples live in `scripts/docgen/layouts/`.
@@ -70,7 +72,7 @@ For ODT mapper architecture and deep ODT troubleshooting, use
 | Task | Use this skill? |
 |------|-----------------|
 | Create a new `.docx` invoice/quote/contract template | Yes |
-| Create a `.pptx` presentation template | Yes — see **PowerPoint Templates** |
+| Create a `.pptx` presentation template | Yes — read [`powerpoint-templates.md`](./powerpoint-templates.md) |
 | Wire up Extract + Transform ODTs for a template | Use `../odt-authoring/SKILL.md` |
 | Add fields/tokens to an existing template | Yes |
 | Troubleshoot blank output or generation errors | Yes |
@@ -351,6 +353,10 @@ Server-side generation supports `.pptx` with `type: MicrosoftPowerpoint` and
 `{{#Section}}` repeating table rows, and conditional row removal — the mustache
 contract is identical to Word.
 
+**Read [`powerpoint-templates.md`](./powerpoint-templates.md) when creating or
+iterating a Revenue Cloud PowerPoint deck** (layout JSON, theme fonts, branding,
+ODT date/amend wiring, replace/generate loop, Bears/QuantumBit reference decks).
+
 Two differences matter when authoring:
 
 | Concern | Word | PowerPoint |
@@ -359,21 +365,18 @@ Two differences matter when authoring:
 | Conditional *container* | Page break inside gate removes the page | **A slide cannot be removed** — a false gate leaves it blank |
 | Layout | Reflows | Fixed; every shape is absolutely positioned and does not reflow when text grows |
 
-Because slides cannot be deleted, keep decks to content that renders for every
-record and put record-dependent sections in the Word document. Since slides do not
-reflow, leave vertical room for repeating tables to grow.
-
-Build decks from a slide layout spec (`"format": "pptx"`), which keeps the binary
-reproducible:
+Because slides cannot be deleted, gate amendment *content* (not the whole slide)
+and put heavily record-dependent narrative in Word when needed. Leave vertical
+room for repeating tables to grow.
 
 ```bash
 python scripts/docgen/docgen_template_build.py --example-pptx > deck.json
 python scripts/docgen/docgen_template_build.py create deck.json -o template.pptx
 ```
 
-Reference implementation: `scripts/docgen/layouts/quantumbit-sales-deck.layout.json`
-→ `RLM_QuantumBit_Deck`, sharing one ODT pair with
-`quantumbit-sales-proposal.layout.json` → `RLM_QuantumBit_Proposal`.
+Reference decks: `scripts/docgen/layouts/chicago-bears-partnership-deck.layout.json`,
+`scripts/docgen/layouts/quantumbit-sales-deck.layout.json` (prefer one ODT pair
+shared with the matching Word proposal).
 
 ---
 

@@ -38,6 +38,7 @@ repo root.
 | Ground claims against Salesforce Help | Revenue Cloud Docs | `revenue-cloud-docs/SKILL.md` |
 | Author, debug, and validate OmniDataTransform (ODT) mappers | ODT Authoring | `odt-authoring/SKILL.md` |
 | Create/modify `.docx` templates + DocumentTemplate lifecycle | Document Generation | `document-generation/SKILL.md` |
+| Create or iterate a Revenue Cloud PowerPoint DocGen deck | Document Generation (PPTX) | `document-generation/powerpoint-templates.md` |
 
 ## How Skills Are Structured
 
