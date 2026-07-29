@@ -1,19 +1,754 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version='1.0' encoding='UTF-8'?>
 <OmniDataTransform xmlns="http://soap.sforce.com/2006/04/metadata">
     <active>false</active>
     <assignmentRulesUsed>false</assignmentRulesUsed>
     <deletedOnSuccess>false</deletedOnSuccess>
     <errorIgnored>false</errorIgnored>
+    <expectedInputJson>{
+  "BillingCity" : "New York",
+  "QuoteId" : "0Q0Ka000000EXAMPLE",
+  "ShippingStreet" : "10 Main Rd.",
+  "Line" : [ {
+    "NetUnitPrice" : "$0.00",
+    "ProductName" : "QuantumBit Complete Solution",
+    "NetTotalPrice" : "$0.00",
+    "Quantity" : 1,
+    "ListPrice" : "$0.00",
+    "CQL" : [ {
+      "NetUnitPrice" : "$0.00",
+      "ProductName" : "QuantumBit Services Project",
+      "NetTotalPrice" : "$0.00",
+      "Quantity" : 1,
+      "CQL2" : [ {
+        "NetUnitPrice" : "$240.00",
+        "Discount" : "20",
+        "ProductName" : "Project Manager",
+        "NetTotalPrice" : "$1,920.00",
+        "Quantity" : 8,
+        "ListPrice" : "$300.00"
+      }, {
+        "NetUnitPrice" : "$300.00",
+        "ProductName" : "Implementation Engineer",
+        "NetTotalPrice" : "$2,400.00",
+        "Quantity" : 8,
+        "ListPrice" : "$300.00"
+      }, {
+        "NetUnitPrice" : "$500.00",
+        "ProductName" : "Solutions Architect",
+        "NetTotalPrice" : "$4,000.00",
+        "Quantity" : 8,
+        "ListPrice" : "$500.00"
+      } ],
+      "ListPrice" : "$0.00"
+    }, {
+      "NetUnitPrice" : "$45.00",
+      "ProductName" : "API Access Requests (AEH)",
+      "NetTotalPrice" : "$9,000.00",
+      "Quantity" : 100,
+      "ListPrice" : "$45.00"
+    }, {
+      "NetUnitPrice" : "$12,000.00",
+      "ProductName" : "QuantumBit Database",
+      "NetTotalPrice" : "$24,000.00",
+      "Quantity" : 1,
+      "ListPrice" : "$12,000.00"
+    }, {
+      "NetUnitPrice" : "$12,000.00",
+      "ProductName" : "QB API Management Solution",
+      "NetTotalPrice" : "$24,000.00",
+      "Quantity" : 1,
+      "ListPrice" : "$12,000.00"
+    }, {
+      "NetUnitPrice" : "$250.00",
+      "ProductName" : "Professional Services Daily Rate",
+      "NetTotalPrice" : "$62,500.00",
+      "Quantity" : 250,
+      "ListPrice" : "$250.00"
+    }, {
+      "NetUnitPrice" : "$8,500.00",
+      "ProductName" : "QuantumBit Essentials Training",
+      "NetTotalPrice" : "$8,500.00",
+      "Quantity" : 1,
+      "ListPrice" : "$8,500.00"
+    } ]
+  }, {
+    "NetUnitPrice" : "$9,000.00",
+    "Discount" : "10",
+    "ProductName" : "Additional API",
+    "NetTotalPrice" : "$9,000.00",
+    "Quantity" : 1,
+    "ListPrice" : "$15,000.00"
+  } ],
+  "QuoteNumber" : "00000138",
+  "ExpirationDate" : "02/11/2026",
+  "BillingStreet" : "10 Main Rd.",
+  "GrandTotal" : "$145,320.00",
+  "CreatedDate" : "01/13/2026",
+  "BillingPostalCode" : "31349",
+  "BillingState" : "NY",
+  "AccountName" : "Acme",
+  "SalesRep" : "Sample User",
+  "SellerCompanyName" : "Sample Company",
+  "SellerStreet" : "100 Main St",
+  "SellerCity" : "Chicago",
+  "SellerState" : "IL",
+  "SellerPostalCode" : "60601",
+  "SellerPhone" : "312-555-0100",
+  "SellerFax" : "312-555-0101",
+  "SellerEmail" : "admin@example.com",
+  "SellerWebsite" : "www.example.com",
+  "SellerCountry" : "US"
+}</expectedInputJson>
+    <expectedOutputJson>{
+  "BillingCity" : "New York",
+  "QuoteId" : "0Q0Ka000000EXAMPLE",
+  "ShippingStreet" : "10 Main Rd.",
+  "Line" : [ {
+    "NetUnitPrice" : "$0.00",
+    "ProductName" : "QuantumBit Complete Solution",
+    "NetTotalPrice" : "$0.00",
+    "Quantity" : 1,
+    "ListPrice" : "$0.00",
+    "CQL" : [ {
+      "NetUnitPrice" : "$0.00",
+      "ProductName" : "QuantumBit Services Project",
+      "NetTotalPrice" : "$0.00",
+      "Quantity" : 1,
+      "CQL2" : [ {
+        "NetUnitPrice" : "$240.00",
+        "Discount" : "20",
+        "ProductName" : "Project Manager",
+        "NetTotalPrice" : "$1,920.00",
+        "Quantity" : 8,
+        "ListPrice" : "$300.00"
+      }, {
+        "NetUnitPrice" : "$300.00",
+        "ProductName" : "Implementation Engineer",
+        "NetTotalPrice" : "$2,400.00",
+        "Quantity" : 8,
+        "ListPrice" : "$300.00"
+      }, {
+        "NetUnitPrice" : "$500.00",
+        "ProductName" : "Solutions Architect",
+        "NetTotalPrice" : "$4,000.00",
+        "Quantity" : 8,
+        "ListPrice" : "$500.00"
+      } ],
+      "ListPrice" : "$0.00"
+    }, {
+      "NetUnitPrice" : "$45.00",
+      "ProductName" : "API Access Requests (AEH)",
+      "NetTotalPrice" : "$9,000.00",
+      "Quantity" : 100,
+      "ListPrice" : "$45.00"
+    }, {
+      "NetUnitPrice" : "$12,000.00",
+      "ProductName" : "QuantumBit Database",
+      "NetTotalPrice" : "$24,000.00",
+      "Quantity" : 1,
+      "ListPrice" : "$12,000.00"
+    }, {
+      "NetUnitPrice" : "$12,000.00",
+      "ProductName" : "QB API Management Solution",
+      "NetTotalPrice" : "$24,000.00",
+      "Quantity" : 1,
+      "ListPrice" : "$12,000.00"
+    }, {
+      "NetUnitPrice" : "$250.00",
+      "ProductName" : "Professional Services Daily Rate",
+      "NetTotalPrice" : "$62,500.00",
+      "Quantity" : 250,
+      "ListPrice" : "$250.00"
+    }, {
+      "NetUnitPrice" : "$8,500.00",
+      "ProductName" : "QuantumBit Essentials Training",
+      "NetTotalPrice" : "$8,500.00",
+      "Quantity" : 1,
+      "ListPrice" : "$8,500.00"
+    } ]
+  }, {
+    "NetUnitPrice" : "$9,000.00",
+    "Discount" : "10",
+    "ProductName" : "Additional API",
+    "NetTotalPrice" : "$9,000.00",
+    "Quantity" : 1,
+    "ListPrice" : "$15,000.00"
+  } ],
+  "QuoteNumber" : "00000138",
+  "ExpirationDate" : "02/11/2026",
+  "BillingStreet" : "10 Main Rd.",
+  "GrandTotal" : "$145,320.00",
+  "CreatedDate" : "01/13/2026",
+  "BillingPostalCode" : "31349",
+  "BillingState" : "NY",
+  "AccountName" : "Acme",
+  "SalesRep" : "Sample User",
+  "SellerCompanyName" : "Sample Company",
+  "SellerStreet" : "100 Main St",
+  "SellerCity" : "Chicago",
+  "SellerState" : "IL",
+  "SellerPostalCode" : "60601",
+  "SellerPhone" : "312-555-0100",
+  "SellerFax" : "312-555-0101",
+  "SellerEmail" : "admin@example.com",
+  "SellerWebsite" : "www.example.com",
+  "SellerCountry" : "US"
+}</expectedOutputJson>
     <fieldLevelSecurityEnabled>false</fieldLevelSecurityEnabled>
     <inputType>JSON</inputType>
     <isManagedUsingStdDesigner>false</isManagedUsingStdDesigner>
     <name>RLMQuoteTransformBasic</name>
     <nullInputsIncludedInOutput>false</nullInputsIncludedInOutput>
-    <type>Transform</type>
-</OmniDataTransform>    <omniDataTransformItem>
+    <omniDataTransformItem>
         <disabled>false</disabled>
         <filterGroup>0.0</filterGroup>
-        <globalKey>3dfe29c9-4ff5-4216-8bce-852cf84bb993</globalKey>
+        <globalKey>d0688cc0-5cc0-4cfe-b0fa-c82894e515f8</globalKey>
+        <inputFieldName>Line:CQL:Quantity</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>Line:CQL:Quantity</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>f01c69e8-393a-413c-b675-a5d9605c87b9</globalKey>
+        <inputFieldName>QuoteId</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>QuoteId</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>0c2467f1-b209-4799-a3aa-7b8b6b83f73d</globalKey>
+        <inputFieldName>Line:NetTotalPrice</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>Line:NetTotalPrice</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>0971ebca-8656-480d-966f-37c0cc5de33f</globalKey>
+        <inputFieldName>SalesRep</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>SalesRep</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>90f5f632-5a53-4e6a-81c2-f0aa979138bb</globalKey>
+        <inputFieldName>GrandTotal</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>GrandTotal</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>fc932e83-5c20-4cf2-82c0-6cf048dc8bf6</globalKey>
+        <inputFieldName>Line:CQL:ProductName</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>Line:CQL:ProductName</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>987e422c-20ab-457e-911e-25108a23fba9</globalKey>
+        <inputFieldName>AccountName</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>AccountName</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>ada77796-4d03-43a8-8202-05ef9109f17d</globalKey>
+        <inputFieldName>Line:CQL:ListPrice</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>Line:CQL:ListPrice</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>576c4e04-22d5-475f-b655-4895a51f6e53</globalKey>
+        <inputFieldName>Line:CQL:CQL2:Quantity</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>Line:CQL:CQL2:Quantity</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>6ea24399-90ed-4e14-91c0-3b293f4872f6</globalKey>
+        <inputFieldName>Line:CQL:CQL2:Discount</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>Line:CQL:CQL2:Discount</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>c3c636d6-2f8e-4d52-8c0e-14366d44ce15</globalKey>
+        <inputFieldName>Line:CQL:CQL2:ProductName</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>Line:CQL:CQL2:ProductName</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>11f79e55-48cf-4199-a065-bd697906a2de</globalKey>
+        <inputFieldName>Line:CQL:CQL2:ListPrice</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>Line:CQL:CQL2:ListPrice</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>3565e5d4-d38c-44dc-85b7-b4b39430b403</globalKey>
+        <inputFieldName>Line:CQL:CQL2:NetUnitPrice</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>Line:CQL:CQL2:NetUnitPrice</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>8e63fee3-07ed-4c28-9d90-9c9287a8c58e</globalKey>
+        <inputFieldName>Line:ListPrice</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>Line:ListPrice</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>2f4429e4-5fb7-4471-b265-cb0570a74f1d</globalKey>
+        <inputFieldName>Line:NetUnitPrice</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>Line:NetUnitPrice</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>76429ae0-eba8-4a86-8da8-6776106dfabb</globalKey>
+        <inputFieldName>Line:CQL:NetUnitPrice</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>Line:CQL:NetUnitPrice</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>a9fc8f25-297d-4015-8eae-b8676ed8e918</globalKey>
+        <inputFieldName>CreatedDate</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>CreatedDate</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>1275af97-ea99-4312-9a28-ec09a36ffceb</globalKey>
+        <inputFieldName>Line:Quantity</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>Line:Quantity</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>fb0a0333-d35b-4c86-84d1-c49455c8d1c3</globalKey>
+        <inputFieldName>Line:Discount</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>Line:Discount</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>96a07cd1-0368-466c-8129-90f27549c599</globalKey>
+        <inputFieldName>ExpirationDate</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>ExpirationDate</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>b7d22911-d96f-4eeb-8694-9c75536ee45c</globalKey>
+        <inputFieldName>Line:CQL:CQL2:NetTotalPrice</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>Line:CQL:CQL2:NetTotalPrice</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>d4da41ff-1d18-4cbd-b395-2f637c73f6fb</globalKey>
+        <inputFieldName>BillingStreet</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>BillingStreet</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>10cd4d6f-626d-4930-ba09-621a97bf18ab</globalKey>
+        <inputFieldName>Line:CQL:NetTotalPrice</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>Line:CQL:NetTotalPrice</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>60bda53f-a1dc-4647-8b5c-422e3f7b48c6</globalKey>
+        <inputFieldName>BillingCity</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>BillingCity</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>99269ab2-cb44-40ec-a4d3-074f9683cfb2</globalKey>
+        <inputFieldName>QuoteNumber</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>QuoteNumber</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>163a50cb-3fcd-4934-84ad-af54f553ea0c</globalKey>
+        <inputFieldName>BillingPostalCode</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>BillingPostalCode</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>23512840-20c2-45cb-944b-25047767cce8</globalKey>
+        <inputFieldName>BillingState</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>BillingState</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>63891b69-273c-41f9-89d8-bd13247864b7</globalKey>
+        <inputFieldName>Line:ProductName</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>Line:ProductName</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>46d6bbc3-9173-46e9-9fd5-92790fd3a7e6</globalKey>
+        <inputFieldName>ShippingStreet</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>ShippingStreet</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>14ae90a3-f734-4ff7-9380-502c8ce483da</globalKey>
+        <inputFieldName>SellerCompanyName</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>SellerCompanyName</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>757ae35f-6ba5-4492-a213-0e23f4366a54</globalKey>
+        <inputFieldName>SellerStreet</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>SellerStreet</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>8aa03320-db20-4a2c-b8a0-e7af708362ec</globalKey>
+        <inputFieldName>SellerCity</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>SellerCity</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>2b9068e9-9d7b-4f34-aab8-d80a0478b1f2</globalKey>
+        <inputFieldName>SellerState</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>SellerState</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>77c6625c-79d2-484d-ae6c-dbc051a6e7ac</globalKey>
+        <inputFieldName>SellerPostalCode</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>SellerPostalCode</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>daaaf7b6-b9a9-4a56-a06a-c82e57be52b2</globalKey>
+        <inputFieldName>SellerPhone</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>SellerPhone</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>069f34df-dc37-41c4-8606-f4a733fbc8e6</globalKey>
+        <inputFieldName>SellerFax</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>SellerFax</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>e79cd8be-d755-449a-85ca-0139c583e4c2</globalKey>
+        <inputFieldName>SellerEmail</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>SellerEmail</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>5a637129-26f7-40c0-93ec-3a26da52d23a</globalKey>
+        <inputFieldName>SellerWebsite</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>SellerWebsite</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>75029d2b-a6fd-4ae5-984b-c3f9c8c910ae</globalKey>
+        <inputFieldName>SellerCountry</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>SellerCountry</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>092f6d6a-9a6d-4b85-94bd-671f380c82f3</globalKey>
         <inputFieldName>AmendCurrentARR</inputFieldName>
         <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
         <linkedObjectSequence>0.0</linkedObjectSequence>
@@ -27,7 +762,7 @@
     <omniDataTransformItem>
         <disabled>false</disabled>
         <filterGroup>0.0</filterGroup>
-        <globalKey>9ee84896-3711-4642-82d0-f5d6c0c3a17e</globalKey>
+        <globalKey>18ad9ef7-fb7c-4185-8d70-7f25a4b7c700</globalKey>
         <inputFieldName>AmendCurrentMRR</inputFieldName>
         <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
         <linkedObjectSequence>0.0</linkedObjectSequence>
@@ -41,7 +776,7 @@
     <omniDataTransformItem>
         <disabled>false</disabled>
         <filterGroup>0.0</filterGroup>
-        <globalKey>de0dd9c1-7848-4da8-8ba2-46ba187599a0</globalKey>
+        <globalKey>c19be0e8-19d9-4dae-a7f9-3ff485b35897</globalKey>
         <inputFieldName>AmendCurrentQty</inputFieldName>
         <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
         <linkedObjectSequence>0.0</linkedObjectSequence>
@@ -55,7 +790,7 @@
     <omniDataTransformItem>
         <disabled>false</disabled>
         <filterGroup>0.0</filterGroup>
-        <globalKey>fb63e0ec-0793-4818-8e84-e71602a84c64</globalKey>
+        <globalKey>99e72bbb-f2f8-4c1b-acc8-3c1d94567388</globalKey>
         <inputFieldName>AmendProposedARR</inputFieldName>
         <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
         <linkedObjectSequence>0.0</linkedObjectSequence>
@@ -69,7 +804,7 @@
     <omniDataTransformItem>
         <disabled>false</disabled>
         <filterGroup>0.0</filterGroup>
-        <globalKey>1dd3109a-cf1e-47ba-bdd4-f1d48dc3d62a</globalKey>
+        <globalKey>72dc2f19-c101-4908-a2c6-3a3a49a17816</globalKey>
         <inputFieldName>AmendProposedMRR</inputFieldName>
         <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
         <linkedObjectSequence>0.0</linkedObjectSequence>
@@ -83,7 +818,7 @@
     <omniDataTransformItem>
         <disabled>false</disabled>
         <filterGroup>0.0</filterGroup>
-        <globalKey>0eee37bd-c036-49fb-8612-23bd339cce9c</globalKey>
+        <globalKey>61f7e69f-1ab9-4748-8a3e-5333b62dbf4f</globalKey>
         <inputFieldName>AmendProposedQty</inputFieldName>
         <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
         <linkedObjectSequence>0.0</linkedObjectSequence>
@@ -97,7 +832,7 @@
     <omniDataTransformItem>
         <disabled>false</disabled>
         <filterGroup>0.0</filterGroup>
-        <globalKey>6ac748b0-5945-4345-b877-7ac403a017b0</globalKey>
+        <globalKey>7511b6d9-ddd5-4ab8-897a-0307db09d027</globalKey>
         <inputFieldName>AmendNetIncreaseARR</inputFieldName>
         <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
         <linkedObjectSequence>0.0</linkedObjectSequence>
@@ -111,7 +846,7 @@
     <omniDataTransformItem>
         <disabled>false</disabled>
         <filterGroup>0.0</filterGroup>
-        <globalKey>10c1d719-ce19-4e72-bb6a-41711c1d165f</globalKey>
+        <globalKey>a09fb05c-f19a-4189-8d11-d49ec6b1ae20</globalKey>
         <inputFieldName>AmendNetIncreaseMRR</inputFieldName>
         <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
         <linkedObjectSequence>0.0</linkedObjectSequence>
@@ -125,7 +860,7 @@
     <omniDataTransformItem>
         <disabled>false</disabled>
         <filterGroup>0.0</filterGroup>
-        <globalKey>9179834d-8f5a-46d9-a183-e5599ad4d352</globalKey>
+        <globalKey>ee7745d9-5916-4799-aa6b-a31476ba0411</globalKey>
         <inputFieldName>AmendNetIncreaseQty</inputFieldName>
         <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
         <linkedObjectSequence>0.0</linkedObjectSequence>
@@ -136,4 +871,1036 @@
         <requiredForUpsert>false</requiredForUpsert>
         <upsertKey>false</upsertKey>
     </omniDataTransformItem>
-
+    <omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>98d2ef7c-6b34-4be9-ab25-cf1f5354f482</globalKey><inputFieldName>AmendProduct:ProductName</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProduct:ProductName</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>e1baaf13-f3ea-4d03-8654-f501384106d5</globalKey><inputFieldName>AmendProduct:IsAmending</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProduct:IsAmending</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>a1f2dcad-91f0-4bea-b72e-c4ef66cab47f</globalKey><inputFieldName>AmendProduct:CurrentQty</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProduct:CurrentQty</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>f7890c09-71f8-4c97-a2f4-229341c3124e</globalKey><inputFieldName>AmendProduct:CurrentARR</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProduct:CurrentARR</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>b8db0915-83ab-40bd-bc59-8b639a49f7dd</globalKey><inputFieldName>AmendProduct:CurrentMRR</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProduct:CurrentMRR</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>7515b98a-160f-4bbc-ad8e-a40a0d359e26</globalKey><inputFieldName>AmendProduct:ThisAddQty</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProduct:ThisAddQty</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>0404a940-d34d-43fb-87bf-93b52b03bcd6</globalKey><inputFieldName>AmendProduct:ThisAddARR</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProduct:ThisAddARR</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>b775ab99-e57e-4c24-87c9-7fe0d27d9e12</globalKey><inputFieldName>AmendProduct:ThisAddMRR</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProduct:ThisAddMRR</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>228a15b3-ee36-4227-9209-7cb017bcf339</globalKey><inputFieldName>AmendProduct:FinalizedQty</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProduct:FinalizedQty</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>788991d4-e933-4711-842b-8bdc1a465ce4</globalKey><inputFieldName>AmendProduct:FinalizedARR</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProduct:FinalizedARR</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>987c1df9-0968-4151-abb7-758c55afa40b</globalKey><inputFieldName>AmendProduct:FinalizedMRR</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProduct:FinalizedMRR</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>6bf66143-b292-4484-8983-f9f91a323dec</globalKey><inputFieldName>AmendThisAddProrated</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendThisAddProrated</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>b5c004f1-e3c5-4e0c-afba-e2f54cc0c9d0</globalKey><inputFieldName>AmendProduct:AmendingBadge</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProduct:AmendingBadge</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>00a5bb2b-3160-403f-9bbd-1f60f6e8bcfe</globalKey><inputFieldName>AmendProduct:ThisAddProrated</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProduct:ThisAddProrated</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>13f5aaf7-d6a7-448e-a8a3-c7ddb9243378</globalKey><inputFieldName>AmendAddProduct:ProductName</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendAddProduct:ProductName</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>ffa02406-0766-43c8-8a56-2b129b7f8318</globalKey><inputFieldName>AmendAddProduct:Qty</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendAddProduct:Qty</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>e1f2454a-f4db-4a02-82e7-52f93b926d4a</globalKey><inputFieldName>AmendAddProduct:ARR</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendAddProduct:ARR</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>f6d1ee95-a6cb-4bae-a9dc-3fa606dfc366</globalKey><inputFieldName>AmendAddProduct:MRR</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendAddProduct:MRR</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>50c00abe-796f-4364-9019-91b9856892d9</globalKey><inputFieldName>AmendAddProduct:Prorated</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendAddProduct:Prorated</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>69fdc6f2-2b1c-4a14-bc04-f667fb1eba7b</globalKey><inputFieldName>AmendProductAmending:ProductName</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProductAmending:ProductName</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>efdc9231-396a-430b-8eb9-dfd48ad2bca2</globalKey><inputFieldName>AmendProductAmending:AmendingBadge</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProductAmending:AmendingBadge</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>a1b3e30c-c5fc-48e8-a8e2-a27cb4a09195</globalKey><inputFieldName>AmendProductAmending:CurrentQty</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProductAmending:CurrentQty</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>50ab3475-f35c-4dec-a5fd-b14311da35fe</globalKey><inputFieldName>AmendProductAmending:CurrentARR</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProductAmending:CurrentARR</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>cf7408c3-2275-4204-a130-94d85b2ea648</globalKey><inputFieldName>AmendProductAmending:CurrentMRR</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProductAmending:CurrentMRR</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>9ff5bb33-8588-4a8a-bad0-1a6d1bbd04e5</globalKey><inputFieldName>AmendProductAmending:ThisAddQty</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProductAmending:ThisAddQty</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>2bdbcdeb-e56d-4c67-8533-e069cc5c2654</globalKey><inputFieldName>AmendProductAmending:ThisAddARR</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProductAmending:ThisAddARR</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>89c01233-9b09-437a-b0c9-9a46c9f791f8</globalKey><inputFieldName>AmendProductAmending:ThisAddMRR</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProductAmending:ThisAddMRR</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>b88747ab-4c83-42ca-808f-42f1006f7c27</globalKey><inputFieldName>AmendProductAmending:FinalizedQty</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProductAmending:FinalizedQty</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>4e13895e-bc1a-4dbb-a6a1-a97b94dd31a0</globalKey><inputFieldName>AmendProductAmending:FinalizedARR</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProductAmending:FinalizedARR</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>d5accc14-4ba1-4704-93d5-cc6dde8edd7f</globalKey><inputFieldName>AmendProductAmending:FinalizedMRR</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProductAmending:FinalizedMRR</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>def1dd33-bd3d-4f74-9a69-c10492c1f83b</globalKey><inputFieldName>AmendProductOther:ProductName</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProductOther:ProductName</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>5bdd7924-5b9c-4bdb-b085-bc903b8cc66a</globalKey><inputFieldName>AmendProductOther:CurrentQty</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProductOther:CurrentQty</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>3dd82c8e-205a-42cf-ae37-d5b441e70f3b</globalKey><inputFieldName>AmendProductOther:CurrentARR</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProductOther:CurrentARR</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>23be4be3-b77e-465b-b12a-9c0e3f1b822a</globalKey><inputFieldName>AmendProductOther:CurrentMRR</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProductOther:CurrentMRR</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>f8f918b0-f2dc-42ee-b069-48780afc6413</globalKey><inputFieldName>AmendProductOther:FinalizedQty</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProductOther:FinalizedQty</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>91dac979-01f2-4ecb-a98d-c20278660a40</globalKey><inputFieldName>AmendProductOther:FinalizedARR</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProductOther:FinalizedARR</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>7fe010e4-0a1f-46ca-ab8d-1f1636a2347b</globalKey><inputFieldName>AmendProductOther:FinalizedMRR</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProductOther:FinalizedMRR</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>2dd4e0bc-a710-4f84-8546-249be214133b</globalKey><inputFieldName>AmendAddProduct:StartDate</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendAddProduct:StartDate</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>c2eb8521-be2a-4d6f-bc81-15ea3ddeb8b1</globalKey><inputFieldName>AmendAddProduct:EndDate</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendAddProduct:EndDate</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>49f92c0f-7cd0-4d6c-b6e6-02bfdf766935</globalKey><inputFieldName>AmendAddProduct:DiscountLabel</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendAddProduct:DiscountLabel</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>1b1de70a-7575-4fb7-b5c2-8c55e017fe61</globalKey><inputFieldName>AmendAddProduct:DiscountLabel</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendAddProduct:DiscountLabel</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>fd84b127-7a49-431e-bcd2-149c59614986</globalKey><inputFieldName>AmendProductCurrentAmending:ProductName</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProductCurrentAmending:ProductName</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>d3590559-78cd-4e32-819f-10a7cfb39758</globalKey><inputFieldName>AmendProductCurrentAmending:CurrentQty</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProductCurrentAmending:CurrentQty</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>b837248f-f8d7-40f5-88fe-704ebbe42397</globalKey><inputFieldName>AmendProductCurrentAmending:CurrentARR</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProductCurrentAmending:CurrentARR</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem><omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>8d5adefa-8ffa-4438-b115-431391c10202</globalKey><inputFieldName>AmendProductCurrentAmending:CurrentMRR</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>AmendProductCurrentAmending:CurrentMRR</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem>    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>4ac01456-b087-468d-ba89-a52959b98d49</globalKey>
+        <inputFieldName>ContactName</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldFormat>String</outputFieldFormat>
+        <outputFieldName>ContactName</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>e1d9d653-0765-43b4-be20-a65366c31839</globalKey>
+        <inputFieldName>ContactFirstName</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldFormat>String</outputFieldFormat>
+        <outputFieldName>ContactFirstName</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>eb1469f9-4d39-4054-abdf-de515af5998d</globalKey>
+        <inputFieldName>ContactTitle</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldFormat>String</outputFieldFormat>
+        <outputFieldName>ContactTitle</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>a4caaec2-c719-40fc-85d5-e9f7be8ac3d9</globalKey>
+        <inputFieldName>ContactEmail</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldFormat>String</outputFieldFormat>
+        <outputFieldName>ContactEmail</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>03265e6d-250c-4472-95bd-5af6b37009ad</globalKey>
+        <inputFieldName>Subtotal</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldFormat>Currency</outputFieldFormat>
+        <outputFieldName>Subtotal</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>eee5c84f-0a61-4ad8-9244-641f48a000c3</globalKey>
+        <inputFieldName>QDiscount</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldFormat>Number(2)</outputFieldFormat>
+        <outputFieldName>QDiscount</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>a941fba5-6205-4e80-b3a5-6e42e326760b</globalKey>
+        <inputFieldName>PaymentTerms</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldFormat>String</outputFieldFormat>
+        <outputFieldName>PaymentTerms</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>86a64b24-6e45-4cdd-9909-9e56a1217daa</globalKey>
+        <inputFieldName>QuoteStartDate</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldFormat>Date(MM/dd/yyyy)</outputFieldFormat>
+        <outputFieldName>QuoteStartDate</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <formulaConverted>| | var:QDiscount ABS 0 &gt; var:QDiscount &quot;&quot; = || true false IF</formulaConverted>
+        <formulaExpression>IF(ABS(QDiscount) &gt; 0 || QDiscount = &quot;&quot; , true, false)</formulaExpression>
+        <formulaResultPath>IF_has_discount</formulaResultPath>
+        <formulaSequence>1.0</formulaSequence>
+        <globalKey>ac38ce09-548c-41e1-9edd-43bd07a4e193</globalKey>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>0.0</outputCreationSequence>
+        <outputFieldName>Formula</outputFieldName>
+        <outputObjectName>Formula</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>ad845c67-c24a-4099-b92f-8e4d2248e236</globalKey>
+        <inputFieldName>IF_has_discount</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>IF_has_discount</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <formulaConverted>| | var:QDiscount ABS 0 &gt; var:QDiscount &quot;&quot; = || false true IF</formulaConverted>
+        <formulaExpression>IF(ABS(QDiscount) &gt; 0 || QDiscount = &quot;&quot; , false, true)</formulaExpression>
+        <formulaResultPath>IF_no_discount</formulaResultPath>
+        <formulaSequence>2.0</formulaSequence>
+        <globalKey>35ebc1a5-1206-41de-9a15-7a6b84dc09cb</globalKey>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>0.0</outputCreationSequence>
+        <outputFieldName>Formula</outputFieldName>
+        <outputObjectName>Formula</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>5016c34d-28de-48ac-9298-d453b4d0fb0c</globalKey>
+        <inputFieldName>IF_no_discount</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>IF_no_discount</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>aad7d304-fda8-4907-ae41-68dd620c203e</globalKey>
+        <inputFieldName>Line:PricingTermCount</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>Line:PricingTermCount</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>    <omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>9cbe3bd2-bc2b-4587-8d6c-3d003bd8d338</globalKey><inputFieldName>Line:StartDate</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>Line:StartDate</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem>    <omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>1691fa00-0e38-4fb0-bbf6-6e02c7dfc325</globalKey><inputFieldName>Line:EndDate</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteTransformBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldName>Line:EndDate</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><upsertKey>false</upsertKey></omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <formulaConverted>| | var:Line:PricingTermCount 12 * 4 ROUND</formulaConverted>
+        <formulaExpression>ROUND(Line:PricingTermCount * 12, 4)</formulaExpression>
+        <formulaResultPath>Line:TermMonths</formulaResultPath>
+        <formulaSequence>8.0</formulaSequence>
+        <globalKey>43df5563-9a07-4419-83d5-1db4f8d3f17e</globalKey>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>0.0</outputCreationSequence>
+        <outputFieldName>Formula</outputFieldName>
+        <outputObjectName>Formula</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>45514063-5789-4f4f-8f04-294670dcdd36</globalKey>
+        <inputFieldName>Line:TermMonths</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>Line:TermMonths</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <formulaConverted>| | var:AmendNetIncreaseQty 0 &lt; true false IF</formulaConverted>
+        <formulaExpression>IF(AmendNetIncreaseQty &lt; 0, true, false)</formulaExpression>
+        <formulaResultPath>IF_AmendNetIncreaseQtyDown</formulaResultPath>
+        <formulaSequence>3.0</formulaSequence>
+        <globalKey>31b0fb88-f275-4304-9b29-2250d9137fb5</globalKey>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>0.0</outputCreationSequence>
+        <outputFieldName>Formula</outputFieldName>
+        <outputObjectName>Formula</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>4ae1da03-fbc1-4b17-9b5e-3ae8b04de244</globalKey>
+        <inputFieldName>IF_AmendNetIncreaseQtyDown</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>IF_AmendNetIncreaseQtyDown</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <formulaConverted>| | var:AmendNetIncreaseQty 0 &lt; false true IF</formulaConverted>
+        <formulaExpression>IF(AmendNetIncreaseQty &lt; 0, false, true)</formulaExpression>
+        <formulaResultPath>IF_AmendNetIncreaseQtyUp</formulaResultPath>
+        <formulaSequence>4.0</formulaSequence>
+        <globalKey>212cfd32-c2ba-42dc-946f-7dd1666d8d0b</globalKey>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>0.0</outputCreationSequence>
+        <outputFieldName>Formula</outputFieldName>
+        <outputObjectName>Formula</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>c7fd775c-fad2-45b6-a43a-61940a22f2ed</globalKey>
+        <inputFieldName>IF_AmendNetIncreaseQtyUp</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>IF_AmendNetIncreaseQtyUp</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <formulaConverted>| | var:AmendProductAmending:ThisAddQty 0 &lt; true false IF</formulaConverted>
+        <formulaExpression>IF(AmendProductAmending:ThisAddQty &lt; 0, true, false)</formulaExpression>
+        <formulaResultPath>AmendProductAmending:IF_ThisAddQtyDown</formulaResultPath>
+        <formulaSequence>5.0</formulaSequence>
+        <globalKey>17106824-ab00-4f0e-bcc3-dcec719c428f</globalKey>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>0.0</outputCreationSequence>
+        <outputFieldName>Formula</outputFieldName>
+        <outputObjectName>Formula</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>2050deab-5184-408b-a90e-4f03b64b81ea</globalKey>
+        <inputFieldName>AmendProductAmending:IF_ThisAddQtyDown</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>AmendProductAmending:IF_ThisAddQtyDown</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <formulaConverted>| | var:AmendProductAmending:ThisAddQty 0 &lt; false true IF</formulaConverted>
+        <formulaExpression>IF(AmendProductAmending:ThisAddQty &lt; 0, false, true)</formulaExpression>
+        <formulaResultPath>AmendProductAmending:IF_ThisAddQtyUp</formulaResultPath>
+        <formulaSequence>6.0</formulaSequence>
+        <globalKey>ad43f352-d1db-483d-bd6f-066afd1cd986</globalKey>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>0.0</outputCreationSequence>
+        <outputFieldName>Formula</outputFieldName>
+        <outputObjectName>Formula</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>e509b654-59cc-499e-b2bc-0ff78e5a762b</globalKey>
+        <inputFieldName>AmendProductAmending:IF_ThisAddQtyUp</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>AmendProductAmending:IF_ThisAddQtyUp</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <formulaConverted>| | | var:AmendNetIncreaseARR 0 1 SUBSTRING &quot;-&quot; == true false IF</formulaConverted>
+        <formulaExpression>IF(SUBSTRING(AmendNetIncreaseARR, 0, 1) == &quot;-&quot;, true, false)</formulaExpression>
+        <formulaResultPath>IF_AmendNetIncreaseARRDown</formulaResultPath>
+        <formulaSequence>9.0</formulaSequence>
+        <globalKey>7acd08ef-a357-426a-8703-627975138920</globalKey>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>0.0</outputCreationSequence>
+        <outputFieldName>Formula</outputFieldName>
+        <outputObjectName>Formula</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>e65f69d2-e14b-4cbb-a1ca-c6f32b4df5e0</globalKey>
+        <inputFieldName>IF_AmendNetIncreaseARRDown</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>IF_AmendNetIncreaseARRDown</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <formulaConverted>| | | var:AmendNetIncreaseARR 0 1 SUBSTRING &quot;-&quot; == false true IF</formulaConverted>
+        <formulaExpression>IF(SUBSTRING(AmendNetIncreaseARR, 0, 1) == &quot;-&quot;, false, true)</formulaExpression>
+        <formulaResultPath>IF_AmendNetIncreaseARRUp</formulaResultPath>
+        <formulaSequence>10.0</formulaSequence>
+        <globalKey>b6813d8a-02f2-4873-bd4e-4a179c168001</globalKey>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>0.0</outputCreationSequence>
+        <outputFieldName>Formula</outputFieldName>
+        <outputObjectName>Formula</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>57a90ea8-c015-414a-b945-94de66911041</globalKey>
+        <inputFieldName>IF_AmendNetIncreaseARRUp</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>IF_AmendNetIncreaseARRUp</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <formulaConverted>| | | var:AmendNetIncreaseMRR 0 1 SUBSTRING &quot;-&quot; == true false IF</formulaConverted>
+        <formulaExpression>IF(SUBSTRING(AmendNetIncreaseMRR, 0, 1) == &quot;-&quot;, true, false)</formulaExpression>
+        <formulaResultPath>IF_AmendNetIncreaseMRRDown</formulaResultPath>
+        <formulaSequence>11.0</formulaSequence>
+        <globalKey>6988f55b-184e-4380-bc11-20245236c90f</globalKey>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>0.0</outputCreationSequence>
+        <outputFieldName>Formula</outputFieldName>
+        <outputObjectName>Formula</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>d3516c71-9626-42a8-9554-755333b6ac85</globalKey>
+        <inputFieldName>IF_AmendNetIncreaseMRRDown</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>IF_AmendNetIncreaseMRRDown</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <formulaConverted>| | | var:AmendNetIncreaseMRR 0 1 SUBSTRING &quot;-&quot; == false true IF</formulaConverted>
+        <formulaExpression>IF(SUBSTRING(AmendNetIncreaseMRR, 0, 1) == &quot;-&quot;, false, true)</formulaExpression>
+        <formulaResultPath>IF_AmendNetIncreaseMRRUp</formulaResultPath>
+        <formulaSequence>12.0</formulaSequence>
+        <globalKey>2d97ca45-0b1f-4a1b-8e18-0170b61c4e4d</globalKey>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>0.0</outputCreationSequence>
+        <outputFieldName>Formula</outputFieldName>
+        <outputObjectName>Formula</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>49f328cd-afe8-4104-818f-914564164cd2</globalKey>
+        <inputFieldName>IF_AmendNetIncreaseMRRUp</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>IF_AmendNetIncreaseMRRUp</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>e3951cdd-0576-4eaa-90aa-9f62db8d5233</globalKey>
+        <inputFieldName>AmendProductCurrentAmending:StartDate</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>AmendProductCurrentAmending:StartDate</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>76cb268f-aada-44ae-8dae-f6eda699a232</globalKey>
+        <inputFieldName>AmendProductCurrentAmending:EndDate</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>AmendProductCurrentAmending:EndDate</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>c78a178d-0e19-4159-8913-084937ee5468</globalKey>
+        <inputFieldName>AmendProductCurrentAmending:TermMonths</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>AmendProductCurrentAmending:TermMonths</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>94a6b106-d2b5-494a-ae86-d71f2be5b4e2</globalKey>
+        <inputFieldName>AmendProductCurrentAmending:ListPrice</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>AmendProductCurrentAmending:ListPrice</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>78074c3f-ac65-493e-a4d7-78b13e7a0b85</globalKey>
+        <inputFieldName>AmendProductCurrentAmending:NetUnitPrice</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>AmendProductCurrentAmending:NetUnitPrice</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>a2210056-22e7-40da-b07f-fed9c740e858</globalKey>
+        <inputFieldName>AmendProductCurrentAmending:Amount</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>AmendProductCurrentAmending:Amount</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>488b02b0-4bee-4c30-8392-1e5abe3bfd11</globalKey>
+        <inputFieldName>AmendAddProduct:TermMonths</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>AmendAddProduct:TermMonths</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>12ae9fd7-876e-4c98-9a8e-07bfacb71933</globalKey>
+        <inputFieldName>AmendAddProduct:ListPrice</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>AmendAddProduct:ListPrice</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>ad72393b-b513-4e83-ba81-5177459f3296</globalKey>
+        <inputFieldName>AmendAddProduct:NetUnitPrice</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>AmendAddProduct:NetUnitPrice</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>02cf9c89-ce1a-4f6a-a3ce-d31d209d169f</globalKey>
+        <inputFieldName>AmendAddProduct:Amount</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>AmendAddProduct:Amount</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>f9932db0-dfce-441a-91d3-0221e6a8f722</globalKey>
+        <inputFieldName>AmendProductAmending:StartDate</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>AmendProductAmending:StartDate</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>59023492-3632-42a4-9842-ff4ccb65dd2b</globalKey>
+        <inputFieldName>AmendProductAmending:EndDate</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>AmendProductAmending:EndDate</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>bcb210f5-fdba-403b-b98b-2427361b38f5</globalKey>
+        <inputFieldName>AmendProductAmending:TermMonths</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>AmendProductAmending:TermMonths</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>43cbdc5d-26aa-493d-b7fe-e3e0aac77eb6</globalKey>
+        <inputFieldName>AmendProductAmending:ListPrice</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>AmendProductAmending:ListPrice</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>2b71bb47-b101-4589-8d10-edc6e8b506c3</globalKey>
+        <inputFieldName>AmendProductAmending:NetUnitPrice</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>AmendProductAmending:NetUnitPrice</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>9a5743f9-97ee-4fe8-9235-4dd84629491b</globalKey>
+        <inputFieldName>AmendProductAmending:Amount</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>AmendProductAmending:Amount</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <formulaConverted>| | var:AmendAddProduct:Qty 0 &lt; true false IF</formulaConverted>
+        <formulaExpression>IF(AmendAddProduct:Qty &lt; 0, true, false)</formulaExpression>
+        <formulaResultPath>AmendAddProduct:IF_QtyDown</formulaResultPath>
+        <formulaSequence>13.0</formulaSequence>
+        <globalKey>6d686875-5cce-46ac-ad4b-4a2997232799</globalKey>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>0.0</outputCreationSequence>
+        <outputFieldName>Formula</outputFieldName>
+        <outputObjectName>Formula</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>e3b158bb-da30-404a-ac17-bdc0872d503a</globalKey>
+        <inputFieldName>AmendAddProduct:IF_QtyDown</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>AmendAddProduct:IF_QtyDown</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <formulaConverted>| | var:AmendAddProduct:Qty 0 &gt; true false IF</formulaConverted>
+        <formulaExpression>IF(AmendAddProduct:Qty &gt; 0, true, false)</formulaExpression>
+        <formulaResultPath>AmendAddProduct:IF_QtyUp</formulaResultPath>
+        <formulaSequence>14.0</formulaSequence>
+        <globalKey>e1fabf3d-9057-4631-bbf5-4017de3ee42a</globalKey>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>0.0</outputCreationSequence>
+        <outputFieldName>Formula</outputFieldName>
+        <outputObjectName>Formula</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>3f12f639-2087-4954-a192-50a3c630a37b</globalKey>
+        <inputFieldName>AmendAddProduct:IF_QtyUp</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>AmendAddProduct:IF_QtyUp</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <formulaConverted>| | | var:AmendAddProduct:ARR 0 1 SUBSTRING &quot;-&quot; == true false IF</formulaConverted>
+        <formulaExpression>IF(SUBSTRING(AmendAddProduct:ARR, 0, 1) == &quot;-&quot;, true, false)</formulaExpression>
+        <formulaResultPath>AmendAddProduct:IF_ARRDown</formulaResultPath>
+        <formulaSequence>15.0</formulaSequence>
+        <globalKey>dc683097-c5f3-46d4-9788-f25004f02797</globalKey>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>0.0</outputCreationSequence>
+        <outputFieldName>Formula</outputFieldName>
+        <outputObjectName>Formula</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>d10a0e7d-2db9-42fa-9a94-e67785144818</globalKey>
+        <inputFieldName>AmendAddProduct:IF_ARRDown</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>AmendAddProduct:IF_ARRDown</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <formulaConverted>| | | var:AmendAddProduct:ARR 0 1 SUBSTRING &quot;-&quot; == false true IF</formulaConverted>
+        <formulaExpression>IF(SUBSTRING(AmendAddProduct:ARR, 0, 1) == &quot;-&quot;, false, true)</formulaExpression>
+        <formulaResultPath>AmendAddProduct:IF_ARRUp</formulaResultPath>
+        <formulaSequence>16.0</formulaSequence>
+        <globalKey>a2193f31-2116-44b4-9ace-9d9fa3be6080</globalKey>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>0.0</outputCreationSequence>
+        <outputFieldName>Formula</outputFieldName>
+        <outputObjectName>Formula</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>f6303c44-14a1-4e93-bf80-baa19db29ff1</globalKey>
+        <inputFieldName>AmendAddProduct:IF_ARRUp</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>AmendAddProduct:IF_ARRUp</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <formulaConverted>| | | var:AmendAddProduct:MRR 0 1 SUBSTRING &quot;-&quot; == true false IF</formulaConverted>
+        <formulaExpression>IF(SUBSTRING(AmendAddProduct:MRR, 0, 1) == &quot;-&quot;, true, false)</formulaExpression>
+        <formulaResultPath>AmendAddProduct:IF_MRRDown</formulaResultPath>
+        <formulaSequence>17.0</formulaSequence>
+        <globalKey>3fc853a4-9fb9-4bf6-818e-c658485ec2cd</globalKey>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>0.0</outputCreationSequence>
+        <outputFieldName>Formula</outputFieldName>
+        <outputObjectName>Formula</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>45a3c56f-e8a9-4531-8c21-fd10fa148739</globalKey>
+        <inputFieldName>AmendAddProduct:IF_MRRDown</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>AmendAddProduct:IF_MRRDown</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <formulaConverted>| | | var:AmendAddProduct:MRR 0 1 SUBSTRING &quot;-&quot; == false true IF</formulaConverted>
+        <formulaExpression>IF(SUBSTRING(AmendAddProduct:MRR, 0, 1) == &quot;-&quot;, false, true)</formulaExpression>
+        <formulaResultPath>AmendAddProduct:IF_MRRUp</formulaResultPath>
+        <formulaSequence>18.0</formulaSequence>
+        <globalKey>699859ef-8291-4c66-beba-5e06b3179407</globalKey>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>0.0</outputCreationSequence>
+        <outputFieldName>Formula</outputFieldName>
+        <outputObjectName>Formula</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>44a4a9d7-42ba-431f-b1b9-3364468cb244</globalKey>
+        <inputFieldName>AmendAddProduct:IF_MRRUp</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>AmendAddProduct:IF_MRRUp</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <outputType>JSON</outputType>
+    <previewJsonData>{
+  "BillingCity" : "New York",
+  "QuoteId" : "0Q0Ka000000EXAMPLE",
+  "ShippingStreet" : "10 Main Rd.",
+  "Line" : [ {
+    "NetUnitPrice" : "$0.00",
+    "ProductName" : "QuantumBit Complete Solution",
+    "NetTotalPrice" : "$0.00",
+    "Quantity" : 1,
+    "ListPrice" : "$0.00",
+    "CQL" : [ {
+      "NetUnitPrice" : "$0.00",
+      "ProductName" : "QuantumBit Services Project",
+      "NetTotalPrice" : "$0.00",
+      "Quantity" : 1,
+      "CQL2" : [ {
+        "NetUnitPrice" : "$240.00",
+        "Discount" : "20",
+        "ProductName" : "Project Manager",
+        "NetTotalPrice" : "$1,920.00",
+        "Quantity" : 8,
+        "ListPrice" : "$300.00"
+      }, {
+        "NetUnitPrice" : "$300.00",
+        "ProductName" : "Implementation Engineer",
+        "NetTotalPrice" : "$2,400.00",
+        "Quantity" : 8,
+        "ListPrice" : "$300.00"
+      }, {
+        "NetUnitPrice" : "$500.00",
+        "ProductName" : "Solutions Architect",
+        "NetTotalPrice" : "$4,000.00",
+        "Quantity" : 8,
+        "ListPrice" : "$500.00"
+      } ],
+      "ListPrice" : "$0.00"
+    }, {
+      "NetUnitPrice" : "$45.00",
+      "ProductName" : "API Access Requests (AEH)",
+      "NetTotalPrice" : "$9,000.00",
+      "Quantity" : 100,
+      "ListPrice" : "$45.00"
+    }, {
+      "NetUnitPrice" : "$12,000.00",
+      "ProductName" : "QuantumBit Database",
+      "NetTotalPrice" : "$24,000.00",
+      "Quantity" : 1,
+      "ListPrice" : "$12,000.00"
+    }, {
+      "NetUnitPrice" : "$12,000.00",
+      "ProductName" : "QB API Management Solution",
+      "NetTotalPrice" : "$24,000.00",
+      "Quantity" : 1,
+      "ListPrice" : "$12,000.00"
+    }, {
+      "NetUnitPrice" : "$250.00",
+      "ProductName" : "Professional Services Daily Rate",
+      "NetTotalPrice" : "$62,500.00",
+      "Quantity" : 250,
+      "ListPrice" : "$250.00"
+    }, {
+      "NetUnitPrice" : "$8,500.00",
+      "ProductName" : "QuantumBit Essentials Training",
+      "NetTotalPrice" : "$8,500.00",
+      "Quantity" : 1,
+      "ListPrice" : "$8,500.00"
+    } ]
+  }, {
+    "NetUnitPrice" : "$9,000.00",
+    "Discount" : "10",
+    "ProductName" : "Additional API",
+    "NetTotalPrice" : "$9,000.00",
+    "Quantity" : 1,
+    "ListPrice" : "$15,000.00"
+  } ],
+  "QuoteNumber" : "00000138",
+  "ExpirationDate" : "02/11/2026",
+  "BillingStreet" : "10 Main Rd.",
+  "GrandTotal" : "$145,320.00",
+  "CreatedDate" : "01/13/2026",
+  "BillingPostalCode" : "31349",
+  "BillingState" : "NY",
+  "AccountName" : "Acme",
+  "SalesRep" : "Sample User",
+  "SellerCompanyName" : "Sample Company",
+  "SellerStreet" : "100 Main St",
+  "SellerCity" : "Chicago",
+  "SellerState" : "IL",
+  "SellerPostalCode" : "60601",
+  "SellerPhone" : "312-555-0100",
+  "SellerFax" : "312-555-0101",
+  "SellerEmail" : "admin@example.com",
+  "SellerWebsite" : "www.example.com",
+  "SellerCountry" : "US"
+}</previewJsonData>
+    <processSuperBulk>false</processSuperBulk>
+    <responseCacheTtlMinutes>0.0</responseCacheTtlMinutes>
+    <rollbackOnError>false</rollbackOnError>
+    <sourceObjectDefault>false</sourceObjectDefault>
+    <synchronousProcessThreshold>0.0</synchronousProcessThreshold>
+    <targetOutputFileName>Quote_Document(Version 1)</targetOutputFileName>
+    <type>Transform</type>
+    <uniqueName>RLMQuoteTransformBasic_1</uniqueName>
+    <versionNumber>1.0</versionNumber>
+    <xmlDeclarationRemoved>false</xmlDeclarationRemoved>
+</OmniDataTransform>

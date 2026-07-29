@@ -34,7 +34,6 @@
         <linkedObjectSequence>0.0</linkedObjectSequence>
         <name>RLMQuoteExtractBasic</name>
         <outputCreationSequence>1.0</outputCreationSequence>
-        <outputFieldFormat>Currency</outputFieldFormat>
         <outputFieldName>Line:CQL:CQL2:NetUnitPrice</outputFieldName>
         <outputObjectName>json</outputObjectName>
         <requiredForUpsert>false</requiredForUpsert>
@@ -224,7 +223,6 @@
         <linkedObjectSequence>0.0</linkedObjectSequence>
         <name>RLMQuoteExtractBasic</name>
         <outputCreationSequence>1.0</outputCreationSequence>
-        <outputFieldFormat>Currency</outputFieldFormat>
         <outputFieldName>Line:CQL:NetUnitPrice</outputFieldName>
         <outputObjectName>json</outputObjectName>
         <requiredForUpsert>false</requiredForUpsert>
@@ -240,7 +238,6 @@
         <linkedObjectSequence>0.0</linkedObjectSequence>
         <name>RLMQuoteExtractBasic</name>
         <outputCreationSequence>1.0</outputCreationSequence>
-        <outputFieldFormat>Currency</outputFieldFormat>
         <outputFieldName>Line:CQL:CQL2:ListPrice</outputFieldName>
         <outputObjectName>json</outputObjectName>
         <requiredForUpsert>false</requiredForUpsert>
@@ -517,7 +514,6 @@
         <linkedObjectSequence>0.0</linkedObjectSequence>
         <name>RLMQuoteExtractBasic</name>
         <outputCreationSequence>1.0</outputCreationSequence>
-        <outputFieldFormat>Currency</outputFieldFormat>
         <outputFieldName>Line:CQL:ListPrice</outputFieldName>
         <outputObjectName>json</outputObjectName>
         <requiredForUpsert>false</requiredForUpsert>
@@ -648,7 +644,6 @@
         <linkedObjectSequence>0.0</linkedObjectSequence>
         <name>RLMQuoteExtractBasic</name>
         <outputCreationSequence>1.0</outputCreationSequence>
-        <outputFieldFormat>Currency</outputFieldFormat>
         <outputFieldName>Line:NetUnitPrice</outputFieldName>
         <outputObjectName>json</outputObjectName>
         <requiredForUpsert>false</requiredForUpsert>
@@ -729,7 +724,6 @@
         <linkedObjectSequence>0.0</linkedObjectSequence>
         <name>RLMQuoteExtractBasic</name>
         <outputCreationSequence>1.0</outputCreationSequence>
-        <outputFieldFormat>Currency</outputFieldFormat>
         <outputFieldName>Line:ListPrice</outputFieldName>
         <outputObjectName>json</outputObjectName>
         <requiredForUpsert>false</requiredForUpsert>
@@ -1183,6 +1177,251 @@
         <outputObjectName>json</outputObjectName>
         <requiredForUpsert>false</requiredForUpsert>
         <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>1b8bb6d7-d959-49ec-8962-5225946e6047</globalKey>
+        <inputFieldName>Quote:QuoteLineItem:PricingTermCount</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteExtractBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>Line:PricingTermCount</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>    <omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>daac1c10-e8cd-44da-969e-dd0face137df</globalKey><inputFieldName>Quote:QuoteLineItem:StartDate</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteExtractBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldFormat>Date(MM/dd/yyyy)</outputFieldFormat><outputFieldName>Line:StartDate</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><transformValuesMappings>{ }</transformValuesMappings><upsertKey>false</upsertKey></omniDataTransformItem>    <omniDataTransformItem><disabled>false</disabled><filterGroup>0.0</filterGroup><globalKey>90e736cc-070b-4650-89dc-684401f823c6</globalKey><inputFieldName>Quote:QuoteLineItem:EndDate</inputFieldName><inputObjectQuerySequence>0.0</inputObjectQuerySequence><linkedObjectSequence>0.0</linkedObjectSequence><name>RLMQuoteExtractBasic</name><outputCreationSequence>1.0</outputCreationSequence><outputFieldFormat>Date(MM/dd/yyyy)</outputFieldFormat><outputFieldName>Line:EndDate</outputFieldName><outputObjectName>json</outputObjectName><requiredForUpsert>false</requiredForUpsert><transformValuesMappings>{ }</transformValuesMappings><upsertKey>false</upsertKey></omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>003c9e08-543e-457f-950c-645556233155</globalKey>
+        <inputFieldName>Quote:AmendCurrentAmendingBreakdown:Current_Start_Date__c</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteExtractBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+                <outputFieldFormat>Date(MM/dd/yyyy)</outputFieldFormat>
+<outputFieldName>AmendProductCurrentAmending:StartDate</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>e33769e3-6cfd-42ef-9643-47ed4260c08c</globalKey>
+        <inputFieldName>Quote:AmendCurrentAmendingBreakdown:Current_End_Date__c</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteExtractBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+                <outputFieldFormat>Date(MM/dd/yyyy)</outputFieldFormat>
+<outputFieldName>AmendProductCurrentAmending:EndDate</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>cc9796b0-ff98-4867-891c-da1f5b81646e</globalKey>
+        <inputFieldName>Quote:AmendCurrentAmendingBreakdown:Current_Term_Months__c</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteExtractBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>AmendProductCurrentAmending:TermMonths</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>eb09fec8-3e9d-4cc6-a627-8506dcea4d23</globalKey>
+        <inputFieldName>Quote:AmendCurrentAmendingBreakdown:Current_List_Price__c</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteExtractBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>AmendProductCurrentAmending:ListPrice</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>670a1b27-f7a4-4a34-8b0d-91e067440cb7</globalKey>
+        <inputFieldName>Quote:AmendCurrentAmendingBreakdown:Current_Net_Unit_Price__c</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteExtractBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>AmendProductCurrentAmending:NetUnitPrice</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>af9edbde-2ec3-446f-a73b-a0ed4451c833</globalKey>
+        <inputFieldName>Quote:AmendCurrentAmendingBreakdown:Current_ARR__c</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteExtractBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldFormat>Currency</outputFieldFormat>
+        <outputFieldName>AmendProductCurrentAmending:Amount</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>0c6ec74c-ab6a-4632-bf42-960f3ed2b85e</globalKey>
+        <inputFieldName>Quote:AmendAddBreakdown:This_Add_Term_Months__c</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteExtractBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>AmendAddProduct:TermMonths</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>75cdcd4a-50e8-4f10-8fab-8a6e89a7359e</globalKey>
+        <inputFieldName>Quote:AmendAddBreakdown:This_Add_List_Price__c</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteExtractBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>AmendAddProduct:ListPrice</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>abfe7e31-a591-4a76-86e5-37a0071ab7e3</globalKey>
+        <inputFieldName>Quote:AmendAddBreakdown:This_Add_Net_Unit_Price__c</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteExtractBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>AmendAddProduct:NetUnitPrice</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>dc2a0b2c-518e-49c8-92c3-0e900107cb76</globalKey>
+        <inputFieldName>Quote:AmendAddBreakdown:This_Add_Prorated__c</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteExtractBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldFormat>Currency</outputFieldFormat>
+        <outputFieldName>AmendAddProduct:Amount</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>b698e755-67a7-4cca-9187-4a33cf3624c3</globalKey>
+        <inputFieldName>Quote:AmendAmendingBreakdown:This_Add_Start_Date__c</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteExtractBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+                <outputFieldFormat>Date(MM/dd/yyyy)</outputFieldFormat>
+<outputFieldName>AmendProductAmending:StartDate</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>fd834865-1bb7-4bd7-983d-1372e525b212</globalKey>
+        <inputFieldName>Quote:AmendAmendingBreakdown:This_Add_End_Date__c</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteExtractBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+                <outputFieldFormat>Date(MM/dd/yyyy)</outputFieldFormat>
+<outputFieldName>AmendProductAmending:EndDate</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>ce8d59de-8e91-4b8a-8e1d-f08d37730929</globalKey>
+        <inputFieldName>Quote:AmendAmendingBreakdown:This_Add_Term_Months__c</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteExtractBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>AmendProductAmending:TermMonths</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>5f97a16c-c1b0-4f90-bd3d-3105fd139980</globalKey>
+        <inputFieldName>Quote:AmendAmendingBreakdown:This_Add_List_Price__c</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteExtractBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>AmendProductAmending:ListPrice</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>b947e8e2-576d-4a96-8e3a-8d9d0bb6e9d4</globalKey>
+        <inputFieldName>Quote:AmendAmendingBreakdown:This_Add_Net_Unit_Price__c</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteExtractBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>AmendProductAmending:NetUnitPrice</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>295a8eeb-8f65-4c3b-8dee-25843e1d2090</globalKey>
+        <inputFieldName>Quote:AmendAmendingBreakdown:Finalized_Prorated__c</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteExtractBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldFormat>Currency</outputFieldFormat>
+        <outputFieldName>AmendProductAmending:Amount</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
         <upsertKey>false</upsertKey>
     </omniDataTransformItem>
     <outputType>JSON</outputType>

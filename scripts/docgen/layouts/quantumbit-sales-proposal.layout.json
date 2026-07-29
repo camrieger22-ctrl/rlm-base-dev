@@ -57,9 +57,9 @@
       "style": "Table Grid",
       "header": ["Item description", "Qty", "List price", "Disc. (%)", "Net unit price", "Net total"],
       "rows": [
-        ["{{#Line}}{{ProductName}}", "{{Quantity}}", "{{ListPrice}}", "{{Discount}}", "{{NetUnitPrice}}", "{{NetTotalPrice}}"],
-        ["{{#CQL}}{{ProductName}}", "{{Quantity}}", "{{ListPrice}}", "{{Discount}}", "{{NetUnitPrice}}", "{{NetTotalPrice}}"],
-        ["{{#CQL2}}{{ProductName}}", "{{Quantity}}", "{{ListPrice}}", "{{Discount}}", "{{NetUnitPrice}}", "{{NetTotalPrice}}{{/CQL2}}{{/CQL}}{{/Line}}"]
+        ["{{#Line}}{{ProductName}}", "{{Quantity}}", "${{ListPrice}}", "{{Discount}}", "${{NetUnitPrice}}", "{{NetTotalPrice}}"],
+        ["{{#CQL}}{{ProductName}}", "{{Quantity}}", "${{ListPrice}}", "{{Discount}}", "${{NetUnitPrice}}", "{{NetTotalPrice}}"],
+        ["{{#CQL2}}{{ProductName}}", "{{Quantity}}", "${{ListPrice}}", "{{Discount}}", "${{NetUnitPrice}}", "{{NetTotalPrice}}{{/CQL2}}{{/CQL}}{{/Line}}"]
       ]
     },
     { "type": "spacer" },

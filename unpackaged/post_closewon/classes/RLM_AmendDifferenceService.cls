@@ -77,6 +77,9 @@ public with sharing class RLM_AmendDifferenceService {
         @AuraEnabled public Date thisAddStartDate;
         @AuraEnabled public Date thisAddEndDate;
         @AuraEnabled public Decimal thisAddDiscountPercent;
+        @AuraEnabled public Decimal thisAddListPrice;
+        @AuraEnabled public Decimal thisAddNetUnitPrice;
+        @AuraEnabled public Decimal thisAddTermMonths;
         /** Current + This add (add/upsell). Null when decrease-only / parked. */
         @AuraEnabled public Decimal finalizedQty;
         @AuraEnabled public Decimal finalizedArr;
@@ -705,6 +708,25 @@ public with sharing class RLM_AmendDifferenceService {
         if (quoteId == null || resp == null) {
             return rows;
         }
+        Set<Id> assetIds = new Set<Id>();
+        for (AssetHistoryCard card : resp.assets == null
+            ? new List<AssetHistoryCard>()
+            : resp.assets) {
+            if (card != null && card.assetId != null) {
+                assetIds.add(card.assetId);
+            }
+        }
+        Map<Id, Asset> assetsById = new Map<Id, Asset>();
+        if (!assetIds.isEmpty()) {
+            for (Asset a : [
+                SELECT Id, LifecycleStartDate, LifecycleEndDate
+                FROM Asset
+                WHERE Id IN :assetIds
+                WITH USER_MODE
+            ]) {
+                assetsById.put(a.Id, a);
+            }
+        }
         Integer sortOrder = 0;
         for (AssetHistoryCard card : resp.assets == null
             ? new List<AssetHistoryCard>()
@@ -762,6 +784,7 @@ public with sharing class RLM_AmendDifferenceService {
             row.Current_Qty__c = currentQty;
             row.Current_ARR__c = currentArr;
             row.Current_MRR__c = currentMrr;
+            populateCurrentCommercialFields(row, card, assetsById.get(card.assetId));
             row.This_Add_Qty__c = addQty;
             row.This_Add_ARR__c = addArr;
             row.This_Add_MRR__c = addMrr;
@@ -769,6 +792,9 @@ public with sharing class RLM_AmendDifferenceService {
             row.This_Add_Start_Date__c = card.thisAddStartDate;
             row.This_Add_End_Date__c = card.thisAddEndDate;
             row.This_Add_Discount__c = card.thisAddDiscountPercent;
+            row.This_Add_List_Price__c = card.thisAddListPrice;
+            row.This_Add_Net_Unit_Price__c = card.thisAddNetUnitPrice;
+            row.This_Add_Term_Months__c = card.thisAddTermMonths;
             if (card.thisAddDiscountPercent != null) {
                 Decimal d = card.thisAddDiscountPercent.setScale(0, RoundingMode.HALF_UP);
                 row.This_Add_Discount_Label__c = String.valueOf(d) + '%';
@@ -778,11 +804,122 @@ public with sharing class RLM_AmendDifferenceService {
             row.Finalized_Qty__c = finalizedQty;
             row.Finalized_ARR__c = finalizedArr;
             row.Finalized_MRR__c = finalizedMrr;
+            row.Finalized_Prorated__c = resolveFinalizedProrated(
+                currentArr,
+                finalizedArr,
+                addProrated,
+                card.thisAddTermMonths
+            );
             rows.add(row);
             sortOrder++;
         }
         rows.addAll(buildCatalogAddRows(quoteId, sortOrder));
         return rows;
+    }
+
+    /**
+     * Finalized Amount for DocGen: Current Amount (annual current ARR) plus
+     * This add Amount (day-exact prorated charge).
+     */
+    @TestVisible
+    private static Decimal resolveFinalizedProrated(
+        Decimal currentArr,
+        Decimal finalizedArr,
+        Decimal thisAddProrated,
+        Decimal termMonths
+    ) {
+        Decimal currentAmount = currentArr != null ? currentArr : 0;
+        Decimal addAmount = thisAddProrated != null ? thisAddProrated : 0;
+        return (currentAmount + addAmount).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * Stamp Current-contract commercial columns (dates, term, list/net) from the
+     * installed Asset lifecycle and the card's ASP / timeline summary.
+     */
+    @TestVisible
+    private static void populateCurrentCommercialFields(
+        RLM_Amend_Breakdown__c row,
+        AssetHistoryCard card,
+        Asset asset
+    ) {
+        if (row == null) {
+            return;
+        }
+        Date startDate = null;
+        Date endDate = null;
+        if (asset != null) {
+            if (asset.LifecycleStartDate != null) {
+                startDate = asset.LifecycleStartDate.date();
+            }
+            if (asset.LifecycleEndDate != null) {
+                endDate = asset.LifecycleEndDate.date();
+            }
+        }
+        row.Current_Start_Date__c = startDate;
+        row.Current_End_Date__c = endDate;
+        row.Current_Term_Months__c = termMonthsBetween(startDate, endDate);
+
+        Decimal netUnit = card != null && card.summary != null
+            ? card.summary.averagePaid
+            : null;
+        Decimal listUnit = weightedAverageListPrice(card);
+        Decimal qty = row.Current_Qty__c;
+        Decimal arr = row.Current_ARR__c;
+        if (netUnit == null && qty != null && qty != 0 && arr != null) {
+            netUnit = (arr / qty).setScale(4, RoundingMode.HALF_UP);
+        }
+        if (listUnit == null) {
+            listUnit = netUnit;
+        }
+        row.Current_List_Price__c = listUnit;
+        row.Current_Net_Unit_Price__c = netUnit;
+    }
+
+    @TestVisible
+    private static Decimal weightedAverageListPrice(AssetHistoryCard card) {
+        if (card == null || card.timeline == null || card.timeline.isEmpty()) {
+            return null;
+        }
+        Decimal weight = 0;
+        Decimal qty = 0;
+        for (HistoryRow r : card.timeline) {
+            if (r == null || r.listPrice == null) {
+                continue;
+            }
+            Decimal q = r.quantity != null ? r.quantity : 0;
+            if (q <= 0) {
+                continue;
+            }
+            weight += r.listPrice * q;
+            qty += q;
+        }
+        if (qty <= 0) {
+            return null;
+        }
+        return (weight / qty).setScale(4, RoundingMode.HALF_UP);
+    }
+
+    @TestVisible
+    private static Decimal termMonthsBetween(Date startDate, Date endDate) {
+        if (startDate == null || endDate == null) {
+            return null;
+        }
+        Integer days = startDate.daysBetween(endDate);
+        if (days < 0) {
+            return 0;
+        }
+        // Align with PricingTermCount * 12 (four decimals) used on quote lines.
+        return (Decimal.valueOf(days) / 30.44).setScale(4, RoundingMode.HALF_UP);
+    }
+
+    @TestVisible
+    private static Decimal termMonthsFromPricingTermCount(Decimal pricingTermCount) {
+        if (pricingTermCount == null) {
+            return null;
+        }
+        // Four decimals so ARR × (term/12) closely matches day-exact prorated Amount.
+        return (pricingTermCount * 12).setScale(4, RoundingMode.HALF_UP);
     }
 
     /**
@@ -806,6 +943,10 @@ public with sharing class RLM_AmendDifferenceService {
         List<Id> productOrder = new List<Id>();
         Map<Id, Decimal> discWeight = new Map<Id, Decimal>();
         Map<Id, Decimal> discQty = new Map<Id, Decimal>();
+        Map<Id, Decimal> listWeight = new Map<Id, Decimal>();
+        Map<Id, Decimal> listQty = new Map<Id, Decimal>();
+        Map<Id, Decimal> termWeight = new Map<Id, Decimal>();
+        Map<Id, Decimal> termQty = new Map<Id, Decimal>();
 
         for (QuoteLineItem qli : [
             SELECT
@@ -818,6 +959,7 @@ public with sharing class RLM_AmendDifferenceService {
                 TotalPrice,
                 StartDate,
                 EndDate,
+                PricingTermCount,
                 QuoteAction.SourceAssetId
             FROM QuoteLineItem
             WHERE QuoteId = :quoteId
@@ -874,6 +1016,30 @@ public with sharing class RLM_AmendDifferenceService {
                     || qli.EndDate > row.This_Add_End_Date__c)) {
                 row.This_Add_End_Date__c = qli.EndDate;
             }
+            if (qli.ListPrice != null) {
+                Decimal prevLw = listWeight.containsKey(qli.Product2Id)
+                    ? listWeight.get(qli.Product2Id)
+                    : 0;
+                Decimal prevLq = listQty.containsKey(qli.Product2Id)
+                    ? listQty.get(qli.Product2Id)
+                    : 0;
+                listWeight.put(qli.Product2Id, prevLw + (qli.ListPrice * qty));
+                listQty.put(qli.Product2Id, prevLq + qty);
+            }
+            Decimal termMo = termMonthsFromPricingTermCount(qli.PricingTermCount);
+            if (termMo == null) {
+                termMo = termMonthsBetween(qli.StartDate, qli.EndDate);
+            }
+            if (termMo != null) {
+                Decimal prevTw = termWeight.containsKey(qli.Product2Id)
+                    ? termWeight.get(qli.Product2Id)
+                    : 0;
+                Decimal prevTq = termQty.containsKey(qli.Product2Id)
+                    ? termQty.get(qli.Product2Id)
+                    : 0;
+                termWeight.put(qli.Product2Id, prevTw + (termMo * qty));
+                termQty.put(qli.Product2Id, prevTq + qty);
+            }
             Decimal lineDisc = resolveDiscountPercent(
                 qli.Discount,
                 qli.ListPrice,
@@ -899,6 +1065,25 @@ public with sharing class RLM_AmendDifferenceService {
             row.This_Add_MRR__c = (row.This_Add_ARR__c / 12).setScale(2, RoundingMode.HALF_UP);
             row.This_Add_Prorated__c =
                 row.This_Add_Prorated__c.setScale(2, RoundingMode.HALF_UP);
+            if (row.This_Add_Qty__c != null && row.This_Add_Qty__c != 0) {
+                row.This_Add_Net_Unit_Price__c =
+                    (row.This_Add_ARR__c / row.This_Add_Qty__c).setScale(4, RoundingMode.HALF_UP);
+            }
+            if (listQty.containsKey(productId) && listQty.get(productId) > 0) {
+                row.This_Add_List_Price__c =
+                    (listWeight.get(productId) / listQty.get(productId))
+                        .setScale(4, RoundingMode.HALF_UP);
+            }
+            if (termQty.containsKey(productId) && termQty.get(productId) > 0) {
+                row.This_Add_Term_Months__c =
+                    (termWeight.get(productId) / termQty.get(productId))
+                        .setScale(4, RoundingMode.HALF_UP);
+            } else {
+                row.This_Add_Term_Months__c = termMonthsBetween(
+                    row.This_Add_Start_Date__c,
+                    row.This_Add_End_Date__c
+                );
+            }
             if (discQty.containsKey(productId) && discQty.get(productId) > 0) {
                 Decimal pct = (discWeight.get(productId) / discQty.get(productId))
                     .setScale(2, RoundingMode.HALF_UP);
@@ -910,6 +1095,12 @@ public with sharing class RLM_AmendDifferenceService {
             row.Finalized_Qty__c = row.This_Add_Qty__c;
             row.Finalized_ARR__c = row.This_Add_ARR__c;
             row.Finalized_MRR__c = row.This_Add_MRR__c;
+            row.Finalized_Prorated__c = resolveFinalizedProrated(
+                row.Current_ARR__c,
+                row.Finalized_ARR__c,
+                row.This_Add_Prorated__c,
+                row.This_Add_Term_Months__c
+            );
             rows.add(row);
             sortOrder++;
         }
@@ -1204,6 +1395,9 @@ public with sharing class RLM_AmendDifferenceService {
                 card.thisAddStartDate = null;
                 card.thisAddEndDate = null;
                 card.thisAddDiscountPercent = null;
+                card.thisAddListPrice = null;
+                card.thisAddNetUnitPrice = null;
+                card.thisAddTermMonths = null;
                 byAsset.put(card.assetId, card);
             }
         }
@@ -1218,6 +1412,10 @@ public with sharing class RLM_AmendDifferenceService {
         Map<Id, Date> addEnd = new Map<Id, Date>();
         Map<Id, Decimal> addDiscWeight = new Map<Id, Decimal>();
         Map<Id, Decimal> addDiscQty = new Map<Id, Decimal>();
+        Map<Id, Decimal> addListWeight = new Map<Id, Decimal>();
+        Map<Id, Decimal> addListQty = new Map<Id, Decimal>();
+        Map<Id, Decimal> addTermWeight = new Map<Id, Decimal>();
+        Map<Id, Decimal> addTermQty = new Map<Id, Decimal>();
         Map<Id, Boolean> hasDecrease = new Map<Id, Boolean>();
         Map<Id, Boolean> hasAdd = new Map<Id, Boolean>();
 
@@ -1230,6 +1428,7 @@ public with sharing class RLM_AmendDifferenceService {
                 TotalPrice,
                 StartDate,
                 EndDate,
+                PricingTermCount,
                 QuoteAction.SourceAssetId
             FROM QuoteLineItem
             WHERE QuoteId = :quoteId
@@ -1277,6 +1476,22 @@ public with sharing class RLM_AmendDifferenceService {
                 if (prevEnd == null || qli.EndDate > prevEnd) {
                     addEnd.put(assetId, qli.EndDate);
                 }
+            }
+            if (qli.ListPrice != null && qty > 0) {
+                Decimal prevLw = addListWeight.containsKey(assetId) ? addListWeight.get(assetId) : 0;
+                Decimal prevLq = addListQty.containsKey(assetId) ? addListQty.get(assetId) : 0;
+                addListWeight.put(assetId, prevLw + (qli.ListPrice * qty));
+                addListQty.put(assetId, prevLq + qty);
+            }
+            Decimal termMo = termMonthsFromPricingTermCount(qli.PricingTermCount);
+            if (termMo == null) {
+                termMo = termMonthsBetween(qli.StartDate, qli.EndDate);
+            }
+            if (termMo != null && qty > 0) {
+                Decimal prevTw = addTermWeight.containsKey(assetId) ? addTermWeight.get(assetId) : 0;
+                Decimal prevTq = addTermQty.containsKey(assetId) ? addTermQty.get(assetId) : 0;
+                addTermWeight.put(assetId, prevTw + (termMo * qty));
+                addTermQty.put(assetId, prevTq + qty);
             }
             Decimal lineDisc = resolveDiscountPercent(
                 qli.Discount,
@@ -1334,6 +1549,22 @@ public with sharing class RLM_AmendDifferenceService {
                 card.thisAddDiscountPercent =
                     (addDiscWeight.get(assetId) / addDiscQty.get(assetId))
                         .setScale(2, RoundingMode.HALF_UP);
+            }
+            if (addListQty.containsKey(assetId) && addListQty.get(assetId) > 0) {
+                card.thisAddListPrice =
+                    (addListWeight.get(assetId) / addListQty.get(assetId))
+                        .setScale(4, RoundingMode.HALF_UP);
+            }
+            if (tQty != null && tQty != 0) {
+                card.thisAddNetUnitPrice = (tArr / tQty).setScale(4, RoundingMode.HALF_UP);
+            }
+            if (addTermQty.containsKey(assetId) && addTermQty.get(assetId) > 0) {
+                card.thisAddTermMonths =
+                    (addTermWeight.get(assetId) / addTermQty.get(assetId))
+                        .setScale(4, RoundingMode.HALF_UP);
+            } else {
+                card.thisAddTermMonths =
+                    termMonthsBetween(card.thisAddStartDate, card.thisAddEndDate);
             }
 
             Decimal baseQty = card.summary != null && card.summary.totalQuantity != null

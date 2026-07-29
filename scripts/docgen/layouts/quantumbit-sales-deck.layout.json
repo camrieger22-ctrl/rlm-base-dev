@@ -79,7 +79,7 @@
           "size_pt": 14,
           "header": ["Component", "Quantity", "Unit price", "Amount"],
           "rows": [
-            ["{{#Line}}{{ProductName}}", "{{Quantity}}", "{{NetUnitPrice}}", "{{NetTotalPrice}}{{/Line}}"]
+            ["{{#Line}}{{ProductName}}", "{{Quantity}}", "${{NetUnitPrice}}", "{{NetTotalPrice}}{{/Line}}"]
           ]
         }
       ]

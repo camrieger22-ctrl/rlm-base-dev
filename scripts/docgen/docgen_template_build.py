@@ -151,6 +151,51 @@ PPTX_LAYOUT_EXAMPLE = {
 }
 
 
+PPTX_LAYOUT_EXAMPLE = {
+    "_comment": "Slide layout spec for docgen_template_build.py create (PowerPoint)",
+    "format": "pptx",
+    "slide_size": {"width_inches": 13.333, "height_inches": 7.5},
+    "slides": [
+        {
+            "elements": [
+                {
+                    "type": "textbox",
+                    "left": 0.8, "top": 2.4, "width": 11.7, "height": 1.2,
+                    "lines": [
+                        {"text": "Proposal for {{AccountName}}", "size_pt": 40, "bold": True},
+                        {"text": "Quote {{QuoteNumber}}", "size_pt": 18, "color": "#666666"},
+                    ],
+                }
+            ]
+        },
+        {
+            "elements": [
+                {
+                    "type": "textbox",
+                    "left": 0.8, "top": 0.5, "width": 11.7, "height": 0.9,
+                    "lines": [{"text": "Investment summary", "size_pt": 30, "bold": True}],
+                },
+                {
+                    "type": "table",
+                    "left": 0.8, "top": 1.6, "width": 11.7, "height": 1.2,
+                    "columns": 4,
+                    "col_widths": [5.4, 1.6, 2.3, 2.4],
+                    "header": ["Product", "Qty", "Unit price", "Amount"],
+                    "rows": [
+                        [
+                            "{{#Line}}{{ProductName}}",
+                            "{{Quantity}}",
+                            "{{NetUnitPrice}}",
+                            "{{NetTotalPrice}}{{/Line}}",
+                        ]
+                    ],
+                },
+            ]
+        },
+    ],
+}
+
+
 def apply_alignment(paragraph, alignment_str):
     alignments = {
         "left": WD_ALIGN_PARAGRAPH.LEFT,
@@ -161,47 +206,516 @@ def apply_alignment(paragraph, alignment_str):
         paragraph.alignment = alignments[alignment_str.lower()]
 
 
+def _docx_rgb(color):
+    rgb = color.lstrip("#")
+    return RGBColor(int(rgb[0:2], 16), int(rgb[2:4], 16), int(rgb[4:6], 16))
+
+
+def _set_row_exact_height(row, height_pt):
+    """Force a table row to an exact height (twips)."""
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+
+    trPr = row._tr.get_or_add_trPr()
+    for existing in trPr.findall(qn("w:trHeight")):
+        trPr.remove(existing)
+    trHeight = OxmlElement("w:trHeight")
+    trHeight.set(qn("w:val"), str(int(height_pt * 20)))  # points → twips
+    trHeight.set(qn("w:hRule"), "exact")
+    trPr.append(trHeight)
+
+
+def _set_table_full_width(table):
+    """Stretch a table to the full content width so banner/rule edges align."""
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+
+    tbl = table._tbl
+    tblPr = tbl.tblPr if tbl.tblPr is not None else OxmlElement("w:tblPr")
+    if tbl.tblPr is None:
+        tbl.insert(0, tblPr)
+    for existing in tblPr.findall(qn("w:tblW")):
+        tblPr.remove(existing)
+    tblW = OxmlElement("w:tblW")
+    tblW.set(qn("w:w"), "5000")  # 100% of content area
+    tblW.set(qn("w:type"), "pct")
+    tblPr.append(tblW)
+    # Prefer fixed layout so edges stay aligned with accent rows.
+    for existing in tblPr.findall(qn("w:tblLayout")):
+        tblPr.remove(existing)
+    layout = OxmlElement("w:tblLayout")
+    layout.set(qn("w:type"), "fixed")
+    tblPr.append(layout)
+
+
+def _set_table_cell_margins(table, top=0, left=0, bottom=0, right=0):
+    """Set table-level cell margins in twips (0 = flush cells, no internal gap)."""
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+
+    tbl = table._tbl
+    tblPr = tbl.tblPr if tbl.tblPr is not None else OxmlElement("w:tblPr")
+    if tbl.tblPr is None:
+        tbl.insert(0, tblPr)
+    for existing in tblPr.findall(qn("w:tblCellMar")):
+        tblPr.remove(existing)
+    mar = OxmlElement("w:tblCellMar")
+    for edge, val in (("top", top), ("left", left), ("bottom", bottom), ("right", right)):
+        el = OxmlElement(f"w:{edge}")
+        el.set(qn("w:w"), str(val))
+        el.set(qn("w:type"), "dxa")
+        mar.append(el)
+    tblPr.append(mar)
+    # Kill any inter-cell spacing that would open a white seam between rows.
+    for existing in tblPr.findall(qn("w:tblCellSpacing")):
+        tblPr.remove(existing)
+    spacing = OxmlElement("w:tblCellSpacing")
+    spacing.set(qn("w:w"), "0")
+    spacing.set(qn("w:type"), "dxa")
+    tblPr.append(spacing)
+
+
+def _cant_split_row(row):
+    """Prevent Word from splitting this table row across pages (avoids orphan banner lines)."""
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+
+    tr = row._tr
+    trPr = tr.get_or_add_trPr()
+    for existing in trPr.findall(qn("w:cantSplit")):
+        trPr.remove(existing)
+    trPr.append(OxmlElement("w:cantSplit"))
+
+
+def _shade_cell(cell, hex_color):
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+
+    tc_pr = cell._tc.get_or_add_tcPr()
+    for existing in tc_pr.findall(qn("w:shd")):
+        tc_pr.remove(existing)
+    shd = OxmlElement("w:shd")
+    shd.set(qn("w:fill"), hex_color.lstrip("#"))
+    shd.set(qn("w:val"), "clear")
+    tc_pr.append(shd)
+
+
+def _set_cell_borders_docx(cell, color=None, size_eighths=4, edges=None):
+    """Set or clear cell borders.
+
+    edges: optional dict like {"left": {"color": "#0B162A", "size": 48}, ...}
+    When provided, overrides the uniform color/size_eighths per edge.
+    """
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+
+    tc_pr = cell._tc.get_or_add_tcPr()
+    for existing in tc_pr.findall(qn("w:tcBorders")):
+        tc_pr.remove(existing)
+    borders = OxmlElement("w:tcBorders")
+    for edge in ("top", "left", "bottom", "right"):
+        el = OxmlElement(f"w:{edge}")
+        edge_spec = (edges or {}).get(edge)
+        if edge_spec is None and color is None:
+            el.set(qn("w:val"), "nil")
+        else:
+            el.set(qn("w:val"), "single")
+            if edge_spec:
+                el.set(qn("w:sz"), str(edge_spec.get("size", size_eighths)))
+                el.set(qn("w:color"), str(edge_spec.get("color", color or "000000")).lstrip("#"))
+            else:
+                el.set(qn("w:sz"), str(size_eighths))
+                el.set(qn("w:color"), color.lstrip("#"))
+            el.set(qn("w:space"), "0")
+        borders.append(el)
+    tc_pr.append(borders)
+
+
+def _style_run(run, spec, defaults=None):
+    defaults = defaults or {}
+    if spec.get("bold", defaults.get("bold")):
+        run.bold = True
+    if spec.get("italic", defaults.get("italic")):
+        run.italic = True
+    size = spec.get("size_pt", defaults.get("size_pt"))
+    if size:
+        run.font.size = Pt(size)
+    font = spec.get("font", defaults.get("font"))
+    if font:
+        run.font.name = font
+    color = spec.get("color", defaults.get("color"))
+    if color:
+        run.font.color.rgb = _docx_rgb(color)
+
+
+def _add_runs(paragraph, spec, defaults=None):
+    """Add text or multi-run content to a paragraph."""
+    defaults = defaults or {}
+    runs = spec.get("runs")
+    if runs:
+        for rspec in runs:
+            run = paragraph.add_run(rspec.get("text", ""))
+            _style_run(run, rspec, defaults)
+    else:
+        run = paragraph.add_run(spec.get("text", ""))
+        _style_run(run, spec, defaults)
+
+
+def _set_paragraph_spacing(paragraph, spec):
+    pf = paragraph.paragraph_format
+    if spec.get("space_before_pt") is not None:
+        pf.space_before = Pt(spec["space_before_pt"])
+    if spec.get("space_after_pt") is not None:
+        pf.space_after = Pt(spec["space_after_pt"])
+    if spec.get("line_spacing"):
+        pf.line_spacing = spec["line_spacing"]
+
+
+def _apply_paragraph_rules(paragraph, color="#C83803", thickness_pt=2.25, space_pt=1, top=False, bottom=True):
+    """Attach coloured top and/or bottom borders to a paragraph (title sandwich rules)."""
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+
+    pPr = paragraph._p.get_or_add_pPr()
+    for child in list(pPr):
+        if child.tag == qn("w:pBdr"):
+            pPr.remove(child)
+    pBdr = OxmlElement("w:pBdr")
+    sz = str(int(thickness_pt * 8))
+    space = str(int(space_pt))
+    hex_color = color.lstrip("#")
+    for edge, enabled in (("top", top), ("bottom", bottom)):
+        if not enabled:
+            continue
+        el = OxmlElement(f"w:{edge}")
+        el.set(qn("w:val"), "single")
+        el.set(qn("w:sz"), sz)
+        el.set(qn("w:space"), space)
+        el.set(qn("w:color"), hex_color)
+        pBdr.append(el)
+    pPr.append(pBdr)
+
+
+def _apply_bottom_rule(paragraph, color="#C83803", thickness_pt=2.25, space_pt=1):
+    """Backward-compatible alias — bottom rule only."""
+    _apply_paragraph_rules(
+        paragraph, color=color, thickness_pt=thickness_pt, space_pt=space_pt, top=False, bottom=True
+    )
+
+
+def _add_horizontal_rule(doc, color="#C83803", thickness_pt=2.25, space_before=6, space_after=10):
+    """Orange (or coloured) rule via bottom border on a collapsed paragraph."""
+    p = doc.add_paragraph()
+    p.paragraph_format.space_before = Pt(space_before)
+    p.paragraph_format.space_after = Pt(space_after)
+    p.paragraph_format.line_spacing = Pt(1)
+    run = p.add_run("")
+    run.font.size = Pt(1)
+    _apply_bottom_rule(p, color=color, thickness_pt=thickness_pt, space_pt=0)
+    return p
+
+
+def _set_page_background(doc, hex_color):
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+
+    background = OxmlElement("w:background")
+    background.set(qn("w:color"), hex_color.lstrip("#"))
+    doc.element.insert(0, background)
+    # Make Word/DocGen render the background shape.
+    settings = doc.settings.element
+    display = OxmlElement("w:displayBackgroundShape")
+    display.set(qn("w:val"), "true")
+    settings.append(display)
+
+
+def _clear_cell(cell):
+    for p in cell.paragraphs:
+        p.clear()
+
+
+def _write_page_number_cell(cell, color="#888888", font="Calibri", size_pt=8):
+    """Write 'Page N of M' using Word PAGE/NUMPAGES fields (matches Bears preview footer)."""
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+
+    _clear_cell(cell)
+    para = cell.paragraphs[0]
+    apply_alignment(para, "right")
+
+    def _run(text):
+        r = para.add_run(text)
+        _style_run(r, {"size_pt": size_pt, "color": color, "font": font})
+        return r
+
+    def _field(instr):
+        # Complex field: begin / instrText / separate / end
+        def _fld_char(kind):
+            r = OxmlElement("w:r")
+            rPr = OxmlElement("w:rPr")
+            sz = OxmlElement("w:sz")
+            sz.set(qn("w:val"), str(int(size_pt * 2)))
+            rPr.append(sz)
+            color_el = OxmlElement("w:color")
+            color_el.set(qn("w:val"), color.lstrip("#"))
+            rPr.append(color_el)
+            rFonts = OxmlElement("w:rFonts")
+            rFonts.set(qn("w:ascii"), font)
+            rFonts.set(qn("w:hAnsi"), font)
+            rPr.append(rFonts)
+            r.append(rPr)
+            fc = OxmlElement("w:fldChar")
+            fc.set(qn("w:fldCharType"), kind)
+            r.append(fc)
+            para._p.append(r)
+
+        _fld_char("begin")
+        r = OxmlElement("w:r")
+        rPr = OxmlElement("w:rPr")
+        sz = OxmlElement("w:sz")
+        sz.set(qn("w:val"), str(int(size_pt * 2)))
+        rPr.append(sz)
+        color_el = OxmlElement("w:color")
+        color_el.set(qn("w:val"), color.lstrip("#"))
+        rPr.append(color_el)
+        r.append(rPr)
+        it = OxmlElement("w:instrText")
+        it.set(qn("xml:space"), "preserve")
+        it.text = f" {instr} "
+        r.append(it)
+        para._p.append(r)
+        _fld_char("separate")
+        # Placeholder text until Word/DocGen updates fields
+        ph = para.add_run("1" if instr == "PAGE" else "13")
+        _style_run(ph, {"size_pt": size_pt, "color": color, "font": font})
+        _fld_char("end")
+
+    _run("Page ")
+    _field("PAGE")
+    _run(" of ")
+    _field("NUMPAGES")
+
+
+def _write_cell(cell, text_or_lines, defaults=None, align=None):
+    """Write a string, line-spec dict, or list of line-specs into a cell."""
+    defaults = defaults or {}
+    _clear_cell(cell)
+
+    if isinstance(text_or_lines, dict):
+        lines = [text_or_lines]
+    elif isinstance(text_or_lines, list):
+        lines = text_or_lines if text_or_lines else [{"text": ""}]
+    else:
+        lines = [{"text": "" if text_or_lines is None else str(text_or_lines)}]
+
+    for i, line in enumerate(lines):
+        if not isinstance(line, dict):
+            line = {"text": str(line)}
+        para = cell.paragraphs[0] if i == 0 else cell.add_paragraph()
+        if align or line.get("align"):
+            apply_alignment(para, line.get("align", align))
+        _add_runs(para, line, defaults)
+        _set_paragraph_spacing(para, line)
+
+
 def create_from_layout(layout, output_path):
     doc = Document()
-
     page = layout.get("page", {})
-    margin = page.get("margin_inches", 1.0)
+    theme = layout.get("theme", {})
+    defaults = {
+        "font": page.get("font", "Calibri"),
+        "size_pt": page.get("default_size_pt", 11),
+        "color": page.get("default_color", theme.get("body", "#CCCCCC")),
+    }
+
+    margin = page.get("margin_inches", 0.75)
     for section in doc.sections:
-        section.top_margin = Inches(margin)
-        section.bottom_margin = Inches(margin)
-        section.left_margin = Inches(margin)
-        section.right_margin = Inches(margin)
+        section.top_margin = Inches(page.get("margin_top_inches", margin))
+        section.bottom_margin = Inches(page.get("margin_bottom_inches", margin))
+        section.left_margin = Inches(page.get("margin_left_inches", margin))
+        section.right_margin = Inches(page.get("margin_right_inches", margin))
+        if page.get("different_first_page_header"):
+            section.different_first_page_header_footer = True
+
+    if page.get("background"):
+        _set_page_background(doc, page["background"])
+
+    # Content-page header (skipped on first page when different_first_page_header).
+    header_spec = page.get("header")
+    if header_spec:
+        for section in doc.sections:
+            header = section.header
+            header.is_linked_to_previous = False
+            # Clear default empty para
+            for p in list(header.paragraphs):
+                p.clear()
+            table = header.add_table(rows=1, cols=2, width=Inches(7.5))
+            table.autofit = True
+            left, right = table.rows[0].cells
+            _set_cell_borders_docx(left, None)
+            _set_cell_borders_docx(right, None)
+            # Left: logo + brand
+            _clear_cell(left)
+            lp = left.paragraphs[0]
+            if header_spec.get("logo"):
+                run = lp.add_run()
+                try:
+                    run.add_picture(header_spec["logo"], width=Inches(header_spec.get("logo_width_inches", 0.35)))
+                except FileNotFoundError:
+                    run.add_text("[logo]")
+                lp.add_run("  ")
+            brand = lp.add_run(header_spec.get("brand_text", "CHICAGO BEARS"))
+            _style_run(brand, {
+                "bold": True,
+                "size_pt": header_spec.get("brand_size_pt", 9),
+                "color": header_spec.get("brand_color", "#AAAAAA"),
+                "font": defaults["font"],
+            })
+            # Right: subtitle
+            _clear_cell(right)
+            rp = right.paragraphs[0]
+            apply_alignment(rp, "right")
+            rr = rp.add_run(header_spec.get("right_text", ""))
+            _style_run(rr, {
+                "size_pt": header_spec.get("right_size_pt", 9),
+                "color": header_spec.get("right_color", "#888888"),
+                "font": defaults["font"],
+            })
+            # Optional rule under header. Set rule_color to null to omit — section
+            # titles then own the underline without a second line above them.
+            rule_color = header_spec.get("rule_color", "C83803")
+            if rule_color:
+                hp = header.add_paragraph()
+                hp.paragraph_format.space_before = Pt(4)
+                hp.paragraph_format.space_after = Pt(2)
+                from docx.oxml.ns import qn
+                from docx.oxml import OxmlElement
+                pPr = hp._p.get_or_add_pPr()
+                pBdr = OxmlElement("w:pBdr")
+                bottom = OxmlElement("w:bottom")
+                bottom.set(qn("w:val"), "single")
+                bottom.set(qn("w:sz"), "18")
+                bottom.set(qn("w:space"), "1")
+                bottom.set(qn("w:color"), str(rule_color).lstrip("#"))
+                pBdr.append(bottom)
+                pPr.append(pBdr)
+
+            if page.get("different_first_page_header"):
+                # Leave first-page header empty.
+                fh = section.first_page_header
+                fh.is_linked_to_previous = False
+                for p in fh.paragraphs:
+                    p.clear()
+
+    footer_spec = page.get("footer")
+    if footer_spec:
+        for section in doc.sections:
+            footer = section.footer
+            footer.is_linked_to_previous = False
+            for p in footer.paragraphs:
+                p.clear()
+            # Thin rule
+            rp = footer.add_paragraph()
+            rp.paragraph_format.space_before = Pt(0)
+            rp.paragraph_format.space_after = Pt(4)
+            from docx.oxml.ns import qn
+            from docx.oxml import OxmlElement
+            pPr = rp._p.get_or_add_pPr()
+            pBdr = OxmlElement("w:pBdr")
+            top = OxmlElement("w:top")
+            top.set(qn("w:val"), "single")
+            top.set(qn("w:sz"), "6")
+            top.set(qn("w:space"), "1")
+            top.set(qn("w:color"), footer_spec.get("rule_color", "666666").lstrip("#"))
+            pBdr.append(top)
+            pPr.append(pBdr)
+
+            table = footer.add_table(rows=1, cols=2, width=Inches(7.5))
+            left, right = table.rows[0].cells
+            _set_cell_borders_docx(left, None)
+            _set_cell_borders_docx(right, None)
+            _write_cell(left, footer_spec.get("left_text", ""), {
+                "size_pt": 8, "color": footer_spec.get("color", "#888888"), "font": defaults["font"]
+            })
+            right_text = footer_spec.get("right_text", "")
+            if right_text == "PAGE_NUMBER":
+                _write_page_number_cell(
+                    right,
+                    color=footer_spec.get("color", "#888888"),
+                    font=defaults["font"],
+                    size_pt=8,
+                )
+            else:
+                _write_cell(right, right_text, {
+                    "size_pt": 8, "color": footer_spec.get("color", "#888888"), "font": defaults["font"]
+                }, align="right")
+            if footer_spec.get("disclaimer"):
+                dp = footer.add_paragraph()
+                apply_alignment(dp, "left")
+                dr = dp.add_run(footer_spec["disclaimer"])
+                _style_run(dr, {"size_pt": 7, "color": footer_spec.get("color", "#666666"), "font": defaults["font"]})
+
+            if page.get("different_first_page_header"):
+                ff = section.first_page_footer
+                ff.is_linked_to_previous = False
+                for p in ff.paragraphs:
+                    p.clear()
+                # Cover keeps a simple centered disclaimer in the body; first footer empty or minimal.
+                if footer_spec.get("first_page_disclaimer"):
+                    dp = ff.add_paragraph()
+                    apply_alignment(dp, "center")
+                    dr = dp.add_run(footer_spec["first_page_disclaimer"])
+                    _style_run(dr, {"size_pt": 7, "color": "#666666", "font": defaults["font"]})
 
     for elem in layout.get("elements", []):
         elem_type = elem.get("type", "")
 
         if elem_type == "spacer":
-            doc.add_paragraph("")
+            p = doc.add_paragraph("")
+            if elem.get("space_after_pt") is not None:
+                p.paragraph_format.space_after = Pt(elem["space_after_pt"])
 
-        elif elem_type == "paragraph":
-            p = doc.add_paragraph()
-            run = p.add_run(elem.get("text", ""))
-            if elem.get("bold"):
-                run.bold = True
-            if elem.get("italic"):
-                run.italic = True
-            if elem.get("size_pt"):
-                run.font.size = Pt(elem["size_pt"])
-            if elem.get("color"):
-                rgb = elem["color"].lstrip("#")
-                run.font.color.rgb = RGBColor(
-                    int(rgb[0:2], 16), int(rgb[2:4], 16), int(rgb[4:6], 16)
-                )
+        elif elem_type == "horizontal_rule":
+            _add_horizontal_rule(
+                doc,
+                color=elem.get("color", theme.get("orange", "#C83803")),
+                thickness_pt=elem.get("thickness_pt", 2.25),
+                space_before=elem.get("space_before_pt", 4),
+                space_after=elem.get("space_after_pt", 10),
+            )
+
+        elif elem_type in ("paragraph", "heading"):
+            if elem_type == "heading":
+                # Use a normal paragraph so we fully control colour on dark backgrounds
+                # (Word's built-in Heading styles fight dark themes).
+                p = doc.add_paragraph()
+                size = elem.get("size_pt", {1: 22, 2: 16, 3: 13}.get(elem.get("level", 1), 16))
+                hdefaults = {
+                    **defaults,
+                    "bold": True,
+                    "size_pt": size,
+                    "color": elem.get("color", theme.get("heading", "#8FA3B8")),
+                }
+            else:
+                p = doc.add_paragraph()
+                hdefaults = defaults
             apply_alignment(p, elem.get("alignment"))
-
-        elif elem_type == "heading":
-            p = doc.add_heading(elem.get("text", ""), level=elem.get("level", 1))
-            if elem.get("alignment"):
-                apply_alignment(p, elem["alignment"])
-            if elem.get("color") and p.runs:
-                rgb = elem["color"].lstrip("#")
-                p.runs[0].font.color.rgb = RGBColor(
-                    int(rgb[0:2], 16), int(rgb[2:4], 16), int(rgb[4:6], 16)
+            _add_runs(p, elem, hdefaults if elem_type == "heading" else {**defaults, **{k: elem[k] for k in ("bold", "italic", "size_pt", "color", "font") if k in elem}})
+            _set_paragraph_spacing(p, elem)
+            if elem.get("space_after_pt") is None and elem_type == "heading":
+                p.paragraph_format.space_after = Pt(4)
+            if elem.get("space_before_pt") is None and elem_type == "heading":
+                p.paragraph_format.space_before = Pt(2)
+            # Orange sandwich rules on the heading (above + below by default).
+            rule = elem.get("underline_rule")
+            if rule:
+                _apply_paragraph_rules(
+                    p,
+                    color=rule.get("color", theme.get("orange", "#C83803")),
+                    thickness_pt=rule.get("thickness_pt", 2.25),
+                    space_pt=rule.get("space_pt", 2),
+                    top=rule.get("above", True),
+                    bottom=rule.get("below", True),
                 )
 
         elif elem_type == "image":
@@ -213,46 +727,143 @@ def create_from_layout(layout, output_path):
             except FileNotFoundError:
                 run.add_text(f"[IMAGE NOT FOUND: {elem['path']}]")
             apply_alignment(p, elem.get("alignment"))
+            _set_paragraph_spacing(p, elem)
+
+        elif elem_type == "banner":
+            # Full-width shaded band — cover header, Total investment, metric strips.
+            # Multi-line `content` becomes one shaded row per line so DocGen PDF
+            # conversion keeps navy fill behind every line (multi-para cells lose it).
+            fill = elem.get("fill", theme.get("navy", "#0B162A"))
+            border = elem.get("border")  # None = no borders
+
+            if elem.get("rows"):
+                row_specs = elem["rows"]  # [[cell, ...], ...]
+            elif elem.get("columns", 1) > 1:
+                row_specs = [elem.get("cells", [elem.get("text", "")] * elem["columns"])]
+            else:
+                content = elem.get("content", elem.get("text", ""))
+                if (
+                    isinstance(content, list)
+                    and content
+                    and isinstance(content[0], dict)
+                    and "text" in content[0]
+                ):
+                    row_specs = [[line] for line in content]
+                else:
+                    row_specs = [[content]]
+
+            cols = max((len(r) if isinstance(r, list) else 1) for r in row_specs) if row_specs else 1
+            table = doc.add_table(rows=len(row_specs), cols=cols)
+            table.autofit = True
+            _set_table_full_width(table)
+            if elem.get("accent_bottom") or elem.get("flush_cells"):
+                # Zero cell margins so navy ↔ orange meet with no white seam.
+                _set_table_cell_margins(table, top=40, left=0, bottom=40, right=0)
+            align = elem.get("align") or ["center"] * cols
+            for r_i, row_content in enumerate(row_specs):
+                if not isinstance(row_content, list):
+                    row_content = [row_content]
+                _cant_split_row(table.rows[r_i])
+                for i, cell in enumerate(table.rows[r_i].cells):
+                    _shade_cell(cell, fill)
+                    _set_cell_borders_docx(cell, border, size_eighths=elem.get("border_size", 4))
+                    content = row_content[i] if i < len(row_content) else ""
+                    if isinstance(align, list):
+                        align_i = align[i] if i < len(align) else align[0]
+                    else:
+                        align_i = align
+                    cell_defaults = {
+                        **defaults,
+                        "color": elem.get("text_color", "#FFFFFF"),
+                        "size_pt": elem.get("size_pt", 11),
+                        "bold": elem.get("bold", False),
+                    }
+                    _write_cell(cell, content, cell_defaults, align=align_i)
+
+            # Flush accent strip under the banner (same table = same left/right edges, no gap).
+            accent = elem.get("accent_bottom")
+            if accent:
+                accent_color = accent.get("color", theme.get("orange", "#C83803"))
+                thickness = accent.get("thickness_pt", 2.5)
+                # Grow table by one row
+                row = table.add_row()
+                _cant_split_row(row)
+                _set_row_exact_height(row, thickness)
+                # Merge all cells so the accent is one continuous strip
+                if cols > 1:
+                    row.cells[0].merge(row.cells[cols - 1])
+                cell = row.cells[0]
+                _shade_cell(cell, accent_color)
+                _set_cell_borders_docx(cell, None)
+                _clear_cell(cell)
+                # Collapse any leftover paragraph spacing in the accent cell
+                for p in cell.paragraphs:
+                    p.paragraph_format.space_before = Pt(0)
+                    p.paragraph_format.space_after = Pt(0)
+                    p.paragraph_format.line_spacing = Pt(1)
+
+            if elem.get("space_after_pt", 8):
+                sp = doc.add_paragraph("")
+                sp.paragraph_format.space_after = Pt(elem.get("space_after_pt", 8))
 
         elif elem_type == "table":
             cols = elem.get("columns", 2)
             rows_data = elem.get("rows", [])
             header = elem.get("header")
-
             total_rows = len(rows_data) + (1 if header else 0)
             table = doc.add_table(rows=total_rows, cols=cols)
             table.style = elem.get("style", "Table Grid")
-
-            def _shade_cell(cell, hex_color):
-                from docx.oxml.ns import qn
-                from docx.oxml import OxmlElement
-
-                tc = cell._tc
-                tc_pr = tc.get_or_add_tcPr()
-                shd = OxmlElement("w:shd")
-                shd.set(qn("w:fill"), hex_color.lstrip("#"))
-                shd.set(qn("w:val"), "clear")
-                tc_pr.append(shd)
+            border = elem.get("border", "333333")
+            no_borders = elem.get("no_borders", False)
 
             row_offset = 0
             if header:
                 for i, cell_text in enumerate(header[:cols]):
                     cell = table.rows[0].cells[i]
-                    cell.text = cell_text
-                    for run in cell.paragraphs[0].runs:
-                        run.bold = True
-                        if elem.get("header_text_color"):
-                            rgb = elem["header_text_color"].lstrip("#")
-                            run.font.color.rgb = RGBColor(
-                                int(rgb[0:2], 16), int(rgb[2:4], 16), int(rgb[4:6], 16)
-                            )
                     if elem.get("header_fill"):
                         _shade_cell(cell, elem["header_fill"])
+                    if no_borders:
+                        _set_cell_borders_docx(cell, None)
+                    elif border:
+                        _set_cell_borders_docx(cell, border, size_eighths=6)
+                    _write_cell(
+                        cell,
+                        cell_text,
+                        {
+                            "bold": True,
+                            "size_pt": elem.get("header_size_pt", 10),
+                            "color": elem.get("header_text_color", "#FFFFFF"),
+                            "font": defaults["font"],
+                        },
+                        align=(elem.get("align") or [None] * cols)[i] if elem.get("align") else None,
+                    )
                 row_offset = 1
 
+            body_defaults = {
+                "size_pt": elem.get("size_pt", defaults["size_pt"]),
+                "color": elem.get("text_color", defaults["color"]),
+                "font": defaults["font"],
+            }
             for r, row_data in enumerate(rows_data):
                 for c, cell_text in enumerate(row_data[:cols]):
-                    table.rows[r + row_offset].cells[c].text = cell_text
+                    cell = table.rows[r + row_offset].cells[c]
+                    if elem.get("body_fill"):
+                        _shade_cell(cell, elem["body_fill"])
+                    if no_borders:
+                        _set_cell_borders_docx(cell, None)
+                    elif border:
+                        _set_cell_borders_docx(
+                            cell,
+                            border,
+                            size_eighths=elem.get("border_size", 4),
+                            edges=elem.get("body_border_edges"),
+                        )
+                    _write_cell(
+                        cell,
+                        cell_text,
+                        body_defaults,
+                        align=(elem.get("align") or [None] * cols)[c] if elem.get("align") else None,
+                    )
 
         elif elem_type == "page_break":
             doc.add_page_break()
@@ -331,7 +942,14 @@ def _fill_text_frame(frame, spec, theme, default_size=14):
             para.space_after = PptxPt(line["space_after_pt"])
         run = para.add_run()
         run.text = line.get("text", "")
-        merged = {"size_pt": default_size, **line}
+        # Theme/layout default font applies unless the line overrides it.
+        # Avoids the python-pptx default (Calibri) reading as generic AI type.
+        merged = {"size_pt": default_size}
+        if theme and theme.get("font"):
+            merged["font"] = theme["font"]
+        if spec.get("font"):
+            merged["font"] = spec["font"]
+        merged.update(line)
         _style_pptx_run(run, merged, theme)
 
 
