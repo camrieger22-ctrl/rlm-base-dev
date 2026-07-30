@@ -170,7 +170,7 @@ Typical Quote payload (same as Word proposal):
   `GrandTotal`
 - Lines: `{{#Line}}…{{ProductName}}…{{StartDate}}…{{EndDate}}…{{TermMonths}}…{{/Line}}`
 
-`TermMonths` is often a Transform formula (`ROUND(PricingTermCount * 12, 4)`),
+`TermMonths` is often a Transform formula (`ROUND(PricingTermCount * 12, 0)`),
 not a raw QLI field. `StartDate` / `EndDate` need explicit Extract mappings with
 `outputFieldFormat` `Date(MM/dd/yyyy)`.
 

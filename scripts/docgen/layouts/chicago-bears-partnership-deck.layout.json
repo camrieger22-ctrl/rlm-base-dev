@@ -1,5 +1,5 @@
 {
-  "_comment": "Source layout for RLM_Bears_Partnership_Deck. Exact visual replica of BearsPPT.pdf with Chicago Bears branding (#0B162A / #C83803) and tokens remapped to RLMQuoteExtractBasic + RLMQuoteTransformBasic (same payload as the Word proposal). Contract-impact slides use Amend* tokens that already render in Word: gate on AmendCurrentARR (not IF_IsAmendment). Flagged Bears-only tokens handled as: OwnerTitle→static 'Corporate Partnerships'; BillingFrequency/ProductDescription/ServiceTerm/IF_Includes* dropped or ungated static cards; Final*Delta→AmendNetIncrease*; Ch*Delta omitted in favor of Current/Finalized columns. Build: python scripts/docgen/docgen_template_build.py create scripts/docgen/layouts/chicago-bears-partnership-deck.layout.json -o out.pptx. PPT caveat: DocGen cannot delete slides, so amendment slides stay (content collapses) on standard quotes.",
+  "_comment": "Source layout for RLM_Bears_Partnership_Deck. Exact visual replica of BearsPPT.pdf with Chicago Bears branding (#0B162A / #C83803) and tokens remapped to RLMQuoteExtractBasic + RLMQuoteTransformBasic (same payload as the Word proposal). Contract-impact slides use Amend* tokens that already render in Word: gate on AmendCurrentARR (not IF_IsAmendment). Flagged Bears-only tokens handled as: OwnerTitle\u2192static 'Corporate Partnerships'; BillingFrequency/ProductDescription/ServiceTerm/IF_Includes* dropped or ungated static cards; Final*Delta\u2192AmendNetIncrease*; Ch*Delta omitted in favor of Current/Finalized columns. Build: python scripts/docgen/docgen_template_build.py create scripts/docgen/layouts/chicago-bears-partnership-deck.layout.json -o out.pptx. PPT caveat: DocGen cannot delete slides, so amendment slides stay (content collapses) on standard quotes.",
   "format": "pptx",
   "slide_size": {
     "width_inches": 13.333,
@@ -25,7 +25,7 @@
   },
   "slides": [
     {
-      "_comment": "1 — Cover",
+      "_comment": "1 \u2014 Cover",
       "background": "@navy",
       "elements": [
         {
@@ -193,7 +193,7 @@
       ]
     },
     {
-      "_comment": "2 — Cover letter",
+      "_comment": "2 \u2014 Cover letter",
       "elements": [
         {
           "type": "textbox",
@@ -213,10 +213,41 @@
         {
           "type": "image",
           "path": "scripts/docgen/assets/chicago-bears-logo.png",
-          "left": 12.15,
+          "left": 12.25,
           "top": 0.4,
-          "width": 0.7,
-          "height": 0.7
+          "width": 0.55,
+          "height": 0.55
+        },
+        {
+          "type": "textbox",
+          "left": 11.48,
+          "top": 0.4,
+          "width": 0.55,
+          "height": 0.55,
+          "lines": [
+            {
+              "text": "{{IMG_CustomerLogo}}",
+              "size_pt": 10,
+              "color": "@navy",
+              "align": "center"
+            }
+          ]
+        },
+        {
+          "type": "textbox",
+          "left": 12.06,
+          "top": 0.545,
+          "width": 0.16,
+          "height": 0.26,
+          "lines": [
+            {
+              "text": "+",
+              "size_pt": 16,
+              "bold": true,
+              "color": "@navy",
+              "align": "center"
+            }
+          ]
         },
         {
           "type": "textbox",
@@ -325,7 +356,7 @@
       ]
     },
     {
-      "_comment": "3 — Why partner",
+      "_comment": "3 \u2014 Why partner",
       "elements": [
         {
           "type": "textbox",
@@ -359,10 +390,41 @@
         {
           "type": "image",
           "path": "scripts/docgen/assets/chicago-bears-logo.png",
-          "left": 12.15,
+          "left": 12.25,
           "top": 0.4,
-          "width": 0.7,
-          "height": 0.7
+          "width": 0.55,
+          "height": 0.55
+        },
+        {
+          "type": "textbox",
+          "left": 11.48,
+          "top": 0.4,
+          "width": 0.55,
+          "height": 0.55,
+          "lines": [
+            {
+              "text": "{{IMG_CustomerLogo}}",
+              "size_pt": 10,
+              "color": "@navy",
+              "align": "center"
+            }
+          ]
+        },
+        {
+          "type": "textbox",
+          "left": 12.06,
+          "top": 0.545,
+          "width": 0.16,
+          "height": 0.26,
+          "lines": [
+            {
+              "text": "+",
+              "size_pt": 16,
+              "bold": true,
+              "color": "@navy",
+              "align": "center"
+            }
+          ]
         },
         {
           "type": "shape",
@@ -523,7 +585,7 @@
       ]
     },
     {
-      "_comment": "4 — Proposed program (cards always shown; IF_Includes* not in org payload)",
+      "_comment": "4 \u2014 Proposed program (cards always shown; IF_Includes* not in org payload)",
       "elements": [
         {
           "type": "textbox",
@@ -557,10 +619,41 @@
         {
           "type": "image",
           "path": "scripts/docgen/assets/chicago-bears-logo.png",
-          "left": 12.15,
+          "left": 12.25,
           "top": 0.4,
-          "width": 0.7,
-          "height": 0.7
+          "width": 0.55,
+          "height": 0.55
+        },
+        {
+          "type": "textbox",
+          "left": 11.48,
+          "top": 0.4,
+          "width": 0.55,
+          "height": 0.55,
+          "lines": [
+            {
+              "text": "{{IMG_CustomerLogo}}",
+              "size_pt": 10,
+              "color": "@navy",
+              "align": "center"
+            }
+          ]
+        },
+        {
+          "type": "textbox",
+          "left": 12.06,
+          "top": 0.545,
+          "width": 0.16,
+          "height": 0.26,
+          "lines": [
+            {
+              "text": "+",
+              "size_pt": 16,
+              "bold": true,
+              "color": "@navy",
+              "align": "center"
+            }
+          ]
         },
         {
           "type": "shape",
@@ -733,7 +826,7 @@
       ]
     },
     {
-      "_comment": "5 — Investment summary: Start / End / Term (mo) / List / Discount price / Qty / Amount; banner = total prorated investment (GrandTotal)",
+      "_comment": "5 \u2014 Investment summary: Start / End / Term (mo) / List / Discount price / Qty / Amount; banner = total prorated investment (GrandTotal)",
       "elements": [
         {
           "type": "shape",
@@ -777,10 +870,41 @@
         {
           "type": "image",
           "path": "scripts/docgen/assets/chicago-bears-logo.png",
-          "left": 12.15,
+          "left": 12.25,
           "top": 0.35,
-          "width": 0.7,
-          "height": 0.7
+          "width": 0.55,
+          "height": 0.55
+        },
+        {
+          "type": "textbox",
+          "left": 11.48,
+          "top": 0.35,
+          "width": 0.55,
+          "height": 0.55,
+          "lines": [
+            {
+              "text": "{{IMG_CustomerLogo}}",
+              "size_pt": 10,
+              "color": "@navy",
+              "align": "center"
+            }
+          ]
+        },
+        {
+          "type": "textbox",
+          "left": 12.06,
+          "top": 0.495,
+          "width": 0.16,
+          "height": 0.26,
+          "lines": [
+            {
+              "text": "+",
+              "size_pt": 16,
+              "bold": true,
+              "color": "@navy",
+              "align": "center"
+            }
+          ]
         },
         {
           "type": "table",
@@ -912,7 +1036,7 @@
       ]
     },
     {
-      "_comment": "6 — Contract impact (Current / This Add / Finalized) — same Amend* tokens as Word proposal",
+      "_comment": "6 \u2014 Contract impact (Current / This Add / Finalized) \u2014 same Amend* tokens as Word proposal",
       "elements": [
         {
           "type": "textbox",
@@ -932,10 +1056,41 @@
         {
           "type": "image",
           "path": "scripts/docgen/assets/chicago-bears-logo.png",
-          "left": 12.15,
+          "left": 12.25,
           "top": 0.35,
-          "width": 0.7,
-          "height": 0.7
+          "width": 0.55,
+          "height": 0.55
+        },
+        {
+          "type": "textbox",
+          "left": 11.48,
+          "top": 0.35,
+          "width": 0.55,
+          "height": 0.55,
+          "lines": [
+            {
+              "text": "{{IMG_CustomerLogo}}",
+              "size_pt": 10,
+              "color": "@navy",
+              "align": "center"
+            }
+          ]
+        },
+        {
+          "type": "textbox",
+          "left": 12.06,
+          "top": 0.495,
+          "width": 0.16,
+          "height": 0.26,
+          "lines": [
+            {
+              "text": "+",
+              "size_pt": 16,
+              "bold": true,
+              "color": "@navy",
+              "align": "center"
+            }
+          ]
         },
         {
           "type": "textbox",
@@ -1064,7 +1219,7 @@
               "bold": true,
               "align": "center",
               "space_after_pt": 14,
-              "text": "{{#IF_AmendNetIncreaseARRUp}}↑ {{AmendNetIncreaseARR}}{{/IF_AmendNetIncreaseARRUp}}{{#IF_AmendNetIncreaseARRDown}}↓ {{AmendNetIncreaseARR}}{{/IF_AmendNetIncreaseARRDown}}",
+              "text": "{{#IF_AmendNetIncreaseARRUp}}\u2191 {{AmendNetIncreaseARR}}{{/IF_AmendNetIncreaseARRUp}}{{#IF_AmendNetIncreaseARRDown}}\u2193 {{AmendNetIncreaseARR}}{{/IF_AmendNetIncreaseARRDown}}",
               "color": "@navy"
             },
             {
@@ -1079,7 +1234,7 @@
               "bold": true,
               "align": "center",
               "space_after_pt": 14,
-              "text": "{{#IF_AmendNetIncreaseMRRUp}}↑ {{AmendNetIncreaseMRR}}{{/IF_AmendNetIncreaseMRRUp}}{{#IF_AmendNetIncreaseMRRDown}}↓ {{AmendNetIncreaseMRR}}{{/IF_AmendNetIncreaseMRRDown}}",
+              "text": "{{#IF_AmendNetIncreaseMRRUp}}\u2191 {{AmendNetIncreaseMRR}}{{/IF_AmendNetIncreaseMRRUp}}{{#IF_AmendNetIncreaseMRRDown}}\u2193 {{AmendNetIncreaseMRR}}{{/IF_AmendNetIncreaseMRRDown}}",
               "color": "@navy"
             },
             {
@@ -1094,7 +1249,7 @@
               "bold": true,
               "align": "center",
               "space_after_pt": 0,
-              "text": "{{#IF_AmendNetIncreaseQtyUp}}↑ {{AmendNetIncreaseQty}}{{/IF_AmendNetIncreaseQtyUp}}{{#IF_AmendNetIncreaseQtyDown}}↓ {{AmendNetIncreaseQty}}{{/IF_AmendNetIncreaseQtyDown}}",
+              "text": "{{#IF_AmendNetIncreaseQtyUp}}\u2191 {{AmendNetIncreaseQty}}{{/IF_AmendNetIncreaseQtyUp}}{{#IF_AmendNetIncreaseQtyDown}}\u2193 {{AmendNetIncreaseQty}}{{/IF_AmendNetIncreaseQtyDown}}",
               "color": "@navy"
             }
           ]
@@ -1204,7 +1359,7 @@
           "height": 0.55,
           "lines": [
             {
-              "text": "Prorated this term ({{AmendThisAddProrated}}) is the charge for the remainder of the current term if you move forward. Arrows on This add show whether ARR, MRR, and quantity are increasing (↑) or decreasing (↓). {{/AmendCurrentARR}}",
+              "text": "Prorated this term ({{AmendThisAddProrated}}) is the charge for the remainder of the current term if you move forward. Arrows on This add show whether ARR, MRR, and quantity are increasing (\u2191) or decreasing (\u2193). {{/AmendCurrentARR}}",
               "size_pt": 11,
               "color": "@muted"
             }
@@ -1213,7 +1368,7 @@
       ]
     },
     {
-      "_comment": "7 — Contract impact by product (Current / This Add / Finalized)",
+      "_comment": "7 \u2014 Contract impact by product (Current / This Add / Finalized)",
       "elements": [
         {
           "type": "textbox",
@@ -1233,10 +1388,41 @@
         {
           "type": "image",
           "path": "scripts/docgen/assets/chicago-bears-logo.png",
-          "left": 12.15,
+          "left": 12.25,
           "top": 0.18,
-          "width": 0.65,
-          "height": 0.65
+          "width": 0.55,
+          "height": 0.55
+        },
+        {
+          "type": "textbox",
+          "left": 11.48,
+          "top": 0.18,
+          "width": 0.55,
+          "height": 0.55,
+          "lines": [
+            {
+              "text": "{{IMG_CustomerLogo}}",
+              "size_pt": 10,
+              "color": "@navy",
+              "align": "center"
+            }
+          ]
+        },
+        {
+          "type": "textbox",
+          "left": 12.06,
+          "top": 0.325,
+          "width": 0.16,
+          "height": 0.26,
+          "lines": [
+            {
+              "text": "+",
+              "size_pt": 16,
+              "bold": true,
+              "color": "@navy",
+              "align": "center"
+            }
+          ]
         },
         {
           "type": "textbox",
@@ -1351,7 +1537,7 @@
           "height": 0.28,
           "lines": [
             {
-              "text": "This add  ·  Prorated this term {{AmendThisAddProrated}}",
+              "text": "This add  \u00b7  Prorated this term {{AmendThisAddProrated}}",
               "size_pt": 12,
               "bold": true,
               "color": "@orange"
@@ -1426,9 +1612,9 @@
               "{{TermMonths}}",
               "${{ListPrice}}",
               "${{NetUnitPrice}}",
-              "{{#IF_QtyUp}}↑{{/IF_QtyUp}}{{#IF_QtyDown}}↓{{/IF_QtyDown}} {{Qty}}",
-              "{{#IF_MRRUp}}↑{{/IF_MRRUp}}{{#IF_MRRDown}}↓{{/IF_MRRDown}} {{MRR}}",
-              "{{#IF_ARRUp}}↑{{/IF_ARRUp}}{{#IF_ARRDown}}↓{{/IF_ARRDown}} {{ARR}}",
+              "{{#IF_QtyUp}}\u2191{{/IF_QtyUp}}{{#IF_QtyDown}}\u2193{{/IF_QtyDown}} {{Qty}}",
+              "{{#IF_MRRUp}}\u2191{{/IF_MRRUp}}{{#IF_MRRDown}}\u2193{{/IF_MRRDown}} {{MRR}}",
+              "{{#IF_ARRUp}}\u2191{{/IF_ARRUp}}{{#IF_ARRDown}}\u2193{{/IF_ARRDown}} {{ARR}}",
               "{{Amount}}{{/AmendAddProduct}}"
             ]
           ],
@@ -1512,9 +1698,9 @@
           "rows": [
             [
               "{{#AmendProductAmending}}{{ProductName}}",
-              "—",
-              "—",
-              "—",
+              "\u2014",
+              "\u2014",
+              "\u2014",
               "${{ListPrice}}",
               "${{NetUnitPrice}}",
               "{{FinalizedQty}}",
@@ -1533,7 +1719,7 @@
           "height": 0.45,
           "lines": [
             {
-              "text": "Current shows products already owned. This add Amount is the prorated charge per product; the section total ({{AmendThisAddProrated}}) is what you pay for this add if you accept. Arrows mark increases (↑) or decreases (↓) in quantity, MRR, and ARR. Finalized Start/End/Term are blank (—) so columns stay aligned. Finalized Amount is Current Amount plus This add Amount. {{/AmendCurrentARR}}",
+              "text": "Current shows products already owned. This add Amount is the prorated charge per product; the section total ({{AmendThisAddProrated}}) is what you pay for this add if you accept. Arrows mark increases (\u2191) or decreases (\u2193) in quantity, MRR, and ARR. Finalized Start/End/Term are blank (\u2014) so columns stay aligned. Finalized Amount is Current Amount plus This add Amount. {{/AmendCurrentARR}}",
               "size_pt": 9,
               "color": "@muted"
             }
@@ -1542,7 +1728,7 @@
       ]
     },
     {
-      "_comment": "8 — Commercial terms",
+      "_comment": "8 \u2014 Commercial terms",
       "elements": [
         {
           "type": "textbox",
@@ -1562,10 +1748,41 @@
         {
           "type": "image",
           "path": "scripts/docgen/assets/chicago-bears-logo.png",
-          "left": 12.15,
+          "left": 12.25,
           "top": 0.4,
-          "width": 0.7,
-          "height": 0.7
+          "width": 0.55,
+          "height": 0.55
+        },
+        {
+          "type": "textbox",
+          "left": 11.48,
+          "top": 0.4,
+          "width": 0.55,
+          "height": 0.55,
+          "lines": [
+            {
+              "text": "{{IMG_CustomerLogo}}",
+              "size_pt": 10,
+              "color": "@navy",
+              "align": "center"
+            }
+          ]
+        },
+        {
+          "type": "textbox",
+          "left": 12.06,
+          "top": 0.545,
+          "width": 0.16,
+          "height": 0.26,
+          "lines": [
+            {
+              "text": "+",
+              "size_pt": 16,
+              "bold": true,
+              "color": "@navy",
+              "align": "center"
+            }
+          ]
         },
         {
           "type": "shape",
@@ -1610,21 +1827,21 @@
           "height": 3.0,
           "lines": [
             {
-              "text": "•  Pricing valid through {{#ExpirationDate}}{{ExpirationDate}}{{/ExpirationDate}}.",
+              "text": "\u2022  Pricing valid through {{#ExpirationDate}}{{ExpirationDate}}{{/ExpirationDate}}.",
               "size_pt": 13,
               "color": "@body",
               "space_after_pt": 12,
               "line_spacing": 1.3
             },
             {
-              "text": "•  The partnership becomes effective upon execution of a master partnership agreement between {{AccountName}} and the club.",
+              "text": "\u2022  The partnership becomes effective upon execution of a master partnership agreement between {{AccountName}} and the club.",
               "size_pt": 13,
               "color": "@body",
               "space_after_pt": 12,
               "line_spacing": 1.3
             },
             {
-              "text": "•  Suite, seat, and media inventory are assigned at contracting, subject to league and venue requirements.",
+              "text": "\u2022  Suite, seat, and media inventory are assigned at contracting, subject to league and venue requirements.",
               "size_pt": 13,
               "color": "@body",
               "line_spacing": 1.3
@@ -1674,21 +1891,21 @@
           "height": 3.0,
           "lines": [
             {
-              "text": "•  Payment terms are {{PaymentTerms}}, billed upon execution and at the start of each contract year.",
+              "text": "\u2022  Payment terms are {{PaymentTerms}}, billed upon execution and at the start of each contract year.",
               "size_pt": 13,
               "color": "@body",
               "space_after_pt": 12,
               "line_spacing": 1.3
             },
             {
-              "text": "•  Prices exclude applicable federal, state, local, and amusement taxes and venue fees.",
+              "text": "\u2022  Prices exclude applicable federal, state, local, and amusement taxes and venue fees.",
               "size_pt": 13,
               "color": "@body",
               "space_after_pt": 12,
               "line_spacing": 1.3
             },
             {
-              "text": "•  Pricing and program structure are confidential between {{AccountName}} and the club.",
+              "text": "\u2022  Pricing and program structure are confidential between {{AccountName}} and the club.",
               "size_pt": 13,
               "color": "@body",
               "line_spacing": 1.3
@@ -1698,7 +1915,7 @@
       ]
     },
     {
-      "_comment": "9 — First year timeline",
+      "_comment": "9 \u2014 First year timeline",
       "elements": [
         {
           "type": "textbox",
@@ -1718,10 +1935,10 @@
         {
           "type": "image",
           "path": "scripts/docgen/assets/chicago-bears-logo.png",
-          "left": 12.15,
+          "left": 12.25,
           "top": 0.4,
-          "width": 0.7,
-          "height": 0.7
+          "width": 0.55,
+          "height": 0.55
         },
         {
           "type": "shape",
@@ -2001,7 +2218,7 @@
       ]
     },
     {
-      "_comment": "10 — Admin notes (internal)",
+      "_comment": "10 \u2014 Admin notes (internal)",
       "elements": [
         {
           "type": "shape",
@@ -2031,10 +2248,41 @@
         {
           "type": "image",
           "path": "scripts/docgen/assets/chicago-bears-logo.png",
-          "left": 12.15,
+          "left": 12.25,
           "top": 0.4,
-          "width": 0.7,
-          "height": 0.7
+          "width": 0.55,
+          "height": 0.55
+        },
+        {
+          "type": "textbox",
+          "left": 11.48,
+          "top": 0.4,
+          "width": 0.55,
+          "height": 0.55,
+          "lines": [
+            {
+              "text": "{{IMG_CustomerLogo}}",
+              "size_pt": 10,
+              "color": "@navy",
+              "align": "center"
+            }
+          ]
+        },
+        {
+          "type": "textbox",
+          "left": 12.06,
+          "top": 0.545,
+          "width": 0.16,
+          "height": 0.26,
+          "lines": [
+            {
+              "text": "+",
+              "size_pt": 16,
+              "bold": true,
+              "color": "@navy",
+              "align": "center"
+            }
+          ]
         },
         {
           "type": "textbox",
@@ -2058,42 +2306,42 @@
           "height": 5.0,
           "lines": [
             {
-              "text": "•  Tokens are remapped to RLMQuoteExtractBasic + RLMQuoteTransformBasic — the same payload as the Word proposal.",
+              "text": "\u2022  Tokens are remapped to RLMQuoteExtractBasic + RLMQuoteTransformBasic \u2014 the same payload as the Word proposal.",
               "size_pt": 13,
               "color": "@body",
               "space_after_pt": 10,
               "line_spacing": 1.25
             },
             {
-              "text": "•  Pricing table columns: Start, End, Term (mo), List price, Discount price, Qty, Amount. Banner shows total prorated investment (GrandTotal).",
+              "text": "\u2022  Pricing table columns: Start, End, Term (mo), List price, Discount price, Qty, Amount. Banner shows total prorated investment (GrandTotal).",
               "size_pt": 13,
               "color": "@body",
               "space_after_pt": 10,
               "line_spacing": 1.25
             },
             {
-              "text": "•  Current / This Add / Finalized use AmendCurrent*, AmendNetIncrease*, AmendProposed*, AmendThisAddProrated.",
+              "text": "\u2022  Current / This Add / Finalized use AmendCurrent*, AmendNetIncrease*, AmendProposed*, AmendThisAddProrated.",
               "size_pt": 13,
               "color": "@body",
               "space_after_pt": 10,
               "line_spacing": 1.25
             },
             {
-              "text": "•  Product tables use AmendAddProduct and AmendProductAmending — same arrays as Word.",
+              "text": "\u2022  Product tables use AmendAddProduct and AmendProductAmending \u2014 same arrays as Word.",
               "size_pt": 13,
               "color": "@body",
               "space_after_pt": 10,
               "line_spacing": 1.25
             },
             {
-              "text": "•  PowerPoint cannot delete slides: on non-amendment quotes, slides 6–7 stay with collapsed content.",
+              "text": "\u2022  PowerPoint cannot delete slides: on non-amendment quotes, slides 6\u20137 stay with collapsed content.",
               "size_pt": 13,
               "color": "@body",
               "space_after_pt": 10,
               "line_spacing": 1.25
             },
             {
-              "text": "•  Dropped (no org source): OwnerTitle, BillingFrequency, ProductDescription, ServiceTerm, IF_Includes*, Final*Delta / Ch*Delta strings.",
+              "text": "\u2022  Dropped (no org source): OwnerTitle, BillingFrequency, ProductDescription, ServiceTerm, IF_Includes*, Final*Delta / Ch*Delta strings.",
               "size_pt": 13,
               "color": "@body",
               "line_spacing": 1.25
@@ -2112,7 +2360,7 @@
       ]
     },
     {
-      "_comment": "11 — Close",
+      "_comment": "11 \u2014 Close",
       "background": "@navy",
       "elements": [
         {
@@ -2162,7 +2410,7 @@
           "height": 0.9,
           "lines": [
             {
-              "text": "{{SalesRep}}  ·  Corporate Partnerships",
+              "text": "{{SalesRep}}  \u00b7  Corporate Partnerships",
               "size_pt": 14,
               "bold": true,
               "color": "@orange",
@@ -2170,7 +2418,7 @@
               "space_after_pt": 4
             },
             {
-              "text": "{{SellerEmail}}{{#SellerPhone}}  ·  {{SellerPhone}}{{/SellerPhone}}",
+              "text": "{{SellerEmail}}{{#SellerPhone}}  \u00b7  {{SellerPhone}}{{/SellerPhone}}",
               "size_pt": 14,
               "color": "@orange",
               "align": "center"

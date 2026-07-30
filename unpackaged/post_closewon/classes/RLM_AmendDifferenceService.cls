@@ -867,7 +867,7 @@ public with sharing class RLM_AmendDifferenceService {
         Decimal qty = row.Current_Qty__c;
         Decimal arr = row.Current_ARR__c;
         if (netUnit == null && qty != null && qty != 0 && arr != null) {
-            netUnit = (arr / qty).setScale(4, RoundingMode.HALF_UP);
+            netUnit = (arr / qty).setScale(2, RoundingMode.HALF_UP);
         }
         if (listUnit == null) {
             listUnit = netUnit;
@@ -909,8 +909,8 @@ public with sharing class RLM_AmendDifferenceService {
         if (days < 0) {
             return 0;
         }
-        // Align with PricingTermCount * 12 (four decimals) used on quote lines.
-        return (Decimal.valueOf(days) / 30.44).setScale(4, RoundingMode.HALF_UP);
+        // Align with PricingTermCount * 12 (whole months) used on quote lines / DocGen.
+        return (Decimal.valueOf(days) / 30.44).setScale(0, RoundingMode.HALF_UP);
     }
 
     @TestVisible
@@ -918,8 +918,8 @@ public with sharing class RLM_AmendDifferenceService {
         if (pricingTermCount == null) {
             return null;
         }
-        // Four decimals so ARR × (term/12) closely matches day-exact prorated Amount.
-        return (pricingTermCount * 12).setScale(4, RoundingMode.HALF_UP);
+        // Whole months for proposal/deck Term (mo) display.
+        return (pricingTermCount * 12).setScale(0, RoundingMode.HALF_UP);
     }
 
     /**
@@ -1067,7 +1067,7 @@ public with sharing class RLM_AmendDifferenceService {
                 row.This_Add_Prorated__c.setScale(2, RoundingMode.HALF_UP);
             if (row.This_Add_Qty__c != null && row.This_Add_Qty__c != 0) {
                 row.This_Add_Net_Unit_Price__c =
-                    (row.This_Add_ARR__c / row.This_Add_Qty__c).setScale(4, RoundingMode.HALF_UP);
+                    (row.This_Add_ARR__c / row.This_Add_Qty__c).setScale(2, RoundingMode.HALF_UP);
             }
             if (listQty.containsKey(productId) && listQty.get(productId) > 0) {
                 row.This_Add_List_Price__c =
@@ -1077,7 +1077,7 @@ public with sharing class RLM_AmendDifferenceService {
             if (termQty.containsKey(productId) && termQty.get(productId) > 0) {
                 row.This_Add_Term_Months__c =
                     (termWeight.get(productId) / termQty.get(productId))
-                        .setScale(4, RoundingMode.HALF_UP);
+                        .setScale(0, RoundingMode.HALF_UP);
             } else {
                 row.This_Add_Term_Months__c = termMonthsBetween(
                     row.This_Add_Start_Date__c,
@@ -1556,12 +1556,12 @@ public with sharing class RLM_AmendDifferenceService {
                         .setScale(4, RoundingMode.HALF_UP);
             }
             if (tQty != null && tQty != 0) {
-                card.thisAddNetUnitPrice = (tArr / tQty).setScale(4, RoundingMode.HALF_UP);
+                card.thisAddNetUnitPrice = (tArr / tQty).setScale(2, RoundingMode.HALF_UP);
             }
             if (addTermQty.containsKey(assetId) && addTermQty.get(assetId) > 0) {
                 card.thisAddTermMonths =
                     (addTermWeight.get(assetId) / addTermQty.get(assetId))
-                        .setScale(4, RoundingMode.HALF_UP);
+                        .setScale(0, RoundingMode.HALF_UP);
             } else {
                 card.thisAddTermMonths =
                     termMonthsBetween(card.thisAddStartDate, card.thisAddEndDate);

@@ -1,5 +1,5 @@
 {
-  "_comment": "Light-theme page-for-page replica of Bears_Proposal_Preview.pdf. White pages, navy (#0B162A) headings, orange (#C83803) accents, logo header/footer, light-gray metric bands for Current/This Add/Finalized. Tokens remapped to RLMQuoteExtractBasic + RLMQuoteTransformBasic. Build: python scripts/docgen/docgen_template_build.py create scripts/docgen/layouts/chicago-bears-partnership-proposal.layout.json -o out.docx",
+  "_comment": "Light-theme Bears partnership proposal. Page 6 investment matches deck slide 5. Contract-impact summaries use the same fills as their product tables (ice / warm / navy). Build: python scripts/docgen/docgen_template_build.py create scripts/docgen/layouts/chicago-bears-partnership-proposal.layout.json -o out.docx",
   "theme": {
     "navy": "#0B162A",
     "orange": "#C83803",
@@ -22,14 +22,19 @@
     "different_first_page_header": true,
     "header": {
       "logo": "scripts/docgen/assets/chicago-bears-logo.png",
-      "logo_width_inches": 0.32,
+      "logo_width_inches": 0.55,
+      "customer_logo_token": "{{IMG_CustomerLogo}}",
+      "logo_plus": "+",
+      "logo_plus_size_pt": 14,
+      "logo_plus_color": "#0B162A",
       "brand_text": "CHICAGO BEARS",
       "brand_color": "#0B162A",
       "brand_size_pt": 9,
       "right_text": "Corporate partnership proposal  \u00b7  {{AccountName}}",
       "right_color": "#888888",
       "right_size_pt": 9,
-      "rule_color": null
+      "rule_color": null,
+      "logo_plus_width_inches": 0.16
     },
     "footer": {
       "left_text": "Chicago Bears Football Club  \u00b7  Soldier Field, Chicago",
@@ -450,7 +455,7 @@
       "type": "page_break"
     },
     {
-      "_comment": "===== PAGE 6 INVESTMENT =====",
+      "_comment": "===== PAGE 6 INVESTMENT (matches deck slide 5) =====",
       "type": "heading",
       "text": "Investment summary",
       "level": 1,
@@ -466,87 +471,74 @@
     },
     {
       "type": "paragraph",
-      "text": "The table below is generated directly from quote {{QuoteNumber}} and repeats one row for each product on the quote. Amount is the prorated net for the line term. Subtotal is before the partnership discount; total investment is the prorated amount after discount. All amounts are stated in US dollars and exclude applicable taxes.",
+      "text": "Generated from quote {{QuoteNumber}}. One row per product. Amount is the prorated net for the line term. US dollars, taxes excluded.",
       "space_after_pt": 10,
-      "line_spacing": 1.3
+      "line_spacing": 1.3,
+      "size_pt": 10,
+      "color": "#666666"
     },
     {
       "type": "table",
-      "columns": 7,
-      "header_fill": "#0B162A",
+      "columns": 8,
+      "col_widths": [
+        1.474,
+        0.798,
+        0.798,
+        0.614,
+        0.767,
+        0.89,
+        0.522,
+        1.137
+      ],
+      "header_fill": "#C83803",
       "header_text_color": "#FFFFFF",
-      "header_size_pt": 8,
-      "text_color": "#333333",
-      "body_fill": "#FFFFFF",
-      "border": "#CCCCCC",
+      "header_size_pt": 9,
+      "text_color": "#0B162A",
+      "body_fill": "#FFF1EB",
+      "border": "#C83803",
       "size_pt": 9,
       "align": [
         "left",
         "center",
-        "right",
-        "right",
         "center",
+        "center",
+        "right",
+        "right",
         "center",
         "right"
       ],
       "header": [
         "By product",
-        "Qty",
-        "List price",
-        "Unit price",
         "Start",
         "End",
+        "Term (mo)",
+        "List price",
+        "Discount price",
+        "Qty",
         "Amount"
       ],
       "rows": [
         [
           "{{#Line}}{{ProductName}}",
-          "{{Quantity}}",
-          "${{ListPrice}}",
-          "${{NetUnitPrice}}",
           "{{StartDate}}",
           "{{EndDate}}",
+          "{{TermMonths}}",
+          "${{ListPrice}}",
+          "${{NetUnitPrice}}",
+          "{{Quantity}}",
           "{{NetTotalPrice}}{{/Line}}"
         ]
       ]
     },
     {
       "type": "spacer",
-      "space_after_pt": 6
-    },
-    {
-      "type": "table",
-      "columns": 2,
-      "no_borders": true,
-      "text_color": "#333333",
-      "body_fill": "#FFFFFF",
-      "size_pt": 11,
-      "align": [
-        "right",
-        "right"
-      ],
-      "rows": [
-        [
-          {
-            "text": "{{#IF_has_discount}}Partnership discount",
-            "color": "#C83803",
-            "size_pt": 11
-          },
-          {
-            "text": "{{QDiscount}}%{{/IF_has_discount}}",
-            "color": "#C83803",
-            "size_pt": 11
-          }
-        ],
-        [
-          "Subtotal (before partnership discount)",
-          "{{Subtotal}}"
-        ]
-      ]
+      "space_after_pt": 10
     },
     {
       "type": "banner",
       "fill": "#0B162A",
+      "border": "#C83803",
+      "border_size": 12,
       "columns": 2,
       "align": [
         "left",
@@ -556,9 +548,9 @@
       "cells": [
         [
           {
-            "text": "Total investment (prorated amount)",
+            "text": "Total prorated investment",
             "bold": true,
-            "size_pt": 11,
+            "size_pt": 14,
             "color": "#FFFFFF"
           }
         ],
@@ -566,7 +558,7 @@
           {
             "text": "{{GrandTotal}}",
             "bold": true,
-            "size_pt": 18,
+            "size_pt": 22,
             "color": "#C83803",
             "align": "right"
           }
@@ -574,18 +566,11 @@
       ]
     },
     {
-      "type": "heading",
-      "text": "Payment terms",
-      "level": 2,
-      "size_pt": 14,
-      "color": "#0B162A",
-      "space_after_pt": 6
-    },
-    {
       "type": "paragraph",
-      "text": "Payment terms are {{PaymentTerms}}. Invoices are issued by the Chicago Bears Football Club upon execution of the partnership agreement and, for multi-year programs, at the start of each subsequent contract year. Amounts shown reflect the discount configuration approved on the referenced quote.",
-      "size_pt": 10,
-      "line_spacing": 1.3
+      "text": "Payment terms: {{PaymentTerms}}.",
+      "size_pt": 11,
+      "color": "#666666",
+      "space_after_pt": 0
     },
     {
       "type": "page_break"
@@ -614,7 +599,7 @@
     },
     {
       "type": "paragraph",
-      "text": "This quote amends your existing agreement. The three views below show the contract as it stands today, the economics of this add on its own, and the finalized contract if you accept quote {{QuoteNumber}}. Green \u2191 arrows under Finalized show the increase driven by this add; a \u2193 would indicate a decrease.",
+      "text": "This quote amends your existing agreement. The three views below show the contract as it stands today, the economics of this add on its own, and the finalized contract if you accept quote {{QuoteNumber}}. Summary bands use the same colors as their product tables. This add shows \u2191/\u2193 on Qty, MRR, and ARR.",
       "space_after_pt": 6,
       "line_spacing": 1.15,
       "size_pt": 10
@@ -629,7 +614,7 @@
     },
     {
       "type": "banner",
-      "fill": "#F2F2F2",
+      "fill": "#E8EEF5",
       "columns": 3,
       "align": [
         "center",
@@ -643,7 +628,7 @@
             "text": "ARR",
             "bold": true,
             "size_pt": 9,
-            "color": "#C83803",
+            "color": "#0B162A",
             "align": "center",
             "space_after_pt": 1
           },
@@ -660,7 +645,7 @@
             "text": "MRR",
             "bold": true,
             "size_pt": 9,
-            "color": "#C83803",
+            "color": "#0B162A",
             "align": "center",
             "space_after_pt": 1
           },
@@ -677,7 +662,7 @@
             "text": "Licensed quantity",
             "bold": true,
             "size_pt": 9,
-            "color": "#C83803",
+            "color": "#0B162A",
             "align": "center",
             "space_after_pt": 1
           },
@@ -689,35 +674,74 @@
             "align": "center"
           }
         ]
-      ]
+      ],
+      "border": "#0B162A",
+      "border_size": 8
     },
     {
       "type": "table",
-      "columns": 4,
+      "columns": 10,
+      "col_widths": [
+        1.0,
+        0.58,
+        0.58,
+        0.55,
+        0.58,
+        0.72,
+        0.42,
+        0.8,
+        0.95,
+        0.82
+      ],
       "header_fill": "#0B162A",
       "header_text_color": "#FFFFFF",
-      "text_color": "#333333",
-      "body_fill": "#FFFFFF",
-      "border": "#CCCCCC",
-      "size_pt": 9,
+      "header_size_pt": 8,
+      "text_color": "#0B162A",
+      "body_fill": "#E8EEF5",
+      "border": "#0B162A",
+      "size_pt": 7,
+      "align": [
+        "left",
+        "center",
+        "center",
+        "center",
+        "right",
+        "right",
+        "center",
+        "right",
+        "right",
+        "right"
+      ],
       "header": [
-        "By product",
+        "Product",
+        "Start",
+        "End",
+        "Term (mo)",
+        "List price",
+        "Discount price",
         "Qty",
+        "MRR",
         "ARR",
-        "MRR"
+        "Amount"
       ],
       "rows": [
         [
           "{{#AmendProductCurrentAmending}}{{ProductName}}",
+          "{{StartDate}}",
+          "{{EndDate}}",
+          "{{TermMonths}}",
+          "${{ListPrice}}",
+          "${{NetUnitPrice}}",
           "{{CurrentQty}}",
+          "{{CurrentMRR}}",
           "{{CurrentARR}}",
-          "{{CurrentMRR}}{{/AmendProductCurrentAmending}}"
+          "{{Amount}}{{/AmendProductCurrentAmending}}"
         ]
       ]
     },
     {
       "type": "paragraph",
-      "text": "Products already on the contract that this amendment changes. New products appear under This add and Finalized only.",
+      "text": "Products already owned that this amendment changes. Read Qty / MRR / ARR / Amount down through This add and Finalized \u2014 same columns, same order.",
       "italic": true,
       "size_pt": 9,
       "color": "#888888",
@@ -730,14 +754,21 @@
       "level": 2,
       "size_pt": 12,
       "color": "#0B162A",
-      "space_after_pt": 3
+      "space_after_pt": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Prorated this term {{AmendThisAddProrated}} \u2014 what you pay for this add for the remainder of the current term if you accept.",
+      "size_pt": 10,
+      "color": "#C83803",
+      "bold": true,
+      "space_after_pt": 4
     },
     {
       "type": "banner",
-      "fill": "#F2F2F2",
-      "columns": 4,
+      "fill": "#FFF1EB",
+      "columns": 3,
       "align": [
-        "center",
         "center",
         "center",
         "center"
@@ -794,60 +825,75 @@
             "color": "#0B162A",
             "align": "center"
           }
-        ],
-        [
-          {
-            "text": "Prorated this term",
-            "bold": true,
-            "size_pt": 9,
-            "color": "#C83803",
-            "align": "center",
-            "space_after_pt": 1
-          },
-          {
-            "text": "{{AmendThisAddProrated}}",
-            "bold": true,
-            "size_pt": 11,
-            "color": "#0B162A",
-            "align": "center"
-          }
         ]
-      ]
+      ],
+      "border": "#C83803",
+      "border_size": 8
     },
     {
       "type": "table",
-      "columns": 7,
-      "header_fill": "#0B162A",
+      "columns": 10,
+      "col_widths": [
+        1.0,
+        0.58,
+        0.58,
+        0.55,
+        0.58,
+        0.72,
+        0.42,
+        0.8,
+        0.95,
+        0.82
+      ],
+      "header_fill": "#C83803",
       "header_text_color": "#FFFFFF",
       "header_size_pt": 8,
-      "text_color": "#333333",
-      "body_fill": "#FFFFFF",
-      "border": "#CCCCCC",
-      "size_pt": 9,
+      "text_color": "#0B162A",
+      "body_fill": "#FFF1EB",
+      "border": "#C83803",
+      "size_pt": 7,
+      "align": [
+        "left",
+        "center",
+        "center",
+        "center",
+        "right",
+        "right",
+        "center",
+        "right",
+        "right",
+        "right"
+      ],
       "header": [
-        "By product",
-        "Qty",
-        "ARR",
-        "MRR",
+        "Product",
         "Start",
         "End",
-        "Prorated"
+        "Term (mo)",
+        "List price",
+        "Discount price",
+        "Qty",
+        "MRR",
+        "ARR",
+        "Amount"
       ],
       "rows": [
         [
           "{{#AmendAddProduct}}{{ProductName}}",
-          "{{Qty}}",
-          "{{ARR}}",
-          "{{MRR}}",
           "{{StartDate}}",
           "{{EndDate}}",
-          "{{Prorated}}{{/AmendAddProduct}}"
+          "{{TermMonths}}",
+          "${{ListPrice}}",
+          "${{NetUnitPrice}}",
+          "{{#IF_QtyUp}}\u2191{{/IF_QtyUp}}{{#IF_QtyDown}}\u2193{{/IF_QtyDown}}\u00a0{{Qty}}",
+          "{{#IF_MRRUp}}\u2191{{/IF_MRRUp}}{{#IF_MRRDown}}\u2193{{/IF_MRRDown}}\u00a0{{MRR}}",
+          "{{#IF_ARRUp}}\u2191{{/IF_ARRUp}}{{#IF_ARRDown}}\u2193{{/IF_ARRDown}}\u00a0{{ARR}}",
+          "{{Amount}}{{/AmendAddProduct}}"
         ]
       ]
     },
     {
       "type": "paragraph",
-      "text": "Add-on economics for this quote only, including term dates and the discount on each amending line.",
+      "text": "Add-on economics for this quote only. Line Amounts are prorated per product; together they total the prorated this term figure above. Arrows on Qty, MRR, and ARR mark the change vs current.",
       "italic": true,
       "size_pt": 9,
       "color": "#888888",
@@ -864,7 +910,7 @@
     },
     {
       "type": "banner",
-      "fill": "#F2F2F2",
+      "fill": "#0B162A",
       "columns": 3,
       "align": [
         "center",
@@ -886,7 +932,7 @@
             "text": "{{AmendProposedARR}}",
             "bold": true,
             "size_pt": 12,
-            "color": "#0B162A",
+            "color": "#FFFFFF",
             "align": "center",
             "space_after_pt": 0
           },
@@ -894,7 +940,7 @@
             "text": "\u2191 {{AmendNetIncreaseARR}}",
             "bold": true,
             "size_pt": 9,
-            "color": "#2E844A",
+            "color": "#C83803",
             "align": "center",
             "space_after_pt": 0
           }
@@ -912,7 +958,7 @@
             "text": "{{AmendProposedMRR}}",
             "bold": true,
             "size_pt": 12,
-            "color": "#0B162A",
+            "color": "#FFFFFF",
             "align": "center",
             "space_after_pt": 0
           },
@@ -920,7 +966,7 @@
             "text": "\u2191 {{AmendNetIncreaseMRR}}",
             "bold": true,
             "size_pt": 9,
-            "color": "#2E844A",
+            "color": "#C83803",
             "align": "center",
             "space_after_pt": 0
           }
@@ -938,7 +984,7 @@
             "text": "{{AmendProposedQty}}",
             "bold": true,
             "size_pt": 12,
-            "color": "#0B162A",
+            "color": "#FFFFFF",
             "align": "center",
             "space_after_pt": 0
           },
@@ -946,103 +992,79 @@
             "text": "{{#IF_AmendNetIncreaseQtyDown}}\u2193{{/IF_AmendNetIncreaseQtyDown}}{{#IF_AmendNetIncreaseQtyUp}}\u2191{{/IF_AmendNetIncreaseQtyUp}} {{AmendNetIncreaseQty}}",
             "bold": true,
             "size_pt": 9,
-            "color": "#2E844A",
+            "color": "#C83803",
             "align": "center",
             "space_after_pt": 0
           }
         ]
-      ]
+      ],
+      "border": "#FFFFFF",
+      "border_size": 8
     },
     {
       "type": "table",
-      "columns": 4,
+      "columns": 10,
+      "col_widths": [
+        1.0,
+        0.58,
+        0.58,
+        0.55,
+        0.58,
+        0.72,
+        0.42,
+        0.8,
+        0.95,
+        0.82
+      ],
       "header_fill": "#0B162A",
       "header_text_color": "#FFFFFF",
       "header_size_pt": 8,
-      "text_color": "#333333",
-      "body_fill": "#FFFFFF",
-      "border": "#CCCCCC",
-      "size_pt": 9,
-      "header": [
-        "By product",
-        "Qty",
-        "ARR",
-        "MRR"
-      ],
-      "rows": [
-        [
-          {
-            "text": "{{#AmendProductAmending}}{{ProductName}}",
-            "bold": true,
-            "size_pt": 9,
-            "color": "#0B162A"
-          },
-          [
-            {
-              "text": "{{FinalizedQty}}",
-              "bold": true,
-              "size_pt": 9,
-              "color": "#0B162A",
-              "align": "center",
-              "space_after_pt": 0
-            },
-            {
-              "text": "{{#IF_ThisAddQtyDown}}\u2193{{/IF_ThisAddQtyDown}}{{#IF_ThisAddQtyUp}}\u2191{{/IF_ThisAddQtyUp}} {{ThisAddQty}}",
-              "bold": true,
-              "size_pt": 8,
-              "color": "#2E844A",
-              "align": "center",
-              "space_after_pt": 0
-            }
-          ],
-          [
-            {
-              "text": "{{FinalizedARR}}",
-              "bold": true,
-              "size_pt": 9,
-              "color": "#0B162A",
-              "align": "right",
-              "space_after_pt": 0
-            },
-            {
-              "text": "\u2191 {{ThisAddARR}}",
-              "bold": true,
-              "size_pt": 8,
-              "color": "#2E844A",
-              "align": "right",
-              "space_after_pt": 0
-            }
-          ],
-          [
-            {
-              "text": "{{FinalizedMRR}}",
-              "bold": true,
-              "size_pt": 9,
-              "color": "#0B162A",
-              "align": "right",
-              "space_after_pt": 0
-            },
-            {
-              "text": "\u2191 {{ThisAddMRR}}{{/AmendProductAmending}}",
-              "bold": true,
-              "size_pt": 8,
-              "color": "#2E844A",
-              "align": "right",
-              "space_after_pt": 0
-            }
-          ]
-        ]
-      ],
+      "text_color": "#FFFFFF",
+      "body_fill": "#0B162A",
+      "border": "#FFFFFF",
+      "size_pt": 7,
       "align": [
         "left",
         "center",
+        "center",
+        "center",
+        "right",
+        "right",
+        "center",
+        "right",
         "right",
         "right"
+      ],
+      "header": [
+        "Product",
+        "Start",
+        "End",
+        "Term (mo)",
+        "List price",
+        "Discount price",
+        "Qty",
+        "MRR",
+        "ARR",
+        "Amount"
+      ],
+      "rows": [
+        [
+          "{{#AmendProductAmending}}{{ProductName}}",
+          "\u2014",
+          "\u2014",
+          "\u2014",
+          "${{ListPrice}}",
+          "${{NetUnitPrice}}",
+          "{{FinalizedQty}}",
+          "{{FinalizedMRR}}",
+          "{{FinalizedARR}}",
+          "{{Amount}}{{/AmendProductAmending}}"
+        ]
       ]
     },
     {
       "type": "paragraph",
-      "text": "By-product impact on the finalized contract. Green \u2191 arrows under each figure show the change from this add.",
+      "text": "Resulting contract if you accept. Start/End/Term are \u2014 (aligned with Current and This add). Qty / MRR / ARR are the finalized totals; Amount is Current Amount plus This add Amount. Summary arrows above show the net change from this add.",
       "italic": true,
       "size_pt": 9,
       "color": "#888888",

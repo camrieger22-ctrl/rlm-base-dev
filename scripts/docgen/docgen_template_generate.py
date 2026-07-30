@@ -131,6 +131,8 @@ def create_dgp(record_id, template_id, org, title=None, generate_only=False,
         "ReferenceObject": record_id,
         "DocumentTemplateId": template_id,
         "DocumentInputType": "DocumentTemplate",
+        # Required for IMG_ tokens; Basic stringifies nested objects as [object Object]
+        "DocGenApiVersionType": "Advanced",
     }
 
     request_text = {"keepIntermediate": True}

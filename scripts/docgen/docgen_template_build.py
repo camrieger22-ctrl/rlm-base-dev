@@ -27,7 +27,7 @@ try:
     from docx import Document
     from docx.shared import Inches, Pt, Cm, RGBColor
     from docx.enum.text import WD_ALIGN_PARAGRAPH
-    from docx.enum.table import WD_TABLE_ALIGNMENT
+    from docx.enum.table import WD_TABLE_ALIGNMENT, WD_CELL_VERTICAL_ALIGNMENT
 except ImportError:
     print(
         "ERROR: python-docx required. Install with: pip install python-docx",
@@ -248,6 +248,23 @@ def _set_table_full_width(table):
     tblPr.append(layout)
 
 
+def _set_docx_col_widths(table, widths_in):
+    """Pin column widths (inches). Requires fixed table layout to stick."""
+    from docx.shared import Inches
+
+    if not widths_in:
+        return
+    table.autofit = False
+    for i, w in enumerate(widths_in):
+        if i < len(table.columns):
+            table.columns[i].width = Inches(float(w))
+    # Also set per-cell width so Word doesn't ignore column props.
+    for row in table.rows:
+        for i, w in enumerate(widths_in):
+            if i < len(row.cells):
+                row.cells[i].width = Inches(float(w))
+
+
 def _set_table_cell_margins(table, top=0, left=0, bottom=0, right=0):
     """Set table-level cell margins in twips (0 = flush cells, no internal gap)."""
     from docx.oxml.ns import qn
@@ -434,6 +451,33 @@ def _clear_cell(cell):
         p.clear()
 
 
+def _set_cell_margins_docx(cell, twips=0):
+    """Set all four cell margins (twips). 0 removes default Word padding."""
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+
+    tc_pr = cell._tc.get_or_add_tcPr()
+    for existing in tc_pr.findall(qn("w:tcMar")):
+        tc_pr.remove(existing)
+    tc_mar = OxmlElement("w:tcMar")
+    for edge in ("top", "left", "bottom", "right"):
+        node = OxmlElement(f"w:{edge}")
+        node.set(qn("w:w"), str(int(twips)))
+        node.set(qn("w:type"), "dxa")
+        tc_mar.append(node)
+    tc_pr.append(tc_mar)
+
+
+def _cell_set_table(cell, rows, cols):
+    """Replace cell content with a single table (no leading empty paragraphs)."""
+    table = cell.add_table(rows=rows, cols=cols)
+    tc = cell._tc
+    for child in list(tc):
+        if child.tag.endswith("}p"):
+            tc.remove(child)
+    return table
+
+
 def _write_page_number_cell(cell, color="#888888", font="Calibri", size_pt=8):
     """Write 'Page N of M' using Word PAGE/NUMPAGES fields (matches Bears preview footer)."""
     from docx.oxml.ns import qn
@@ -554,25 +598,111 @@ def create_from_layout(layout, output_path):
             left, right = table.rows[0].cells
             _set_cell_borders_docx(left, None)
             _set_cell_borders_docx(right, None)
-            # Left: logo + brand
+            # Left: optional co-brand lockup [logo | + | IMG] (vertically centered,
+            # equal gaps via fixed plus column) + brand, all on one row.
             _clear_cell(left)
             lp = left.paragraphs[0]
-            if header_spec.get("logo"):
-                run = lp.add_run()
+            logo_w = float(header_spec.get("logo_width_inches", 0.35))
+            left.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+            right.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+            if header_spec.get("logo") and header_spec.get("customer_logo_token"):
+                plus_w = float(header_spec.get("logo_plus_width_inches", 0.16))
+                widths = (logo_w, plus_w, logo_w)
+                lockup_total = sum(widths)
+                wrap = _cell_set_table(left, 1, 2)
+                wrap.autofit = False
+                wrap.allow_autofit = False
+                wrap.columns[0].width = Inches(lockup_total)
+                wrap.columns[1].width = Inches(1.6)
+                for cell in wrap.rows[0].cells:
+                    _set_cell_borders_docx(cell, None)
+                    _set_cell_margins_docx(cell, 0)
+                    cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+                lock_cell = wrap.rows[0].cells[0]
+                brand_cell = wrap.rows[0].cells[1]
+                lockup = _cell_set_table(lock_cell, 1, 3)
+                lockup.autofit = False
+                lockup.allow_autofit = False
+                for idx, w in enumerate(widths):
+                    lockup.columns[idx].width = Inches(w)
+                    cell = lockup.rows[0].cells[idx]
+                    cell.width = Inches(w)
+                    _set_cell_borders_docx(cell, None)
+                    _set_cell_margins_docx(cell, 0)
+                    cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+                # Bears (static)
+                bc = lockup.rows[0].cells[0]
+                _clear_cell(bc)
+                bp = bc.paragraphs[0]
+                apply_alignment(bp, "center")
+                bp.paragraph_format.space_before = Pt(0)
+                bp.paragraph_format.space_after = Pt(0)
+                brun = bp.add_run()
                 try:
-                    run.add_picture(header_spec["logo"], width=Inches(header_spec.get("logo_width_inches", 0.35)))
+                    brun.add_picture(header_spec["logo"], width=Inches(logo_w))
                 except FileNotFoundError:
-                    run.add_text("[logo]")
-                lp.add_run("  ")
-            brand = lp.add_run(header_spec.get("brand_text", "CHICAGO BEARS"))
-            _style_run(brand, {
-                "bold": True,
-                "size_pt": header_spec.get("brand_size_pt", 9),
-                "color": header_spec.get("brand_color", "#AAAAAA"),
-                "font": defaults["font"],
-            })
+                    brun.add_text("[logo]")
+                # Plus — centered so left/right logos are equidistant from it
+                pc = lockup.rows[0].cells[1]
+                _clear_cell(pc)
+                pp = pc.paragraphs[0]
+                apply_alignment(pp, "center")
+                pp.paragraph_format.space_before = Pt(0)
+                pp.paragraph_format.space_after = Pt(0)
+                plus_run = pp.add_run(header_spec.get("logo_plus", "+"))
+                _style_run(plus_run, {
+                    "bold": True,
+                    "size_pt": header_spec.get("logo_plus_size_pt", 14),
+                    "color": header_spec.get(
+                        "logo_plus_color", header_spec.get("brand_color", "#0B162A")
+                    ),
+                    "font": defaults["font"],
+                })
+                # Customer logo (DocGen replaces {{IMG_*}})
+                cc = lockup.rows[0].cells[2]
+                _clear_cell(cc)
+                cp = cc.paragraphs[0]
+                apply_alignment(cp, "center")
+                cp.paragraph_format.space_before = Pt(0)
+                cp.paragraph_format.space_after = Pt(0)
+                img_run = cp.add_run(header_spec["customer_logo_token"])
+                _style_run(img_run, {
+                    "size_pt": header_spec.get("brand_size_pt", 9),
+                    "color": header_spec.get("brand_color", "#AAAAAA"),
+                    "font": defaults["font"],
+                })
+                _clear_cell(brand_cell)
+                bpar = brand_cell.paragraphs[0]
+                bpar.paragraph_format.space_before = Pt(0)
+                bpar.paragraph_format.space_after = Pt(0)
+                brand = bpar.add_run("  " + header_spec.get("brand_text", "CHICAGO BEARS"))
+                _style_run(brand, {
+                    "bold": True,
+                    "size_pt": header_spec.get("brand_size_pt", 9),
+                    "color": header_spec.get("brand_color", "#AAAAAA"),
+                    "font": defaults["font"],
+                })
+            else:
+                if header_spec.get("logo"):
+                    run = lp.add_run()
+                    try:
+                        run.add_picture(
+                            header_spec["logo"],
+                            width=Inches(logo_w),
+                        )
+                    except FileNotFoundError:
+                        run.add_text("[logo]")
+                    lp.add_run("  ")
+                brand = lp.add_run(header_spec.get("brand_text", "CHICAGO BEARS"))
+                _style_run(brand, {
+                    "bold": True,
+                    "size_pt": header_spec.get("brand_size_pt", 9),
+                    "color": header_spec.get("brand_color", "#AAAAAA"),
+                    "font": defaults["font"],
+                })
             # Right: subtitle
             _clear_cell(right)
+            _set_cell_margins_docx(right, 0)
             rp = right.paragraphs[0]
             apply_alignment(rp, "right")
             rr = rp.add_run(header_spec.get("right_text", ""))
@@ -815,6 +945,17 @@ def create_from_layout(layout, output_path):
             table.style = elem.get("style", "Table Grid")
             border = elem.get("border", "333333")
             no_borders = elem.get("no_borders", False)
+            if elem.get("col_widths"):
+                _set_table_full_width(table)
+                _set_docx_col_widths(table, elem["col_widths"])
+                # Tight padding so currency + arrow fit the pinned widths.
+                _set_table_cell_margins(
+                    table,
+                    top=elem.get("cell_margin_top", 20),
+                    left=elem.get("cell_margin_left", 28),
+                    bottom=elem.get("cell_margin_bottom", 20),
+                    right=elem.get("cell_margin_right", 28),
+                )
 
             row_offset = 0
             if header:

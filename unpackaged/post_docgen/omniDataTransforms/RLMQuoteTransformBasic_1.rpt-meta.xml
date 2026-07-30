@@ -404,6 +404,7 @@
         <linkedObjectSequence>0.0</linkedObjectSequence>
         <name>RLMQuoteTransformBasic</name>
         <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldFormat>Number(2)</outputFieldFormat>
         <outputFieldName>Line:NetUnitPrice</outputFieldName>
         <outputObjectName>json</outputObjectName>
         <requiredForUpsert>false</requiredForUpsert>
@@ -1080,8 +1081,8 @@
     <omniDataTransformItem>
         <disabled>false</disabled>
         <filterGroup>0.0</filterGroup>
-        <formulaConverted>| | var:Line:PricingTermCount 12 * 4 ROUND</formulaConverted>
-        <formulaExpression>ROUND(Line:PricingTermCount * 12, 4)</formulaExpression>
+        <formulaConverted>| | var:Line:PricingTermCount 12 * 0 ROUND</formulaConverted>
+        <formulaExpression>ROUND(Line:PricingTermCount * 12, 0)</formulaExpression>
         <formulaResultPath>Line:TermMonths</formulaResultPath>
         <formulaSequence>8.0</formulaSequence>
         <globalKey>43df5563-9a07-4419-83d5-1db4f8d3f17e</globalKey>
@@ -1434,6 +1435,7 @@
         <linkedObjectSequence>0.0</linkedObjectSequence>
         <name>RLMQuoteTransformBasic</name>
         <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldFormat>Number(2)</outputFieldFormat>
         <outputFieldName>AmendProductCurrentAmending:NetUnitPrice</outputFieldName>
         <outputObjectName>json</outputObjectName>
         <requiredForUpsert>false</requiredForUpsert>
@@ -1494,6 +1496,7 @@
         <linkedObjectSequence>0.0</linkedObjectSequence>
         <name>RLMQuoteTransformBasic</name>
         <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldFormat>Number(2)</outputFieldFormat>
         <outputFieldName>AmendAddProduct:NetUnitPrice</outputFieldName>
         <outputObjectName>json</outputObjectName>
         <requiredForUpsert>false</requiredForUpsert>
@@ -1584,6 +1587,7 @@
         <linkedObjectSequence>0.0</linkedObjectSequence>
         <name>RLMQuoteTransformBasic</name>
         <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldFormat>Number(2)</outputFieldFormat>
         <outputFieldName>AmendProductAmending:NetUnitPrice</outputFieldName>
         <outputObjectName>json</outputObjectName>
         <requiredForUpsert>false</requiredForUpsert>
@@ -1792,6 +1796,85 @@
         <name>RLMQuoteTransformBasic</name>
         <outputCreationSequence>1.0</outputCreationSequence>
         <outputFieldName>AmendAddProduct:IF_MRRUp</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <formulaConverted>| &quot;53&quot; &quot;&quot; CONCAT</formulaConverted>
+        <formulaExpression>CONCAT(&quot;53&quot;, &quot;&quot;)</formulaExpression>
+        <formulaResultPath>CustomerLogoWidth</formulaResultPath>
+        <formulaSequence>19.0</formulaSequence>
+        <globalKey>c3d4e5f6-a7b8-9012-cdef-123456789012</globalKey>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>0.0</outputCreationSequence>
+        <outputFieldName>Formula</outputFieldName>
+        <outputObjectName>Formula</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <formulaConverted>| &quot;53&quot; &quot;&quot; CONCAT</formulaConverted>
+        <formulaExpression>CONCAT(&quot;53&quot;, &quot;&quot;)</formulaExpression>
+        <formulaResultPath>CustomerLogoHeight</formulaResultPath>
+        <formulaSequence>20.0</formulaSequence>
+        <globalKey>d4e5f6a7-b8c9-0123-def0-234567890123</globalKey>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>0.0</outputCreationSequence>
+        <outputFieldName>Formula</outputFieldName>
+        <outputObjectName>Formula</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>e5f6a7b8-c9d0-1234-ef01-345678901234</globalKey>
+        <inputFieldName>CustomerLogoDocId</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>IMG_CustomerLogo:src</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>f6a7b8c9-d0e1-2345-f012-456789012345</globalKey>
+        <inputFieldName>CustomerLogoWidth</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>IMG_CustomerLogo:width</outputFieldName>
+        <outputObjectName>json</outputObjectName>
+        <requiredForUpsert>false</requiredForUpsert>
+        <transformValuesMappings>{ }</transformValuesMappings>
+        <upsertKey>false</upsertKey>
+    </omniDataTransformItem>
+    <omniDataTransformItem>
+        <disabled>false</disabled>
+        <filterGroup>0.0</filterGroup>
+        <globalKey>a7b8c9d0-e1f2-3456-0123-567890123456</globalKey>
+        <inputFieldName>CustomerLogoHeight</inputFieldName>
+        <inputObjectQuerySequence>0.0</inputObjectQuerySequence>
+        <linkedObjectSequence>0.0</linkedObjectSequence>
+        <name>RLMQuoteTransformBasic</name>
+        <outputCreationSequence>1.0</outputCreationSequence>
+        <outputFieldName>IMG_CustomerLogo:height</outputFieldName>
         <outputObjectName>json</outputObjectName>
         <requiredForUpsert>false</requiredForUpsert>
         <transformValuesMappings>{ }</transformValuesMappings>
