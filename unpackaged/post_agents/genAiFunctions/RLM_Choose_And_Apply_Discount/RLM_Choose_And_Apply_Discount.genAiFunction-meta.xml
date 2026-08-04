@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<GenAiFunction xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description>Shows a clickable discount picker (10/20/30/40/Other) and applies the chosen percent to matching quote lines.</description>
+    <developerName>RLM_Choose_And_Apply_Discount</developerName>
+    <invocationTarget>RLM_AI_ChooseApplyDiscountService</invocationTarget>
+    <invocationTargetType>apex</invocationTargetType>
+    <isConfirmationRequired>false</isConfirmationRequired>
+    <isIncludeInProgressIndicator>true</isIncludeInProgressIndicator>
+    <localDeveloperName>RLM_Choose_And_Apply_Discount</localDeveloperName>
+    <masterLabel>Choose And Apply Discount</masterLabel>
+    <progressIndicatorMessage>Applying discount ...</progressIndicatorMessage>
+</GenAiFunction>

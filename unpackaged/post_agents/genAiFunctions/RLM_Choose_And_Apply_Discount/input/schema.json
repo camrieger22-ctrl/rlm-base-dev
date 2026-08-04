@@ -1,0 +1,28 @@
+{
+    "required": ["discount_choice", "quoteId"],
+    "unevaluatedProperties": false,
+    "properties": {
+        "discount_choice": {
+            "title": "discount_choice",
+            "description": "Discount percent selected from the clickable picker (10/20/30/40/Other).",
+            "lightning:type": "c__rlmDiscountChoice",
+            "lightning:isPII": false,
+            "copilotAction:isUserInput": true
+        },
+        "quoteId": {
+            "title": "quoteId",
+            "description": "Quote Id whose lines receive the discount.",
+            "lightning:type": "lightning__textType",
+            "lightning:isPII": false,
+            "copilotAction:isUserInput": false
+        },
+        "productName": {
+            "title": "productName",
+            "description": "Product name used to target quote lines (from price history).",
+            "lightning:type": "lightning__textType",
+            "lightning:isPII": false,
+            "copilotAction:isUserInput": false
+        }
+    },
+    "lightning:type": "lightning__objectType"
+}

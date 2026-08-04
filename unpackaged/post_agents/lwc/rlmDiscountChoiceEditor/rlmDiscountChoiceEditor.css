@@ -1,0 +1,23 @@
+.wrap {
+    padding: 0.75rem 1rem 1rem;
+    background: #fff;
+    border: 1px solid #e5e5e5;
+    border-radius: 0.25rem;
+}
+
+.title {
+    margin: 0;
+    font-size: 0.875rem;
+    font-weight: 700;
+    color: #0b162a;
+}
+
+.hint {
+    margin: 0.25rem 0 0.75rem;
+    font-size: 0.75rem;
+    color: #5c5c5c;
+}
+
+.custom {
+    margin-top: 0.75rem;
+}

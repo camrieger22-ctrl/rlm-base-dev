@@ -1,6 +1,6 @@
 system:
     instructions: |
-        You are Quinn, a Revenue Cloud quoting assistant for sales reps. You help them discover products, create and manage quotes, add products, apply line discounts, configure products, and review quote totals. You work a tight, polished flow and act with confidence.
+        You are Quinn, a Revenue Cloud quoting assistant for sales reps. You help them discover products, create and manage quotes, add products, apply line discounts, configure products, review quote totals, summarize amendment impact, look up asset price history, search the catalog for an amend, and generate branded partnership proposal/deck documents. You work a tight, polished flow and act with confidence.
 
         Persona — embody these traits in every response:
         - Identity: Quinn — a confident quoting peer who operates like a sharp deal-desk advisor.
@@ -31,7 +31,7 @@ system:
         - Before acting on a specific record, resolve the target from page context, prior action output, or a lookup. If the target is genuinely missing or ambiguous, ask one focused question or present the matching records as a native list for selection — do not guess.
 
         Global operating rules (apply in every topic — they are not repeated per topic):
-        - Rendering: when an action returns a DISPLAYABLE card, rich-text, or list output, render that output with show_command. Never render or surface non-displayable plumbing (record IDs, *Json fields, raw attribute/validation JSON) — those are for internal wiring only. Don't restate in text what a card or list already shows.
+        - Rendering: when an action returns a DISPLAYABLE card, rich-text, or list output, render that output with show_command EXACTLY as returned. Never rewrite, summarize, reorder, or restyle a displayable string (especially historyDisplay / summaryDisplay) — the Apex formatter owns the layout. Never render or surface non-displayable plumbing (record IDs, *Json fields, raw attribute/validation JSON) — those are for internal wiring only. Don't restate in text what a card or list already shows.
         - Quote targeting: default the quote to activeQuoteId; otherwise, if currentObjectApiName is Quote or currentRecordId starts with 0Q0, use currentRecordId; only ask which quote when neither is available and the user did not name one.
         - Line targeting: when currentObjectApiName is QuoteLineItem or currentRecordId starts with 0QL, that ID IS the target quote line — use it directly for line reads/edits/attribute config (it is already resolved; do not call Get_QuoteLineItem_from_Quote and do not ask the user which line). Its parent quote is that line's QuoteId.
         - Freshness: the planner does not auto-refresh. For any question about a record's CURRENT state (field values, totals, status, dates, line membership), re-query before answering rather than reusing earlier output; do not re-query static facts (names, IDs you already hold). After a mutating action, report only the line(s) that changed, using the action's own result — don't re-list the whole quote unless asked or the change touched every line.
@@ -40,13 +40,13 @@ system:
         - Scope: don't delete quotes; discounts are line-level only.
     messages:
         welcome:|
-            Hi, I'm Quinn. I can find products, build and edit quotes, apply discounts, configure products, and show you the totals. What are we working on?
+            Hi, I'm Quinn. I can find products, build and edit quotes, apply discounts, configure products, summarize amendments, and generate partnership docs. What are we working on?
         error: "Something went wrong. Try again in a moment, or ask your Salesforce admin for help."
 
 config:
     agent_label: "Quoting Assistant"
     agent_type: "AgentforceEmployeeAgent"
-    description: "Revenue Cloud quoting assistant for sales reps. Finds products, creates and manages quotes, adds products, applies line discounts, configures products, and presents quote totals as native record cards. Tight demo arc; speaks in names, never raw IDs."
+    description: "Revenue Cloud quoting assistant for sales reps. Finds products, creates and manages quotes, adds products, applies line discounts, configures products, summarizes amendment impact, and generates partnership proposal/deck documents. Tight demo arc; speaks in names, never raw IDs."
     developer_name: "RLM_Quoting_Assistant"
 
 variables:
@@ -117,6 +117,12 @@ variables:
         description: "A names-only summary of the most recent change (add, discount), for a clean confirmation."
     pendingQuoteRecordLookup: mutable boolean = False
         description: "Internal flag set after a quote creation succeeds. When true, the subagent runs Get_Quote_Record_Card before responding so the user gets a native card."
+    pendingDiscountProductName: mutable string = ""
+        description: "Product name from the last asset price history ask; used to target Choose_And_Apply_Discount. Internal only."
+    priceHistoryReady: mutable boolean = False
+        description: "True after Get_Asset_Price_History was shown for the current ask. Discount CLT must not open until this is true AND the user opts in. Internal only."
+    discountChoiceSubmitted: mutable boolean = False
+        description: "True after the CLT discount picker has been submitted for this history turn. Internal only."
 
 language:
     default_locale: "en_US"
@@ -140,6 +146,10 @@ start_agent agent_router:
               - QuoteManagement vs LineManagement: the quote HEADER and whole-quote views (create, card, recap, name/status/expiration) are QuoteManagement; anything that adds, discounts, or edits individual LINES is LineManagement. When in doubt between the two, the receiving topic will hand off to the other, so prefer the one that matches the primary verb.
               - If the user wants to configure a product or set/change a product ATTRIBUTE (an option or picklist value on the line, e.g. environment, tier, color), route to ProductConfiguration.
               - Attribute vs. field is decided by DATA, not by the word "set" and not by being on a Quote page. A quote line has configurable product ATTRIBUTES (read via Get_Quote_Line_Attributes) AND standard FIELDS (dates, quantity, description). When a "change/set the <X> on this line" request is ambiguous, the owning topic resolves it by reading the line's attributes first (see ProductConfiguration step 1.5); do NOT pre-decide it here just because the user is on a Quote page. Default such "change a value on the line" requests to ProductConfiguration ONLY when X plausibly names a product attribute; if X clearly names a standard line field (a date/term/quantity/description), route to LineManagement.
+              - If the user wants amendment impact (Current / This add / Finalized), what's on contract, asset price history, catalog search for an amend quote, or to generate the Bears / partnership proposal or deck, route to AmendmentStudio.
+              - Also route ACTION_CONFIRM messages to AmendmentStudio when a discount picker may be in progress (Choose_And_Apply_Discount CLT submit).
+              - AmendmentStudio vs QuoteManagement: whole-quote card/recap/header edits stay QuoteManagement; amend difference tables, installed-footprint history, amend-scoped catalog search, and partnership DocGen are AmendmentStudio.
+              - AmendmentStudio vs LineManagement: adding/discounting/editing lines on a normal quote is LineManagement; amend-oriented "what's the impact / history / generate docs" is AmendmentStudio. Plain "add product to this quote" still goes to LineManagement unless the user is clearly in an amend-impact conversation. After price history, discount picks use Choose_And_Apply_Discount (CLT) inside AmendmentStudio — do not divert those to LineManagement.
               - If the request is unclear or under-specified, route to ambiguous_question.
               - If the request is unrelated to product discovery or quoting, route to off_topic.
 
@@ -148,6 +158,7 @@ start_agent agent_router:
             go_to_QuoteManagement: @utils.transition to @subagent.QuoteManagement
             go_to_LineManagement: @utils.transition to @subagent.LineManagement
             go_to_ProductConfiguration: @utils.transition to @subagent.ProductConfiguration
+            go_to_AmendmentStudio: @utils.transition to @subagent.AmendmentStudio
             go_to_ambiguous_question: @utils.transition to @subagent.ambiguous_question
             go_to_off_topic: @utils.transition to @subagent.off_topic
 
@@ -329,6 +340,7 @@ subagent QuoteManagement:
               - Add a product, apply a discount, edit a LINE field (a line's date / start / end / term / quantity / description), or list/resolve specific lines -> go_to_LineManagement.
               - Configure a product attribute (an option / picklist value on a line) -> go_to_ProductConfiguration.
               - Browse / search the product catalog -> go_to_ProductSelection.
+              - Amendment impact / asset history / partnership docs -> go_to_AmendmentStudio.
 
         actions:
             CreateInitialQuote: @actions.CreateInitialQuote
@@ -369,6 +381,7 @@ subagent QuoteManagement:
             go_to_LineManagement: @utils.transition to @subagent.LineManagement
             go_to_ProductSelection: @utils.transition to @subagent.ProductSelection
             go_to_ProductConfiguration: @utils.transition to @subagent.ProductConfiguration
+            go_to_AmendmentStudio: @utils.transition to @subagent.AmendmentStudio
 
 
 
@@ -750,11 +763,13 @@ subagent LineManagement:
               - On isSuccess=false, show errorMessage verbatim and propose a recovery (e.g. the corrected date format); don't stall.
 
               Discount targeting: "discount everything" / "all lines" -> applyToAll=true; "discount the <product> line" -> productName=<product>. Discount modes: "10% off" -> discountMode="percent", discountPercentage=10; "sell at $900" -> discountMode="targetPrice", targetPrice=900; "sell at 90% of list" -> discountMode="percentOfList", targetPercentOfList=90.
+              After Amendment Studio price history: if the user just picked or typed a discount percent (e.g. "20%", "40", "Other" then a number) and lastProductName / the history product is known, apply immediately with Apply_Discount_To_Quote_Lines (productName=<that product>, discountMode="percent", discountPercentage=<number>). Do not re-ask which discount or which product unless targeting is ambiguous.
 
               Hand off, don't improvise:
               - Create a quote, edit a quote HEADER field (name / status / expiration), or show the quote card / totals / recap -> go_to_QuoteManagement.
               - Configure a product attribute (an option / picklist value on a line) -> go_to_ProductConfiguration.
               - Browse / search the product catalog -> go_to_ProductSelection.
+              - Amendment impact / asset history / partnership docs -> go_to_AmendmentStudio.
 
         actions:
             Add_Product_To_Quote: @actions.Add_Product_To_Quote
@@ -809,6 +824,7 @@ subagent LineManagement:
             go_to_QuoteManagement: @utils.transition to @subagent.QuoteManagement
             go_to_ProductSelection: @utils.transition to @subagent.ProductSelection
             go_to_ProductConfiguration: @utils.transition to @subagent.ProductConfiguration
+            go_to_AmendmentStudio: @utils.transition to @subagent.AmendmentStudio
 
 
 
@@ -1621,31 +1637,31 @@ subagent ProductConfiguration:
                     is_displayable: False
                     filter_from_agent: False
                     complex_data_type_name: "lightning__textType"
-                "unitPrice": number
+                "unitPrice": object
                     description: "Updated unit price after configuration and pricing ran."
                     label: "unitPrice"
                     is_displayable: False
                     filter_from_agent: False
                     complex_data_type_name: "lightning__currencyType"
-                "totalPrice": number
+                "totalPrice": object
                     description: "Updated total price (unit price x quantity, after discounts)."
                     label: "totalPrice"
                     is_displayable: False
                     filter_from_agent: False
                     complex_data_type_name: "lightning__currencyType"
-                "listPrice": number
+                "listPrice": object
                     description: "Catalog list price before discounts."
                     label: "listPrice"
                     is_displayable: False
                     filter_from_agent: False
                     complex_data_type_name: "lightning__currencyType"
-                "grandTotal": number
+                "grandTotal": object
                     description: "Grand total of the entire quote including all expanded lines, discounts, and taxes."
                     label: "grandTotal"
                     is_displayable: True
                     filter_from_agent: False
                     complex_data_type_name: "lightning__currencyType"
-                "quoteSubtotal": number
+                "quoteSubtotal": object
                     description: "Quote subtotal before discounts and taxes."
                     label: "quoteSubtotal"
                     is_displayable: False
@@ -1707,6 +1723,308 @@ subagent ProductConfiguration:
                     complex_data_type_name: "lightning__textType"
                 "errorMessage": string
                     description: "Error message if retrieving the configuration summary failed."
+                    label: "errorMessage"
+                    is_displayable: False
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__textType"
+
+
+
+
+
+
+
+subagent AmendmentStudio:
+
+    label: "Amendment Studio"
+    description: "Amendment-oriented reads, clickable discount picker after price history, catalog search, and Bears proposal/deck DocGen. Hands off to Line Management for plain add/line edits outside the history discount flow."
+
+    reasoning:
+        instructions: ->
+            | Help the rep understand an amendment quote and generate partnership documents. Prefer the page-context Quote Id (activeQuoteId / currentRecordId). Speak in names only — never print raw Salesforce Ids.
+
+              How to act:
+              - Summarize what's on contract / Current / This add / Finalized -> Summarize_Amend_Impact. Render summaryDisplay. Point to Amendment Studio on the page for the full grids.
+              - What have they paid for a product over time / asset price history:
+                CRITICAL — two separate turns. Agentforce CLT forms replace chat text, so history and the discount picker must NEVER share a turn.
+                TURN A (history ask — e.g. "What have they paid for Generative AI over time"):
+                1) ALWAYS call Get_Asset_Price_History with productName from the user's words (e.g. "Generative AI"). Never answer from memory.
+                2) show_command historyDisplay EXACTLY as returned — never rewrite or restate it.
+                3) Set pendingDiscountProductName=productName, lastProductName=productName, priceHistoryReady=True, discountChoiceSubmitted=False.
+                4) Do NOT call Choose_And_Apply_Discount on this turn. After the history card, ask exactly: "Apply a discount based on this history?" and present selectable radio options with these exact labels: "Yes — choose a discount", "No thanks".
+                TURN B (only after priceHistoryReady=True and the user picks "Yes — choose a discount" / says yes / apply / choose a discount):
+                1) Call {!@actions.Choose_And_Apply_Discount} user_input with quoteId, productName=pendingDiscountProductName, and discount_choice seeded with contextQuoteId=<quoteId>, contextProductName=<productName>, selectedOption blank.
+                2) Do not re-show history as chat text on this turn — the picker is the discount buttons.
+              - If ACTION_CONFIRM (user submitted the discount picker): call {!@actions.Choose_And_Apply_Discount} with the form data (discount_choice), quoteId, and productName=pendingDiscountProductName. Do NOT ask for confirmation again. On success, show_command resultsDisplay and set discountChoiceSubmitted=True, priceHistoryReady=False. On failure, show errorMessage plainly.
+              - Search catalog for products to add on this amend -> Search_Catalog_Products. Present names; if several matches, ask which one. Do not add lines from this topic yet — hand off to LineManagement for the actual add (writes for expand/catalog-add on amend come later).
+              - Generate Bears / partnership proposal, deck, or both -> Generate_Partnership_Documents with documentType proposal | deck | both. Confirm files were queued; tell the user to refresh Files shortly.
+
+              Hand off:
+              - Add a product or edit a line field/quantity (outside the history discount picker) -> go_to_LineManagement.
+              - Show the native quote card / edit quote header -> go_to_QuoteManagement.
+              - Browse catalog without amend context -> go_to_ProductSelection.
+
+        actions:
+            Summarize_Amend_Impact: @actions.Summarize_Amend_Impact
+                with quoteId=...
+            Get_Asset_Price_History: @actions.Get_Asset_Price_History
+                with quoteId=...
+                with productName=...
+                set @variables.lastProductName = @inputs.productName
+                set @variables.pendingDiscountProductName = @inputs.productName
+                set @variables.priceHistoryReady = True
+                set @variables.discountChoiceSubmitted = False
+            Choose_And_Apply_Discount: @actions.Choose_And_Apply_Discount
+                with discount_choice=...
+                with quoteId=...
+                with productName=@variables.pendingDiscountProductName
+                set @variables.discountChoiceSubmitted = True
+                set @variables.priceHistoryReady = False
+                set @variables.lastMutationSummary = @outputs.resultsDisplay
+                available when @variables.priceHistoryReady == True
+            Search_Catalog_Products: @actions.Search_Catalog_Products
+                with quoteId=...
+                with searchTerm=...
+            Generate_Partnership_Documents: @actions.Generate_Partnership_Documents
+                with quoteId=...
+                with documentType=...
+            go_to_LineManagement: @utils.transition to @subagent.LineManagement
+            go_to_QuoteManagement: @utils.transition to @subagent.QuoteManagement
+            go_to_ProductSelection: @utils.transition to @subagent.ProductSelection
+
+
+
+    actions:
+        Summarize_Amend_Impact:
+            description: "Builds a names-only Current / This add / Finalized amendment impact summary for a Quote, including KPI totals and installed/amending product names. Read-only."
+            label: "Summarize Amend Impact"
+            require_user_confirmation: False
+            include_in_progress_indicator: True
+            progress_indicator_message: "Summarizing amendment impact ..."
+            target: "flow://RLM_AI_Summarize_Amend_Impact"
+
+            inputs:
+                "quoteId": string
+                    description: "The 18-character Quote Id (starts with 0Q0) to summarize."
+                    label: "quoteId"
+                    is_required: True
+                    is_user_input: False
+                    complex_data_type_name: "lightning__textType"
+
+            outputs:
+                "isSuccess": boolean
+                    description: "True when the summary was built."
+                    label: "isSuccess"
+                    is_displayable: False
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__booleanType"
+                "summaryDisplay": string
+                    description: "Names-only Current / This add / Finalized amendment impact. Present this to the user."
+                    label: "summaryDisplay"
+                    is_displayable: True
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__richTextType"
+                "isAmendmentQuote": boolean
+                    description: "True when the quote looks like an amendment."
+                    label: "isAmendmentQuote"
+                    is_displayable: False
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__booleanType"
+                "errorMessage": string
+                    description: "Plain-language error if the summary could not be built."
+                    label: "errorMessage"
+                    is_displayable: False
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__textType"
+
+        Choose_And_Apply_Discount:
+            description: "Shows a clickable discount picker (10/20/30/40/Other) via Custom Lightning Type and applies the chosen percent to matching quote lines. Use after asset price history. Call with user_input to render the picker; on ACTION_CONFIRM call again with the form data."
+            label: "Choose And Apply Discount"
+            require_user_confirmation: False
+            include_in_progress_indicator: True
+            progress_indicator_message: "Applying discount ..."
+            target: "apex://RLM_AI_ChooseApplyDiscountService"
+            source: "RLM_Choose_And_Apply_Discount"
+
+            inputs:
+                "discount_choice": object
+                    description: "CLT picker payload. When opening user_input, ALWAYS seed contextQuoteId (the Quote Id) and contextProductName (e.g. Generative AI) so the form can load price history above the buttons; leave selectedOption blank until the user picks. On submit, selectedOption is 10/20/30/40/other plus optional customPercent."
+                    label: "discount_choice"
+                    is_required: True
+                    is_user_input: True
+                    complex_data_type_name: "c__rlmDiscountChoice"
+                "quoteId": string
+                    description: "The 18-character Quote Id (starts with 0Q0) whose lines receive the discount."
+                    label: "quoteId"
+                    is_required: True
+                    is_user_input: False
+                    complex_data_type_name: "lightning__textType"
+                "productName": string
+                    description: "Product name used to target quote lines (from the price-history ask)."
+                    label: "productName"
+                    is_required: False
+                    is_user_input: False
+                    complex_data_type_name: "lightning__textType"
+
+            outputs:
+                "isSuccess": boolean
+                    description: "True when the discount was applied."
+                    label: "isSuccess"
+                    is_displayable: False
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__booleanType"
+                "resultsDisplay": object
+                    description: "Names-only summary of discounted lines. Present with show_command on success."
+                    label: "resultsDisplay"
+                    is_displayable: True
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__richTextType"
+                "errorMessage": string
+                    description: "Plain-language error if the discount could not be applied."
+                    label: "errorMessage"
+                    is_displayable: False
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__textType"
+                "discountPercentage": number
+                    description: "Resolved discount percent that was applied."
+                    label: "discountPercentage"
+                    is_displayable: False
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__numberType"
+
+        Get_Asset_Price_History:
+            description: "Returns names-only commercial asset price history for the Account behind an amendment Quote. Optional productName filter. Read-only and advisory — does not change price."
+            label: "Get Asset Price History"
+            require_user_confirmation: False
+            include_in_progress_indicator: True
+            progress_indicator_message: "Loading asset price history ..."
+            target: "flow://RLM_AI_Get_Asset_Price_History"
+
+            inputs:
+                "quoteId": string
+                    description: "The 18-character Quote Id (starts with 0Q0) whose Account history should be loaded."
+                    label: "quoteId"
+                    is_required: True
+                    is_user_input: False
+                    complex_data_type_name: "lightning__textType"
+                "productName": string
+                    description: "Product name filter extracted from the user utterance (e.g. Generative AI). Pass when the user names a product; leave blank only for full-account history."
+                    label: "productName"
+                    is_required: False
+                    is_user_input: False
+                    complex_data_type_name: "lightning__textType"
+
+            outputs:
+                "isSuccess": boolean
+                    description: "True when history was built (including an empty footprint)."
+                    label: "isSuccess"
+                    is_displayable: False
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__booleanType"
+                "historyDisplay": string
+                    description: "PLAIN TEXT price-history card from Apex. MUST be rendered with show_command EXACTLY as returned — never rewrite, summarize, or reformat. Not markdown."
+                    label: "historyDisplay"
+                    is_displayable: True
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__richTextType"
+                "errorMessage": string
+                    description: "Plain-language error if history could not be loaded."
+                    label: "errorMessage"
+                    is_displayable: False
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__textType"
+
+        Search_Catalog_Products:
+            description: "Searches the Revenue Cloud catalog for products matching a term, scoped to the Quote price book. Names-only. Read-only."
+            label: "Search Catalog Products"
+            require_user_confirmation: False
+            include_in_progress_indicator: True
+            progress_indicator_message: "Searching catalog ..."
+            target: "flow://RLM_AI_Search_Catalog_Products"
+
+            inputs:
+                "quoteId": string
+                    description: "The 18-character Quote Id (starts with 0Q0) whose price book scopes the search."
+                    label: "quoteId"
+                    is_required: True
+                    is_user_input: False
+                    complex_data_type_name: "lightning__textType"
+                "searchTerm": string
+                    description: "Product name or keywords (at least 2 characters)."
+                    label: "searchTerm"
+                    is_required: True
+                    is_user_input: True
+                    complex_data_type_name: "lightning__textType"
+
+            outputs:
+                "isSuccess": boolean
+                    description: "True when the search completed."
+                    label: "isSuccess"
+                    is_displayable: False
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__booleanType"
+                "resultsDisplay": string
+                    description: "Names-only catalog matches. Present this to the user."
+                    label: "resultsDisplay"
+                    is_displayable: True
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__richTextType"
+                "needsDisambiguation": boolean
+                    description: "True when more than one product matched."
+                    label: "needsDisambiguation"
+                    is_displayable: False
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__booleanType"
+                "matchCount": number
+                    description: "Number of catalog hits."
+                    label: "matchCount"
+                    is_displayable: False
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__numberType"
+                "errorMessage": string
+                    description: "Plain-language error if the search failed."
+                    label: "errorMessage"
+                    is_displayable: False
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__textType"
+
+        Generate_Partnership_Documents:
+            description: "Queues Advanced OmniStudio DocGen for the Chicago Bears partnership Word proposal and/or PowerPoint deck against the Quote. documentType is proposal, deck, or both."
+            label: "Generate Partnership Documents"
+            require_user_confirmation: False
+            include_in_progress_indicator: True
+            progress_indicator_message: "Generating partnership documents ..."
+            target: "flow://RLM_AI_Generate_Partnership_Documents"
+
+            inputs:
+                "quoteId": string
+                    description: "The 18-character Quote Id (starts with 0Q0) to generate documents for."
+                    label: "quoteId"
+                    is_required: True
+                    is_user_input: False
+                    complex_data_type_name: "lightning__textType"
+                "documentType": string
+                    description: "Which documents to generate: proposal, deck, or both."
+                    label: "documentType"
+                    is_required: True
+                    is_user_input: True
+                    complex_data_type_name: "lightning__textType"
+
+            outputs:
+                "isSuccess": boolean
+                    description: "True when document generation was queued."
+                    label: "isSuccess"
+                    is_displayable: False
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__booleanType"
+                "resultDisplay": string
+                    description: "Names-only confirmation of queued documents. Present this to the user."
+                    label: "resultDisplay"
+                    is_displayable: True
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__richTextType"
+                "errorMessage": string
+                    description: "Plain-language error if generation could not start."
                     label: "errorMessage"
                     is_displayable: False
                     filter_from_agent: False

@@ -1,0 +1,38 @@
+{
+    "unevaluatedProperties": false,
+    "properties": {
+        "isSuccess": {
+            "title": "isSuccess",
+            "description": "True when the discount was applied.",
+            "lightning:type": "lightning__booleanType",
+            "lightning:isPII": false,
+            "copilotAction:isDisplayable": false,
+            "copilotAction:useHydratedPrompt": false
+        },
+        "resultsDisplay": {
+            "title": "resultsDisplay",
+            "description": "Names-only summary of discounted lines.",
+            "lightning:type": "lightning__richTextType",
+            "lightning:isPII": false,
+            "copilotAction:isDisplayable": true,
+            "copilotAction:useHydratedPrompt": false
+        },
+        "errorMessage": {
+            "title": "errorMessage",
+            "description": "Plain-language error if the discount could not be applied.",
+            "lightning:type": "lightning__textType",
+            "lightning:isPII": false,
+            "copilotAction:isDisplayable": false,
+            "copilotAction:useHydratedPrompt": false
+        },
+        "discountPercentage": {
+            "title": "discountPercentage",
+            "description": "Resolved discount percent that was applied.",
+            "lightning:type": "lightning__numberType",
+            "lightning:isPII": false,
+            "copilotAction:isDisplayable": false,
+            "copilotAction:useHydratedPrompt": false
+        }
+    },
+    "lightning:type": "lightning__objectType"
+}

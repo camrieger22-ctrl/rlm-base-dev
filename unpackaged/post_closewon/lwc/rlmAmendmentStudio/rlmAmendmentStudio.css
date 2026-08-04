@@ -274,6 +274,17 @@
     color: #0b162a;
 }
 
+/* Same header band height on every KPI card so ARR/MRR/Qty share one baseline. */
+.kpi-card_current .kpi-card__label-row,
+.kpi-card_add > .kpi-card__label,
+.kpi-card_finalized > .kpi-card__label {
+    display: flex;
+    align-items: center;
+    min-height: 1.5rem;
+    margin-bottom: 0.5rem;
+    box-sizing: border-box;
+}
+
 .kpi-card_current .kpi-card__badge {
     display: inline-flex;
     align-items: center;
@@ -325,10 +336,6 @@
 }
 
 .kpi-metric-btn {
-    display: block;
-    width: 100%;
-    margin: 0;
-    padding: 0.15rem 0.2rem;
     border: 0;
     border-radius: 0.25rem;
     background: transparent;
@@ -357,7 +364,6 @@
 
 .kpi-card_add .kpi-card__label {
     color: #2e844a;
-    margin-bottom: 0.65rem;
 }
 
 .kpi-card_add .kpi-card__badge {
@@ -438,14 +444,19 @@
     gap: 0.4rem;
 }
 
+/*
+ * Shared by-product tracks across Current / This add / Finalized:
+ * name | Qty | ARR | MRR | (Prorated / Avg paid / spacer)
+ */
 .kpi-breakdown__row {
     display: grid;
     grid-template-columns: minmax(0, 1.4fr) repeat(3, minmax(3.25rem, 0.7fr)) minmax(3.75rem, 0.85fr);
     gap: 0.35rem 0.5rem;
-    align-items: end;
+    align-items: start;
     padding: 0.35rem 0.4rem;
     border-radius: 0.25rem;
     background: rgba(255, 255, 255, 0.65);
+    box-sizing: border-box;
 }
 
 .kpi-breakdown__row_amending {
@@ -467,9 +478,9 @@
     background: rgba(1, 118, 211, 0.12);
 }
 
-.kpi-breakdown__row_finalized {
-    grid-template-columns: minmax(0, 1.5fr) repeat(3, minmax(4rem, 1fr));
-    align-items: start;
+.kpi-breakdown__metric_spacer {
+    visibility: hidden;
+    pointer-events: none;
 }
 
 .kpi-breakdown__name {
@@ -736,7 +747,6 @@
 
 .kpi-card_finalized .kpi-card__label {
     color: #c83803;
-    margin-bottom: 0.65rem;
 }
 
 .kpi-card_finalized .kpi-card__badge {
@@ -777,14 +787,34 @@
     gap: 0.5rem;
 }
 
-/* Shared Current / This add columns: ARR | MRR | Qty | (Prorated / spacer). */
+/*
+ * Shared Current / This add / Finalized columns:
+ * ARR | MRR | Qty | (Prorated / spacer). Identical tracks + cell chrome so
+ * values line up across the three stacked cards.
+ */
 .kpi-card__metrics_aligned {
     grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(6.75rem, 0.95fr);
+    column-gap: 0.5rem;
+    row-gap: 0;
     align-items: start;
+}
+
+.kpi-metric {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: flex-start;
+    min-width: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0.15rem 0;
+    box-sizing: border-box;
 }
 
 .kpi-metric-spacer {
     min-height: 1px;
+    visibility: hidden;
+    pointer-events: none;
 }
 
 .kpi-metric-prorated {
@@ -792,26 +822,38 @@
     border-left: 1px solid #e5e9f0;
 }
 
-.kpi-metric-finalized .kpi-metric__value {
-    margin: 0;
-}
-
-.kpi-metric-finalized .delta,
-.kpi-metric-finalized .delta_up,
-.kpi-metric-finalized .delta_down,
-.kpi-metric-finalized .delta_neutral {
-    margin: 0.15rem 0 0;
-}
-
 .kpi-metric__label {
     margin: 0;
+    min-height: 1rem;
     font-size: var(--studio-size-xs);
+    line-height: 1rem;
     color: #5c5c5c;
 }
 
 .kpi-metric__value {
     margin: 0.1rem 0 0;
+    min-height: 1.35em;
     color: #0b162a;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Reserve one delta-line slot on every card so Finalized Δ does not shift rows. */
+.kpi-metric__delta {
+    margin: 0.15rem 0 0;
+    min-height: 1.15rem;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    line-height: 1.15rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.kpi-metric__delta_placeholder {
+    visibility: hidden;
+    user-select: none;
+}
+
+.kpi-metric-finalized .kpi-metric__value {
+    margin: 0.1rem 0 0;
 }
 
 .studio-panel {

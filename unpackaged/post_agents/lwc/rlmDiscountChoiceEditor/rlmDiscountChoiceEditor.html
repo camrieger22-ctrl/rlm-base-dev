@@ -1,0 +1,34 @@
+<template>
+    <div class="wrap">
+        <p class="title">{titleText}</p>
+        <p class="hint">Pick a percent, then confirm to apply it on this amend.</p>
+
+        <lightning-radio-group
+            name="discountOption"
+            label="Discount"
+            options={options}
+            value={selectedOption}
+            type="button"
+            onchange={handleOptionChange}
+            disabled={readOnly}
+            required
+        ></lightning-radio-group>
+
+        <template if:true={showCustom}>
+            <div class="custom">
+                <lightning-input
+                    type="number"
+                    name="customPercent"
+                    label="Custom discount %"
+                    value={customPercent}
+                    min="0"
+                    max="100"
+                    step="0.1"
+                    onchange={handleCustomChange}
+                    disabled={readOnly}
+                    required
+                ></lightning-input>
+            </div>
+        </template>
+    </div>
+</template>

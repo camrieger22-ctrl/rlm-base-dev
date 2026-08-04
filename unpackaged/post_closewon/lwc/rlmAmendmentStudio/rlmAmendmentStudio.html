@@ -200,7 +200,7 @@
                                     <div class="kpi-card__metrics kpi-card__metrics_aligned">
                                         <button
                                             type="button"
-                                            class="kpi-metric-btn"
+                                            class="kpi-metric kpi-metric-btn"
                                             onclick={handleOpenInstalledDrawer}
                                             title="View installed ledger that rolls up to Current ARR"
                                             aria-label="Current ARR — open installed ledger"
@@ -209,10 +209,11 @@
                                             <p class="kpi-metric__value">
                                                 <lightning-formatted-number value={kpiCurrentArr} format-style="currency" currency-code="USD"></lightning-formatted-number>
                                             </p>
+                                            <p class="kpi-metric__delta kpi-metric__delta_placeholder" aria-hidden="true">&nbsp;</p>
                                         </button>
                                         <button
                                             type="button"
-                                            class="kpi-metric-btn"
+                                            class="kpi-metric kpi-metric-btn"
                                             onclick={handleOpenInstalledDrawer}
                                             title="View installed ledger that rolls up to Current MRR"
                                             aria-label="Current MRR — open installed ledger"
@@ -221,10 +222,11 @@
                                             <p class="kpi-metric__value">
                                                 <lightning-formatted-number value={kpiCurrentMrr} format-style="currency" currency-code="USD"></lightning-formatted-number>
                                             </p>
+                                            <p class="kpi-metric__delta kpi-metric__delta_placeholder" aria-hidden="true">&nbsp;</p>
                                         </button>
                                         <button
                                             type="button"
-                                            class="kpi-metric-btn"
+                                            class="kpi-metric kpi-metric-btn"
                                             onclick={handleOpenInstalledDrawer}
                                             title="View installed ledger that rolls up to Current quantity"
                                             aria-label="Current quantity — open installed ledger"
@@ -233,8 +235,9 @@
                                             <p class="kpi-metric__value">
                                                 <lightning-formatted-number value={kpiCurrentQty} maximum-fraction-digits="0"></lightning-formatted-number>
                                             </p>
+                                            <p class="kpi-metric__delta kpi-metric__delta_placeholder" aria-hidden="true">&nbsp;</p>
                                         </button>
-                                        <div class="kpi-metric-spacer" aria-hidden="true"></div>
+                                        <div class="kpi-metric kpi-metric-spacer" aria-hidden="true"></div>
                                     </div>
                                     <template if:true={showCurrentBreakdown}>
                                         <div class="kpi-breakdown kpi-breakdown_current">
@@ -292,29 +295,33 @@
                                         <span class="kpi-card__badge">This add</span>
                                     </p>
                                     <div class="kpi-card__metrics kpi-card__metrics_aligned">
-                                        <div>
+                                        <div class="kpi-metric">
                                             <p class="kpi-metric__label">ARR</p>
                                             <p class="kpi-metric__value">
                                                 <lightning-formatted-number value={thisAddArr} format-style="currency" currency-code="USD"></lightning-formatted-number>
                                             </p>
+                                            <p class="kpi-metric__delta kpi-metric__delta_placeholder" aria-hidden="true">&nbsp;</p>
                                         </div>
-                                        <div>
+                                        <div class="kpi-metric">
                                             <p class="kpi-metric__label">MRR</p>
                                             <p class="kpi-metric__value">
                                                 <lightning-formatted-number value={thisAddMrr} format-style="currency" currency-code="USD"></lightning-formatted-number>
                                             </p>
+                                            <p class="kpi-metric__delta kpi-metric__delta_placeholder" aria-hidden="true">&nbsp;</p>
                                         </div>
-                                        <div>
+                                        <div class="kpi-metric">
                                             <p class="kpi-metric__label">Qty</p>
                                             <p class="kpi-metric__value">
                                                 <lightning-formatted-number value={thisAddQty} maximum-fraction-digits="0"></lightning-formatted-number>
                                             </p>
+                                            <p class="kpi-metric__delta kpi-metric__delta_placeholder" aria-hidden="true">&nbsp;</p>
                                         </div>
-                                        <div class="kpi-metric-prorated">
+                                        <div class="kpi-metric kpi-metric-prorated">
                                             <p class="kpi-metric__label">Prorated</p>
                                             <p class="kpi-metric__value">
                                                 <lightning-formatted-number value={thisAddProrated} format-style="currency" currency-code="USD"></lightning-formatted-number>
                                             </p>
+                                            <p class="kpi-metric__delta kpi-metric__delta_placeholder" aria-hidden="true">&nbsp;</p>
                                         </div>
                                     </div>
                                     <template if:true={showThisAddBreakdown}>
@@ -367,7 +374,7 @@
                                     <template if:true={showFinalizedImpact}>
                                         <div class="kpi-card__metrics kpi-card__metrics_aligned">
                                             <template for:each={impactDeltas} for:item="row">
-                                                <div key={row.key} class="kpi-metric-finalized">
+                                                <div key={row.key} class="kpi-metric kpi-metric-finalized">
                                                     <p class="kpi-metric__label">{row.label}</p>
                                                     <p class="kpi-metric__value">
                                                         <template if:true={row.formatCurrency}>
@@ -388,7 +395,7 @@
                                                     </p>
                                                 </div>
                                             </template>
-                                            <div class="kpi-metric-spacer" aria-hidden="true"></div>
+                                            <div class="kpi-metric kpi-metric-spacer" aria-hidden="true"></div>
                                         </div>
                                         <template if:true={showFinalizedBreakdown}>
                                             <div class="kpi-breakdown kpi-breakdown_finalized">
@@ -434,6 +441,8 @@
                                                                         <lightning-formatted-number value={row.deltaMrr} format-style="currency" currency-code="USD"></lightning-formatted-number>
                                                                     </span>
                                                                 </span>
+                                                                <!-- Keep 5th track so Qty/ARR/MRR line up with This add (Prorated). -->
+                                                                <span class="kpi-breakdown__metric kpi-breakdown__metric_spacer" aria-hidden="true"></span>
                                                             </li>
                                                         </template>
                                                     </ul>

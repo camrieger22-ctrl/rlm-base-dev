@@ -1,0 +1,5 @@
+{
+    "title": "RLM Discount Choice",
+    "description": "Clickable discount picker for Quoting Assistant (10/20/30/40/Other)",
+    "lightning:type": "@apexClassType/c__RLM_AI_ChooseApplyDiscountService$DiscountChoice"
+}

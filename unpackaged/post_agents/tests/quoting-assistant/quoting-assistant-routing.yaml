@@ -1,14 +1,15 @@
 # Description: Routing coverage for RLM_Quoting_Assistant ("Quinn"). Verifies the
 # start_agent `agent_router` sends each functional request to the correct
 # subagent across Quinn's arc: ProductSelection, QuoteManagement, LineManagement,
-# ProductConfiguration (+ off_topic / ambiguous_question, covered in
-# quoting-assistant-guardrail.yaml). QuoteManagement owns quote create / header /
-# card; LineManagement owns add-product, discounts, and line-field edits.
+# ProductConfiguration, AmendmentStudio (+ off_topic / ambiguous_question, covered
+# in quoting-assistant-guardrail.yaml). QuoteManagement owns quote create / header /
+# card; LineManagement owns add-product, discounts, and line-field edits;
+# AmendmentStudio owns amend impact / asset history / partnership DocGen.
 #
-# Quinn is a deliberately SCOPED demo agent — it intentionally has NO
-# QuoteLifecycleManagement (asset amend/renew) or ConsumptionManagement (usage)
-# topics. Requests for those are out of scope and route to off_topic (asserted in
-# quoting-assistant-guardrail.yaml), not here.
+# Quinn intentionally excludes starting a full asset lifecycle workflow (create
+# amend/renew from Assets) and usage/consumption. Those remain out of scope
+# (asserted in quoting-assistant-guardrail.yaml). Working ON an existing amendment
+# quote (impact summary, history, DocGen) is in scope via AmendmentStudio.
 #
 # CLI Testing Center is effectively single-turn (see
 # [[project_agent_testing_findings]]): a request that completes its whole flow
@@ -72,3 +73,9 @@ testCases:
     expectedTopic: ProductConfiguration
   - utterance: "What can I configure on this quote line item?"
     expectedTopic: ProductConfiguration
+
+  # --- AmendmentStudio (impact / history / DocGen) ---
+  - utterance: "Summarize the Current This add and Finalized impact for this amendment"
+    expectedTopic: AmendmentStudio
+  - utterance: "Generate the Bears partnership proposal and deck for this quote"
+    expectedTopic: AmendmentStudio

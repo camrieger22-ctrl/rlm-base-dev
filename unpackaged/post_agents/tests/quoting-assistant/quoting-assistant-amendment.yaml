@@ -1,0 +1,77 @@
+# Description: AmendmentStudio topic coverage for RLM_Quoting_Assistant ("Quinn").
+# Read-only impact/history/catalog search + partnership DocGen. Mutating expand /
+# catalog-add on amend quotes is Phase 2 (not asserted here).
+#
+# Fixture: master-demo amend quote 0Q0gL000002QsObSAK (QuoteNumber 00000469).
+# Other agent orgs may substitute a different amend Quote Id via contextVariables.
+name: "Quinn — Amendment Studio (read + DocGen)"
+subjectType: AGENT
+subjectName: RLM_Quoting_Assistant
+
+testCases:
+  - utterance: "Summarize what's on contract for this amend"
+    expectedTopic: AmendmentStudio
+    expectedActions:
+      - Summarize_Amend_Impact
+    expectedOutcome: "Agent summarizes Current / This add / Finalized (or explains the quote is not an amendment) using product and money names only — no bare Salesforce Ids"
+    contextVariables:
+      - name: "$Context.currentRecordId"
+        value: "0Q0gL000002QsObSAK"
+      - name: "$Context.currentObjectApiName"
+        value: "Quote"
+    conversationHistory:
+      - role: user
+        message: "I'm on my amendment quote"
+      - role: agent
+        topic: AmendmentStudio
+        message: "What do you need on this amend?"
+
+  - utterance: "What have they paid for Generative AI over time?"
+    expectedTopic: AmendmentStudio
+    expectedActions:
+      - Get_Asset_Price_History
+    expectedOutcome: "Agent returns asset price history for Generative AI (or a clean no-match message) without printing raw Ids"
+    contextVariables:
+      - name: "$Context.currentRecordId"
+        value: "0Q0gL000002QsObSAK"
+      - name: "$Context.currentObjectApiName"
+        value: "Quote"
+    conversationHistory:
+      - role: user
+        message: "I want pricing context for this amend"
+      - role: agent
+        topic: AmendmentStudio
+        message: "Which product's history should I pull?"
+
+  - utterance: "Search the catalog for QuantumBit Subscription on this amend"
+    expectedTopic: AmendmentStudio
+    expectedActions:
+      - Search_Catalog_Products
+    expectedOutcome: "Agent searches the catalog and presents matching product names (or a clean no-match), without bare Ids"
+    contextVariables:
+      - name: "$Context.currentRecordId"
+        value: "0Q0gL000002QsObSAK"
+      - name: "$Context.currentObjectApiName"
+        value: "Quote"
+    conversationHistory:
+      - role: user
+        message: "I may add a new product on this amend"
+      - role: agent
+        topic: AmendmentStudio
+        message: "What should I search for?"
+
+  - utterance: "Generate the Bears proposal and deck"
+    expectedActions:
+      - Generate_Partnership_Documents
+    expectedOutcome: "Agent queues the Bears partnership proposal and deck (or reports a clean template/setup issue) and does not print raw Salesforce Ids"
+    contextVariables:
+      - name: "$Context.currentRecordId"
+        value: "0Q0gL000002QsObSAK"
+      - name: "$Context.currentObjectApiName"
+        value: "Quote"
+    conversationHistory:
+      - role: user
+        message: "I need partnership documents for this amend quote"
+      - role: agent
+        topic: AmendmentStudio
+        message: "Proposal, deck, or both?"

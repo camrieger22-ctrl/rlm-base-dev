@@ -2059,9 +2059,11 @@ export default class RlmAmendmentStudio extends NavigationMixin(LightningElement
     _deltaClass(value) {
         const n = Number(value);
         if (!Number.isFinite(n) || n === 0) {
-            return 'delta delta_neutral';
+            return 'kpi-metric__delta delta delta_neutral';
         }
-        return n > 0 ? 'delta delta_up' : 'delta delta_down';
+        return n > 0
+            ? 'kpi-metric__delta delta delta_up'
+            : 'kpi-metric__delta delta delta_down';
     }
 
     _prorationFraction(startIso, endIso) {
