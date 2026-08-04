@@ -921,6 +921,7 @@ class AssembleAndDeployUX(SFDXBaseTask):
             ("collections", "collections"),
             ("personas",    "personas"),
             ("prm_pricing", "prm_pricing"),
+            ("bamboohr",    "bamboohr"),
         ]
 
         # Flexipage types that cannot be deployed via Metadata API (platform restriction)

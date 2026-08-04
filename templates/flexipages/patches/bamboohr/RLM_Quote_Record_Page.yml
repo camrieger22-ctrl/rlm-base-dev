@@ -1,0 +1,24 @@
+feature: bamboohr
+feature_flag: bamboohr
+# Volume Tier Coach above the Sales Transaction Line Editor, plus native TLE
+# side-panel / column fields stamped from BambooHR volume ladder qty.
+patches:
+  - type: add_component
+    region: Facet-52d27c4f-406f-43ea-a233-ce73598e4677
+    component: rlmVolumeTierCoach
+    identifier: rlm_volume_tiers_coach
+    before_identifier: runtime_rca_salesTxnLineTable
+
+  - type: add_sales_txn_line_editor_field
+    property: sidepanelDetailFields
+    after: QuoteLineItem.Quantity
+    fields:
+      - QuoteLineItem.RLM_Volume_Tier_Band__c
+      - QuoteLineItem.RLM_Volume_Tier_Discount__c
+      - QuoteLineItem.RLM_Volume_Tier_Next__c
+
+  - type: add_sales_txn_line_editor_field
+    property: displayFields
+    after: QuoteLineItem.Quantity
+    fields:
+      - QuoteLineItem.RLM_Volume_Tier_Discount__c

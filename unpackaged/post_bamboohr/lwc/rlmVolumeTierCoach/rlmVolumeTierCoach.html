@@ -1,0 +1,124 @@
+<template>
+    <section class={coachClass} aria-label="BambooHR volume tier coach">
+        <header class="coach__header">
+            <button
+                class="coach__toggle"
+                type="button"
+                aria-expanded={isExpanded}
+                aria-controls="volume-coach-body"
+                title={toggleLabel}
+                onclick={handleToggle}
+            >
+                <span class="coach__chevron" aria-hidden="true">{toggleIcon}</span>
+                <span class="coach__heading">
+                    <span class="coach__eyebrow">Volume pricing</span>
+                    <span class="coach__title-row">
+                        <span class="coach__title">Volume Tier Coach</span>
+                        <span class="coach__showhide">{expandCollapseText}</span>
+                    </span>
+                    <template if:false={isExpanded}>
+                        <span class="coach__summary">{collapsedSummary}</span>
+                    </template>
+                </span>
+            </button>
+            <div class="coach__actions">
+                <button
+                    class="coach__refresh"
+                    type="button"
+                    title="Refresh after quantity changes"
+                    onclick={handleRefresh}
+                >
+                    Refresh
+                </button>
+            </div>
+        </header>
+
+        <template if:true={isExpanded}>
+            <div id="volume-coach-body" class="coach__body">
+                <template if:true={isLoading}>
+                    <p class="coach__muted">Loading volume tiers…</p>
+                </template>
+
+                <template if:true={error}>
+                    <p class="coach__error" role="alert">{error}</p>
+                </template>
+
+                <template if:false={isLoading}>
+                    <template if:false={error}>
+                        <template if:false={hasLines}>
+                            <p class="coach__muted">{emptyMessage}</p>
+                        </template>
+
+                        <template if:true={hasLines}>
+                            <div class="line-chips" role="list">
+                                <template for:each={lineOptions} for:item="opt">
+                                    <button
+                                        key={opt.lineId}
+                                        type="button"
+                                        class={opt.buttonClass}
+                                        data-line-id={opt.lineId}
+                                        onclick={handleSelectLine}
+                                        role="listitem"
+                                    >
+                                        <span class="line-chip__name">{opt.label}</span>
+                                        <span class="line-chip__meta">{opt.meta}</span>
+                                    </button>
+                                </template>
+                            </div>
+
+                            <div class="hero">
+                                <div class="hero__discount" aria-live="polite">
+                                    <span class="hero__pct">{heroDiscount}</span>
+                                    <span class="hero__label">volume discount</span>
+                                </div>
+                                <div class="hero__facts">
+                                    <div class="fact">
+                                        <span class="fact__label">Band</span>
+                                        <span class="fact__value">{heroBand}</span>
+                                    </div>
+                                    <div class="fact">
+                                        <span class="fact__label">Quantity</span>
+                                        <span class="fact__value">{heroQuantity}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <template if:true={showNextCallout}>
+                                <div class="next" role="status">
+                                    <span class="next__kicker">Next tier</span>
+                                    <p class="next__text">{nextHint}</p>
+                                </div>
+                            </template>
+                            <template if:true={isTopTier}>
+                                <div class="next next_top" role="status">
+                                    <span class="next__kicker">Best rate</span>
+                                    <p class="next__text">You’re at the top volume tier (25%).</p>
+                                </div>
+                            </template>
+
+                            <ol class="ladder" aria-label="Volume discount ladder">
+                                <template for:each={ladderRows} for:item="row">
+                                    <li key={row.key} class={row.stateClass}>
+                                        <div class="ladder-row__main">
+                                            <span class="ladder-row__band">{row.bandLabel}</span>
+                                            <span class="ladder-row__bounds">{row.boundLabel}</span>
+                                        </div>
+                                        <div class="ladder-row__side">
+                                            <span class="ladder-row__pct">{row.discountLabel}</span>
+                                            <span class="ladder-row__status">{row.statusLabel}</span>
+                                        </div>
+                                    </li>
+                                </template>
+                            </ol>
+
+                            <p class="coach__footnote">
+                                Tip: change quantity in the line editor, Save, then Refresh here.
+                                Click a line in the editor to see Band / Next in the side panel.
+                            </p>
+                        </template>
+                    </template>
+                </template>
+            </div>
+        </template>
+    </section>
+</template>

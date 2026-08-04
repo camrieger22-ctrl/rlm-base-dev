@@ -3,7 +3,7 @@
 > **Auto-generated** by `scripts/ai/generate_cci_reference.py` from `cumulusci.yml`.  
 > Do not edit manually — re-run the script after changing `cumulusci.yml`.
 
-**41 feature flags**, **85 configuration values**, **36 YAML anchors** under `project.custom`.
+**42 feature flags**, **87 configuration values**, **37 YAML anchors** under `project.custom`.
 
 ---
 
@@ -16,6 +16,7 @@ Boolean flags that gate task/flow execution via `when:` clauses.
 | `agents` | `True` | 11 flow step(s) |
 | `analytics` | `True` | 2 flow step(s) |
 | `approvals` | `True` | 5 flow step(s) |
+| `bamboohr` | `False` | 4 flow step(s) |
 | `billing` | `True` | 22 flow step(s) |
 | `billing_portal` | `False` | 3 flow step(s) |
 | `billing_portal_deploy` | `True` | 1 flow step(s) |
@@ -85,6 +86,13 @@ Boolean flags that gate task/flow execution via `when:` clauses.
 - `prepare_approvals` step 3 → `assign_permission_sets`
 - `prepare_approvals` step 4 → `insert_qb_approvals_data`
 - `run_qb_idempotency_tests` step 13 → `test_qb_approvals_idempotency`
+
+### `bamboohr` (default: `False`)
+
+- `prepare_rlm_org` step 28 → `prepare_bamboohr`
+- `prepare_bamboohr` step 1 → `deploy_post_bamboohr`
+- `prepare_bamboohr` step 2 → `assign_permission_sets`
+- `prepare_bamboohr` step 3 → `stamp_bamboohr_volume_tiers`
 
 ### `billing` (default: `True`)
 
@@ -226,7 +234,7 @@ Boolean flags that gate task/flow execution via `when:` clauses.
 
 ### `inapp` (default: `False`)
 
-- `prepare_rlm_org` step 30 → `prepare_inapp`
+- `prepare_rlm_org` step 31 → `prepare_inapp`
 - `prepare_inapp` step 1 → `deploy_post_inapp`
 - `prepare_inapp` step 2 → `assign_permission_sets`
 - `prepare_inapp` step 3 → `load_inapp_dataset`
@@ -252,7 +260,7 @@ Boolean flags that gate task/flow execution via `when:` clauses.
 
 ### `personas` (default: `True`)
 
-- `prepare_rlm_org` step 28 → `prepare_personas`
+- `prepare_rlm_org` step 29 → `prepare_personas`
 - `prepare_personas` step 1 → `set_personas_org_wide_defaults`
 - `prepare_personas` step 2 → `deploy_post_personas`
 - `prepare_personas` step 3 → `recalculate_personas_sales_rep_psg`
@@ -475,7 +483,7 @@ Boolean flags that gate task/flow execution via `when:` clauses.
 
 ### `ux` (default: `True`)
 
-- `prepare_rlm_org` step 29 → `prepare_ux`
+- `prepare_rlm_org` step 30 → `prepare_ux`
 - `prepare_ux` step 1 → `assemble_and_deploy_ux`
 - `prepare_ux` step 2 → `reorder_app_launcher`
 
@@ -497,6 +505,8 @@ Non-boolean scalar values under `project.custom` used as YAML anchors for contex
 | `asset_context_base_reference` | `AssetContext__stdctx` |
 | `asset_context_default_mapping` | `AssetEntitiesMapping` |
 | `asset_context_name` | `RLM_AssetContext` |
+| `bamboohr_pcm_dataset` | `datasets/sfdmu/bamboohr/en-US/bh-pcm` |
+| `bamboohr_pricing_dataset` | `datasets/sfdmu/bamboohr/en-US/bh-pricing` |
 | `billing_context_base_reference` | `BillingContext__stdctx` |
 | `billing_context_default_mapping` | `BSGEntitiesMapping` |
 | `billing_context_name` | `RLM_BillingContext` |
@@ -695,6 +705,12 @@ These `project.custom` entries are YAML anchors (lists or maps) reused throughou
 *1 items:*
 
 - `RLM_Approvals`
+
+### `ps_bamboohr`
+
+*1 items:*
+
+- `RLM_BambooHR`
 
 ### `ps_calmdelete`
 

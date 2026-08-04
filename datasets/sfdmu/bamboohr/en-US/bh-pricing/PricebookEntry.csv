@@ -1,0 +1,33 @@
+$$Product2.StockKeepingUnit$ProductSellingModel.Name$CurrencyIsoCode$Pricebook2.Name,CurrencyIsoCode,IsActive,IsDerived,Name,Pricebook2.$$Name$IsStandard,Product2.StockKeepingUnit,ProductSellingModel.$$Name$SellingModelType,UnitPrice
+BAMBOO-CORE;Term Monthly;USD;Standard Price Book,USD,true,false,BambooHR Core,Standard Price Book;true,BAMBOO-CORE,Term Monthly;TermDefined,10.0
+BAMBOO-CORE;Term Annual;USD;Standard Price Book,USD,true,false,BambooHR Core,Standard Price Book;true,BAMBOO-CORE,Term Annual;TermDefined,120.0
+BAMBOO-PRO;Term Monthly;USD;Standard Price Book,USD,true,false,BambooHR Pro,Standard Price Book;true,BAMBOO-PRO,Term Monthly;TermDefined,17.0
+BAMBOO-PRO;Term Annual;USD;Standard Price Book,USD,true,false,BambooHR Pro,Standard Price Book;true,BAMBOO-PRO,Term Annual;TermDefined,204.0
+BAMBOO-ELITE;Term Monthly;USD;Standard Price Book,USD,true,false,BambooHR Elite,Standard Price Book;true,BAMBOO-ELITE,Term Monthly;TermDefined,25.0
+BAMBOO-ELITE;Term Annual;USD;Standard Price Book,USD,true,false,BambooHR Elite,Standard Price Book;true,BAMBOO-ELITE,Term Annual;TermDefined,300.0
+BAMBOO-ADD-PAYROLL;Term Monthly;USD;Standard Price Book,USD,true,false,Payroll,Standard Price Book;true,BAMBOO-ADD-PAYROLL,Term Monthly;TermDefined,8.0
+BAMBOO-ADD-PAYROLL;Term Annual;USD;Standard Price Book,USD,true,false,Payroll,Standard Price Book;true,BAMBOO-ADD-PAYROLL,Term Annual;TermDefined,96.0
+BAMBOO-ADD-BENEFITS;Term Monthly;USD;Standard Price Book,USD,true,false,Benefits,Standard Price Book;true,BAMBOO-ADD-BENEFITS,Term Monthly;TermDefined,6.0
+BAMBOO-ADD-BENEFITS;Term Annual;USD;Standard Price Book,USD,true,false,Benefits,Standard Price Book;true,BAMBOO-ADD-BENEFITS,Term Annual;TermDefined,72.0
+BAMBOO-ADD-TIME;Term Monthly;USD;Standard Price Book,USD,true,false,Time & Attendance,Standard Price Book;true,BAMBOO-ADD-TIME,Term Monthly;TermDefined,4.0
+BAMBOO-ADD-TIME;Term Annual;USD;Standard Price Book,USD,true,false,Time & Attendance,Standard Price Book;true,BAMBOO-ADD-TIME,Term Annual;TermDefined,48.0
+BAMBOO-ADD-GLOBAL;Term Monthly;USD;Standard Price Book,USD,true,false,Global Employment,Standard Price Book;true,BAMBOO-ADD-GLOBAL,Term Monthly;TermDefined,12.0
+BAMBOO-ADD-GLOBAL;Term Annual;USD;Standard Price Book,USD,true,false,Global Employment,Standard Price Book;true,BAMBOO-ADD-GLOBAL,Term Annual;TermDefined,144.0
+BAMBOO-PKG-WORKFORCE;Term Monthly;USD;Standard Price Book,USD,true,false,Workforce Package,Standard Price Book;true,BAMBOO-PKG-WORKFORCE,Term Monthly;TermDefined,0.0
+BAMBOO-PKG-WORKFORCE;Term Annual;USD;Standard Price Book,USD,true,false,Workforce Package,Standard Price Book;true,BAMBOO-PKG-WORKFORCE,Term Annual;TermDefined,0.0
+BAMBOO-CORE;Term Monthly;USD;Nonprofit,USD,true,false,BambooHR Core,Nonprofit;false,BAMBOO-CORE,Term Monthly;TermDefined,8.5
+BAMBOO-CORE;Term Annual;USD;Nonprofit,USD,true,false,BambooHR Core,Nonprofit;false,BAMBOO-CORE,Term Annual;TermDefined,102.0
+BAMBOO-PRO;Term Monthly;USD;Nonprofit,USD,true,false,BambooHR Pro,Nonprofit;false,BAMBOO-PRO,Term Monthly;TermDefined,14.45
+BAMBOO-PRO;Term Annual;USD;Nonprofit,USD,true,false,BambooHR Pro,Nonprofit;false,BAMBOO-PRO,Term Annual;TermDefined,173.4
+BAMBOO-ELITE;Term Monthly;USD;Nonprofit,USD,true,false,BambooHR Elite,Nonprofit;false,BAMBOO-ELITE,Term Monthly;TermDefined,21.25
+BAMBOO-ELITE;Term Annual;USD;Nonprofit,USD,true,false,BambooHR Elite,Nonprofit;false,BAMBOO-ELITE,Term Annual;TermDefined,255.0
+BAMBOO-ADD-PAYROLL;Term Monthly;USD;Nonprofit,USD,true,false,Payroll,Nonprofit;false,BAMBOO-ADD-PAYROLL,Term Monthly;TermDefined,6.8
+BAMBOO-ADD-PAYROLL;Term Annual;USD;Nonprofit,USD,true,false,Payroll,Nonprofit;false,BAMBOO-ADD-PAYROLL,Term Annual;TermDefined,81.6
+BAMBOO-ADD-BENEFITS;Term Monthly;USD;Nonprofit,USD,true,false,Benefits,Nonprofit;false,BAMBOO-ADD-BENEFITS,Term Monthly;TermDefined,5.1
+BAMBOO-ADD-BENEFITS;Term Annual;USD;Nonprofit,USD,true,false,Benefits,Nonprofit;false,BAMBOO-ADD-BENEFITS,Term Annual;TermDefined,61.2
+BAMBOO-ADD-TIME;Term Monthly;USD;Nonprofit,USD,true,false,Time & Attendance,Nonprofit;false,BAMBOO-ADD-TIME,Term Monthly;TermDefined,3.4
+BAMBOO-ADD-TIME;Term Annual;USD;Nonprofit,USD,true,false,Time & Attendance,Nonprofit;false,BAMBOO-ADD-TIME,Term Annual;TermDefined,40.8
+BAMBOO-ADD-GLOBAL;Term Monthly;USD;Nonprofit,USD,true,false,Global Employment,Nonprofit;false,BAMBOO-ADD-GLOBAL,Term Monthly;TermDefined,10.2
+BAMBOO-ADD-GLOBAL;Term Annual;USD;Nonprofit,USD,true,false,Global Employment,Nonprofit;false,BAMBOO-ADD-GLOBAL,Term Annual;TermDefined,122.4
+BAMBOO-PKG-WORKFORCE;Term Monthly;USD;Nonprofit,USD,true,false,Workforce Package,Nonprofit;false,BAMBOO-PKG-WORKFORCE,Term Monthly;TermDefined,0.0
+BAMBOO-PKG-WORKFORCE;Term Annual;USD;Nonprofit,USD,true,false,Workforce Package,Nonprofit;false,BAMBOO-PKG-WORKFORCE,Term Annual;TermDefined,0.0

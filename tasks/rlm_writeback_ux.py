@@ -233,6 +233,7 @@ class WriteBackUXTemplates(BaseTask):
             ("collections", "collections"),
             ("personas", "personas"),
             ("prm_pricing", "prm_pricing"),
+            ("bamboohr", "bamboohr"),
         ]
 
         results = []

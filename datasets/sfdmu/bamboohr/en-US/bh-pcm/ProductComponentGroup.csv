@@ -1,0 +1,3 @@
+Code,Description,MaxBundleComponents,MinBundleComponents,Name,ParentGroup.Code,ParentProduct.StockKeepingUnit,Sequence
+PCG-BH-BASE,Pick exactly one plan,1,1,Base Plan,,BAMBOO-PKG-WORKFORCE,1
+PCG-BH-WORKFORCE,Payroll + Benefits required,2,2,Workforce Add-ons,,BAMBOO-PKG-WORKFORCE,2

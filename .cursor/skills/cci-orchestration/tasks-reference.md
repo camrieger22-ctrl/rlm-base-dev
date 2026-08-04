@@ -3,13 +3,25 @@
 > **Auto-generated** by `scripts/ai/generate_cci_reference.py` from `cumulusci.yml`.  
 > Do not edit manually — re-run the script after changing `cumulusci.yml`.
 
-**271 tasks** across **10 groups**.
+**278 tasks** across **10 groups**.
 
 ---
 
 ## Data Maintenance
 
-*8 task(s)*
+*9 task(s)*
+
+### `delete_bamboohr_pricing_data`
+
+**Description:** Delete BambooHR-scoped pricing rows only (BAMBOO-* products). Safe alongside QuantumBit — does not wipe all PricebookEntry records.
+
+**Class:** `cumulusci.tasks.apex.anon.AnonymousApexTask`
+
+**Options:**
+
+- `path`: `scripts/apex/deleteBambooPricingData.apex`
+
+---
 
 ### `delete_draft_billing_records`
 
@@ -1050,7 +1062,7 @@
 
 ## Revenue Lifecycle Management
 
-*162 task(s)*
+*168 task(s)*
 
 ### `activate_agents`
 
@@ -1449,6 +1461,18 @@
 
 ---
 
+### `create_bamboo_plan_attribute_pricing`
+
+**Description:** DEPRECATED — Plan attribute ABA for single-SKU suite. Prefer three plan SKUs (BAMBOO-CORE/PRO/ELITE) and migrate_bamboohr_to_three_plan_skus.
+
+**Class:** `cumulusci.tasks.apex.anon.AnonymousApexTask`
+
+**Options:**
+
+- `path`: `scripts/apex/createBambooPlanAttributePricing.apex`
+
+---
+
 ### `create_billing_portal`
 
 **Description:** Create Self-Service Billing Portal community (Experience Cloud site).
@@ -1827,6 +1851,18 @@
 **Options:**
 
 - `path`: `force-app/main/default/permissionsetgroups`
+
+---
+
+### `deploy_post_bamboohr`
+
+**Description:** Deploy BambooHR volume-tier coach metadata (QLI stamp fields, before-trigger, RLM_BambooVolumeTiers Apex + test, rlmVolumeTierCoach LWC, RLM_BambooHR permission set) from unpackaged/post_bamboohr. Quote page wiring ships via the bamboohr flexipage patch during prepare_ux / assemble_and_deploy_ux.
+
+**Class:** `cumulusci.tasks.salesforce.Deploy`
+
+**Options:**
+
+- `path`: `unpackaged/post_bamboohr`
 
 ---
 
@@ -2353,6 +2389,30 @@
 
 ---
 
+### `insert_bamboohr_pcm_data`
+
+**Description:** Insert BambooHR PCM (product catalog) Data
+
+**Class:** `tasks.rlm_sfdmu.LoadSFDMUData`
+
+**Options:**
+
+- `pathtoexportjson`: `datasets/sfdmu/bamboohr/en-US/bh-pcm`
+
+---
+
+### `insert_bamboohr_pricing_data`
+
+**Description:** Insert BambooHR Pricing Data (PBEs, volume tiers, BBA) for three plan SKUs + add-ons. Run after insert_bamboohr_pcm_data. Safe to layer after QuantumBit.
+
+**Class:** `tasks.rlm_sfdmu.LoadSFDMUData`
+
+**Options:**
+
+- `pathtoexportjson`: `datasets/sfdmu/bamboohr/en-US/bh-pricing`
+
+---
+
 ### `insert_billing_data`
 
 **Description:** Insert QuantumBit Billing Data
@@ -2801,6 +2861,18 @@
 
 ---
 
+### `migrate_bamboohr_to_three_plan_skus`
+
+**Description:** Deactivate legacy BAMBOO-SUITE and remove Plan-attribute ABA / suite bundle links after loading three plan SKUs (Core/Pro/Elite).
+
+**Class:** `cumulusci.tasks.apex.anon.AnonymousApexTask`
+
+**Options:**
+
+- `path`: `scripts/apex/migrateBambooToThreePlanSkus.apex`
+
+---
+
 ### `patch_payments_site_for_deploy`
 
 **Description:** Patch Payments_Webhook.site-meta.xml with the org's actual admin username before deploy. Required because siteAdmin and siteGuestRecordDefaultOwner are immutable after site creation and the committed XML contains a placeholder username.
@@ -3046,6 +3118,18 @@
 **Options:**
 
 - `path`: `scripts/apex/setScratchOrgPassword.apex`
+
+---
+
+### `stamp_bamboohr_volume_tiers`
+
+**Description:** Backfill BambooHR volume-tier coach fields on existing Quote Line Items after deploy_post_bamboohr (new lines stamp automatically via trigger).
+
+**Class:** `cumulusci.tasks.apex.anon.AnonymousApexTask`
+
+**Options:**
+
+- `path`: `scripts/apex/stampBambooVolumeTiers.apex`
 
 ---
 

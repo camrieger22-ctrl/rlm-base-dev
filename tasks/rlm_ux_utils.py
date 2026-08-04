@@ -22,7 +22,7 @@ UX_KNOWN_FLAGS: List[str] = [
     "quantumbit", "billing", "billing_ui", "tax", "rating", "rates", "clm", "dro",
     "guidedselling", "tso", "prm", "agents", "docgen",
     "payments", "constraints", "analytics", "procedureplans", "large_stx",
-    "collections", "personas", "prm_pricing",
+    "collections", "personas", "prm_pricing", "bamboohr",
 ]
 
 #: Profile templates only assembled when the personas feature flag is true.

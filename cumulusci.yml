@@ -136,6 +136,7 @@ project:
     q3: false                 # Q3 data
     quantumbit: true          # QuantumBit app deployment
     product_dataset: qb       # Default product dataset
+    bamboohr: false           # BambooHR demo catalog (bh-pcm / bh-pricing); load alongside qb via insert_bamboohr_* tasks
     ux: true                  # Assemble and deploy dynamic UX (set false to skip prepare_ux entirely)
     sample_data: true         # Sample data
 
@@ -355,6 +356,10 @@ project:
       # Large STX-specific permission sets
       - RLM_LargeSalesTransaction
 
+    ps_bamboohr: &ps_bamboohr
+      # BambooHR volume-tier coach fields + LWC Apex
+      - RLM_BambooHR
+
     ps_inapp: &ps_inapp
       # In-App Learning framework permission set
       - RLM_Learning
@@ -570,6 +575,8 @@ project:
 
     q3_pcm_dataset: &q3_pcm_dataset "datasets/sfdmu/q3/en-US/q3-pcm"                                                 # Q3 product catalog data (split from former q3-multicurrency)
     q3_pricing_dataset: &q3_pricing_dataset "datasets/sfdmu/q3/en-US/q3-pricing"                                     # Q3 pricing data (split from former q3-multicurrency)
+    bamboohr_pcm_dataset: &bamboohr_pcm_dataset "datasets/sfdmu/bamboohr/en-US/bh-pcm"                               # BambooHR product catalog
+    bamboohr_pricing_dataset: &bamboohr_pricing_dataset "datasets/sfdmu/bamboohr/en-US/bh-pricing"                   # BambooHR pricing
     q3_billing_dataset: &q3_billing_dataset "datasets/sfdmu/q3/en-US/q3-billing"                                     # Q3 billing data
     q3_dro_dataset: &q3_dro_dataset "datasets/sfdmu/q3/en-US/q3-dro"                                                 # Q3 DRO data
     q3_tax_dataset: &q3_tax_dataset "datasets/sfdmu/q3/en-US/q3-tax"                                                 # Q3 tax data
@@ -1344,6 +1351,26 @@ tasks:
     options:
       path: unpackaged/post_large_stx
 
+  deploy_post_bamboohr:
+    group: Revenue Lifecycle Management
+    description: >
+      Deploy BambooHR volume-tier coach metadata (QLI stamp fields, before-trigger,
+      RLM_BambooVolumeTiers Apex + test, rlmVolumeTierCoach LWC, RLM_BambooHR
+      permission set) from unpackaged/post_bamboohr. Quote page wiring ships via
+      the bamboohr flexipage patch during prepare_ux / assemble_and_deploy_ux.
+    class_path: cumulusci.tasks.salesforce.Deploy
+    options:
+      path: unpackaged/post_bamboohr
+
+  stamp_bamboohr_volume_tiers:
+    group: Revenue Lifecycle Management
+    description: >
+      Backfill BambooHR volume-tier coach fields on existing Quote Line Items
+      after deploy_post_bamboohr (new lines stamp automatically via trigger).
+    class_path: cumulusci.tasks.apex.anon.AnonymousApexTask
+    options:
+      path: scripts/apex/stampBambooVolumeTiers.apex
+
   deploy_post_commerce:
     description: Deploy Commerce Metadata (e.g. Commerce decision table flows)
     class_path: cumulusci.tasks.salesforce.Deploy
@@ -1883,6 +1910,49 @@ tasks:
     class_path: tasks.rlm_sfdmu.LoadSFDMUData
     options:
       pathtoexportjson: *q3_pricing_dataset
+
+  insert_bamboohr_pcm_data:
+    group: Revenue Lifecycle Management
+    description: Insert BambooHR PCM (product catalog) Data
+    class_path: tasks.rlm_sfdmu.LoadSFDMUData
+    options:
+      pathtoexportjson: *bamboohr_pcm_dataset
+
+  insert_bamboohr_pricing_data:
+    group: Revenue Lifecycle Management
+    description: >
+      Insert BambooHR Pricing Data (PBEs, volume tiers, BBA) for three plan SKUs
+      + add-ons. Run after insert_bamboohr_pcm_data. Safe to layer after QuantumBit.
+    class_path: tasks.rlm_sfdmu.LoadSFDMUData
+    options:
+      pathtoexportjson: *bamboohr_pricing_dataset
+
+  migrate_bamboohr_to_three_plan_skus:
+    group: Revenue Lifecycle Management
+    description: >
+      Deactivate legacy BAMBOO-SUITE and remove Plan-attribute ABA / suite bundle
+      links after loading three plan SKUs (Core/Pro/Elite).
+    class_path: cumulusci.tasks.apex.anon.AnonymousApexTask
+    options:
+      path: scripts/apex/migrateBambooToThreePlanSkus.apex
+
+  create_bamboo_plan_attribute_pricing:
+    group: Revenue Lifecycle Management
+    description: >
+      DEPRECATED — Plan attribute ABA for single-SKU suite. Prefer three plan SKUs
+      (BAMBOO-CORE/PRO/ELITE) and migrate_bamboohr_to_three_plan_skus.
+    class_path: cumulusci.tasks.apex.anon.AnonymousApexTask
+    options:
+      path: scripts/apex/createBambooPlanAttributePricing.apex
+
+  delete_bamboohr_pricing_data:
+    group: Data Maintenance
+    description: >
+      Delete BambooHR-scoped pricing rows only (BAMBOO-* products). Safe alongside
+      QuantumBit — does not wipe all PricebookEntry records.
+    class_path: cumulusci.tasks.apex.anon.AnonymousApexTask
+    options:
+      path: scripts/apex/deleteBambooPricingData.apex
 
   insert_quantumbit_prm_data:
     group: Revenue Lifecycle Management
@@ -3620,21 +3690,24 @@ flows:
         flow: prepare_large_stx
         when: project_config.project__custom__large_stx
       28:
+        flow: prepare_bamboohr
+        when: project_config.project__custom__bamboohr
+      29:
         flow: prepare_personas
         when: project_config.project__custom__personas
-      29:
+      30:
         flow: prepare_ux
         when: project_config.project__custom__ux
-      30:
+      31:
         flow: prepare_inapp
         when: project_config.project__custom__inapp
-      31:
-        flow: prepare_scratch
       32:
-        flow: refresh_all_decision_tables
+        flow: prepare_scratch
       33:
-        task: rebuild_search_index
+        flow: refresh_all_decision_tables
       34:
+        task: rebuild_search_index
+      35:
         flow: stamp_git_commit
 
   prepare_core:
@@ -3904,6 +3977,26 @@ flows:
       3:
         task: seed_large_deal_billing_treatment
         when: project_config.project__custom__large_stx and project_config.project__custom__billing
+
+  prepare_bamboohr:
+    group: Revenue Lifecycle Management
+    description: >
+      Deploy BambooHR volume-tier coach (QLI fields, stamp trigger, Apex, LWC,
+      RLM_BambooHR permission set). Catalog/pricing data still loads via
+      insert_bamboohr_* tasks. Quote page coach + TLE side-panel fields ship via
+      the bamboohr flexipage patch during prepare_ux when bamboohr=true.
+    steps:
+      1:
+        task: deploy_post_bamboohr
+        when: project_config.project__custom__bamboohr
+      2:
+        task: assign_permission_sets
+        when: project_config.project__custom__bamboohr
+        options:
+          api_names: *ps_bamboohr
+      3:
+        task: stamp_bamboohr_volume_tiers
+        when: project_config.project__custom__bamboohr
 
   upsert_fulfillment_scope_cnfg:
     group: Revenue Lifecycle Management
@@ -4481,7 +4574,7 @@ flows:
         when: project_config.project__custom__collections
     # Collections flexipages (RLM_Collections_Home_Page, RLM_Collection_Plan_Record_Page,
     # RLM_Collections_Account_Record_Page) and the standard__CollectionConsole app variant
-    # are assembled + deployed by assemble_and_deploy_ux (prepare_ux flow, step 29), gated on
+    # are assembled + deployed by assemble_and_deploy_ux (prepare_ux flow, step 30), gated on
     # the same collections flag. The native CollectionsAndRecoveryPsl is always assigned via
     # rlm_psl_api_names in prepare_core.
 
@@ -4514,8 +4607,8 @@ flows:
     group: UX Personalization
     description: >
       Assemble and deploy all project UX personalization metadata (flexipages, layouts,
-      applications, profiles) from feature-conditional templates. Runs at step 29 of
-      prepare_rlm_org, after all feature provisioning (including personas at step 28)
+      applications, profiles) from feature-conditional templates. Runs at step 30 of
+      prepare_rlm_org, after all feature provisioning (including personas at step 29)
       is complete, ensuring all referenced objects, fields, and components exist before
       UX metadata is deployed. Step 2 reorders the App Launcher via browser automation.
     steps:
@@ -4564,9 +4657,9 @@ flows:
     description: >
       Deploy persona metadata (profiles, permission set groups, permission sets) from
       unpackaged/post_personas and create the Sales Rep persona user (scratch and
-      non-scratch orgs). Gated by the personas feature flag. Runs as step 28 of
+      non-scratch orgs). Gated by the personas feature flag. Runs as step 29 of
       prepare_rlm_org, before prepare_ux
-      (step 29), so that persona profile templates are assembled and deployed by
+      (step 30), so that persona profile templates are assembled and deployed by
       the UX assembler in the same pass.
     steps:
       1:

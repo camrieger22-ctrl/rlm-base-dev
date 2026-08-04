@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PermissionSet xmlns="http://soap.sforce.com/2006/04/metadata">
+    <classAccesses>
+        <apexClass>RLM_BambooVolumeTiers</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <description>BambooHR demo volume-tier coach fields and LWC Apex access.</description>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>QuoteLineItem.RLM_Volume_Tier_Band__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>QuoteLineItem.RLM_Volume_Tier_Discount__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>QuoteLineItem.RLM_Volume_Tier_Next__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <hasActivationRequired>false</hasActivationRequired>
+    <label>RLM BambooHR</label>
+</PermissionSet>

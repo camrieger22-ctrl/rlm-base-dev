@@ -1,0 +1,3 @@
+$$Name$SellingModelType,Name,PricingTerm,PricingTermUnit,SellingModelType,Status
+Term Monthly;TermDefined,Term Monthly,1,Months,TermDefined,Active
+Term Annual;TermDefined,Term Annual,1,Annual,TermDefined,Active
