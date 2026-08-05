@@ -69,6 +69,10 @@ Legacy `BAMBOO-SUITE` (one SKU + Plan attribute) is obsolete after migrate.
 - `PCG-BH-BASE` min/max **1** — exactly one of Core / Pro / Elite (Pro default)
 - `PCG-BH-WORKFORCE` min/max **2** — Payroll + Benefits required
 - `ProductRelatedComponent.ChildSellingModel` / `ParentSellingModel` must be **blank** (platform rejects selling models on configurable bundle components)
+- **Qty = headcount:** every package child uses `QuantityScaleMethod=Proportional`,
+  `Quantity=1`, and `IsQuantityEditable=false`. Package header quantity is the
+  employee headcount; runtime child qty = parent qty × 1 (plan + Payroll +
+  Benefits stay locked together). Smoke: `python scripts/bamboohr/qty_smoke.py`
 
 ## US-only Payroll & Benefits
 
