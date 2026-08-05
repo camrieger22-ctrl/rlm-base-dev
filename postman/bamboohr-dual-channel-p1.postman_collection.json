@@ -1,0 +1,89 @@
+{
+  "info": {
+    "name": "BambooHR Dual-Channel P1",
+    "description": "Fork-only thin BFF path: Discover Bamboo catalog → headless calculate(qty) → place Quote. Pair with scripts/bamboohr/dual_channel_p1.py. API v67.0.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "https://YOUR_INSTANCE.my.salesforce.com" },
+    { "key": "accessToken", "value": "" },
+    { "key": "apiVersion", "value": "v67.0" },
+    { "key": "catalogId", "value": "" },
+    { "key": "accountId", "value": "" },
+    { "key": "pricebookId", "value": "" },
+    { "key": "coreProductId", "value": "" },
+    { "key": "corePbeId", "value": "" },
+    { "key": "corePsmId", "value": "" },
+    { "key": "quoteId", "value": "" },
+    { "key": "lineId", "value": "" },
+    { "key": "contextDefinitionId", "value": "" },
+    { "key": "contextMappingId", "value": "" },
+    { "key": "opportunityId", "value": "" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "1 Discover — PCM search Bamboo",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"catalogIds\": [\"{{catalogId}}\"],\n  \"searchTerm\": \"Bamboo\",\n  \"pageSize\": 50\n}"
+        },
+        "url": "{{baseUrl}}/services/data/{{apiVersion}}/connect/pcm/products",
+        "description": "Expect BAMBOO-CORE / PRO / ELITE / PKG-WORKFORCE in results."
+      }
+    },
+    {
+      "name": "2a Resolve Sales Transaction context ids",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/services/data/{{apiVersion}}/connect/context-definitions/RLM_SalesTransactionContext",
+        "description": "Copy contextDefinitionId and QuoteEntitiesMapping contextMappingId into collection variables."
+      }
+    },
+    {
+      "name": "2b Place probe quote (pricing Skip)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"pricingPref\": \"Skip\",\n  \"catalogRatesPref\": \"Skip\",\n  \"taxPref\": \"Skip\",\n  \"configurationPref\": {\n    \"configurationMethod\": \"Skip\",\n    \"configurationOptions\": {\n      \"validateProductCatalog\": true,\n      \"validateAmendRenewCancel\": true,\n      \"executeConfigurationRules\": false,\n      \"addDefaultConfiguration\": false\n    }\n  },\n  \"graph\": {\n    \"graphId\": \"p1probe\",\n    \"records\": [\n      {\n        \"referenceId\": \"refQuote\",\n        \"record\": {\n          \"attributes\": { \"method\": \"POST\", \"type\": \"Quote\" },\n          \"Name\": \"P1 Postman probe\",\n          \"OpportunityId\": \"{{opportunityId}}\",\n          \"Pricebook2Id\": \"{{pricebookId}}\",\n          \"QuoteAccountId\": \"{{accountId}}\"\n        }\n      },\n      {\n        \"referenceId\": \"refL0\",\n        \"record\": {\n          \"attributes\": { \"type\": \"QuoteLineItem\", \"method\": \"POST\" },\n          \"QuoteId\": \"@{refQuote.id}\",\n          \"Product2Id\": \"{{coreProductId}}\",\n          \"PricebookEntryId\": \"{{corePbeId}}\",\n          \"Quantity\": \"10\",\n          \"StartDate\": \"2026-08-05\",\n          \"EndDate\": \"2027-08-05\",\n          \"PeriodBoundary\": \"Anniversary\",\n          \"BillingFrequency\": \"Monthly\"\n        }\n      }\n    ]\n  }\n}"
+        },
+        "url": "{{baseUrl}}/services/data/{{apiVersion}}/connect/rev/sales-transaction/actions/place",
+        "description": "Create Opportunity first; set opportunityId. Save salesTransactionId → quoteId and line Id → lineId."
+      }
+    },
+    {
+      "name": "2c Calculate qty 50 (volume 5%)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"inputs\": [\n    {\n      \"contextDefinitionId\": \"{{contextDefinitionId}}\",\n      \"contextMappingId\": \"{{contextMappingId}}\",\n      \"pricingProcedureId\": \"RLM_DefaultPricingProcedure\",\n      \"skipDiscovery\": true,\n      \"displayContext\": true,\n      \"isSkipWaterfall\": false,\n      \"persistContext\": true,\n      \"useSessionScopedContext\": false,\n      \"taggedData\": false,\n      \"pricingData\": \"{\\\"SalesTransaction\\\":{\\\"businessObjectType\\\":\\\"Quote\\\",\\\"id\\\":\\\"{{quoteId}}\\\",\\\"Pricebook\\\":\\\"{{pricebookId}}\\\",\\\"CurrencyIsoCode\\\":\\\"USD\\\",\\\"SalesTransactionItem\\\":[{\\\"businessObjectType\\\":\\\"QuoteLineItem\\\",\\\"id\\\":\\\"{{lineId}}\\\",\\\"Product\\\":\\\"{{coreProductId}}\\\",\\\"ProductSellingModel\\\":\\\"{{corePsmId}}\\\",\\\"Quantity\\\":50,\\\"SalesTransactionItemSource\\\":\\\"LINE_ITEM1\\\",\\\"EffectiveFrom\\\":\\\"2026-08-05T00:00:00.000Z\\\",\\\"EffectiveTo\\\":\\\"2027-08-05T00:00:00.000Z\\\"}]}}\"\n    }\n  ]\n}"
+        },
+        "url": "{{baseUrl}}/services/data/{{apiVersion}}/actions/standard/runSalesforceHeadlessPricing",
+        "description": "Expect NetUnitPrice ≈ 9.50 (list 10, 5% volume). Parse PriceWaterFall from outputValues.pricingResult."
+      }
+    },
+    {
+      "name": "3 Place customer quote qty 50 (System pricing)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"pricingPref\": \"System\",\n  \"catalogRatesPref\": \"Skip\",\n  \"taxPref\": \"Skip\",\n  \"configurationPref\": {\n    \"configurationMethod\": \"Skip\",\n    \"configurationOptions\": {\n      \"validateProductCatalog\": true,\n      \"validateAmendRenewCancel\": true,\n      \"executeConfigurationRules\": false,\n      \"addDefaultConfiguration\": false\n    }\n  },\n  \"graph\": {\n    \"graphId\": \"p1quote\",\n    \"records\": [\n      {\n        \"referenceId\": \"refQuote\",\n        \"record\": {\n          \"attributes\": { \"method\": \"POST\", \"type\": \"Quote\" },\n          \"Name\": \"P1 dual-channel quote\",\n          \"OpportunityId\": \"{{opportunityId}}\",\n          \"Pricebook2Id\": \"{{pricebookId}}\",\n          \"QuoteAccountId\": \"{{accountId}}\"\n        }\n      },\n      {\n        \"referenceId\": \"refL0\",\n        \"record\": {\n          \"attributes\": { \"type\": \"QuoteLineItem\", \"method\": \"POST\" },\n          \"QuoteId\": \"@{refQuote.id}\",\n          \"Product2Id\": \"{{coreProductId}}\",\n          \"PricebookEntryId\": \"{{corePbeId}}\",\n          \"Quantity\": \"50\",\n          \"StartDate\": \"2026-08-05\",\n          \"EndDate\": \"2027-08-05\",\n          \"PeriodBoundary\": \"Anniversary\",\n          \"BillingFrequency\": \"Monthly\"\n        }\n      }\n    ]\n  }\n}"
+        },
+        "url": "{{baseUrl}}/services/data/{{apiVersion}}/connect/rev/sales-transaction/actions/place",
+        "description": "Commercial Acme quote. Prefer dual_channel_p1.py for automated assert of UnitPrice ≈ 9.50."
+      }
+    }
+  ]
+}

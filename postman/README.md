@@ -32,6 +32,12 @@ The two original environment files (`RLM QuantumBit Default Environment.postman_
 
 ---
 
+## BambooHR dual-channel P1 (fork)
+
+**`bamboohr-dual-channel-p1.postman_collection.json`** — Discover Bamboo catalog → headless calculate(qty) → place Quote. Companion smoke: `scripts/bamboohr/dual_channel_p1.py`. Not part of the upstream Foundations merge set unless/until product asks.
+
+---
+
 ## Reference Guides
 
 Per-domain endpoint references are in `docs/`. Each guide covers HTTP method, URI path, full URL, request body fields, and environment variables.

@@ -50,6 +50,17 @@ python scripts/bamboohr/api_smoke.py --target-org master-demo
 
 Covers Discovery (`getCategories` / `getProducts`) → Place Sales Transaction quote (set **`QuoteAccountId`**) → headless pricing nonprofit **$8.50**. Quote formula `RLM_Is_Nonprofit_Account__c` is `QuoteAccount` **or** `Opportunity.Account` so API-created quotes still evaluate.
 
+## Dual-channel P1 (Discover → calculate → Quote)
+
+Thin BFF / API channel for commercial Acme (volume at qty 50 → ~$9.50 on Core):
+
+```bash
+python scripts/bamboohr/dual_channel_p1.py --target-org master-demo --via-cci
+```
+
+Postman: `postman/bamboohr-dual-channel-p1.postman_collection.json`.  
+Notes: `.agents/artifacts/bamboohr-dual-channel-p1.md`.
+
 ## Objects
 
 | # | Object | Operation | External ID | Records |
