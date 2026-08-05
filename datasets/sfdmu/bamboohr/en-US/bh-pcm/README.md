@@ -73,6 +73,10 @@ Legacy `BAMBOO-SUITE` (one SKU + Plan attribute) is obsolete after migrate.
   `Quantity=1`, and `IsQuantityEditable=false`. Package header quantity is the
   employee headcount; runtime child qty = parent qty × 1 (plan + Payroll +
   Benefits stay locked together). Smoke: `python scripts/bamboohr/qty_smoke.py`
+- **Search / browse:** after PCM (or product) loads, run
+  `cci task run rebuild_search_index --org <alias>` so Product Discovery can
+  find Bamboo via indexed `searchTerm`. Smoke:
+  `python scripts/bamboohr/browse_smoke.py --target-org <alias> --via-cci`
 
 ## US-only Payroll & Benefits
 
