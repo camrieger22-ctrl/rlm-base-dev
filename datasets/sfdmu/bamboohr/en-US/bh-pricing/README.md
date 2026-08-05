@@ -42,6 +42,14 @@ Requires `prepare_bamboohr` wiring: Account/Quote fields, `BambooHrNonprofitPric
 
 **UI note:** List Price stays **$10**; Sales / Net reflect the 15% cut (**$8.50**). The ManualDiscount reads **ListPrice** (not `InputUnitPrice`) so Instant Pricing re-entry cannot compound to ~$7.23. If Instant Pricing shows no discount, check the Quote procedure plan is not bound to NearCore only.
 
+## A2 API smoke
+
+```bash
+python scripts/bamboohr/api_smoke.py --target-org master-demo
+```
+
+Covers Discovery (`getCategories` / `getProducts`) → Place Sales Transaction quote (set **`QuoteAccountId`**) → headless pricing nonprofit **$8.50**. Quote formula `RLM_Is_Nonprofit_Account__c` is `QuoteAccount` **or** `Opportunity.Account` so API-created quotes still evaluate.
+
 ## Objects
 
 | # | Object | Operation | External ID | Records |
