@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BambooHR pricing summary</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;600;700&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+  <div class="atmosphere" aria-hidden="true"></div>
+  <main class="shell quote-shell">
+    <header class="hero">
+      <p class="brand">BambooHR</p>
+      <h1>Your pricing summary</h1>
+      <p class="lede">Demo quote for {{accountName}} · {{country}} · USD</p>
+    </header>
+
+    <section class="panel summary">
+      <h2>{{planName}}</h2>
+      <dl class="metrics">
+        <div><dt>Headcount</dt><dd>{{headcount}}</dd></div>
+        <div><dt>List PEPM</dt><dd>${{listPepm}}</dd></div>
+        <div><dt>Volume</dt><dd>{{volumePercent}}%</dd></div>
+        <div><dt>Net PEPM</dt><dd>${{netPepm}}</dd></div>
+        <div><dt>Monthly</dt><dd>${{monthlyTotal}}</dd></div>
+        <div><dt>Annual (12×)</dt><dd>${{annualTotal}}</dd></div>
+      </dl>
+      <p class="quote-id">Salesforce Quote <code>{{quoteId}}</code></p>
+      <div class="warnings">{{warnings}}</div>
+      <div class="actions">
+        <button type="button" onclick="window.print()">Print / save PDF</button>
+        <a class="button-link" href="/">New estimate</a>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

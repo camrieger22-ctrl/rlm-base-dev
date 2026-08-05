@@ -61,6 +61,17 @@ python scripts/bamboohr/dual_channel_p1.py --target-org master-demo --via-cci
 Postman: `postman/bamboohr-dual-channel-p1.postman_collection.json`.  
 Notes: `.agents/artifacts/bamboohr-dual-channel-p1.md`.
 
+## Dual-channel P2 (Get Pricing form)
+
+Local thin BFF + branded HTML form (headcount + country → Quote summary):
+
+```bash
+python scripts/bamboohr/get_pricing/server.py --org master-demo --port 8765
+python scripts/bamboohr/get_pricing_smoke.py --target-org master-demo
+```
+
+See `scripts/bamboohr/get_pricing/README.md`.
+
 ## Objects
 
 | # | Object | Operation | External ID | Records |

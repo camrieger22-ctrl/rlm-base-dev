@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BambooHR Get Pricing</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;600;700&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+  <div class="atmosphere" aria-hidden="true"></div>
+  <main class="shell">
+    <header class="hero">
+      <p class="brand">BambooHR</p>
+      <h1>Get pricing for your team</h1>
+      <p class="lede">Enter headcount and country. We’ll discover the catalog, apply volume tiers, and open a Salesforce quote.</p>
+    </header>
+
+    <form id="pricing-form" class="panel" novalidate>
+      <label>
+        Employees (headcount)
+        <input id="headcount" name="headcount" type="number" min="1" max="100000" value="50" required />
+      </label>
+      <label>
+        Country
+        <select id="country" name="country">
+          <option value="US" selected>United States</option>
+          <option value="CA">Canada</option>
+        </select>
+      </label>
+      <label>
+        Plan
+        <select id="planSku" name="planSku">
+          <option value="BAMBOO-CORE">Core — $10 PEPM</option>
+          <option value="BAMBOO-PRO" selected>Pro — $17 PEPM</option>
+          <option value="BAMBOO-ELITE">Elite — $25 PEPM</option>
+        </select>
+      </label>
+      <div class="actions">
+        <button type="submit" id="submit">Get pricing</button>
+      </div>
+      <p id="status" class="status" role="status"></p>
+    </form>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>
