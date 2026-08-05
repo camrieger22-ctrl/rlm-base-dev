@@ -43,7 +43,17 @@ VOLUME_BANDS = (
 
 class OrgSession:
     def __init__(self, alias: str) -> None:
-        from cumulusci.cli.runtime import CliRuntime
+        try:
+            from cumulusci.cli.runtime import CliRuntime
+        except ModuleNotFoundError as exc:
+            raise SystemExit(
+                "cumulusci is not installed in this Python. Use the CCI pipx "
+                "interpreter, e.g.\n"
+                "  ~/.local/pipx/venvs/cumulusci/bin/python "
+                "scripts/bamboohr/get_pricing/server.py --org master-demo "
+                "--port 8765\n"
+                "Or: pipx run --spec cumulusci … / activate your CCI venv."
+            ) from exc
 
         runtime = CliRuntime(load_keychain=True)
         org = runtime.keychain.get_org(alias)

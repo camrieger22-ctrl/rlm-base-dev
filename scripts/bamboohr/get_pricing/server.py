@@ -21,6 +21,7 @@ STATIC = HERE / "static"
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
+from checkout import checkout_quote  # noqa: E402
 from service import GetPricingRequest, OrgSession, get_pricing  # noqa: E402
 
 # In-memory quote summaries for /quote/{id} branded page (demo only).
@@ -103,30 +104,55 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         path = urlparse(self.path).path
-        if path != "/api/get-pricing":
-            self._send(404, b"Not found", "text/plain")
-            return
         length = int(self.headers.get("Content-Length") or 0)
         try:
             body = json.loads(self.rfile.read(length).decode() or "{}")
         except json.JSONDecodeError:
             self._json(400, {"ok": False, "error": "Invalid JSON"})
             return
-        try:
-            req = GetPricingRequest(
-                headcount=int(body.get("headcount") or 0),
-                country=str(body.get("country") or "US"),
-                plan_sku=str(body.get("planSku") or "BAMBOO-PRO"),
-                place_quote=bool(body.get("placeQuote", True)),
-            )
-            result = get_pricing(_session(), req)
-            payload = result.as_dict()
-            if result.quote_id:
-                QUOTE_CACHE[result.quote_id] = payload
-                payload["quoteUrl"] = f"/quote/{result.quote_id}"
-            self._json(200, payload)
-        except Exception as exc:  # noqa: BLE001
-            self._json(400, {"ok": False, "error": str(exc)})
+
+        if path == "/api/get-pricing":
+            try:
+                req = GetPricingRequest(
+                    headcount=int(body.get("headcount") or 0),
+                    country=str(body.get("country") or "US"),
+                    plan_sku=str(body.get("planSku") or "BAMBOO-PRO"),
+                    place_quote=bool(body.get("placeQuote", True)),
+                )
+                result = get_pricing(_session(), req)
+                payload = result.as_dict()
+                if result.quote_id:
+                    QUOTE_CACHE[result.quote_id] = payload
+                    payload["quoteUrl"] = f"/quote/{result.quote_id}"
+                self._json(200, payload)
+            except Exception as exc:  # noqa: BLE001
+                self._json(400, {"ok": False, "error": str(exc)})
+            return
+
+        if path == "/api/checkout":
+            quote_id = str(body.get("quoteId") or "").strip()
+            if not quote_id:
+                self._json(400, {"ok": False, "error": "quoteId is required"})
+                return
+            amend_raw = body.get("amendQty")
+            amend_qty = int(amend_raw) if amend_raw not in (None, "") else None
+            try:
+                result = checkout_quote(
+                    _session(),
+                    quote_id,
+                    amend_qty=amend_qty,
+                    poll_timeout=int(body.get("pollTimeout") or 180),
+                )
+                payload = result.as_dict()
+                cached = QUOTE_CACHE.get(quote_id)
+                if cached is not None:
+                    cached["checkout"] = payload
+                self._json(200 if result.ok else 400, payload)
+            except Exception as exc:  # noqa: BLE001
+                self._json(400, {"ok": False, "error": str(exc)})
+            return
+
+        self._send(404, b"Not found", "text/plain")
 
 
 def main() -> int:

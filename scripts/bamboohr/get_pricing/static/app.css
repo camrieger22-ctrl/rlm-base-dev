@@ -115,7 +115,25 @@ button, .button-link {
 }
 
 button:hover, .button-link:hover { background: var(--leaf-deep); }
+button.secondary, .button-link.secondary {
+  background: transparent;
+  color: var(--leaf-deep);
+  border: 1px solid var(--line);
+}
+button.secondary:hover, .button-link.secondary:hover {
+  background: var(--mist);
+}
 button:disabled { opacity: 0.55; cursor: wait; }
+
+.checkout-result {
+  margin: 0;
+  padding: 0.85rem;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.85);
+  font-size: 0.8rem;
+  overflow: auto;
+  max-height: 14rem;
+}
 
 .status {
   min-height: 1.25rem;

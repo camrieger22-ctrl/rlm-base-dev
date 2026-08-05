@@ -66,11 +66,15 @@ Notes: `.agents/artifacts/bamboohr-dual-channel-p1.md`.
 Local thin BFF + branded HTML form (headcount + country → Quote summary):
 
 ```bash
-python scripts/bamboohr/get_pricing/server.py --org master-demo --port 8765
-python scripts/bamboohr/get_pricing_smoke.py --target-org master-demo
+~/.local/pipx/venvs/cumulusci/bin/python \
+  scripts/bamboohr/get_pricing/server.py --org master-demo --port 8765
+~/.local/pipx/venvs/cumulusci/bin/python \
+  scripts/bamboohr/get_pricing_smoke.py --target-org master-demo
+~/.local/pipx/venvs/cumulusci/bin/python \
+  scripts/bamboohr/checkout_p3_smoke.py --target-org master-demo
 ```
 
-See `scripts/bamboohr/get_pricing/README.md`.
+See `scripts/bamboohr/get_pricing/README.md` (P2 form + P3 `/api/checkout`).
 
 ## Objects
 
