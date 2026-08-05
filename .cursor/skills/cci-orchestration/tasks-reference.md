@@ -3,7 +3,7 @@
 > **Auto-generated** by `scripts/ai/generate_cci_reference.py` from `cumulusci.yml`.  
 > Do not edit manually — re-run the script after changing `cumulusci.yml`.
 
-**278 tasks** across **10 groups**.
+**286 tasks** across **10 groups**.
 
 ---
 
@@ -1062,7 +1062,7 @@
 
 ## Revenue Lifecycle Management
 
-*168 task(s)*
+*176 task(s)*
 
 ### `activate_agents`
 
@@ -1229,6 +1229,71 @@
 
 ---
 
+### `apply_bamboohr_disqualification_overlay`
+
+**Description:** Adds EvaluateCategoryDisqualification for BambooHR US-only add-ons (hide when Account.BillingCountry matches ProductCategoryDisqual rows).
+
+**Class:** `tasks.rlm_expression_set_connect.ApplyExpressionSetOverlay`
+
+**Options:**
+
+- `overlay_file`: `datasets/expression_set_overlays/bamboohr_category_disqualification.json`
+
+---
+
+### `apply_bamboohr_nonprofit_pricing_overlay`
+
+**Description:** Adds ListGroup + ManualDiscount 15% on RLM_DefaultPricingProcedure when RLM_Is_Nonprofit_Account__c is true (after list→input, before ABA/BBA/volume) so Calculation Details shows the nonprofit adjustment; copies NetUnitPrice back to InputUnitPrice for correct volume stacking.
+
+**Class:** `tasks.rlm_expression_set_connect.ApplyExpressionSetOverlay`
+
+**Options:**
+
+- `overlay_file`: `datasets/expression_set_overlays/bamboohr_nonprofit_list_discount.json`
+
+---
+
+### `apply_bamboohr_nonprofit_pricing_overlay_nearcore`
+
+**Description:** Same BambooHR nonprofit 15% ManualDiscount overlay on RLM_DefaultNearCorePricingProcedure. Some orgs bind Quote DefaultPricing to NearCore; this keeps Instant Pricing covered if that drift returns.
+
+**Class:** `tasks.rlm_expression_set_connect.ApplyExpressionSetOverlay`
+
+**Options:**
+
+- `overlay_file`: `datasets/expression_set_overlays/bamboohr_nonprofit_list_discount_nearcore.json`
+
+---
+
+### `apply_bamboohr_qualification_overlay`
+
+**Description:** Maps BillingCountry into EvaluateCategoryQualification on RLM_ProductDiscoveryQualificationProcedure (legacy; prefer disqualification overlay for hide semantics).
+
+**Class:** `tasks.rlm_expression_set_connect.ApplyExpressionSetOverlay`
+
+**Options:**
+
+- `overlay_file`: `datasets/expression_set_overlays/bamboohr_category_qualification_billing_country.json`
+
+---
+
+### `apply_context_bamboohr_nonprofit_pricing`
+
+**Description:** Maps Quote.RLM_Is_Nonprofit_Account__c into RLM_SalesTransactionContext (QuoteEntitiesMapping) so Default pricing can auto-apply BambooHR nonprofit 15% list discount.
+
+**Class:** `tasks.rlm_context_service.ManageContextDefinition`
+
+**Options:**
+
+- `developer_name`: `RLM_SalesTransactionContext`
+- `plan_file`: `datasets/context_plans/BambooHrNonprofitPricing/manifest.json`
+- `translate_plan`: `True`
+- `deactivate_before`: `False`
+- `activate`: `True`
+- `verify`: `True`
+
+---
+
 ### `apply_context_billing_order`
 
 **Description:** Adds BillingArrangement__std and BillingProfile__std Order field mappings to the RLM_BillingContext context definition (OrderEntitiesMapping / BillingTransaction node). Maps to Order.RLM_Billing_Arrangement__c and Order.RLM_Billing_Profile__c. SavedPaymentMethod__std is excluded due to inherited mapping conflicts.
@@ -1288,6 +1353,23 @@
 
 - `developer_name`: `RLM_SalesTransactionContext`
 - `plan_file`: `datasets/context_plans/PrmPricing/manifest.json`
+- `translate_plan`: `True`
+- `deactivate_before`: `False`
+- `activate`: `True`
+- `verify`: `True`
+
+---
+
+### `apply_context_product_discovery_billing_country`
+
+**Description:** Adds Account.BillingCountry to RLM_ProductDiscoveryContext (ProductDiscoveryMapping) so category qualification can gate US-only BambooHR add-ons.
+
+**Class:** `tasks.rlm_context_service.ManageContextDefinition`
+
+**Options:**
+
+- `developer_name`: `RLM_ProductDiscoveryContext`
+- `plan_file`: `datasets/context_plans/ProductDiscoveryBillingCountry/manifest.json`
 - `translate_plan`: `True`
 - `deactivate_before`: `False`
 - `activate`: `True`
@@ -1718,6 +1800,18 @@
 
 ---
 
+### `deploy_bamboohr_qualification_decision_tables`
+
+**Description:** Deploy RLM_ProductCategoryQualification (RLM_BillingCountry__c INPUT) from unpackaged/post_bamboohr_qual/decisionTables. Deactivate that table first (manage_decision_tables operation=deactivate). Keep in sync with unpackaged/pre/5_decisiontables.
+
+**Class:** `cumulusci.tasks.salesforce.Deploy`
+
+**Options:**
+
+- `path`: `unpackaged/post_bamboohr_qual/decisionTables`
+
+---
+
 ### `deploy_billing_id_settings`
 
 **Description:** Deploy Billing Settings with org-specific record IDs (resolved via XPath transform queries at deploy time)
@@ -1856,7 +1950,7 @@
 
 ### `deploy_post_bamboohr`
 
-**Description:** Deploy BambooHR volume-tier coach metadata (QLI stamp fields, before-trigger, RLM_BambooVolumeTiers Apex + test, rlmVolumeTierCoach LWC, RLM_BambooHR permission set) from unpackaged/post_bamboohr. Quote page wiring ships via the bamboohr flexipage patch during prepare_ux / assemble_and_deploy_ux.
+**Description:** Deploy BambooHR volume-tier coach metadata (QLI stamp fields, before-trigger, RLM_BambooVolumeTiers Apex + test, rlmVolumeTierCoach LWC, RLM_BambooHR permission set) and ProductCategoryQualification criteria fields (RLM_BillingCountry__c, RLM_Qualification_Key__c) from unpackaged/post_bamboohr. Category qualification DT deploys separately via deploy_bamboohr_qualification_decision_tables. Quote page wiring ships via the bamboohr flexipage patch during prepare_ux / assemble_and_deploy_ux.
 
 **Class:** `cumulusci.tasks.salesforce.Deploy`
 
@@ -2073,6 +2167,18 @@
 
 - `suite`: `robot/rlm-base/tests/setup/enable_timeline.robot`
 - `outputdir`: `robot/rlm-base/results`
+
+---
+
+### `ensure_bamboohr_quote_default_pricing_procedure`
+
+**Description:** Ensures RLM_Quote_Pricing_Procedure_Plan DefaultPricing option points at RLM_DefaultPricingProcedure (repo canonical). Repairs NearCore drift that skips BambooHR nonprofit / volume overlays on Instant Pricing.
+
+**Class:** `tasks.rlm_apply_procedure_plan_overlay.ApplyProcedurePlanOverlay`
+
+**Options:**
+
+- `overlay_file`: `datasets/procedure_plan_overlays/bamboohr_default_pricing_procedure.json`
 
 ---
 

@@ -143,15 +143,14 @@
       "excluded": true
     },
     {
-      "query": "SELECT Id, CategoryId, EffectiveFromDate, EffectiveToDate, IsDisqualified, Name, Reason FROM ProductCategoryDisqual",
+      "query": "SELECT Id, CategoryId, EffectiveFromDate, EffectiveToDate, Reason, RLM_BillingCountry__c, RLM_Disqualification_Key__c FROM ProductCategoryDisqual",
       "operation": "Upsert",
-      "externalId": "Name",
-      "excluded": true
+      "externalId": "RLM_Disqualification_Key__c"
     },
     {
-      "query": "SELECT Id, CategoryId, EffectiveFromDate, EffectiveToDate, IsQualified, Name FROM ProductCategoryQualification",
+      "query": "SELECT Id, CategoryId, EffectiveFromDate, EffectiveToDate, RLM_BillingCountry__c, RLM_Qualification_Key__c FROM ProductCategoryQualification",
       "operation": "Upsert",
-      "externalId": "Name",
+      "externalId": "RLM_Qualification_Key__c",
       "excluded": true
     },
     {

@@ -203,14 +203,31 @@ Extract rating and rates data from an org into CSV files
 
 ### `prepare_bamboohr`
 
-Deploy BambooHR volume-tier coach (QLI fields, stamp trigger, Apex, LWC, RLM_BambooHR permission set). Catalog/pricing data still loads via insert_bamboohr_* tasks. Quote page coach + TLE side-panel fields ship via the bamboohr flexipage patch during prepare_ux when bamboohr=true.
+Deploy BambooHR volume-tier coach + US-only category qualification wiring (PCQ fields, Product Discovery BillingCountry context, category qualification DT + procedure overlay) and nonprofit 15% list discount (Account flag → SalesTransaction context → Default pricing overlay). Catalog/pricing data still loads via insert_bamboohr_* tasks. Quote page coach + TLE side-panel fields ship via the bamboohr flexipage patch during prepare_ux when bamboohr=true.
 
 **Steps:**
 
 1. **task** `deploy_post_bamboohr`  `when: project_config.project__custom__bamboohr`
 2. **task** `assign_permission_sets`  `when: project_config.project__custom__bamboohr`
    - `api_names`: `['RLM_BambooHR']`
-3. **task** `stamp_bamboohr_volume_tiers`  `when: project_config.project__custom__bamboohr`
+3. **task** `apply_context_product_discovery_billing_country`  `when: project_config.project__custom__bamboohr`
+4. **task** `manage_decision_tables`  `when: project_config.project__custom__bamboohr`
+   - `operation`: `deactivate`
+   - `developer_names`: `['RLM_ProductCategoryQualification']`
+5. **task** `deploy_bamboohr_qualification_decision_tables`  `when: project_config.project__custom__bamboohr`
+6. **task** `manage_decision_tables`  `when: project_config.project__custom__bamboohr`
+   - `operation`: `activate`
+   - `developer_names`: `['RLM_ProductCategoryQualification']`
+7. **task** `manage_decision_tables`  `when: project_config.project__custom__bamboohr`
+   - `operation`: `refresh`
+   - `developer_names`: `['RLM_ProductCategoryQualification', 'RLM_ProductCategoryDisqualification']`
+8. **task** `apply_bamboohr_qualification_overlay`  `when: project_config.project__custom__bamboohr`
+9. **task** `apply_bamboohr_disqualification_overlay`  `when: project_config.project__custom__bamboohr`
+10. **task** `apply_context_bamboohr_nonprofit_pricing`  `when: project_config.project__custom__bamboohr`
+11. **task** `apply_bamboohr_nonprofit_pricing_overlay`  `when: project_config.project__custom__bamboohr`
+12. **task** `apply_bamboohr_nonprofit_pricing_overlay_nearcore`  `when: project_config.project__custom__bamboohr`
+13. **task** `ensure_bamboohr_quote_default_pricing_procedure`  `when: project_config.project__custom__bamboohr`
+14. **task** `stamp_bamboohr_volume_tiers`  `when: project_config.project__custom__bamboohr`
 
 ---
 

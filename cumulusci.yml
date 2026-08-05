@@ -1356,11 +1356,105 @@ tasks:
     description: >
       Deploy BambooHR volume-tier coach metadata (QLI stamp fields, before-trigger,
       RLM_BambooVolumeTiers Apex + test, rlmVolumeTierCoach LWC, RLM_BambooHR
-      permission set) from unpackaged/post_bamboohr. Quote page wiring ships via
+      permission set) and ProductCategoryQualification criteria fields
+      (RLM_BillingCountry__c, RLM_Qualification_Key__c) from unpackaged/post_bamboohr.
+      Category qualification DT deploys separately via
+      deploy_bamboohr_qualification_decision_tables. Quote page wiring ships via
       the bamboohr flexipage patch during prepare_ux / assemble_and_deploy_ux.
     class_path: cumulusci.tasks.salesforce.Deploy
     options:
       path: unpackaged/post_bamboohr
+
+  apply_context_product_discovery_billing_country:
+    group: Revenue Lifecycle Management
+    description: >
+      Adds Account.BillingCountry to RLM_ProductDiscoveryContext
+      (ProductDiscoveryMapping) so category qualification can gate US-only
+      BambooHR add-ons.
+    class_path: tasks.rlm_context_service.ManageContextDefinition
+    options:
+      developer_name: *product_discovery_context_name
+      plan_file: datasets/context_plans/ProductDiscoveryBillingCountry/manifest.json
+      translate_plan: true
+      deactivate_before: false
+      activate: true
+      verify: true
+
+  apply_bamboohr_qualification_overlay:
+    group: Revenue Lifecycle Management
+    description: >
+      Maps BillingCountry into EvaluateCategoryQualification on
+      RLM_ProductDiscoveryQualificationProcedure (legacy; prefer disqualification
+      overlay for hide semantics).
+    class_path: tasks.rlm_expression_set_connect.ApplyExpressionSetOverlay
+    options:
+      overlay_file: datasets/expression_set_overlays/bamboohr_category_qualification_billing_country.json
+
+  apply_bamboohr_disqualification_overlay:
+    group: Revenue Lifecycle Management
+    description: >
+      Adds EvaluateCategoryDisqualification for BambooHR US-only add-ons
+      (hide when Account.BillingCountry matches ProductCategoryDisqual rows).
+    class_path: tasks.rlm_expression_set_connect.ApplyExpressionSetOverlay
+    options:
+      overlay_file: datasets/expression_set_overlays/bamboohr_category_disqualification.json
+
+  apply_context_bamboohr_nonprofit_pricing:
+    group: Revenue Lifecycle Management
+    description: >
+      Maps Quote.RLM_Is_Nonprofit_Account__c into RLM_SalesTransactionContext
+      (QuoteEntitiesMapping) so Default pricing can auto-apply BambooHR
+      nonprofit 15% list discount.
+    class_path: tasks.rlm_context_service.ManageContextDefinition
+    options:
+      developer_name: *sales_transaction_context_name
+      plan_file: datasets/context_plans/BambooHrNonprofitPricing/manifest.json
+      translate_plan: true
+      deactivate_before: false
+      activate: true
+      verify: true
+
+  apply_bamboohr_nonprofit_pricing_overlay:
+    group: Revenue Lifecycle Management
+    description: >
+      Adds ListGroup + ManualDiscount 15% on RLM_DefaultPricingProcedure when
+      RLM_Is_Nonprofit_Account__c is true (after list→input, before ABA/BBA/volume)
+      so Calculation Details shows the nonprofit adjustment; copies NetUnitPrice
+      back to InputUnitPrice for correct volume stacking.
+    class_path: tasks.rlm_expression_set_connect.ApplyExpressionSetOverlay
+    options:
+      overlay_file: datasets/expression_set_overlays/bamboohr_nonprofit_list_discount.json
+
+  apply_bamboohr_nonprofit_pricing_overlay_nearcore:
+    group: Revenue Lifecycle Management
+    description: >
+      Same BambooHR nonprofit 15% ManualDiscount overlay on
+      RLM_DefaultNearCorePricingProcedure. Some orgs bind Quote DefaultPricing
+      to NearCore; this keeps Instant Pricing covered if that drift returns.
+    class_path: tasks.rlm_expression_set_connect.ApplyExpressionSetOverlay
+    options:
+      overlay_file: datasets/expression_set_overlays/bamboohr_nonprofit_list_discount_nearcore.json
+
+  ensure_bamboohr_quote_default_pricing_procedure:
+    group: Revenue Lifecycle Management
+    description: >
+      Ensures RLM_Quote_Pricing_Procedure_Plan DefaultPricing option points at
+      RLM_DefaultPricingProcedure (repo canonical). Repairs NearCore drift that
+      skips BambooHR nonprofit / volume overlays on Instant Pricing.
+    class_path: tasks.rlm_apply_procedure_plan_overlay.ApplyProcedurePlanOverlay
+    options:
+      overlay_file: datasets/procedure_plan_overlays/bamboohr_default_pricing_procedure.json
+
+  deploy_bamboohr_qualification_decision_tables:
+    group: Revenue Lifecycle Management
+    description: >
+      Deploy RLM_ProductCategoryQualification (RLM_BillingCountry__c INPUT) from
+      unpackaged/post_bamboohr_qual/decisionTables. Deactivate that table first
+      (manage_decision_tables operation=deactivate). Keep in sync with
+      unpackaged/pre/5_decisiontables.
+    class_path: cumulusci.tasks.salesforce.Deploy
+    options:
+      path: unpackaged/post_bamboohr_qual/decisionTables
 
   stamp_bamboohr_volume_tiers:
     group: Revenue Lifecycle Management
@@ -3981,10 +4075,13 @@ flows:
   prepare_bamboohr:
     group: Revenue Lifecycle Management
     description: >
-      Deploy BambooHR volume-tier coach (QLI fields, stamp trigger, Apex, LWC,
-      RLM_BambooHR permission set). Catalog/pricing data still loads via
-      insert_bamboohr_* tasks. Quote page coach + TLE side-panel fields ship via
-      the bamboohr flexipage patch during prepare_ux when bamboohr=true.
+      Deploy BambooHR volume-tier coach + US-only category qualification wiring
+      (PCQ fields, Product Discovery BillingCountry context, category
+      qualification DT + procedure overlay) and nonprofit 15% list discount
+      (Account flag → SalesTransaction context → Default pricing overlay).
+      Catalog/pricing data still loads via insert_bamboohr_* tasks. Quote page
+      coach + TLE side-panel fields ship via the bamboohr flexipage patch during
+      prepare_ux when bamboohr=true.
     steps:
       1:
         task: deploy_post_bamboohr
@@ -3995,6 +4092,52 @@ flows:
         options:
           api_names: *ps_bamboohr
       3:
+        task: apply_context_product_discovery_billing_country
+        when: project_config.project__custom__bamboohr
+      4:
+        task: manage_decision_tables
+        when: project_config.project__custom__bamboohr
+        options:
+          operation: deactivate
+          developer_names:
+            - RLM_ProductCategoryQualification
+      5:
+        task: deploy_bamboohr_qualification_decision_tables
+        when: project_config.project__custom__bamboohr
+      6:
+        task: manage_decision_tables
+        when: project_config.project__custom__bamboohr
+        options:
+          operation: activate
+          developer_names:
+            - RLM_ProductCategoryQualification
+      7:
+        task: manage_decision_tables
+        when: project_config.project__custom__bamboohr
+        options:
+          operation: refresh
+          developer_names:
+            - RLM_ProductCategoryQualification
+            - RLM_ProductCategoryDisqualification
+      8:
+        task: apply_bamboohr_qualification_overlay
+        when: project_config.project__custom__bamboohr
+      9:
+        task: apply_bamboohr_disqualification_overlay
+        when: project_config.project__custom__bamboohr
+      10:
+        task: apply_context_bamboohr_nonprofit_pricing
+        when: project_config.project__custom__bamboohr
+      11:
+        task: apply_bamboohr_nonprofit_pricing_overlay
+        when: project_config.project__custom__bamboohr
+      12:
+        task: apply_bamboohr_nonprofit_pricing_overlay_nearcore
+        when: project_config.project__custom__bamboohr
+      13:
+        task: ensure_bamboohr_quote_default_pricing_procedure
+        when: project_config.project__custom__bamboohr
+      14:
         task: stamp_bamboohr_volume_tiers
         when: project_config.project__custom__bamboohr
 

@@ -1,0 +1,2 @@
+$$Name,BillingCity,BillingCountry,BillingPostalCode,BillingState,BillingStreet,Description,Industry,Name,NumberOfEmployees,RLM_Is_Nonprofit__c,Type,Website
+BambooHR Nonprofit Demo,San Francisco,US,94105,CA,1 Market St,"Demo nonprofit account for BambooHR. RLM_Is_Nonprofit__c=true applies automatic 15% list discount on Standard price book quotes.",Education,BambooHR Nonprofit Demo,120,true,Customer,https://example.org/bamboohr-nonprofit

@@ -1,0 +1,12 @@
+{
+  "developerName": "RLM_Quote_Pricing_Procedure_Plan",
+  "options": [
+    {
+      "sectionSubSectionType": "DefaultPricing",
+      "priority": 1,
+      "expressionSetDeveloperName": "RLM_DefaultPricingProcedure",
+      "readContextMapping": null,
+      "saveContextMapping": null
+    }
+  ]
+}

@@ -4,7 +4,37 @@
         <apexClass>RLM_BambooVolumeTiers</apexClass>
         <enabled>true</enabled>
     </classAccesses>
-    <description>BambooHR demo volume-tier coach fields and LWC Apex access.</description>
+    <description>BambooHR demo volume-tier coach fields, US-only category qualification criteria, nonprofit Account flag, and LWC Apex access.</description>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>Account.RLM_Is_Nonprofit__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>Quote.RLM_Is_Nonprofit_Account__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>ProductCategoryDisqual.RLM_BillingCountry__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>ProductCategoryDisqual.RLM_Disqualification_Key__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>ProductCategoryQualification.RLM_BillingCountry__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>ProductCategoryQualification.RLM_Qualification_Key__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
     <fieldPermissions>
         <editable>true</editable>
         <field>QuoteLineItem.RLM_Volume_Tier_Band__c</field>

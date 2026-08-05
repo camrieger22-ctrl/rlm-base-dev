@@ -25,20 +25,20 @@
     </decisionTableParameters>
     <decisionTableParameters>
         <dataType>String</dataType>
-        <fieldName>IsQualified</fieldName>
-        <fieldPath>IsQualified</fieldPath>
+        <fieldName>IsDisqualified</fieldName>
+        <fieldPath>IsDisqualified</fieldPath>
         <isGroupByField>false</isGroupByField>
         <isRequired>false</isRequired>
         <usage>OUTPUT</usage>
     </decisionTableParameters>
-    <description>Creates a decision table that’s used to identify qualified categories.</description>
-    <doesConsiderNullValue>true</doesConsiderNullValue>
+    <description>Category disqualification for geo-restricted catalogs (BambooHR US-only add-ons).</description>
+    <doesConsiderNullValue>false</doesConsiderNullValue>
     <filterResultBy>OutputOrder</filterResultBy>
     <hasIncrementalSyncFailed>false</hasIncrementalSyncFailed>
     <isIncrementalSyncEnabled>false</isIncrementalSyncEnabled>
-    <setupName>RLM_ProductCategoryQualification</setupName>
+    <setupName>RLM_ProductCategoryDisqualification</setupName>
     <sourceConditionLogic>null</sourceConditionLogic>
-    <sourceObject>ProductCategoryQualification</sourceObject>
+    <sourceObject>ProductCategoryDisqual</sourceObject>
     <status>Active</status>
     <type>LowVolume</type>
     <usageType>ProductCategoryQualification</usageType>

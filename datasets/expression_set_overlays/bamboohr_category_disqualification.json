@@ -1,0 +1,70 @@
+{
+  "expressionSetApiName": "RLM_ProductDiscoveryQualificationProcedure",
+  "versionApiName": "RLM_ProductDiscoveryQualificationProcedure_V1",
+  "externalDependencies": {
+    "customFields": [
+      "ProductCategoryDisqual.RLM_BillingCountry__c",
+      "ProductCategoryDisqual.RLM_Disqualification_Key__c"
+    ],
+    "contextFields": [
+      "BillingCountry__c (RLM_ProductDiscoveryContext Account → Account.BillingCountry)"
+    ],
+    "note": "Adds EvaluateCategoryDisqualification. Hide semantics require disqualification: unmatched qualification leaves Null, and Null is treated as qualified."
+  },
+  "addSteps": [
+    {
+      "name": "EvaluateCategoryDisqualification",
+      "actionType": "EvaluateCategoryDisqualification",
+      "stepType": "BusinessKnowledgeModel",
+      "description": "Evaluate Category Disqualification",
+      "resultIncluded": true,
+      "hasNestedExplainability": false,
+      "shouldExposeExecPathMsgOnly": true,
+      "shouldExposeConditionDetails": false,
+      "shouldShowExplExternally": false,
+      "placement": { "afterStep": "EvaluateCategoryQualification" },
+      "customElement": {
+        "parameters": [
+          {
+            "input": true,
+            "name": "CategoryId",
+            "output": false,
+            "type": "Parameter",
+            "value": "CategoryId"
+          },
+          {
+            "input": true,
+            "name": "RLM_BillingCountry",
+            "output": false,
+            "type": "Parameter",
+            "value": "BillingCountry__c"
+          },
+          {
+            "input": true,
+            "name": "DTName",
+            "output": false,
+            "type": "Literal",
+            "value": "RLM_ProductCategoryDisqualification"
+          },
+          {
+            "input": false,
+            "name": "IsDisqualified",
+            "output": true,
+            "type": "Parameter",
+            "value": "IsCategoryQualified"
+          },
+          {
+            "input": false,
+            "name": "Reason",
+            "output": true,
+            "type": "Parameter",
+            "value": "CategoryDisqualifiedReason"
+          }
+        ]
+      }
+    }
+  ],
+  "labels": {
+    "EvaluateCategoryDisqualification": "Evaluate Category Disqualification"
+  }
+}

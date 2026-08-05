@@ -5,6 +5,12 @@
     {
       "objects": [
         {
+          "query": "SELECT Id, Name, Type, Industry, BillingStreet, BillingCity, BillingState, BillingPostalCode, BillingCountry, NumberOfEmployees, Description, Website, RLM_Is_Nonprofit__c FROM Account WHERE Name = 'BambooHR Nonprofit Demo'",
+          "operation": "Upsert",
+          "externalId": "Name",
+          "excluded": false
+        },
+        {
           "query": "SELECT ConversionRate, DecimalPlaces, IsActive, IsCorporate, IsoCode FROM CurrencyType ORDER BY IsoCode ASC",
           "operation": "Upsert",
           "externalId": "IsoCode",

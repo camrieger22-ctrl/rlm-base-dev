@@ -2,4 +2,4 @@ Catalog.Code,Code,Description,IsNavigational,Name,ParentCategory.Code,SortOrder
 CAT-BAMBOO,PC-BH-PLANS,Plan SKUs,true,Plans,,1
 CAT-BAMBOO,PC-BH-ADDONS,A la carte add-ons,true,Add-ons,,2
 CAT-BAMBOO,PC-BH-PACKAGES,Bundled packages,true,Packages,,3
-CAT-BAMBOO,PC-BH-US-ADDONS,US-only add-ons,true,US Add-ons,PC-BH-ADDONS,1
+CAT-BAMBOO,PC-BH-US-ADDONS,US-only add-ons,false,US Add-ons,PC-BH-ADDONS,1

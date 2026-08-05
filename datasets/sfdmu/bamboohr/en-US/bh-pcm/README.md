@@ -60,8 +60,8 @@ Legacy `BAMBOO-SUITE` (one SKU + Plan attribute) is obsolete after migrate.
 | 23 | ProductCategoryProduct | Upsert | `ProductCategory.Code;Product.StockKeepingUnit` | 8 |
 | 24 | ProductQualification | Upsert | `Name` | 0 (excluded) |
 | 25 | ProductDisqualification | Upsert | `Name` | 0 (excluded) |
-| 26 | ProductCategoryDisqual | Upsert | `Name` | 0 (excluded) |
-| 27 | ProductCategoryQualification | Upsert | `Name` | 0 (excluded) |
+| 26 | ProductCategoryDisqual | Upsert | `RLM_Disqualification_Key__c` | 1 (`PC-BH-US-ADDONS|CA`) |
+| 27 | ProductCategoryQualification | Upsert | `RLM_Qualification_Key__c` | 0 (excluded) |
 | 28 | ProdtAttrScope | Upsert | `Name` | 0 (excluded) |
 
 ## Workforce package
@@ -70,6 +70,20 @@ Legacy `BAMBOO-SUITE` (one SKU + Plan attribute) is obsolete after migrate.
 - `PCG-BH-WORKFORCE` min/max **2** — Payroll + Benefits required
 - `ProductRelatedComponent.ChildSellingModel` / `ParentSellingModel` must be **blank** (platform rejects selling models on configurable bundle components)
 
-## Gaps
+## US-only Payroll & Benefits
 
-- US-only Payroll/Benefits: category tagging only; Discovery DT follow-on.
+**Use disqualification, not qualification.** Unmatched qualification leaves
+`IsCategoryQualified` null, and **null is treated as qualified** — so a
+`ProductCategoryQualification` row for `US` does **not** hide add-ons for `CA`.
+
+- Products tagged under category `PC-BH-US-ADDONS` (`IsNavigational=false`
+  child of `PC-BH-ADDONS`, so Browse shows one Add-ons entry, not a duplicate).
+- `ProductCategoryDisqual` row `PC-BH-US-ADDONS|CA` with `RLM_BillingCountry__c=CA`
+  (org’s only non-US demo country today; add rows for other geos as needed).
+- Requires Foundations wiring (deployed via `prepare_bamboohr`):
+  - custom fields on `ProductCategoryDisqual`
+  - `RLM_ProductCategoryDisqualification` DT (UsageType Product Category Qualification)
+  - `RLM_ProductDiscoveryContext` Account.`BillingCountry__c` → Account.BillingCountry
+  - procedure step `EvaluateCategoryDisqualification` + param `RLM_BillingCountry`
+- After metadata: run `insert_bamboohr_pcm_data`, then refresh the disqual DT.
+- AE check: Prestige Worldwide (CA) hides Payroll/Benefits; Acme (US) shows them.

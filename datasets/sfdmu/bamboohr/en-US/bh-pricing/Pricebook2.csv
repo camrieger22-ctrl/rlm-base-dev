@@ -1,3 +1,2 @@
 $$Name$IsStandard,CostBook.Name,Description,IsActive,IsStandard,Name,ValidFrom,ValidTo
 Standard Price Book;true,,,true,true,Standard Price Book,,
-Nonprofit;false,,BambooHR nonprofit list (15% off Standard).,true,false,Nonprofit,,

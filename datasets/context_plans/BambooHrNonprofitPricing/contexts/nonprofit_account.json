@@ -1,0 +1,30 @@
+{
+  "planName": "BambooHrNonprofitPricing",
+  "developerName": "RLM_SalesTransactionContext",
+  "contextAttributesByName": [
+    {
+      "nodeName": "SalesTransaction",
+      "name": "RLM_Is_Nonprofit_Account__c",
+      "dataType": "BOOLEAN",
+      "fieldType": "INPUT"
+    }
+  ],
+  "mappingRules": [
+    {
+      "mappingName": "QuoteEntitiesMapping",
+      "contextNode": "SalesTransaction",
+      "contextAttribute": "RLM_Is_Nonprofit_Account__c",
+      "mappingType": "SOBJECT",
+      "sObject": "Quote",
+      "sObjectField": "RLM_Is_Nonprofit_Account__c"
+    }
+  ],
+  "contextTagsByName": [
+    {
+      "nodeName": "SalesTransaction",
+      "attributeName": "RLM_Is_Nonprofit_Account__c",
+      "name": "RLM_Is_Nonprofit_Account__c"
+    }
+  ],
+  "activate": true
+}

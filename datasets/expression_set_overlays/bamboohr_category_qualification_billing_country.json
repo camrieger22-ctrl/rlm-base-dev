@@ -1,0 +1,61 @@
+{
+  "expressionSetApiName": "RLM_ProductDiscoveryQualificationProcedure",
+  "versionApiName": "RLM_ProductDiscoveryQualificationProcedure_V1",
+  "externalDependencies": {
+    "customFields": [
+      "ProductCategoryQualification.RLM_BillingCountry__c",
+      "ProductCategoryQualification.RLM_Qualification_Key__c"
+    ],
+    "contextFields": [
+      "BillingCountry__c (RLM_ProductDiscoveryContext Account → Account.BillingCountry)"
+    ],
+    "note": "EvaluateCategoryQualification rejects Parameter names ending in __c. DT FieldName is RLM_BillingCountry__c; procedure param name is RLM_BillingCountry (Help pattern: BillingState vs BillingState__c)."
+  },
+  "updateSteps": [
+    {
+      "name": "EvaluateCategoryQualification",
+      "customElement": {
+        "parameters": [
+          {
+            "input": true,
+            "name": "CategoryId",
+            "output": false,
+            "type": "Parameter",
+            "value": "CategoryId"
+          },
+          {
+            "input": true,
+            "name": "RLM_BillingCountry",
+            "output": false,
+            "type": "Parameter",
+            "value": "BillingCountry__c"
+          },
+          {
+            "input": true,
+            "name": "DTName",
+            "output": false,
+            "type": "Literal",
+            "value": "RLM_ProductCategoryQualification"
+          },
+          {
+            "input": false,
+            "name": "IsQualified",
+            "output": true,
+            "type": "Parameter",
+            "value": "IsCategoryQualified"
+          },
+          {
+            "input": false,
+            "name": "Reason",
+            "output": true,
+            "type": "Parameter",
+            "value": "CategoryDisqualifiedReason"
+          }
+        ]
+      }
+    }
+  ],
+  "labels": {
+    "EvaluateCategoryQualification": "Evaluate Category Qualification"
+  }
+}

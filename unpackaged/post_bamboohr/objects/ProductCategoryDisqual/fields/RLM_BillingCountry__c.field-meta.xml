@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>RLM_BillingCountry__c</fullName>
+    <description>Account billing country that disqualifies a category (e.g. hide US-only BambooHR add-ons when BillingCountry is CA).</description>
+    <externalId>false</externalId>
+    <label>RLM Billing Country</label>
+    <length>80</length>
+    <required>false</required>
+    <trackHistory>false</trackHistory>
+    <type>Text</type>
+    <unique>false</unique>
+</CustomField>

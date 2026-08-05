@@ -1,0 +1,30 @@
+{
+  "planName": "ProductDiscoveryBillingCountry",
+  "developerName": "RLM_ProductDiscoveryContext",
+  "contextAttributesByName": [
+    {
+      "nodeName": "Account",
+      "name": "BillingCountry__c",
+      "dataType": "STRING",
+      "fieldType": "INPUT"
+    }
+  ],
+  "mappingRules": [
+    {
+      "mappingName": "ProductDiscoveryMapping",
+      "contextNode": "Account",
+      "contextAttribute": "BillingCountry__c",
+      "mappingType": "SOBJECT",
+      "sObject": "Account",
+      "sObjectField": "BillingCountry"
+    }
+  ],
+  "contextTagsByName": [
+    {
+      "nodeName": "Account",
+      "attributeName": "BillingCountry__c",
+      "name": "BillingCountry__c"
+    }
+  ],
+  "activate": true
+}

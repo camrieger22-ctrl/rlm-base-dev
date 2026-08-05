@@ -16,7 +16,7 @@ Boolean flags that gate task/flow execution via `when:` clauses.
 | `agents` | `True` | 11 flow step(s) |
 | `analytics` | `True` | 2 flow step(s) |
 | `approvals` | `True` | 5 flow step(s) |
-| `bamboohr` | `False` | 4 flow step(s) |
+| `bamboohr` | `False` | 15 flow step(s) |
 | `billing` | `True` | 22 flow step(s) |
 | `billing_portal` | `False` | 3 flow step(s) |
 | `billing_portal_deploy` | `True` | 1 flow step(s) |
@@ -92,7 +92,18 @@ Boolean flags that gate task/flow execution via `when:` clauses.
 - `prepare_rlm_org` step 28 → `prepare_bamboohr`
 - `prepare_bamboohr` step 1 → `deploy_post_bamboohr`
 - `prepare_bamboohr` step 2 → `assign_permission_sets`
-- `prepare_bamboohr` step 3 → `stamp_bamboohr_volume_tiers`
+- `prepare_bamboohr` step 3 → `apply_context_product_discovery_billing_country`
+- `prepare_bamboohr` step 4 → `manage_decision_tables`
+- `prepare_bamboohr` step 5 → `deploy_bamboohr_qualification_decision_tables`
+- `prepare_bamboohr` step 6 → `manage_decision_tables`
+- `prepare_bamboohr` step 7 → `manage_decision_tables`
+- `prepare_bamboohr` step 8 → `apply_bamboohr_qualification_overlay`
+- `prepare_bamboohr` step 9 → `apply_bamboohr_disqualification_overlay`
+- `prepare_bamboohr` step 10 → `apply_context_bamboohr_nonprofit_pricing`
+- `prepare_bamboohr` step 11 → `apply_bamboohr_nonprofit_pricing_overlay`
+- `prepare_bamboohr` step 12 → `apply_bamboohr_nonprofit_pricing_overlay_nearcore`
+- `prepare_bamboohr` step 13 → `ensure_bamboohr_quote_default_pricing_procedure`
+- `prepare_bamboohr` step 14 → `stamp_bamboohr_volume_tiers`
 
 ### `billing` (default: `True`)
 

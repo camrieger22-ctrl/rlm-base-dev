@@ -1,1 +1,1 @@
-Category.Code,EffectiveFromDate,EffectiveToDate,IsQualified,Name
+$$RLM_Qualification_Key__c,Category.Code,EffectiveFromDate,EffectiveToDate,RLM_BillingCountry__c,RLM_Qualification_Key__c
