@@ -25,7 +25,7 @@ insert_bamboohr_pricing_data:
 | Core / Pro / Elite PEPM | Own PBEs: **$10 / $17 / $25** Monthly; Annual = 12× |
 | Add-on placeholders | Payroll $8, Benefits $6, Time $4, Global $12 |
 | Volume demo ladder | `Standard Price Adjustment Tier` 5–25% on plans + add-ons |
-| Bundle & Save 15% | `BundleBasedAdjustment` on Payroll + Benefits under `BAMBOO-PKG-WORKFORCE` |
+| Bundle & Save 15% | **Path A:** `BundleBasedAdjustment` on Payroll + Benefits under `BAMBOO-PKG-WORKFORCE`. **Path B (a la carte):** Quote `RLM_Bamboo_PathB_BundleSave__c` (Apex when plan + Payroll + Benefits and no package) → ManualDiscount 15% on add-ons via `bamboohr_path_b_bundle_save` overlay. Smoke: `python scripts/bamboohr/path_b_bundle_save_smoke.py --via-cci` |
 | Nonprofit 15% | Account `RLM_Is_Nonprofit__c` → Quote formula → pricing context → `RLM_DefaultPricingProcedure` **ManualDiscount 15%** (visible in Calculation Details) then copies net → `InputUnitPrice` so volume/BBA stack on the discounted list (Standard PB only) |
 | USD only | All `CurrencyIsoCode=USD` |
 | PAS dates | `EffectiveFrom` **2023-01-01** (aligned with QuantumBit — do not use 2026) |

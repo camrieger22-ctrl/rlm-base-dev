@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>RLM_Bamboo_PathB_BundleSave__c</fullName>
+    <defaultValue>false</defaultValue>
+    <description>True when the quote has an a la carte BambooHR plan (Core/Pro/Elite) plus Payroll and Benefits, and no Workforce package header. Drives Path B Bundle &amp; Save 15% ManualDiscount in Default pricing. Maintained by RLM_BambooPathBBundleSave.</description>
+    <externalId>false</externalId>
+    <label>BambooHR Path B Bundle Save</label>
+    <trackHistory>false</trackHistory>
+    <type>Checkbox</type>
+</CustomField>

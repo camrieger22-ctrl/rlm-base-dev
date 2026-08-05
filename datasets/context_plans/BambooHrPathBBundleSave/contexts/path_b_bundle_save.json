@@ -1,0 +1,49 @@
+{
+  "planName": "BambooHrPathBBundleSave",
+  "developerName": "RLM_SalesTransactionContext",
+  "contextAttributesByName": [
+    {
+      "nodeName": "SalesTransaction",
+      "name": "RLM_Bamboo_PathB_BundleSave__c",
+      "dataType": "BOOLEAN",
+      "fieldType": "INPUT"
+    },
+    {
+      "nodeName": "SalesTransactionItem",
+      "name": "RLM_Bamboo_BundleSave_Target__c",
+      "dataType": "BOOLEAN",
+      "fieldType": "INPUT"
+    }
+  ],
+  "mappingRules": [
+    {
+      "mappingName": "QuoteEntitiesMapping",
+      "contextNode": "SalesTransaction",
+      "contextAttribute": "RLM_Bamboo_PathB_BundleSave__c",
+      "mappingType": "SOBJECT",
+      "sObject": "Quote",
+      "sObjectField": "RLM_Bamboo_PathB_BundleSave__c"
+    },
+    {
+      "mappingName": "QuoteEntitiesMapping",
+      "contextNode": "SalesTransactionItem",
+      "contextAttribute": "RLM_Bamboo_BundleSave_Target__c",
+      "mappingType": "SOBJECT",
+      "sObject": "QuoteLineItem",
+      "sObjectField": "RLM_Bamboo_BundleSave_Target__c"
+    }
+  ],
+  "contextTagsByName": [
+    {
+      "nodeName": "SalesTransaction",
+      "attributeName": "RLM_Bamboo_PathB_BundleSave__c",
+      "name": "RLM_Bamboo_PathB_BundleSave__c"
+    },
+    {
+      "nodeName": "SalesTransactionItem",
+      "attributeName": "RLM_Bamboo_BundleSave_Target__c",
+      "name": "RLM_Bamboo_BundleSave_Target__c"
+    }
+  ],
+  "activate": true
+}

@@ -1,0 +1,251 @@
+{
+  "expressionSetApiName": "RLM_DefaultNearCorePricingProcedure",
+  "versionApiName": "RLM_DefaultNearCorePricingProcedure_V1",
+  "description": "BambooHR Path B Bundle & Save 15%: when Quote.RLM_Bamboo_PathB_BundleSave__c is true, apply ManualDiscount 15% on InputUnitPrice for Payroll/Benefits lines (RLM_Bamboo_BundleSave_Target__c), after nonprofit list discount, before ABA/BBA/volume. Path A package quotes keep BBA instead (flag false when BAMBOO-PKG-* present). NearCore twin.",
+  "externalDependencies": {
+    "customFields": [
+      "Quote.RLM_Bamboo_PathB_BundleSave__c (Apex-maintained a la carte eligibility)",
+      "QuoteLineItem.RLM_Bamboo_BundleSave_Target__c (formula \u2192 Payroll/Benefits SKUs)"
+    ],
+    "contextFields": [
+      "RLM_Bamboo_PathB_BundleSave__c (SalesTransaction)",
+      "RLM_Bamboo_BundleSave_Target__c (SalesTransactionItem)"
+    ],
+    "note": "Requires datasets/context_plans/BambooHrPathBBundleSave and nonprofit overlay already applied (placement after ApplyBambooHRNonprofitListDiscount)."
+  },
+  "addVariables": [
+    {
+      "collection": false,
+      "dataType": "Numeric",
+      "decimalPlaces": 2,
+      "description": "BambooHR Path B Bundle & Save percent",
+      "input": false,
+      "name": "BambooHRPathBBundleSavePercent",
+      "output": false,
+      "type": "Constant",
+      "value": "15"
+    }
+  ],
+  "addSteps": [
+    {
+      "name": "ApplyBambooHRPathBBundleSave",
+      "description": "Path B Bundle & Save 15%",
+      "stepType": "ListGroup",
+      "resultIncluded": false,
+      "shouldExposeExecPathMsgOnly": true,
+      "shouldExposeConditionDetails": false,
+      "shouldShowExplExternally": false,
+      "hasNestedExplainability": false,
+      "passedMessageTokenMappings": [],
+      "failedMessageTokenMappings": [],
+      "noResultMessageTokenMappings": [],
+      "placement": {
+        "afterStep": "ApplyBambooHRNonprofitListDiscount"
+      }
+    },
+    {
+      "name": "FilterPathBBundleSaveAddOnLines",
+      "description": "",
+      "stepType": "AdvancedListFilter",
+      "resultIncluded": false,
+      "shouldExposeExecPathMsgOnly": true,
+      "shouldExposeConditionDetails": false,
+      "shouldShowExplExternally": false,
+      "hasNestedExplainability": false,
+      "passedMessageTokenMappings": [],
+      "failedMessageTokenMappings": [],
+      "noResultMessageTokenMappings": [],
+      "parentStep": "ApplyBambooHRPathBBundleSave",
+      "sequenceNumber": 1,
+      "advancedCondition": {
+        "conditionLogic": "1 AND 2 AND 3 AND 4 AND 5",
+        "criteria": [
+          {
+            "operator": "Equals",
+            "sequenceNumber": 1,
+            "sourceFieldName": "RLM_Bamboo_PathB_BundleSave__c",
+            "value": "true",
+            "valueType": "Literal"
+          },
+          {
+            "operator": "Equals",
+            "sequenceNumber": 2,
+            "sourceFieldName": "RLM_Bamboo_BundleSave_Target__c",
+            "value": "true",
+            "valueType": "Literal"
+          },
+          {
+            "operator": "NotEquals",
+            "sequenceNumber": 3,
+            "sourceFieldName": "ItemPricingSource",
+            "value": "'LastTransaction'",
+            "valueType": "Literal"
+          },
+          {
+            "operator": "IsNotNull",
+            "sequenceNumber": 4,
+            "sourceFieldName": "DerivedPricingAttribute"
+          },
+          {
+            "operator": "Equals",
+            "sequenceNumber": 5,
+            "sourceFieldName": "DerivedPricingAttribute",
+            "value": "false",
+            "valueType": "Literal"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ApplyBambooHRPathBBundleSavePct",
+      "description": "BambooHR Bundle & Save 15% (a la carte)",
+      "stepType": "BusinessKnowledgeModel",
+      "actionType": "ManualDiscount",
+      "resultIncluded": true,
+      "shouldExposeExecPathMsgOnly": true,
+      "shouldExposeConditionDetails": false,
+      "shouldShowExplExternally": false,
+      "hasNestedExplainability": false,
+      "passedMessageTokenMappings": [],
+      "failedMessageTokenMappings": [],
+      "noResultMessageTokenMappings": [],
+      "parentStep": "ApplyBambooHRPathBBundleSave",
+      "sequenceNumber": 2,
+      "customElement": {
+        "parameters": [
+          {
+            "input": true,
+            "name": "AdjustmentType",
+            "output": false,
+            "type": "Parameter",
+            "value": "PercentageStringConstant"
+          },
+          {
+            "input": true,
+            "name": "AdjustmentValue",
+            "output": false,
+            "type": "Parameter",
+            "value": "BambooHRPathBBundleSavePercent"
+          },
+          {
+            "input": true,
+            "name": "Quantity",
+            "output": false,
+            "type": "Parameter",
+            "value": "LineItemQuantity"
+          },
+          {
+            "input": true,
+            "name": "InputUnitPrice",
+            "output": false,
+            "type": "Parameter",
+            "value": "InputUnitPrice"
+          },
+          {
+            "input": true,
+            "name": "HideWaterfall",
+            "output": false,
+            "type": "Literal",
+            "value": "false"
+          },
+          {
+            "input": true,
+            "name": "sectionCount",
+            "output": false,
+            "type": "Literal",
+            "value": "0"
+          },
+          {
+            "input": true,
+            "name": "selectedFunction",
+            "output": false,
+            "type": "Literal",
+            "value": "Get"
+          },
+          {
+            "input": true,
+            "name": "IsRealTime",
+            "output": false,
+            "type": "Literal",
+            "value": "false"
+          },
+          {
+            "input": false,
+            "name": "NetUnitPrice",
+            "output": true,
+            "type": "Parameter",
+            "value": "NetUnitPrice"
+          },
+          {
+            "input": false,
+            "name": "Subtotal",
+            "output": true,
+            "type": "Parameter",
+            "value": "ItemNetTotalPrice"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AssignPathBBundleSaveNetToInputUnitPrice",
+      "description": "Assignment",
+      "stepType": "BusinessKnowledgeModel",
+      "actionType": "AssignmentElement",
+      "resultIncluded": false,
+      "shouldExposeExecPathMsgOnly": true,
+      "shouldExposeConditionDetails": false,
+      "shouldShowExplExternally": false,
+      "hasNestedExplainability": false,
+      "passedMessageTokenMappings": [],
+      "failedMessageTokenMappings": [],
+      "noResultMessageTokenMappings": [],
+      "parentStep": "ApplyBambooHRPathBBundleSave",
+      "sequenceNumber": 3,
+      "customElement": {
+        "parameters": [
+          {
+            "input": true,
+            "name": "section-0-input1",
+            "output": false,
+            "type": "Parameter",
+            "value": "NetUnitPrice"
+          },
+          {
+            "input": true,
+            "name": "sectionCount",
+            "output": false,
+            "type": "Literal",
+            "value": "1"
+          },
+          {
+            "input": true,
+            "name": "sectionJsonString1",
+            "output": false,
+            "type": "Literal",
+            "value": "{\"whereConditions\":[]}"
+          },
+          {
+            "input": true,
+            "name": "sectionJsonString2",
+            "output": false,
+            "type": "Literal",
+            "value": "{\"whereConditions\":[{\"field\":{\"dataType\":\"Currency\",\"name\":\"section-0-input1\",\"value\":\"NetUnitPrice\",\"allowCompatibleDataTypes\":true},\"value\":{\"dataType\":\"Currency\",\"name\":\"section-0-output\",\"value\":\"InputUnitPrice\",\"allowCompatibleDataTypes\":true}}]}"
+          },
+          {
+            "input": false,
+            "name": "section-0-output",
+            "output": true,
+            "type": "Parameter",
+            "value": "InputUnitPrice"
+          }
+        ]
+      }
+    }
+  ],
+  "labels": {
+    "ApplyBambooHRPathBBundleSave": "Apply BambooHR Path B Bundle & Save",
+    "FilterPathBBundleSaveAddOnLines": "Filter Path B Bundle Save Add-on Lines",
+    "ApplyBambooHRPathBBundleSavePct": "BambooHR Bundle & Save 15% (a la carte)",
+    "AssignPathBBundleSaveNetToInputUnitPrice": "Assign Path B Bundle Save Net to Input Unit Price"
+  }
+}

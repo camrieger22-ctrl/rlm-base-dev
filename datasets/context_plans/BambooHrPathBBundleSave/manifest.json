@@ -1,0 +1,8 @@
+{
+  "contexts": [
+    {
+      "developerName": "RLM_SalesTransactionContext",
+      "planFile": "contexts/path_b_bundle_save.json"
+    }
+  ]
+}

@@ -3,7 +3,7 @@
 > **Auto-generated** by `scripts/ai/generate_cci_reference.py` from `cumulusci.yml`.  
 > Do not edit manually — re-run the script after changing `cumulusci.yml`.
 
-**286 tasks** across **10 groups**.
+**289 tasks** across **10 groups**.
 
 ---
 
@@ -1062,7 +1062,7 @@
 
 ## Revenue Lifecycle Management
 
-*176 task(s)*
+*179 task(s)*
 
 ### `activate_agents`
 
@@ -1265,6 +1265,30 @@
 
 ---
 
+### `apply_bamboohr_path_b_bundle_save_overlay`
+
+**Description:** Adds ListGroup + ManualDiscount 15% on RLM_DefaultPricingProcedure when Path B Bundle & Save eligibility is true (plan + Payroll + Benefits a la carte, no Workforce package). Targets Payroll/Benefits lines only.
+
+**Class:** `tasks.rlm_expression_set_connect.ApplyExpressionSetOverlay`
+
+**Options:**
+
+- `overlay_file`: `datasets/expression_set_overlays/bamboohr_path_b_bundle_save.json`
+
+---
+
+### `apply_bamboohr_path_b_bundle_save_overlay_nearcore`
+
+**Description:** Same BambooHR Path B Bundle & Save 15% ManualDiscount overlay on RLM_DefaultNearCorePricingProcedure.
+
+**Class:** `tasks.rlm_expression_set_connect.ApplyExpressionSetOverlay`
+
+**Options:**
+
+- `overlay_file`: `datasets/expression_set_overlays/bamboohr_path_b_bundle_save_nearcore.json`
+
+---
+
 ### `apply_bamboohr_qualification_overlay`
 
 **Description:** Maps BillingCountry into EvaluateCategoryQualification on RLM_ProductDiscoveryQualificationProcedure (legacy; prefer disqualification overlay for hide semantics).
@@ -1287,6 +1311,23 @@
 
 - `developer_name`: `RLM_SalesTransactionContext`
 - `plan_file`: `datasets/context_plans/BambooHrNonprofitPricing/manifest.json`
+- `translate_plan`: `True`
+- `deactivate_before`: `False`
+- `activate`: `True`
+- `verify`: `True`
+
+---
+
+### `apply_context_bamboohr_path_b_bundle_save`
+
+**Description:** Maps Quote.RLM_Bamboo_PathB_BundleSave__c and QuoteLineItem.RLM_Bamboo_BundleSave_Target__c into RLM_SalesTransactionContext for a la carte Bundle & Save pricing.
+
+**Class:** `tasks.rlm_context_service.ManageContextDefinition`
+
+**Options:**
+
+- `developer_name`: `RLM_SalesTransactionContext`
+- `plan_file`: `datasets/context_plans/BambooHrPathBBundleSave/manifest.json`
 - `translate_plan`: `True`
 - `deactivate_before`: `False`
 - `activate`: `True`

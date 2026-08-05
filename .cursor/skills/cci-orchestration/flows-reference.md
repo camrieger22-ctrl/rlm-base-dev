@@ -203,7 +203,7 @@ Extract rating and rates data from an org into CSV files
 
 ### `prepare_bamboohr`
 
-Deploy BambooHR volume-tier coach + US-only category qualification wiring (PCQ fields, Product Discovery BillingCountry context, category qualification DT + procedure overlay) and nonprofit 15% list discount (Account flag → SalesTransaction context → Default pricing overlay). Catalog/pricing data still loads via insert_bamboohr_* tasks. Quote page coach + TLE side-panel fields ship via the bamboohr flexipage patch during prepare_ux when bamboohr=true.
+Deploy BambooHR volume-tier coach + US-only category qualification wiring (PCQ fields, Product Discovery BillingCountry context, category qualification DT + procedure overlay), nonprofit 15% list discount (Account flag → SalesTransaction context → Default pricing overlay), Path B Bundle & Save 15% (a la carte plan+Payroll+Benefits eligibility → ManualDiscount), and plan-exclusivity CML when constraints_data is on. Catalog/pricing data still loads via insert_bamboohr_* tasks. Quote page coach + TLE side-panel fields ship via the bamboohr flexipage patch during prepare_ux when bamboohr=true.
 
 **Steps:**
 
@@ -226,15 +226,18 @@ Deploy BambooHR volume-tier coach + US-only category qualification wiring (PCQ f
 10. **task** `apply_context_bamboohr_nonprofit_pricing`  `when: project_config.project__custom__bamboohr`
 11. **task** `apply_bamboohr_nonprofit_pricing_overlay`  `when: project_config.project__custom__bamboohr`
 12. **task** `apply_bamboohr_nonprofit_pricing_overlay_nearcore`  `when: project_config.project__custom__bamboohr`
-13. **task** `ensure_bamboohr_quote_default_pricing_procedure`  `when: project_config.project__custom__bamboohr`
-14. **task** `stamp_bamboohr_volume_tiers`  `when: project_config.project__custom__bamboohr`
-15. **task** `validate_cml`  `when: project_config.project__custom__bamboohr and project_config.project__custom__constraints_data`
+13. **task** `apply_context_bamboohr_path_b_bundle_save`  `when: project_config.project__custom__bamboohr`
+14. **task** `apply_bamboohr_path_b_bundle_save_overlay`  `when: project_config.project__custom__bamboohr`
+15. **task** `apply_bamboohr_path_b_bundle_save_overlay_nearcore`  `when: project_config.project__custom__bamboohr`
+16. **task** `ensure_bamboohr_quote_default_pricing_procedure`  `when: project_config.project__custom__bamboohr`
+17. **task** `stamp_bamboohr_volume_tiers`  `when: project_config.project__custom__bamboohr`
+18. **task** `validate_cml`  `when: project_config.project__custom__bamboohr and project_config.project__custom__constraints_data`
    - `cml_dir`: `scripts/cml`
    - `data_dir`: `datasets/constraints/bamboohr/BambooHrPlans`
-16. **task** `import_cml`  `when: project_config.project__custom__bamboohr and project_config.project__custom__constraints_data`
+19. **task** `import_cml`  `when: project_config.project__custom__bamboohr and project_config.project__custom__constraints_data`
    - `data_dir`: `datasets/constraints/bamboohr/BambooHrPlans`
    - `dataset_dirs`: `datasets/sfdmu/bamboohr/en-US/bh-pcm`
-17. **task** `manage_expression_sets`  `when: project_config.project__custom__bamboohr and project_config.project__custom__constraints_data`
+20. **task** `manage_expression_sets`  `when: project_config.project__custom__bamboohr and project_config.project__custom__constraints_data`
    - `operation`: `activate_versions`
    - `version_full_names`: `BambooHrPlans_V1`
 
