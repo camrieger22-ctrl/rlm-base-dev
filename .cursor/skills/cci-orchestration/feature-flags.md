@@ -3,7 +3,7 @@
 > **Auto-generated** by `scripts/ai/generate_cci_reference.py` from `cumulusci.yml`.  
 > Do not edit manually — re-run the script after changing `cumulusci.yml`.
 
-**42 feature flags**, **87 configuration values**, **37 YAML anchors** under `project.custom`.
+**42 feature flags**, **88 configuration values**, **37 YAML anchors** under `project.custom`.
 
 ---
 
@@ -16,7 +16,7 @@ Boolean flags that gate task/flow execution via `when:` clauses.
 | `agents` | `True` | 11 flow step(s) |
 | `analytics` | `True` | 2 flow step(s) |
 | `approvals` | `True` | 5 flow step(s) |
-| `bamboohr` | `False` | 15 flow step(s) |
+| `bamboohr` | `False` | 18 flow step(s) |
 | `billing` | `True` | 22 flow step(s) |
 | `billing_portal` | `False` | 3 flow step(s) |
 | `billing_portal_deploy` | `True` | 1 flow step(s) |
@@ -27,8 +27,8 @@ Boolean flags that gate task/flow execution via `when:` clauses.
 | `clm_data` | `False` | 1 flow step(s) |
 | `collections` | `True` | 5 flow step(s) |
 | `commerce` | `False` | 2 flow step(s) |
-| `constraints` | `True` | 12 flow step(s) |
-| `constraints_data` | `True` | 8 flow step(s) |
+| `constraints` | `True` | 15 flow step(s) |
+| `constraints_data` | `True` | 11 flow step(s) |
 | `docgen` | `True` | 10 flow step(s) |
 | `dro` | `True` | 7 flow step(s) |
 | `einstein` | `True` | 3 flow step(s) |
@@ -104,6 +104,9 @@ Boolean flags that gate task/flow execution via `when:` clauses.
 - `prepare_bamboohr` step 12 → `apply_bamboohr_nonprofit_pricing_overlay_nearcore`
 - `prepare_bamboohr` step 13 → `ensure_bamboohr_quote_default_pricing_procedure`
 - `prepare_bamboohr` step 14 → `stamp_bamboohr_volume_tiers`
+- `prepare_bamboohr` step 15 → `validate_cml`
+- `prepare_bamboohr` step 16 → `import_cml`
+- `prepare_bamboohr` step 17 → `manage_expression_sets`
 
 ### `billing` (default: `True`)
 
@@ -182,6 +185,9 @@ Boolean flags that gate task/flow execution via `when:` clauses.
 
 ### `constraints` (default: `True`)
 
+- `prepare_bamboohr` step 15 → `validate_cml`
+- `prepare_bamboohr` step 16 → `import_cml`
+- `prepare_bamboohr` step 17 → `manage_expression_sets`
 - `prepare_constraints` step 1 → `insert_qb_transactionprocessingtypes_data`
 - `prepare_constraints` step 2 → `deploy_post_constraints`
 - `prepare_constraints` step 3 → `assign_permission_sets`
@@ -197,6 +203,9 @@ Boolean flags that gate task/flow execution via `when:` clauses.
 
 ### `constraints_data` (default: `True`)
 
+- `prepare_bamboohr` step 15 → `validate_cml`
+- `prepare_bamboohr` step 16 → `import_cml`
+- `prepare_bamboohr` step 17 → `manage_expression_sets`
 - `prepare_constraints` step 5 → `enable_constraints_settings`
 - `prepare_constraints` step 6 → `validate_cml`
 - `prepare_constraints` step 7 → `import_cml`
@@ -517,6 +526,7 @@ Non-boolean scalar values under `project.custom` used as YAML anchors for contex
 | `asset_context_default_mapping` | `AssetEntitiesMapping` |
 | `asset_context_name` | `RLM_AssetContext` |
 | `bamboohr_pcm_dataset` | `datasets/sfdmu/bamboohr/en-US/bh-pcm` |
+| `bamboohr_plans_constraints_data_dir` | `datasets/constraints/bamboohr/BambooHrPlans` |
 | `bamboohr_pricing_dataset` | `datasets/sfdmu/bamboohr/en-US/bh-pricing` |
 | `billing_context_base_reference` | `BillingContext__stdctx` |
 | `billing_context_default_mapping` | `BSGEntitiesMapping` |

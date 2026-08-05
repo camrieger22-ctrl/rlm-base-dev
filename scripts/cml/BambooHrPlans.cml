@@ -1,0 +1,38 @@
+// BambooHR plan exclusivity — Core XOR Pro XOR Elite on a quote (a la carte).
+// Virtual Quote model (QuantumBitPCM / QuantumBitBundle pattern).
+// Package Path A still enforces XOR via ProductComponentGroup PCG-BH-BASE 1/1.
+//
+// Presence checks use qty > 0 (lineitems[Type] aggregates Quantity; absent is
+// null, so never use == 0). Prefer message(Error) over constraint() for this.
+//
+// Type tags BHCorePlan / BHProPlan / BHElitePlan map via ExpressionSetConstraintObj.
+
+@(virtual = "true")
+type Quote {
+    @(sourceContextNode = "SalesTransaction.SalesTransactionItem")
+    relation lineitems : LineItem;
+
+    message(
+        lineitems[BHCorePlan] > 0 && lineitems[BHProPlan] > 0,
+        "BambooHR plans are mutually exclusive — choose Core, Pro, or Elite.",
+        "Error"
+    );
+    message(
+        lineitems[BHCorePlan] > 0 && lineitems[BHElitePlan] > 0,
+        "BambooHR plans are mutually exclusive — choose Core, Pro, or Elite.",
+        "Error"
+    );
+    message(
+        lineitems[BHProPlan] > 0 && lineitems[BHElitePlan] > 0,
+        "BambooHR plans are mutually exclusive — choose Core, Pro, or Elite.",
+        "Error"
+    );
+}
+
+type LineItem;
+
+type BHCorePlan : LineItem;
+
+type BHProPlan : LineItem;
+
+type BHElitePlan : LineItem;

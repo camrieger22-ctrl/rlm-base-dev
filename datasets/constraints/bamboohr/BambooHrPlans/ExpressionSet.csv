@@ -1,0 +1,2 @@
+ApiName,Description,ExpressionSetDefinitionId,Id,InterfaceSourceType,Name,ResourceInitializationType,UsageType
+BambooHrPlans,BambooHR plan exclusivity (Core XOR Pro XOR Elite),,,Constraint,BambooHR Plans,Off,Constraint

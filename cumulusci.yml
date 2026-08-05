@@ -560,6 +560,7 @@ project:
     server2_constraints_data_dir: &server2_constraints_data_dir "datasets/constraints/qb/Server2"  # Server2 CML constraint model data (CSVs + blob)
     quantumbit_pcm_constraints_data_dir: &quantumbit_pcm_constraints_data_dir "datasets/constraints/qb/QuantumBitPCM"  # QuantumBitPCM CML constraint model data (CSVs + blob)
     quantumbit_bundle_constraints_data_dir: &quantumbit_bundle_constraints_data_dir "datasets/constraints/qb/QuantumBitBundle"  # QuantumBitBundle combined CML model (Complete + PCM, LineItem-primary)
+    bamboohr_plans_constraints_data_dir: &bamboohr_plans_constraints_data_dir "datasets/constraints/bamboohr/BambooHrPlans"  # BambooHR Core XOR Pro XOR Elite (virtual Quote)
     quantumbit_transactionprocessingtypes_dataset: &quantumbit_transactionprocessingtypes_dataset "datasets/sfdmu/qb/en-US/qb-transactionprocessingtypes" # QuantumBit transaction processing types
     quantumbit_guidedselling_products_dataset: &quantumbit_guidedselling_products_dataset "datasets/sfdmu/qb/en-US/qb-guidedselling-products"   # QuantumBit guided selling Product2 field values
     quantumbit_clm_dataset: &quantumbit_clm_dataset "datasets/sfdmu/qb/en-US/qb-clm"                                 # QuantumBit CLM data
@@ -4140,6 +4141,24 @@ flows:
       14:
         task: stamp_bamboohr_volume_tiers
         when: project_config.project__custom__bamboohr
+      15:
+        task: validate_cml
+        when: project_config.project__custom__bamboohr and project_config.project__custom__constraints_data
+        options:
+          cml_dir: scripts/cml
+          data_dir: *bamboohr_plans_constraints_data_dir
+      16:
+        task: import_cml
+        when: project_config.project__custom__bamboohr and project_config.project__custom__constraints_data
+        options:
+          data_dir: *bamboohr_plans_constraints_data_dir
+          dataset_dirs: *bamboohr_pcm_dataset
+      17:
+        task: manage_expression_sets
+        when: project_config.project__custom__bamboohr and project_config.project__custom__constraints_data
+        options:
+          operation: activate_versions
+          version_full_names: BambooHrPlans_V1
 
   upsert_fulfillment_scope_cnfg:
     group: Revenue Lifecycle Management

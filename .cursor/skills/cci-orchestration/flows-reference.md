@@ -228,6 +228,15 @@ Deploy BambooHR volume-tier coach + US-only category qualification wiring (PCQ f
 12. **task** `apply_bamboohr_nonprofit_pricing_overlay_nearcore`  `when: project_config.project__custom__bamboohr`
 13. **task** `ensure_bamboohr_quote_default_pricing_procedure`  `when: project_config.project__custom__bamboohr`
 14. **task** `stamp_bamboohr_volume_tiers`  `when: project_config.project__custom__bamboohr`
+15. **task** `validate_cml`  `when: project_config.project__custom__bamboohr and project_config.project__custom__constraints_data`
+   - `cml_dir`: `scripts/cml`
+   - `data_dir`: `datasets/constraints/bamboohr/BambooHrPlans`
+16. **task** `import_cml`  `when: project_config.project__custom__bamboohr and project_config.project__custom__constraints_data`
+   - `data_dir`: `datasets/constraints/bamboohr/BambooHrPlans`
+   - `dataset_dirs`: `datasets/sfdmu/bamboohr/en-US/bh-pcm`
+17. **task** `manage_expression_sets`  `when: project_config.project__custom__bamboohr and project_config.project__custom__constraints_data`
+   - `operation`: `activate_versions`
+   - `version_full_names`: `BambooHrPlans_V1`
 
 ---
 

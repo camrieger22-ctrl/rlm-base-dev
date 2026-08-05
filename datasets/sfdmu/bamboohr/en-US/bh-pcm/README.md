@@ -67,6 +67,9 @@ Legacy `BAMBOO-SUITE` (one SKU + Plan attribute) is obsolete after migrate.
 ## Workforce package
 
 - `PCG-BH-BASE` min/max **1** — exactly one of Core / Pro / Elite (Pro default)
+  (package Path A). A la carte Path B uses CML model `BambooHrPlans`
+  (`datasets/constraints/bamboohr/BambooHrPlans/`) — Core XOR Pro XOR Elite on
+  the quote.
 - `PCG-BH-WORKFORCE` min/max **2** — Payroll + Benefits required
 - `ProductRelatedComponent.ChildSellingModel` / `ParentSellingModel` must be **blank** (platform rejects selling models on configurable bundle components)
 - **Qty = headcount:** every package child uses `QuantityScaleMethod=Proportional`,
