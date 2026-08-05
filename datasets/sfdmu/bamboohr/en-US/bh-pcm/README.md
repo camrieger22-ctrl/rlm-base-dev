@@ -98,3 +98,9 @@ Legacy `BAMBOO-SUITE` (one SKU + Plan attribute) is obsolete after migrate.
   - procedure step `EvaluateCategoryDisqualification` + param `RLM_BillingCountry`
 - After metadata: run `insert_bamboohr_pcm_data`, then refresh the disqual DT.
 - AE check: Prestige Worldwide (CA) hides Payroll/Benefits; Acme (US) shows them.
+
+## SE / partner demo script
+
+Working walkthrough (browse → volume/coach → Workforce Bundle & Save →
+nonprofit → CA disqual): `.agents/artifacts/bamboohr-demo-script.md`
+(private nested artifacts repo; not shipped in the public Foundations tree).
