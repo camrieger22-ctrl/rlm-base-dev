@@ -167,6 +167,38 @@ def set_order_shipping_from_account(session: OrgSession, order_id: str, account_
     _patch(session, f"/services/data/{API}/sobjects/Order/{order_id}", payload)
 
 
+def ensure_bill_to_contact(session: OrgSession, account_id: str) -> str:
+    """Return a Contact Id on the account (create a demo contact if none)."""
+    rows = session.soql(
+        f"SELECT Id FROM Contact WHERE AccountId = '{account_id}' LIMIT 1"
+    )
+    if rows:
+        return rows[0]["Id"]
+    acct = session.soql(
+        f"SELECT Name, CurrencyIsoCode FROM Account WHERE Id = '{account_id}'"
+    )[0]
+    fields: dict[str, Any] = {
+        "AccountId": account_id,
+        "FirstName": "Demo",
+        "LastName": "Buyer",
+        "Email": "demo.buyer@example.com",
+    }
+    cur = acct.get("CurrencyIsoCode")
+    if cur:
+        fields["CurrencyIsoCode"] = cur
+    return session.create("Contact", fields)
+
+
+def set_order_bill_to_contact(
+    session: OrgSession, order_id: str, contact_id: str
+) -> None:
+    _patch(
+        session,
+        f"/services/data/{API}/sobjects/Order/{order_id}",
+        {"BillToContactId": contact_id, "ShipToContactId": contact_id},
+    )
+
+
 def activate_order(session: OrgSession, order_id: str) -> None:
     _patch(
         session,
@@ -179,9 +211,36 @@ def place_activate_order(
     session: OrgSession, quote_id: str, account_id: str
 ) -> tuple[str, str | None]:
     """System reprice → createOrderFromQuote → copy shipping → Activate."""
+    from service import _custom_price_quote, volume_rate  # local package
+
+    qcur = session.soql(
+        f"SELECT CurrencyIsoCode FROM Quote WHERE Id = '{quote_id}'"
+    )
+    currency = (qcur[0].get("CurrencyIsoCode") if qcur else None) or "USD"
     reprice_quote_system(session, quote_id)
+    # Same corporate-USD bleed as Get Pricing — restamp native currency.
+    if currency != "USD":
+        lines = session.soql(
+            "SELECT Id, Quantity, Product2.StockKeepingUnit, "
+            "PricebookEntry.UnitPrice, PricebookEntry.Product2.StockKeepingUnit "
+            f"FROM QuoteLineItem WHERE QuoteId = '{quote_id}'"
+        )
+        by_sku: dict[str, tuple[int, float, float]] = {}
+        for line in lines:
+            sku = (line.get("Product2") or {}).get("StockKeepingUnit") or ""
+            pbe = line.get("PricebookEntry") or {}
+            list_p = float(pbe.get("UnitPrice") or 0)
+            qty = int(line.get("Quantity") or 1)
+            # PEPM plans/add-ons: volume on qty; flat SKU qty 1 → no volume.
+            vol = 0.0 if qty == 1 and "FLAT" in sku else volume_rate(qty)
+            net = round(list_p * (1.0 - vol), 2)
+            by_sku[sku] = (qty, list_p, net)
+        if by_sku:
+            _custom_price_quote(session, quote_id, by_sku)
     order_id, order_number = create_order_from_quote(session, quote_id)
     set_order_shipping_from_account(session, order_id, account_id)
+    contact_id = ensure_bill_to_contact(session, account_id)
+    set_order_bill_to_contact(session, order_id, contact_id)
     activate_order(session, order_id)
     return order_id, order_number
 

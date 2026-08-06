@@ -230,6 +230,7 @@ class Handler(BaseHTTPRequestHandler):
                 "{{planName}}": data["planName"],
                 "{{headcount}}": str(data["headcount"]),
                 "{{country}}": data["country"],
+                "{{currency}}": data.get("currency") or "USD",
                 "{{listPepm}}": f"{data['listPepm']:.2f}",
                 "{{volumePercent}}": str(data["volumePercent"]),
                 "{{netPepm}}": f"{data['netPepm']:.2f}",

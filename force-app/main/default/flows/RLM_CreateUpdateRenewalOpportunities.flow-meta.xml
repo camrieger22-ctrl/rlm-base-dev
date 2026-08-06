@@ -220,7 +220,6 @@
     </actionCalls>
     <apiVersion>67.0</apiVersion>
     <areMetricsLoggedToDataCloud>false</areMetricsLoggedToDataCloud>
-    <description>Cloned from template runtime_revenue_arcflows__RenewalOpp. Customization: TotalPrice assignments removed from all OpportunityLineItem create/update nodes. Salesforce only allows setting UnitPrice OR TotalPrice on OLI, not both. The flow sets UnitPrice (weighted average) and Quantity; Salesforce auto-calculates TotalPrice.</description>
     <assignments>
         <description>Adds the asset price and asset quantity  in the loop to the TotalAssetPriceAmount and TotalAssetQuantity variables, respectively.</description>
         <name>AddAssetPriceToTotalAssetPriceAndQuantityToTotalAssetQuantity</name>
@@ -589,6 +588,79 @@
         </connector>
     </assignments>
     <assignments>
+        <description>Points the opportunity product at a renewal opportunity that already existed before this run, then adds it to the collection that gets inserted.</description>
+        <name>AddOpportunityProductToExistingOpportunity</name>
+        <label>Add Opportunity Product to Existing Renewal Opportunity</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <assignmentItems>
+            <assignToReference>opportunityProductToCreate.OpportunityId</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <elementReference>IterateOverExistingOpportunitiesToAttach.Id</elementReference>
+            </value>
+        </assignmentItems>
+        <assignmentItems>
+            <assignToReference>opportunityProductToCreate.Product2Id</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <elementReference>IterateOverOpportunityProductsToCreate.Product2Id</elementReference>
+            </value>
+        </assignmentItems>
+        <assignmentItems>
+            <assignToReference>opportunityProductToCreate.PricebookEntryId</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <elementReference>IterateOverOpportunityProductsToCreate.PricebookEntryId</elementReference>
+            </value>
+        </assignmentItems>
+        <assignmentItems>
+            <assignToReference>opportunityProductToCreate.ServiceDate</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <elementReference>IterateOverOpportunityProductsToCreate.ServiceDate</elementReference>
+            </value>
+        </assignmentItems>
+        <assignmentItems>
+            <assignToReference>opportunityProductToCreate.UnitPrice</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <elementReference>IterateOverOpportunityProductsToCreate.UnitPrice</elementReference>
+            </value>
+        </assignmentItems>
+        <assignmentItems>
+            <assignToReference>opportunityProductToCreate.Quantity</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <elementReference>IterateOverOpportunityProductsToCreate.Quantity</elementReference>
+            </value>
+        </assignmentItems>
+        <assignmentItems>
+            <assignToReference>opportunityProductToCreate.AssetId</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <elementReference>IterateOverOpportunityProductsToCreate.AssetId</elementReference>
+            </value>
+        </assignmentItems>
+        <assignmentItems>
+            <assignToReference>IsProductAttachedToExistingOpportunity</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <booleanValue>true</booleanValue>
+            </value>
+        </assignmentItems>
+        <assignmentItems>
+            <assignToReference>OpportunityProductsWithOpportunityIdForSimpleAndRootProducts</assignToReference>
+            <operator>Add</operator>
+            <value>
+                <elementReference>opportunityProductToCreate</elementReference>
+            </value>
+        </assignmentItems>
+        <connector>
+            <targetReference>IterateOverExistingOpportunitiesToAttach</targetReference>
+        </connector>
+    </assignments>
+    <assignments>
         <description>Adds the current opportunity record to the Opportunities collection.</description>
         <name>AddOpportunityToCollection</name>
         <label>Add Opportunity to Collection</label>
@@ -630,6 +702,13 @@
             </value>
         </assignmentItems>
         <assignmentItems>
+            <assignToReference>opportunity.CurrencyIsoCode</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <elementReference>GetOrder.CurrencyIsoCode</elementReference>
+            </value>
+        </assignmentItems>
+        <assignmentItems>
             <assignToReference>Opportunities</assignToReference>
             <operator>Add</operator>
             <value>
@@ -639,6 +718,23 @@
         <connector>
             <isGoTo>true</isGoTo>
             <targetReference>ResetVariableValues</targetReference>
+        </connector>
+    </assignments>
+    <assignments>
+        <description>Clears the attach flag before scanning existing renewal opportunities, so each opportunity product attaches to exactly one of them even when the account carries more than one match.</description>
+        <name>ResetProductAttachedToExistingOpportunityFlag</name>
+        <label>Reset Product Attached Flag</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <assignmentItems>
+            <assignToReference>IsProductAttachedToExistingOpportunity</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <booleanValue>false</booleanValue>
+            </value>
+        </assignmentItems>
+        <connector>
+            <targetReference>FilterExistingOpportunitiesToAttach</targetReference>
         </connector>
     </assignments>
     <assignments>
@@ -710,7 +806,24 @@
             </value>
         </assignmentItems>
         <connector>
-            <targetReference>GetRenewableAssetsSummary</targetReference>
+            <targetReference>GetExistingRenewalOpportunities</targetReference>
+        </connector>
+    </assignments>
+    <assignments>
+        <description>Records that a renewal opportunity already exists in the database for this asset&apos;s price book and end date, which stops the flow from creating a second one.</description>
+        <name>SetDoesOpportunityExistFromExistingRecords</name>
+        <label>Set Does Opportunity Exist from Existing Records</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <assignmentItems>
+            <assignToReference>DoesOpportunityExist</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <booleanValue>true</booleanValue>
+            </value>
+        </assignmentItems>
+        <connector>
+            <targetReference>IterateOverExistingOpportunitiesForAsset</targetReference>
         </connector>
     </assignments>
     <assignments>
@@ -747,6 +860,78 @@
             <targetReference>IterateOverPriceBookEntries</targetReference>
         </connector>
     </assignments>
+    <collectionProcessors>
+        <description>Narrows the already-existing renewal opportunities to those matching the current asset&apos;s price book and end date. A match means the account already has a renewal opportunity covering this renewal date, so the flow must not build another one.</description>
+        <name>FilterExistingOpportunitiesForAsset</name>
+        <elementSubtype>FilterCollectionProcessor</elementSubtype>
+        <label>Filter Existing Renewal Opportunities for Asset</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <assignNextValueToReference>currentItem_Filter_Existing_Opportunity_For_Asset</assignNextValueToReference>
+        <collectionProcessorType>FilterCollectionProcessor</collectionProcessorType>
+        <collectionReference>GetExistingRenewalOpportunities</collectionReference>
+        <conditionLogic>and</conditionLogic>
+        <conditions>
+            <leftValueReference>currentItem_Filter_Existing_Opportunity_For_Asset.Pricebook2Id</leftValueReference>
+            <operator>EqualTo</operator>
+            <rightValue>
+                <elementReference>IterateOverAssets.priceBookId</elementReference>
+            </rightValue>
+        </conditions>
+        <conditions>
+            <leftValueReference>currentItem_Filter_Existing_Opportunity_For_Asset.CloseDate</leftValueReference>
+            <operator>EqualTo</operator>
+            <rightValue>
+                <elementReference>IterateOverAssets.endDate</elementReference>
+            </rightValue>
+        </conditions>
+        <conditions>
+            <leftValueReference>currentItem_Filter_Existing_Opportunity_For_Asset.CurrencyIsoCode</leftValueReference>
+            <operator>EqualTo</operator>
+            <rightValue>
+                <elementReference>GetOrder.CurrencyIsoCode</elementReference>
+            </rightValue>
+        </conditions>
+        <connector>
+            <targetReference>IterateOverExistingOpportunitiesForAsset</targetReference>
+        </connector>
+    </collectionProcessors>
+    <collectionProcessors>
+        <description>Narrows the already-existing renewal opportunities to those matching the opportunity product&apos;s price book and service date, so a product for a newly added asset attaches to that opportunity instead of one built in this run.</description>
+        <name>FilterExistingOpportunitiesToAttach</name>
+        <elementSubtype>FilterCollectionProcessor</elementSubtype>
+        <label>Filter Existing Renewal Opportunities to Attach</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <assignNextValueToReference>currentItem_Filter_Existing_Opportunity_To_Attach</assignNextValueToReference>
+        <collectionProcessorType>FilterCollectionProcessor</collectionProcessorType>
+        <collectionReference>GetExistingRenewalOpportunities</collectionReference>
+        <conditionLogic>and</conditionLogic>
+        <conditions>
+            <leftValueReference>currentItem_Filter_Existing_Opportunity_To_Attach.Pricebook2Id</leftValueReference>
+            <operator>EqualTo</operator>
+            <rightValue>
+                <elementReference>PriceBookId</elementReference>
+            </rightValue>
+        </conditions>
+        <conditions>
+            <leftValueReference>currentItem_Filter_Existing_Opportunity_To_Attach.CloseDate</leftValueReference>
+            <operator>EqualTo</operator>
+            <rightValue>
+                <elementReference>IterateOverOpportunityProductsToCreate.ServiceDate</elementReference>
+            </rightValue>
+        </conditions>
+        <conditions>
+            <leftValueReference>currentItem_Filter_Existing_Opportunity_To_Attach.CurrencyIsoCode</leftValueReference>
+            <operator>EqualTo</operator>
+            <rightValue>
+                <elementReference>GetOrder.CurrencyIsoCode</elementReference>
+            </rightValue>
+        </conditions>
+        <connector>
+            <targetReference>IterateOverExistingOpportunitiesToAttach</targetReference>
+        </connector>
+    </collectionProcessors>
     <collectionProcessors>
         <description>Filters records from the Opportunities record collection with matching price book ID and close date. Stores the filtered collection results in the Opportunities from FilterOpportunitiesToIdentifyTheOpportunityToUpdate record collection. The record collection is then used to assign the opportunity ID to an opportunity product.</description>
         <name>FilterOpportunitiesToIdentifyTheOpportunityToUpdate</name>
@@ -974,6 +1159,32 @@
         </rules>
     </decisions>
     <decisions>
+        <description>Attaches the opportunity product to only the first matching existing renewal opportunity. Without this guard an account carrying more than one open renewal opportunity for the same price book and close date would receive a copy of the product on each.</description>
+        <name>HasProductBeenAttachedToExistingOpportunity</name>
+        <label>Has Product Been Attached to an Existing Renewal Opportunity?</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <defaultConnector>
+            <targetReference>IterateOverExistingOpportunitiesToAttach</targetReference>
+        </defaultConnector>
+        <defaultConnectorLabel>Yes (Default)</defaultConnectorLabel>
+        <rules>
+            <name>ProductNotYetAttached</name>
+            <conditionLogic>and</conditionLogic>
+            <conditions>
+                <leftValueReference>IsProductAttachedToExistingOpportunity</leftValueReference>
+                <operator>EqualTo</operator>
+                <rightValue>
+                    <booleanValue>false</booleanValue>
+                </rightValue>
+            </conditions>
+            <connector>
+                <targetReference>AddOpportunityProductToExistingOpportunity</targetReference>
+            </connector>
+            <label>No</label>
+        </rules>
+    </decisions>
+    <decisions>
         <description>Determines whether the value in the OpportunityId field of the current opportunity product record in the loop starts with the string defined in the Reference variable.</description>
         <name>HasReferenceStringInOpportunityIdToAssignOpportunityId</name>
         <label>Have Reference String in the Opportunity ID Field of Opportunity Product?</label>
@@ -1093,7 +1304,7 @@
                 </rightValue>
             </conditions>
             <connector>
-                <targetReference>FilterOpportunitiesToIdentifyWhetherOpportunityExists</targetReference>
+                <targetReference>FilterExistingOpportunitiesForAsset</targetReference>
             </connector>
             <label>Create Opportunity Product</label>
         </rules>
@@ -1260,6 +1471,7 @@
             <label>Yes</label>
         </rules>
     </decisions>
+    <description>Cloned from template runtime_revenue_arcflows__RenewalOpp. Customization 1: TotalPrice assignments removed from all OpportunityLineItem create/update nodes. Salesforce only allows setting UnitPrice OR TotalPrice on OLI, not both. The flow sets UnitPrice (weighted average) and Quantity; Salesforce auto-calculates TotalPrice. Customization 2: the template tested for an existing renewal opportunity only against the Opportunities collection built during the current run, so an asset first sold on a later order never saw the renewal opportunity an earlier order created and always spawned a duplicate. GetExistingRenewalOpportunities now reads open renewal opportunities on the account, and the two FilterExistingOpportunities processors both suppress the duplicate and attach the new product to the opportunity that already exists. Customization 3: multi-currency — stamp Opportunity.CurrencyIsoCode from the Order and match existing renewal opportunities by currency so GBP/CAD price book entries are not attached to a corporate-currency (USD) opportunity.</description>
     <environments>Default</environments>
     <formulas>
         <description>Calculates the price of assets in the loop by using their renewal price and quantity.</description>
@@ -1296,6 +1508,36 @@
         </nextValueConnector>
         <noMoreValuesConnector>
             <targetReference>AreThereOpportunityProductsTobeDeleted</targetReference>
+        </noMoreValuesConnector>
+    </loops>
+    <loops>
+        <description>Repeats an action for each already-existing renewal opportunity that matches the current asset.</description>
+        <name>IterateOverExistingOpportunitiesForAsset</name>
+        <label>Iterate Over Existing Renewal Opportunities</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <collectionReference>FilterExistingOpportunitiesForAsset</collectionReference>
+        <iterationOrder>Asc</iterationOrder>
+        <nextValueConnector>
+            <targetReference>SetDoesOpportunityExistFromExistingRecords</targetReference>
+        </nextValueConnector>
+        <noMoreValuesConnector>
+            <targetReference>FilterOpportunitiesToIdentifyWhetherOpportunityExists</targetReference>
+        </noMoreValuesConnector>
+    </loops>
+    <loops>
+        <description>Repeats an action for each already-existing renewal opportunity that matches the opportunity product being created.</description>
+        <name>IterateOverExistingOpportunitiesToAttach</name>
+        <label>Iterate Over Existing Renewal Opportunities to Attach</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <collectionReference>FilterExistingOpportunitiesToAttach</collectionReference>
+        <iterationOrder>Asc</iterationOrder>
+        <nextValueConnector>
+            <targetReference>HasProductBeenAttachedToExistingOpportunity</targetReference>
+        </nextValueConnector>
+        <noMoreValuesConnector>
+            <targetReference>FilterOpportunitiesToIdentifyTheOpportunityToUpdate</targetReference>
         </noMoreValuesConnector>
     </loops>
     <loops>
@@ -1385,7 +1627,7 @@
             <targetReference>SetPriceBookID</targetReference>
         </nextValueConnector>
         <noMoreValuesConnector>
-            <targetReference>FilterOpportunitiesToIdentifyTheOpportunityToUpdate</targetReference>
+            <targetReference>ResetProductAttachedToExistingOpportunityFlag</targetReference>
         </noMoreValuesConnector>
     </loops>
     <loops>
@@ -1486,6 +1728,49 @@
         <storeOutputAutomatically>true</storeOutputAutomatically>
     </recordLookups>
     <recordLookups>
+        <description>Gets open renewal opportunities that already exist on the account. The stock template only checks the Opportunities collection built during the current run, so an asset added by a later order could never see the renewal opportunity created by an earlier one and always spawned a duplicate.</description>
+        <name>GetExistingRenewalOpportunities</name>
+        <label>Get Existing Renewal Opportunities</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <assignNullValuesIfNoRecordsFound>false</assignNullValuesIfNoRecordsFound>
+        <connector>
+            <targetReference>GetRenewableAssetsSummary</targetReference>
+        </connector>
+        <filterLogic>and</filterLogic>
+        <filters>
+            <field>AccountId</field>
+            <operator>EqualTo</operator>
+            <value>
+                <elementReference>AccountId</elementReference>
+            </value>
+        </filters>
+        <filters>
+            <field>Name</field>
+            <operator>EqualTo</operator>
+            <value>
+                <elementReference>OpportunityName</elementReference>
+            </value>
+        </filters>
+        <filters>
+            <field>IsClosed</field>
+            <operator>EqualTo</operator>
+            <value>
+                <booleanValue>false</booleanValue>
+            </value>
+        </filters>
+        <filters>
+            <field>CurrencyIsoCode</field>
+            <operator>EqualTo</operator>
+            <value>
+                <elementReference>GetOrder.CurrencyIsoCode</elementReference>
+            </value>
+        </filters>
+        <getFirstRecordOnly>false</getFirstRecordOnly>
+        <object>Opportunity</object>
+        <storeOutputAutomatically>true</storeOutputAutomatically>
+    </recordLookups>
+    <recordLookups>
         <description>Gets the order record with an ID that matches the OrderIdentifier of the event that invokes the flow. Stores the result in the Order from Get Order record variable.</description>
         <name>GetOrder</name>
         <label>Get Order</label>
@@ -1525,7 +1810,6 @@
         </faultConnector>
         <inputReference>OpportunityProductsToUpdate</inputReference>
     </recordUpdates>
-    <sourceTemplate>runtime_revenue_arcflows__RenewalOpp</sourceTemplate>
     <start>
         <locationX>0</locationX>
         <locationY>0</locationY>
@@ -1604,6 +1888,22 @@
         <isOutput>false</isOutput>
     </variables>
     <variables>
+        <name>currentItem_Filter_Existing_Opportunity_For_Asset</name>
+        <dataType>SObject</dataType>
+        <isCollection>false</isCollection>
+        <isInput>false</isInput>
+        <isOutput>false</isOutput>
+        <objectType>Opportunity</objectType>
+    </variables>
+    <variables>
+        <name>currentItem_Filter_Existing_Opportunity_To_Attach</name>
+        <dataType>SObject</dataType>
+        <isCollection>false</isCollection>
+        <isInput>false</isInput>
+        <isOutput>false</isOutput>
+        <objectType>Opportunity</objectType>
+    </variables>
+    <variables>
         <name>currentItem_Filter_If_Opportunity_Exists</name>
         <dataType>SObject</dataType>
         <isCollection>false</isCollection>
@@ -1638,6 +1938,17 @@
     <variables>
         <description>Stores a boolean value that indicates whether an opportunity  record exists in the Opportunities collection.</description>
         <name>DoesOpportunityExist</name>
+        <dataType>Boolean</dataType>
+        <isCollection>false</isCollection>
+        <isInput>false</isInput>
+        <isOutput>false</isOutput>
+        <value>
+            <booleanValue>false</booleanValue>
+        </value>
+    </variables>
+    <variables>
+        <description>Tracks whether the current opportunity product has already been attached to an existing renewal opportunity, so it attaches to only one.</description>
+        <name>IsProductAttachedToExistingOpportunity</name>
         <dataType>Boolean</dataType>
         <isCollection>false</isCollection>
         <isInput>false</isInput>

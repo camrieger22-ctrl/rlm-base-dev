@@ -22,13 +22,13 @@ insert_bamboohr_pricing_data:
 
 | Rule | Implementation |
 |------|----------------|
-| Core / Pro / Elite PEPM | Own PBEs: **$10 / $17 / $25** Monthly; Annual = 12× |
-| Core small-biz flat | `BAMBOO-CORE-FLAT-SM` PBE **$250** Monthly / **$3000** Annual; **no volume tiers**; Get Pricing uses qty 1 when Core + headcount ≤ 25 |
-| Add-on placeholders | Payroll $8, Benefits $6, Time $4, Global $12 |
-| Volume demo ladder | `Standard Price Adjustment Tier` 5–25% on PEPM plans + add-ons (not on flat SKU) |
-| Bundle & Save 15% | **Path A:** `BundleBasedAdjustment` on Payroll + Benefits under `BAMBOO-PKG-WORKFORCE`. **Path B (a la carte):** Quote `RLM_Bamboo_PathB_BundleSave__c` (Apex when plan + Payroll + Benefits and no package) → ManualDiscount 15% on add-ons via `bamboohr_path_b_bundle_save` overlay. Smoke: `python scripts/bamboohr/path_b_bundle_save_smoke.py --via-cci` |
+| Core / Pro / Elite PEPM | Own PBEs: **USD $10 / $17 / $25** Monthly; Annual = 12×. **CAD** ×1.35, **GBP** ×0.79 (demo FX) |
+| Core small-biz flat | `BAMBOO-CORE-FLAT-SM` **USD $250** / CAD **$337.50** / GBP **£197.50** Monthly (qty 1); Annual = 12×; **no volume tiers**; Get Pricing when Core + headcount ≤ 25 |
+| Add-on placeholders | Payroll / Benefits / Time / Global: USD $8/$6/$4/$12; CAD/GBP scaled by same FX |
+| Volume demo ladder | `Standard Price Adjustment Tier` 5–25% on PEPM plans + add-ons (not on flat SKU) — **USD + CAD + GBP** schedules |
+| Bundle & Save 15% | **Path A:** `BundleBasedAdjustment` on Payroll + Benefits under `BAMBOO-PKG-WORKFORCE` (per currency). **Path B:** ManualDiscount 15% (currency-agnostic %). Smoke: `path_b_bundle_save_smoke.py --via-cci` |
 | Nonprofit 15% | Account `RLM_Is_Nonprofit__c` → Quote formula → pricing context → `RLM_DefaultPricingProcedure` **ManualDiscount 15%** (visible in Calculation Details) then copies net → `InputUnitPrice` so volume/BBA stack on the discounted list (Standard PB only) |
-| USD only | All `CurrencyIsoCode=USD` |
+| Multi-currency (B5) | Standard PB PBEs + PAS/PAT/BBA for **USD, CAD, GBP**. Accounts: Acme USD, Prestige CAD, BambooHR UK Demo GBP |
 | PAS dates | `EffectiveFrom` **2023-01-01** (aligned with QuantumBit — do not use 2026) |
 | PAS active flag | CSV loads schedules **`IsActive=false`**; run `activate_price_adjustment_schedules` after insert |
 
@@ -81,20 +81,20 @@ See `scripts/bamboohr/get_pricing/README.md` (P2 form + P3 `/api/checkout`).
 
 | # | Object | Operation | External ID | Records |
 |---|--------|-----------|-------------|---------|
-| 0 | Account | Upsert | `Name` | 1 (`BambooHR Nonprofit Demo`) |
-| 1 | CurrencyType | Upsert | `IsoCode` | 1 |
+| 0 | Account | Upsert | `Name` | 4 (Acme, Prestige, UK Demo, Nonprofit) |
+| 1 | CurrencyType | Upsert | `IsoCode` | 3 (USD, CAD, GBP) |
 | 2 | ProrationPolicy | Update | `Name` | 1 |
 | 3 | ProductSellingModel | Readonly | `Name;SellingModelType` | 2 |
 | 4 | AttributeDefinition | Readonly | `Code` | 0 (excluded) |
 | 5 | Product2 | Readonly | `StockKeepingUnit` | 9 |
 | 6 | CostBook | Upsert | `Name` | 0 (excluded) |
 | 7 | Pricebook2 | Upsert | `Name;IsStandard` | 1 (Standard only) |
-| 8 | PriceAdjustmentTier | Insert | `PriceAdjustmentSchedule.Name;Product2.StockKeepingUnit;ProductSellingModel.Name;ProductSellingModel.SellingModelType;TierType;TierValue;LowerBound;CurrencyIsoCode;EffectiveFrom` | 70 |
-| 9 | PriceAdjustmentSchedule | Update | `Name;CurrencyIsoCode` | 2 |
+| 8 | PriceAdjustmentTier | Insert | `PriceAdjustmentSchedule.Name;Product2.StockKeepingUnit;ProductSellingModel.Name;ProductSellingModel.SellingModelType;TierType;TierValue;LowerBound;CurrencyIsoCode;EffectiveFrom` | 210 |
+| 9 | PriceAdjustmentSchedule | Upsert | `Name;CurrencyIsoCode` | 6 |
 | 10 | AttributeBasedAdjRule | Upsert | `Name` | 0 (excluded) |
 | 11 | AttributeAdjustmentCondition | Insert | `AttributeBasedAdjRule.Name;AttributeDefinition.Code;Product.StockKeepingUnit` | 0 (excluded) |
 | 12 | AttributeBasedAdjustment | Insert | `AttributeBasedAdjRule.Name;PriceAdjustmentSchedule.Name;Product.StockKeepingUnit;ProductSellingModel.Name;CurrencyIsoCode` | 0 (excluded) |
-| 13 | BundleBasedAdjustment | Insert | `PriceAdjustmentSchedule.Name;Product.StockKeepingUnit;ParentProduct.StockKeepingUnit;RootBundle.StockKeepingUnit;ProductSellingModel.Name;ParentProductSellingModel.Name;RootProductSellingModel.Name;CurrencyIsoCode` | 4 |
-| 14 | PricebookEntry | Insert | `Product2.StockKeepingUnit;ProductSellingModel.Name;CurrencyIsoCode;Pricebook2.Name` | 18 |
+| 13 | BundleBasedAdjustment | Insert | `PriceAdjustmentSchedule.Name;Product.StockKeepingUnit;ParentProduct.StockKeepingUnit;RootBundle.StockKeepingUnit;ProductSellingModel.Name;ParentProductSellingModel.Name;RootProductSellingModel.Name;CurrencyIsoCode` | 12 |
+| 14 | PricebookEntry | Insert | `Product2.StockKeepingUnit;ProductSellingModel.Name;CurrencyIsoCode;Pricebook2.Name` | 54 |
 | 15 | PricebookEntryDerivedPrice | Insert | `Pricebook.Name;PricebookEntry.Product2.StockKeepingUnit;PricebookEntry.ProductSellingModel.Name;Product.StockKeepingUnit;ContributingProduct.StockKeepingUnit;ProductSellingModel.Name;CurrencyIsoCode` | 0 (excluded) |
 | 16 | CostBookEntry | Insert | `CostBook.Name;Product.StockKeepingUnit;CurrencyIsoCode` | 0 (excluded) |

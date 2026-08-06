@@ -1,2 +1,3 @@
 $$RLM_Disqualification_Key__c,Category.Code,EffectiveFromDate,EffectiveToDate,Reason,RLM_BillingCountry__c,RLM_Disqualification_Key__c
 PC-BH-US-ADDONS|CA,PC-BH-US-ADDONS,2020-01-01,2099-12-31,US-only add-ons not available outside the United States,CA,PC-BH-US-ADDONS|CA
+PC-BH-US-ADDONS|GB,PC-BH-US-ADDONS,2020-01-01,2099-12-31,US-only add-ons not available outside the United States,GB,PC-BH-US-ADDONS|GB

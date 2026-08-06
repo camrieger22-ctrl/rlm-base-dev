@@ -5,7 +5,7 @@
     {
       "objects": [
         {
-          "query": "SELECT Id, Name, Type, Industry, BillingStreet, BillingCity, BillingState, BillingPostalCode, BillingCountry, NumberOfEmployees, Description, Website, RLM_Is_Nonprofit__c FROM Account WHERE Name = 'BambooHR Nonprofit Demo'",
+          "query": "SELECT Id, Name, Type, Industry, BillingStreet, BillingCity, BillingState, BillingPostalCode, BillingCountry, CurrencyIsoCode, NumberOfEmployees, Description, Website, RLM_Is_Nonprofit__c, ShippingStreet, ShippingCity, ShippingPostalCode, ShippingCountry FROM Account WHERE Name IN ('Acme', 'Prestige Worldwide', 'BambooHR UK Demo', 'BambooHR Nonprofit Demo')",
           "operation": "Upsert",
           "externalId": "Name",
           "excluded": false
@@ -60,7 +60,7 @@
         },
         {
           "query": "SELECT AdjustmentMethod, CurrencyIsoCode, Description, EffectiveFrom, EffectiveTo, IsActive, Name, Pricebook2Id, ScheduleType FROM PriceAdjustmentSchedule WHERE ContractId = NULL ORDER BY Name ASC, CurrencyIsoCode ASC, Pricebook2.Name ASC",
-          "operation": "Update",
+          "operation": "Upsert",
           "externalId": "Name;CurrencyIsoCode"
         },
         {

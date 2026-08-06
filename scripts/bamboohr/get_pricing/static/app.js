@@ -9,16 +9,23 @@
   const flatHint = document.getElementById("flatHint");
 
   const syncCountryAddons = () => {
-    const isCA = country.value === "CA";
+    const nonUs = country.value === "CA" || country.value === "UK";
     form.querySelectorAll('input[name="addon"][data-us-only]').forEach((el) => {
-      el.disabled = isCA;
-      if (isCA) el.checked = false;
-      el.closest("label")?.classList.toggle("disabled", isCA);
+      el.disabled = nonUs;
+      if (nonUs) el.checked = false;
+      el.closest("label")?.classList.toggle("disabled", nonUs);
     });
     if (addonHint) {
-      addonHint.textContent = isCA
-        ? "Canada: Payroll and Benefits are unavailable (category disqualification). Time and Global remain selectable."
-        : "Payroll + Benefits together unlock Path B Bundle & Save (15%). US-only for Payroll/Benefits.";
+      if (country.value === "CA") {
+        addonHint.textContent =
+          "Canada (CAD): Payroll and Benefits are unavailable (category disqualification). Time and Global remain selectable.";
+      } else if (country.value === "UK") {
+        addonHint.textContent =
+          "United Kingdom (GBP): Payroll and Benefits are unavailable (category disqualification). Time and Global remain selectable.";
+      } else {
+        addonHint.textContent =
+          "Payroll + Benefits together unlock Path B Bundle & Save (15%). US-only for Payroll/Benefits. Quotes in USD.";
+      }
     }
   };
 

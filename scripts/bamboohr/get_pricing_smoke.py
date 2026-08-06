@@ -10,6 +10,8 @@ Asserts:
 4. CA + Payroll requested → US-only add-ons stripped from quote
 5. US Core @ 25 → small-biz flat SKU $250 qty 1 (Phase 2 Approach B)
 6. US Pro + Payroll + Benefits @ 50 + free trial → $0 monthly, flag, 30-day term
+7. CA Core @ 25 → CAD flat $337.50 (B5)
+8. UK Pro @ 50 → GBP net ≈ 13.43 × 0.95 (B5)
 
 Usage:
   python scripts/bamboohr/get_pricing_smoke.py --target-org master-demo
@@ -30,6 +32,7 @@ from service import (  # noqa: E402
     TRIAL_DAYS,
     GetPricingRequest,
     OrgSession,
+    core_flat_price,
     expected_net,
     get_pricing,
 )
@@ -58,7 +61,7 @@ def main() -> int:
         raise AssertionError("Discovery missing BAMBOO-PRO")
     print(f"  PASS net={us.net_pepm} quote={us.quote_id} monthly={us.monthly_total}")
 
-    print("\n== 2) CA Core @ 10 (disqual warning + small-biz flat) ==")
+    print("\n== 2) CA Core @ 10 (disqual warning + CAD small-biz flat) ==")
     ca = get_pricing(
         session,
         GetPricingRequest(
@@ -71,9 +74,17 @@ def main() -> int:
         raise AssertionError(
             f"Expected Core flat SKU, got flat={ca.small_biz_flat} sell={ca.sell_plan_sku}"
         )
-    if abs(ca.net_pepm - CORE_FLAT_PRICE) > 0.08:
-        raise AssertionError(f"CA Core@10 flat expected ~{CORE_FLAT_PRICE}, got {ca.net_pepm}")
-    print(f"  PASS warning + flat net={ca.net_pepm} quote={ca.quote_id}")
+    expect_ca_flat = core_flat_price("CAD")
+    if ca.currency != "CAD":
+        raise AssertionError(f"CA quote currency expected CAD, got {ca.currency}")
+    if abs(ca.net_pepm - expect_ca_flat) > 0.08:
+        raise AssertionError(
+            f"CA Core@10 flat expected ~{expect_ca_flat}, got {ca.net_pepm}"
+        )
+    print(
+        f"  PASS warning + CAD flat net={ca.net_pepm} currency={ca.currency} "
+        f"quote={ca.quote_id}"
+    )
 
     print("\n== 3) US Pro + Payroll + Benefits @ 50 (Path B) ==")
     path_b = get_pricing(
@@ -225,6 +236,48 @@ def main() -> int:
     print(
         f"  PASS trial quote={trial.quote_id} monthly={trial.monthly_total} "
         f"paidEstimate={trial.paid_monthly_estimate} endDelta={delta}d"
+    )
+
+    print("\n== 7) CA Core @ 25 (CAD flat) ==")
+    ca_flat = get_pricing(
+        session,
+        GetPricingRequest(
+            headcount=25, country="CA", plan_sku="BAMBOO-CORE", place_quote=True
+        ),
+    )
+    expect_cad_flat = core_flat_price("CAD")
+    if ca_flat.currency != "CAD":
+        raise AssertionError(f"Expected CAD, got {ca_flat.currency}")
+    if abs(ca_flat.net_pepm - expect_cad_flat) > 0.08:
+        raise AssertionError(
+            f"CAD flat expected ~{expect_cad_flat}, got {ca_flat.net_pepm}"
+        )
+    if ca_flat.account_name != "Prestige Worldwide":
+        raise AssertionError(f"Expected Prestige, got {ca_flat.account_name}")
+    print(
+        f"  PASS CAD flat quote={ca_flat.quote_id} net={ca_flat.net_pepm} "
+        f"currency={ca_flat.currency}"
+    )
+
+    print("\n== 8) UK Pro @ 50 (GBP + volume) ==")
+    uk = get_pricing(
+        session,
+        GetPricingRequest(
+            headcount=50, country="UK", plan_sku="BAMBOO-PRO", place_quote=True
+        ),
+    )
+    expect_gbp = expected_net("BAMBOO-PRO", 50, "GBP")
+    if uk.currency != "GBP":
+        raise AssertionError(f"Expected GBP, got {uk.currency}")
+    if uk.account_name != "BambooHR UK Demo":
+        raise AssertionError(f"Expected UK Demo account, got {uk.account_name}")
+    if abs(uk.net_pepm - expect_gbp) > 0.08:
+        raise AssertionError(f"GBP Pro@50 expected ~{expect_gbp}, got {uk.net_pepm}")
+    if "BAMBOO-ADD-PAYROLL" in uk.addon_skus:
+        raise AssertionError("UK should not keep Payroll")
+    print(
+        f"  PASS GBP quote={uk.quote_id} net={uk.net_pepm} "
+        f"monthly={uk.monthly_total} currency={uk.currency}"
     )
 
     print("\nGet Pricing smoke PASSED")

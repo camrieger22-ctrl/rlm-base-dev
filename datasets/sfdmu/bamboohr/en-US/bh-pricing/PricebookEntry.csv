@@ -17,3 +17,39 @@ BAMBOO-ADD-GLOBAL;Term Monthly;USD;Standard Price Book,USD,true,false,Global Emp
 BAMBOO-ADD-GLOBAL;Term Annual;USD;Standard Price Book,USD,true,false,Global Employment,Standard Price Book;true,BAMBOO-ADD-GLOBAL,Term Annual;TermDefined,144.0
 BAMBOO-PKG-WORKFORCE;Term Monthly;USD;Standard Price Book,USD,true,false,Workforce Package,Standard Price Book;true,BAMBOO-PKG-WORKFORCE,Term Monthly;TermDefined,0.0
 BAMBOO-PKG-WORKFORCE;Term Annual;USD;Standard Price Book,USD,true,false,Workforce Package,Standard Price Book;true,BAMBOO-PKG-WORKFORCE,Term Annual;TermDefined,0.0
+BAMBOO-CORE;Term Monthly;CAD;Standard Price Book,CAD,true,false,BambooHR Core,Standard Price Book;true,BAMBOO-CORE,Term Monthly;TermDefined,13.50
+BAMBOO-CORE;Term Annual;CAD;Standard Price Book,CAD,true,false,BambooHR Core,Standard Price Book;true,BAMBOO-CORE,Term Annual;TermDefined,162.00
+BAMBOO-CORE-FLAT-SM;Term Monthly;CAD;Standard Price Book,CAD,true,false,BambooHR Core Small Business Flat,Standard Price Book;true,BAMBOO-CORE-FLAT-SM,Term Monthly;TermDefined,337.50
+BAMBOO-CORE-FLAT-SM;Term Annual;CAD;Standard Price Book,CAD,true,false,BambooHR Core Small Business Flat,Standard Price Book;true,BAMBOO-CORE-FLAT-SM,Term Annual;TermDefined,4050.00
+BAMBOO-PRO;Term Monthly;CAD;Standard Price Book,CAD,true,false,BambooHR Pro,Standard Price Book;true,BAMBOO-PRO,Term Monthly;TermDefined,22.95
+BAMBOO-PRO;Term Annual;CAD;Standard Price Book,CAD,true,false,BambooHR Pro,Standard Price Book;true,BAMBOO-PRO,Term Annual;TermDefined,275.40
+BAMBOO-ELITE;Term Monthly;CAD;Standard Price Book,CAD,true,false,BambooHR Elite,Standard Price Book;true,BAMBOO-ELITE,Term Monthly;TermDefined,33.75
+BAMBOO-ELITE;Term Annual;CAD;Standard Price Book,CAD,true,false,BambooHR Elite,Standard Price Book;true,BAMBOO-ELITE,Term Annual;TermDefined,405.00
+BAMBOO-ADD-PAYROLL;Term Monthly;CAD;Standard Price Book,CAD,true,false,Payroll,Standard Price Book;true,BAMBOO-ADD-PAYROLL,Term Monthly;TermDefined,10.80
+BAMBOO-ADD-PAYROLL;Term Annual;CAD;Standard Price Book,CAD,true,false,Payroll,Standard Price Book;true,BAMBOO-ADD-PAYROLL,Term Annual;TermDefined,129.60
+BAMBOO-ADD-BENEFITS;Term Monthly;CAD;Standard Price Book,CAD,true,false,Benefits,Standard Price Book;true,BAMBOO-ADD-BENEFITS,Term Monthly;TermDefined,8.10
+BAMBOO-ADD-BENEFITS;Term Annual;CAD;Standard Price Book,CAD,true,false,Benefits,Standard Price Book;true,BAMBOO-ADD-BENEFITS,Term Annual;TermDefined,97.20
+BAMBOO-ADD-TIME;Term Monthly;CAD;Standard Price Book,CAD,true,false,Time & Attendance,Standard Price Book;true,BAMBOO-ADD-TIME,Term Monthly;TermDefined,5.40
+BAMBOO-ADD-TIME;Term Annual;CAD;Standard Price Book,CAD,true,false,Time & Attendance,Standard Price Book;true,BAMBOO-ADD-TIME,Term Annual;TermDefined,64.80
+BAMBOO-ADD-GLOBAL;Term Monthly;CAD;Standard Price Book,CAD,true,false,Global Employment,Standard Price Book;true,BAMBOO-ADD-GLOBAL,Term Monthly;TermDefined,16.20
+BAMBOO-ADD-GLOBAL;Term Annual;CAD;Standard Price Book,CAD,true,false,Global Employment,Standard Price Book;true,BAMBOO-ADD-GLOBAL,Term Annual;TermDefined,194.40
+BAMBOO-PKG-WORKFORCE;Term Monthly;CAD;Standard Price Book,CAD,true,false,Workforce Package,Standard Price Book;true,BAMBOO-PKG-WORKFORCE,Term Monthly;TermDefined,0.00
+BAMBOO-PKG-WORKFORCE;Term Annual;CAD;Standard Price Book,CAD,true,false,Workforce Package,Standard Price Book;true,BAMBOO-PKG-WORKFORCE,Term Annual;TermDefined,0.00
+BAMBOO-CORE;Term Monthly;GBP;Standard Price Book,GBP,true,false,BambooHR Core,Standard Price Book;true,BAMBOO-CORE,Term Monthly;TermDefined,7.90
+BAMBOO-CORE;Term Annual;GBP;Standard Price Book,GBP,true,false,BambooHR Core,Standard Price Book;true,BAMBOO-CORE,Term Annual;TermDefined,94.80
+BAMBOO-CORE-FLAT-SM;Term Monthly;GBP;Standard Price Book,GBP,true,false,BambooHR Core Small Business Flat,Standard Price Book;true,BAMBOO-CORE-FLAT-SM,Term Monthly;TermDefined,197.50
+BAMBOO-CORE-FLAT-SM;Term Annual;GBP;Standard Price Book,GBP,true,false,BambooHR Core Small Business Flat,Standard Price Book;true,BAMBOO-CORE-FLAT-SM,Term Annual;TermDefined,2370.00
+BAMBOO-PRO;Term Monthly;GBP;Standard Price Book,GBP,true,false,BambooHR Pro,Standard Price Book;true,BAMBOO-PRO,Term Monthly;TermDefined,13.43
+BAMBOO-PRO;Term Annual;GBP;Standard Price Book,GBP,true,false,BambooHR Pro,Standard Price Book;true,BAMBOO-PRO,Term Annual;TermDefined,161.16
+BAMBOO-ELITE;Term Monthly;GBP;Standard Price Book,GBP,true,false,BambooHR Elite,Standard Price Book;true,BAMBOO-ELITE,Term Monthly;TermDefined,19.75
+BAMBOO-ELITE;Term Annual;GBP;Standard Price Book,GBP,true,false,BambooHR Elite,Standard Price Book;true,BAMBOO-ELITE,Term Annual;TermDefined,237.00
+BAMBOO-ADD-PAYROLL;Term Monthly;GBP;Standard Price Book,GBP,true,false,Payroll,Standard Price Book;true,BAMBOO-ADD-PAYROLL,Term Monthly;TermDefined,6.32
+BAMBOO-ADD-PAYROLL;Term Annual;GBP;Standard Price Book,GBP,true,false,Payroll,Standard Price Book;true,BAMBOO-ADD-PAYROLL,Term Annual;TermDefined,75.84
+BAMBOO-ADD-BENEFITS;Term Monthly;GBP;Standard Price Book,GBP,true,false,Benefits,Standard Price Book;true,BAMBOO-ADD-BENEFITS,Term Monthly;TermDefined,4.74
+BAMBOO-ADD-BENEFITS;Term Annual;GBP;Standard Price Book,GBP,true,false,Benefits,Standard Price Book;true,BAMBOO-ADD-BENEFITS,Term Annual;TermDefined,56.88
+BAMBOO-ADD-TIME;Term Monthly;GBP;Standard Price Book,GBP,true,false,Time & Attendance,Standard Price Book;true,BAMBOO-ADD-TIME,Term Monthly;TermDefined,3.16
+BAMBOO-ADD-TIME;Term Annual;GBP;Standard Price Book,GBP,true,false,Time & Attendance,Standard Price Book;true,BAMBOO-ADD-TIME,Term Annual;TermDefined,37.92
+BAMBOO-ADD-GLOBAL;Term Monthly;GBP;Standard Price Book,GBP,true,false,Global Employment,Standard Price Book;true,BAMBOO-ADD-GLOBAL,Term Monthly;TermDefined,9.48
+BAMBOO-ADD-GLOBAL;Term Annual;GBP;Standard Price Book,GBP,true,false,Global Employment,Standard Price Book;true,BAMBOO-ADD-GLOBAL,Term Annual;TermDefined,113.76
+BAMBOO-PKG-WORKFORCE;Term Monthly;GBP;Standard Price Book,GBP,true,false,Workforce Package,Standard Price Book;true,BAMBOO-PKG-WORKFORCE,Term Monthly;TermDefined,0.00
+BAMBOO-PKG-WORKFORCE;Term Annual;GBP;Standard Price Book,GBP,true,false,Workforce Package,Standard Price Book;true,BAMBOO-PKG-WORKFORCE,Term Annual;TermDefined,0.00
