@@ -46,7 +46,7 @@ In addition to the per-area Hands-On extracts tracked above, `docs/enablement/{v
 | File | Release | Status | Source |
 |---|---|---|---|
 | [`262/qb-demo-script.md`](262/qb-demo-script.md) | 262 | 🚧 Draft (preview release) | Generated 2026-05-24 via [`.cursor/skills/qb-demo-script/SKILL.md`](../../.cursor/skills/qb-demo-script/SKILL.md); pending SME pass for Setup-UI verification, Known-Bugs population, image capture, Slack canvas publish |
-| [`262/bamboohr-hands-on.md`](262/bamboohr-hands-on.md) | 262 | 🚧 Draft v0.1 | BambooHR release-pack hands-on (`data_shape: bamboohr`); catalog → volume → package/Path B → nonprofit → Get Pricing / trial / multi-currency; pending SME commercial sign-off + recordings |
+| [`262/bamboohr-hands-on.md`](262/bamboohr-hands-on.md) | 262 | 🚧 Draft v0.2 | BambooHR release-pack hands-on (`data_shape: bamboohr`); SME commercial tables locked 2026-08-06; pending runtime recording URLs |
 
 ### Notes on draft state of 258 PDFs
 

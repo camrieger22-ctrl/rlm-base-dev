@@ -3,7 +3,7 @@ release_version: 262
 release_name: "Summer '26"
 api_version: 67.0
 area: "BambooHR Release Pack"
-document_version: 0.1
+document_version: 0.2
 status: draft
 last_updated: 2026-08-06
 authors:
@@ -23,7 +23,7 @@ sources:
 
 # Revenue Cloud — BambooHR Release Pack
 
-**Enablement Exercises** · Version 0.1, Summer '26
+**Enablement Exercises** · Version 0.2, Summer '26
 
 > **Org / data shape:** `bamboohr`. These exercises assume an org provisioned with the BambooHR catalog and pricing plans (`insert_bamboohr_*` + `prepare_bamboohr`), not the QuantumBit workshop scenario. Demo accounts and SKUs below are loaded by those plans.
 
@@ -33,9 +33,9 @@ sources:
 
 | Field | Value |
 |-------|-------|
-| Status | **draft** — runnable on `master-demo` (fork); SME commercial numbers still approximate |
+| Status | **draft** v0.2 — commercial tables SME-confirmed for this pack (2026-08-06); runtime recordings still open |
 | Audience | SE / partner / AE enablement for the BambooHR release pack |
-| Companion SE script | Private working talk-track (demo script) may exist outside this catalog; **this file is the curated hands-on** |
+| Companion SE script | Private working talk-track may exist outside this catalog; **this file is the curated hands-on** |
 
 ---
 
@@ -65,26 +65,53 @@ The BambooHR release pack shows how Revenue Cloud models a public HRIS catalog a
 | **BambooHR UK Demo** | UK — GBP demo account; US add-ons category disqualified |
 | **BambooHR Nonprofit Demo** | `RLM_Is_Nonprofit__c=true` — automatic 15% list discount |
 
-| SKU | Role | Monthly list (demo) |
-|-----|------|---------------------|
-| `BAMBOO-CORE` / `PRO` / `ELITE` | Plans (PEPM) | $10 / $17 / $25 (USD) |
-| `BAMBOO-CORE-FLAT-SM` | Small-biz flat Core | **$250** qty **1** |
-| `BAMBOO-ADD-PAYROLL` / `BENEFITS` | US-only add-ons | $8 / $6 |
-| `BAMBOO-ADD-TIME` / `GLOBAL` | Add-ons (not in Workforce package) | $4 / $12 |
-| `BAMBOO-PKG-WORKFORCE` | Path A package header | $0 header; children priced |
+### Commercial reference (SME-confirmed for this pack — 2026-08-06)
 
-**Volume ladder (PEPM plans + add-ons):** 25–75 → 5%, 76–150 → 10%, 151–300 → 15%, 301–500 → 20%, 501+ → 25%. Flat Core has **no** volume tiers.
+Treat these as the **authoritative demo numbers** loaded in `bh-pricing`. They are pack commercial targets, not live BambooHR customer price lists.
 
-**CAD / GBP (demo FX vs USD):** CAD ×1.35, GBP ×0.79 on Standard price book entries.
+| SKU | Role | Monthly list (USD) | Annual list (USD) |
+|-----|------|--------------------|-------------------|
+| `BAMBOO-CORE` | Plan PEPM | $10 | **$120** (= 12×) |
+| `BAMBOO-PRO` | Plan PEPM | $17 | **$204** |
+| `BAMBOO-ELITE` | Plan PEPM | $25 | **$300** |
+| `BAMBOO-CORE-FLAT-SM` | Small-biz flat Core (≤25) | **$250** qty **1** | **$3,000** |
+| `BAMBOO-ADD-PAYROLL` | US-only add-on PEPM | $8 | $96 |
+| `BAMBOO-ADD-BENEFITS` | US-only add-on PEPM | $6 | $72 |
+| `BAMBOO-ADD-TIME` | Add-on PEPM | $4 | $48 |
+| `BAMBOO-ADD-GLOBAL` | Add-on PEPM | $12 | $144 |
+| `BAMBOO-PKG-WORKFORCE` | Path A package header | $0 | $0 |
+
+| Rule | Value |
+|------|-------|
+| Annual term | **12 × monthly** (not a prepaid discount) |
+| Volume ladder (PEPM plans + add-ons) | 1–24 → 0%; **25–75 → 5%**; 76–150 → 10%; 151–300 → 15%; 301–500 → 20%; 501+ → 25% |
+| Flat Core volume | **None** (qty always 1) |
+| Bundle & Save | **15%** on Payroll + Benefits (Path A BBA / Path B ManualDiscount on ListPrice) |
+| Nonprofit | **15%** list starting point; AE may discount further (Discount %) |
+| Flat geography | Core flat applies in **other markets as well** (with multi-currency) |
+| Global Employment | **PEPM** |
+| Free trial | Convert-later, **30 days**, all plans; add-ons trialed with plan |
+| CAD / GBP FX (vs USD list) | **CAD ×1.35**, **GBP ×0.79** on Standard PBEs |
+
+**Worked nets (USD) to expect in walkthroughs:**
+
+| Scenario | Expected |
+|----------|----------|
+| Core qty 1, nonprofit account | List $10 → UnitPrice **$8.50** |
+| Same + AE Discount 10% | UnitPrice $8.50 → NetUnitPrice **$7.65** |
+| Pro qty 50 (volume 5%) | Net PEPM ≈ **$16.15** |
+| Path B Pro@50 + Payroll + Benefits | Plan ≈ $16.15; Payroll ≈ **$6.46**; Benefits ≈ **$4.845** (15% Bundle & Save × 5% volume on ListPrice) |
+| Core flat ≤25 (Get Pricing) | Monthly **$250** on `BAMBOO-CORE-FLAT-SM` |
+| UK Pro @ 25 (GBP) | Native GBP list/net (USD $17 × 0.79 = **£13.43** list before volume) |
 
 ---
 
 ## Prerequisites (org)
 
-1. Load BambooHR PCM + pricing and run `prepare_bamboohr` (context plans + nonprofit / Path B / free-trial overlays).
-2. Rebuild search: `cci task run rebuild_search_index --org <alias>`.
+1. Load BambooHR PCM + pricing and run `prepare_bamboohr` (context plans + nonprofit / Path B / free-trial overlays). CCI: `cci flow run prepare_bamboohr --org <cci-alias>`.
+2. Rebuild search: `cci task run rebuild_search_index --org <cci-alias>`.
 3. Confirm Quote DefaultPricing uses `RLM_DefaultPricingProcedure`.
-4. Optional smokes:
+4. Optional smokes (SF CLI alias — e.g. `master-demo` → often `rlm-base__master-demo` if created via CCI):
 
 ```bash
 python scripts/bamboohr/browse_smoke.py --target-org <sf-alias>
@@ -98,7 +125,8 @@ python scripts/bamboohr/checkout_multicurrency_smoke.py --target-org <sf-alias>
 
 ```bash
 set -a; source scripts/bamboohr/get_pricing/.env; set +a
-python -u scripts/bamboohr/get_pricing/server.py --host 127.0.0.1 --port 8765 --cors-origin '*'
+~/.local/pipx/venvs/cumulusci/bin/python -u \
+  scripts/bamboohr/get_pricing/server.py --host 127.0.0.1 --port 8765 --cors-origin '*'
 ```
 
 Open **http://127.0.0.1:8765/** (http, not https). Hard-refresh after BFF restarts.
@@ -133,7 +161,7 @@ Catalog and categories ship in `datasets/sfdmu/bamboohr/en-US/bh-pcm/`. No per-e
 
 ### Configuration and Runtime Video
 
-`[NEEDS REVIEW]` — recording placeholder.
+No dedicated recording captured yet for Summer '26. Use the runtime walkthrough above as the SE self-record / studio script. [NEEDS REVIEW — drop URL when recorded.]
 
 ---
 
@@ -156,8 +184,8 @@ Volume tiers and coach LWC ship with the BambooHR pack (`bh-pricing` PAS/PAT + f
 ### Runtime walkthrough
 
 1. On an **Acme** quote, add **BambooHR Pro** (or Core PEPM), quantity **10**.
-2. Price — expect full list ($17 / $10); coach shows below first band.
-3. Change quantity to **50**, reprice — ~5% volume (25–75 band).
+2. Price — expect full list (Pro **$17** / Core **$10**); coach shows below first band.
+3. Change quantity to **50**, reprice — 5% volume (25–75 band); Pro net PEPM ≈ **$16.15**.
 4. Open the quote line side panel / **Volume Tier Coach** — current band + units to next tier.
 5. Optional: Calculation Details → volume adjustment on the waterfall.
 
@@ -165,7 +193,7 @@ Volume tiers and coach LWC ship with the BambooHR pack (`bh-pricing` PAS/PAT + f
 
 ### Configuration and Runtime Video
 
-`[NEEDS REVIEW]` — recording placeholder.
+No dedicated recording captured yet for Summer '26. Use the runtime walkthrough above as the SE self-record / studio script. [NEEDS REVIEW — drop URL when recorded.]
 
 ---
 
@@ -202,7 +230,7 @@ Flat SKU + PBE in `bh-pcm` / `bh-pricing`. Get Pricing swap logic lives in `scri
 
 ### Configuration and Runtime Video
 
-`[NEEDS REVIEW]` — recording placeholder.
+No dedicated recording captured yet for Summer '26. Use the runtime walkthrough above as the SE self-record / studio script. [NEEDS REVIEW — drop URL when recorded.]
 
 ---
 
@@ -234,7 +262,7 @@ Package structure, PCG exclusivity, and BBA rows ship in BambooHR PCM/pricing da
 
 ### Configuration and Runtime Video
 
-`[NEEDS REVIEW]` — recording placeholder.
+No dedicated recording captured yet for Summer '26. Use the runtime walkthrough above as the SE self-record / studio script. [NEEDS REVIEW — drop URL when recorded.]
 
 ---
 
@@ -264,7 +292,7 @@ Path B uses Quote flag + ManualDiscount overlay on ListPrice (`bamboohr_path_b_b
 
 ### Configuration and Runtime Video
 
-`[NEEDS REVIEW]` — recording placeholder.
+No dedicated recording captured yet for Summer '26. Use the runtime walkthrough above as the SE self-record / studio script. [NEEDS REVIEW — drop URL when recorded.]
 
 ---
 
@@ -305,7 +333,7 @@ Nonprofits get an automatic **15% list discount** from an Account flag (no speci
 
 ### Configuration and Runtime Video
 
-`[NEEDS REVIEW]` — recording placeholder.
+No dedicated recording captured yet for Summer '26. Use the runtime walkthrough above as the SE self-record / studio script. [NEEDS REVIEW — drop URL when recorded.]
 
 ---
 
@@ -333,7 +361,7 @@ Product Category Disqualification on `PC-BH-US-ADDONS` for non-US countries (inc
 
 ### Configuration and Runtime Video
 
-`[NEEDS REVIEW]` — recording placeholder.
+No dedicated recording captured yet for Summer '26. Use the runtime walkthrough above as the SE self-record / studio script. [NEEDS REVIEW — drop URL when recorded.]
 
 ---
 
@@ -356,7 +384,7 @@ BFF under `scripts/bamboohr/get_pricing/` (JWT Connected App recommended). DocGe
 
 1. Open http://127.0.0.1:8765/.
 2. Country **US**, plan **Pro**, headcount **50**, add-ons **Payroll + Benefits**.
-3. Get pricing — Path B note; summary shows plan volume + add-ons at list × 0.85 × volume.
+3. Get pricing — Path B note; summary ≈ Pro **$16.15**, Payroll **$6.46**, Benefits **$4.845** PEPM (see commercial table).
 4. **Download PDF** — DocGen proposal (summary page stays open).
 5. **Place order (checkout)** — Order → activate → assets.
 6. Optional longer demo: amend true-up after activation.
@@ -365,7 +393,7 @@ BFF under `scripts/bamboohr/get_pricing/` (JWT Connected App recommended). DocGe
 
 ### Configuration and Runtime Video
 
-`[NEEDS REVIEW]` — recording placeholder.
+No dedicated recording captured yet for Summer '26. Use the runtime walkthrough above as the SE self-record / studio script. [NEEDS REVIEW — drop URL when recorded.]
 
 ---
 
@@ -400,7 +428,7 @@ Offer a **30-day convert-later trial** at $0 for the plan and selected add-ons, 
 
 ### Configuration and Runtime Video
 
-`[NEEDS REVIEW]` — recording placeholder.
+No dedicated recording captured yet for Summer '26. Use the runtime walkthrough above as the SE self-record / studio script. [NEEDS REVIEW — drop URL when recorded.]
 
 ---
 
@@ -420,16 +448,16 @@ CurrencyType + multi-currency PBEs / PAS / PAT / BBA clones in `bh-pricing`. Ren
 
 ### Runtime walkthrough
 
-1. Get Pricing — country **UK**, Pro @ **25** → GBP quote nets.
+1. Get Pricing — country **UK**, Pro @ **25** → GBP quote (list ≈ **£13.43**, volume 5% → net ≈ **£12.76**).
 2. Checkout → Activated order, currency **GBP**, assets created.
-3. Repeat for **CA** / CAD.
+3. Repeat for **CA** / CAD (Pro list ≈ **C$22.95** before volume).
 4. Optional: open **Renewal Forecast Opportunity** on the account — currency matches the order (GBP/CAD), not corporate USD.
 
 **Smoke:** `scripts/bamboohr/checkout_multicurrency_smoke.py`.
 
 ### Configuration and Runtime Video
 
-`[NEEDS REVIEW]` — recording placeholder.
+No dedicated recording captured yet for Summer '26. Use the runtime walkthrough above as the SE self-record / studio script. [NEEDS REVIEW — drop URL when recorded.]
 
 ---
 
@@ -467,7 +495,7 @@ Features 1–4 → 7 (CA) → 8–9 self-serve (flat + trial + convert). Add Fea
 | Free trial still priced | Confirm free-trial overlay + context on org; restart BFF after code pulls |
 | BFF “Failed to fetch” | Use **http://127.0.0.1:8765/** and keep the server running |
 | Discount % + Discount Amount together | Platform rejects both — use one |
-| Commercial accuracy | Volume %, add-on list, and FX rates are **demo placeholders** until SME sign-off |
+| Rounding drift vs table | Worked nets are 2–3 decimal demo targets; Instant Pricing may show slight float differences |
 
 ---
 
@@ -482,14 +510,30 @@ Features 1–4 → 7 (CA) → 8–9 self-serve (flat + trial + convert). Add Fea
 | Prepare flow | `cci flow run prepare_bamboohr --org <cci-alias>` |
 | Nonprofit further-discount smoke | `scripts/bamboohr/nonprofit_further_discount_smoke.py` |
 | Multicurrency checkout smoke | `scripts/bamboohr/checkout_multicurrency_smoke.py` |
+| Hands-on (this file) | `docs/enablement/262/bamboohr-hands-on.md` |
+
+---
+
+## Recordings backlog
+
+Capture one short runtime clip per feature (or one combined AE cut + one dual-channel cut). Drop URLs into each feature’s **Configuration and Runtime Video** subsection when available.
+
+| Suggested clip | Features covered |
+|----------------|------------------|
+| AE catalog → volume coach → Workforce package | 1, 2, 4 |
+| Nonprofit + further Discount % | 6 |
+| CA disqual vs Acme | 7 |
+| Get Pricing flat @25 → Pro@50 Path B → PDF → checkout | 3, 8 |
+| Free trial + convert preview | 9 |
+| UK/CA multi-currency checkout | 10 |
 
 ---
 
 ## Open questions for author
 
-- `[NEEDS REVIEW]` Record Configuration and Runtime videos per feature.
-- `[NEEDS REVIEW]` SME final commercial numbers (volume ladder, add-on PEPM, FX) for publication.
-- Whether to promote a shortened PDF extract for partner workshops once status → `review`.
+- `[NEEDS REVIEW]` Runtime recording URLs (see backlog above).
+- Whether to promote a shortened partner PDF once status → `review`.
+- D2 feature attributes remain **parked optional** (not in this exercise).
 
 ---
 
