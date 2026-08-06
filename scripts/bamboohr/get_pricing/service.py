@@ -61,29 +61,14 @@ VOLUME_BANDS = (
 
 
 class OrgSession:
-    def __init__(self, alias: str) -> None:
-        try:
-            from cumulusci.cli.runtime import CliRuntime
-        except ModuleNotFoundError as exc:
-            raise SystemExit(
-                "cumulusci is not installed in this Python. Use the CCI pipx "
-                "interpreter, e.g.\n"
-                "  ~/.local/pipx/venvs/cumulusci/bin/python "
-                "scripts/bamboohr/get_pricing/server.py --org master-demo "
-                "--port 8765\n"
-                "Or: pipx run --spec cumulusci … / activate your CCI venv."
-            ) from exc
+    def __init__(self, alias: str | None = None) -> None:
+        from auth import resolve_creds  # local package (server puts HERE on path)
 
-        runtime = CliRuntime(load_keychain=True)
-        org = runtime.keychain.get_org(alias)
-        if hasattr(org, "refresh_oauth_token"):
-            try:
-                org.refresh_oauth_token(runtime.keychain)
-            except Exception:  # noqa: BLE001
-                pass
-        self.alias = alias
-        self._token = org.access_token
-        self._instance = str(org.instance_url).rstrip("/")
+        creds = resolve_creds(alias)
+        self.alias = creds.label
+        self.auth_mode = creds.mode
+        self._token = creds.access_token
+        self._instance = creds.instance_url
 
     def _http(self, method: str, path: str, body: dict | None = None) -> Any:
         data = json.dumps(body).encode() if body is not None else None

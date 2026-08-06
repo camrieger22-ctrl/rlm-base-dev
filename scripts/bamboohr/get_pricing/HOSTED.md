@@ -1,0 +1,103 @@
+# Hosted self-serve — BambooHR Get Pricing BFF
+
+Buyer-facing URL for Get Pricing + checkout **without** Experience Cloud.
+Secrets stay on the server (or your laptop behind a tunnel). The browser never
+holds a Salesforce token.
+
+## Auth modes
+
+| Mode | When | Env / flags |
+|------|------|-------------|
+| **CCI** (default local) | Laptop with CumulusCI keychain | `--org master-demo` |
+| **Bearer token** | CI, container, quick tunnel bootstrap | `SF_ACCESS_TOKEN` + `SF_INSTANCE_URL` |
+| **JWT Connected App** | Long-lived hosted process | `SF_CLIENT_ID` + `SF_USERNAME` + `SF_PRIVATE_KEY_PATH` (+ `SF_LOGIN_URL`) |
+
+Resolution order is implemented in `auth.py`.
+
+## Path A — Public URL in minutes (tunnel)
+
+Keeps CCI OAuth on your machine; Cloudflare/ngrok publishes the form.
+
+```bash
+# terminal 1 — bind all interfaces
+~/.local/pipx/venvs/cumulusci/bin/python \
+  scripts/bamboohr/get_pricing/server.py --org master-demo --host 0.0.0.0 --port 8765
+
+# terminal 2 — public HTTPS URL
+./scripts/bamboohr/get_pricing/run_tunnel.sh
+```
+
+Open the printed `https://….trycloudflare.com/` (or ngrok) URL. Health check:
+`GET /api/health` → `{"ok": true, "authMode": "cci", …}`.
+
+Requires [`cloudflared`](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/)
+or `ngrok` on `PATH`.
+
+## Path B — JWT Connected App (real host / always-on)
+
+### 1. Generate a cert (once; never commit the private key)
+
+```bash
+./scripts/bamboohr/get_pricing/setup_jwt_cert.sh
+# writes scripts/bamboohr/get_pricing/.secrets/server.key + server.crt
+```
+
+### 2. Create Connected App in `master-demo` (Setup)
+
+1. **App Manager → New Connected App**
+2. Enable **OAuth Settings**
+3. Enable **Use digital signatures** → upload `server.crt`
+4. Selected OAuth scopes: **Full access (full)** or API + refresh (demo: `full` + `refresh_token` is fine)
+5. **Manage → Edit Policies**
+   - Permitted Users: **Admin approved users are pre-authorized**
+   - IP Relaxation: relax for demos if needed
+6. **Manage Profiles / Permission Sets** — pre-authorize a dedicated integration user
+   (or the demo admin) that can create Quotes/Orders and run RC APIs
+7. Copy **Consumer Key** → `SF_CLIENT_ID`
+
+### 3. Run with JWT
+
+```bash
+export SF_CLIENT_ID='…consumer key…'
+export SF_USERNAME='camriegermasterdemoorg@demo.com'   # pre-authorized user
+export SF_PRIVATE_KEY_PATH="$PWD/scripts/bamboohr/get_pricing/.secrets/server.key"
+export SF_LOGIN_URL='https://trailsignup-….my.salesforce.com'  # My Domain
+# optional: BFF_CORS_ORIGIN='*' PORT=8765
+
+~/.local/pipx/venvs/cumulusci/bin/python \
+  scripts/bamboohr/get_pricing/server.py --host 0.0.0.0 --port 8765
+```
+
+Or copy `.env.example` → `.env` (gitignored) and `set -a; source .env; set +a`.
+
+### 4. Bootstrap bearer token from CCI (no Connected App yet)
+
+```bash
+eval "$(~/.local/pipx/venvs/cumulusci/bin/python \
+  scripts/bamboohr/get_pricing/export_cci_token.py --org master-demo)"
+# exports SF_ACCESS_TOKEN + SF_INSTANCE_URL into the shell
+```
+
+## Docker (optional)
+
+```bash
+docker build -t bamboohr-get-pricing -f scripts/bamboohr/get_pricing/Dockerfile .
+docker run --rm -p 8765:8765 \
+  -e SF_ACCESS_TOKEN -e SF_INSTANCE_URL \
+  bamboohr-get-pricing
+```
+
+## Security notes (demo)
+
+- Do **not** put the Connected App secret or private key in the browser or static JS.
+- Prefer a least-privilege integration user once past the demo.
+- Tunnel URLs are public — treat as demo-only; revoke / stop when finished.
+- Experience Cloud guest UI can come later as a thin shell that posts to this BFF.
+
+## Verify
+
+```bash
+curl -sS http://127.0.0.1:8765/api/health
+~/.local/pipx/venvs/cumulusci/bin/python \
+  scripts/bamboohr/get_pricing_smoke.py --target-org master-demo
+```

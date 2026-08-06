@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""Local Get Pricing BFF + static form for BambooHR dual-channel P2.
+"""BambooHR Get Pricing BFF + static form (local or hosted).
 
-  python scripts/bamboohr/get_pricing/server.py --org master-demo --port 8765
+Local (CCI keychain):
+  ~/.local/pipx/venvs/cumulusci/bin/python \\
+    scripts/bamboohr/get_pricing/server.py --org master-demo --port 8765
 
-Open http://127.0.0.1:8765/ — form posts to /api/get-pricing (CCI org OAuth).
+Hosted (public bind + tunnel or JWT — see HOSTED.md):
+  ~/.local/pipx/venvs/cumulusci/bin/python \\
+    scripts/bamboohr/get_pricing/server.py --host 0.0.0.0 --port 8765
 """
 
 from __future__ import annotations
@@ -11,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import mimetypes
+import os
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -28,6 +33,7 @@ from service import GetPricingRequest, OrgSession, get_pricing  # noqa: E402
 QUOTE_CACHE: dict[str, dict] = {}
 ORG_ALIAS = "master-demo"
 SESSION: OrgSession | None = None
+CORS_ORIGIN = ""  # empty = omit CORS headers; "*" or origin for hosted demos
 
 
 def _session() -> OrgSession:
@@ -41,11 +47,19 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args) -> None:  # noqa: A003
         sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
 
+    def _cors(self) -> None:
+        if not CORS_ORIGIN:
+            return
+        self.send_header("Access-Control-Allow-Origin", CORS_ORIGIN)
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+
     def _send(self, code: int, body: bytes, content_type: str) -> None:
         self.send_response(code)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        self._cors()
         self.end_headers()
         self.wfile.write(body)
 
@@ -53,8 +67,28 @@ class Handler(BaseHTTPRequestHandler):
         raw = json.dumps(payload, indent=2).encode()
         self._send(code, raw, "application/json; charset=utf-8")
 
+    def do_OPTIONS(self) -> None:  # noqa: N802
+        self.send_response(204)
+        self._cors()
+        self.end_headers()
+
     def do_GET(self) -> None:  # noqa: N802
         path = urlparse(self.path).path
+        if path == "/api/health":
+            try:
+                sess = _session()
+                self._json(
+                    200,
+                    {
+                        "ok": True,
+                        "service": "bamboohr-get-pricing",
+                        "authMode": sess.auth_mode,
+                        "org": sess.alias,
+                    },
+                )
+            except Exception as exc:  # noqa: BLE001
+                self._json(503, {"ok": False, "error": str(exc)})
+            return
         if path in ("/", "/index.html"):
             self._send(
                 200,
@@ -190,19 +224,32 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> int:
-    global ORG_ALIAS, SESSION
+    global ORG_ALIAS, SESSION, CORS_ORIGIN
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--org", default="master-demo", help="CCI org alias")
-    parser.add_argument("--port", type=int, default=8765)
-    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument(
+        "--org",
+        default=os.environ.get("SF_ORG_ALIAS") or "master-demo",
+        help="CCI org alias when not using SF_* env auth",
+    )
+    parser.add_argument("--port", type=int, default=int(os.environ.get("PORT") or 8765))
+    parser.add_argument(
+        "--host",
+        default=os.environ.get("BFF_HOST") or "127.0.0.1",
+        help="Bind address; use 0.0.0.0 for tunnels / containers",
+    )
+    parser.add_argument(
+        "--cors-origin",
+        default=os.environ.get("BFF_CORS_ORIGIN") or "",
+        help='Optional CORS Allow-Origin (e.g. "*" for demos)',
+    )
     args = parser.parse_args()
     ORG_ALIAS = args.org
+    CORS_ORIGIN = args.cors_origin
     SESSION = None
     print(f"BambooHR Get Pricing BFF → org={args.org}")
-    print(f"Open http://{args.host}:{args.port}/")
-    # Warm CCI auth up-front so the first form submit is faster / fails loudly.
-    _session()
-    print("CCI session ready.")
+    print(f"Listening on http://{args.host}:{args.port}/")
+    sess = _session()
+    print(f"Auth ready: mode={sess.auth_mode} label={sess.alias}")
     ThreadingHTTPServer((args.host, args.port), Handler).serve_forever()
     return 0
 

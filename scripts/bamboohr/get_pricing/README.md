@@ -1,6 +1,8 @@
 # BambooHR Get Pricing + Checkout (dual-channel P2/P3)
 
-Local thin BFF + branded form for the self-serve “Get Pricing” path (fork-only).
+Thin BFF + branded form for the self-serve “Get Pricing” path (fork-only).
+Runs **locally** (CCI) or **hosted** (public URL via tunnel / JWT Connected App).
+See **[HOSTED.md](./HOSTED.md)** for public demos.
 
 ## Flow
 
@@ -17,7 +19,7 @@ Local thin BFF + branded form for the self-serve “Get Pricing” path (fork-on
 | US | Acme |
 | CA | Prestige Worldwide (Payroll/Benefits disqual) |
 
-## Run
+## Run (local)
 
 Use the **CumulusCI pipx Python** (plain `python` usually lacks `cumulusci`):
 
@@ -27,12 +29,26 @@ Use the **CumulusCI pipx Python** (plain `python` usually lacks `cumulusci`):
   scripts/bamboohr/get_pricing/server.py --org master-demo --port 8765
 ```
 
-Then open http://127.0.0.1:8765/ in a browser (do not paste the `# open …` comment into the shell).
+Then open http://127.0.0.1:8765/ in a browser.
+
+### Hosted (quick)
+
+```bash
+# terminal 1
+~/.local/pipx/venvs/cumulusci/bin/python \
+  scripts/bamboohr/get_pricing/server.py --org master-demo --host 0.0.0.0 --port 8765
+
+# terminal 2 — public HTTPS URL
+./scripts/bamboohr/get_pricing/run_tunnel.sh
+```
+
+Full JWT / Docker / Connected App steps: **HOSTED.md**.
 
 ### API
 
 | Method | Path | Body |
 |--------|------|------|
+| GET | `/api/health` | — |
 | POST | `/api/get-pricing` | `{ headcount, country, planSku, addonSkus?, placeQuote? }` |
 | POST | `/api/checkout` | `{ quoteId, amendQty?, pollTimeout? }` |
 
@@ -46,8 +62,8 @@ Then open http://127.0.0.1:8765/ in a browser (do not paste the `# open …` com
   scripts/bamboohr/checkout_p3_smoke.py --target-org master-demo
 ```
 
-## Out of scope
+## Still deferred
 
-- Guest Connected App in the browser
-- Experience Cloud site hosting
+- Experience Cloud site shell (can embed/redirect to this BFF)
+- Browser-held guest Connected App (secrets stay server-side by design)
 - DocGen PDF binary (print-to-PDF is the stand-in)
