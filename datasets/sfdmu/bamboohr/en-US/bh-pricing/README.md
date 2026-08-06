@@ -38,6 +38,7 @@ insert_bamboohr_pricing_data:
 2. New Quote → leave **Price Book = Standard** (default).
 3. Add BambooHR Core/Pro/Elite — Calculation Details shows **BambooHR Nonprofit 15% List Discount** (or percentage-based discount **15%**) between list and volume.
 4. Volume tiers and Bundle & Save still stack **after** the nonprofit cut (Sales Price reflects the post-nonprofit list).
+5. **Further AE discount:** set line **Discount (%)** (e.g. 10). Sales/`UnitPrice` stays at the post-nonprofit price (**$8.50**); **`NetUnitPrice`** drops further (e.g. **$7.65**). Smoke: `scripts/bamboohr/nonprofit_further_discount_smoke.py`. Do not set Discount and DiscountAmount together.
 
 Requires `prepare_bamboohr` wiring: Account/Quote fields, `BambooHrNonprofitPricing` context plan, nonprofit overlays on **both** `RLM_DefaultPricingProcedure` and `RLM_DefaultNearCorePricingProcedure`, and `ensure_bamboohr_quote_default_pricing_procedure` (Quote plan DefaultPricing must use Default — NearCore drift skips Instant Pricing discounts).
 
