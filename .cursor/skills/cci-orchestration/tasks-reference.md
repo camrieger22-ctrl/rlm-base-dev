@@ -3,7 +3,7 @@
 > **Auto-generated** by `scripts/ai/generate_cci_reference.py` from `cumulusci.yml`.  
 > Do not edit manually — re-run the script after changing `cumulusci.yml`.
 
-**289 tasks** across **10 groups**.
+**290 tasks** across **10 groups**.
 
 ---
 
@@ -1062,7 +1062,7 @@
 
 ## Revenue Lifecycle Management
 
-*179 task(s)*
+*180 task(s)*
 
 ### `activate_agents`
 
@@ -1226,6 +1226,18 @@
 **Options:**
 
 - `path`: `scripts/apex/activateTaxRecords.apex`
+
+---
+
+### `apply_bamboohr_clear_volume_des_labels_overlay`
+
+**Description:** F5 hygiene: strip abandoned BH_VolumeQty DES / waterfall label mappings from volume BKMs on RLM_DefaultPricingProcedure (matched-tier labels are not platform-supported; Volume Tier Coach LWC remains the UX).
+
+**Class:** `tasks.rlm_expression_set_connect.ApplyExpressionSetOverlay`
+
+**Options:**
+
+- `overlay_file`: `datasets/expression_set_overlays/bamboohr_clear_volume_des_labels.json`
 
 ---
 

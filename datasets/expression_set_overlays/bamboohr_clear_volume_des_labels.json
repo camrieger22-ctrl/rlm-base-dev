@@ -1,0 +1,24 @@
+{
+  "expressionSetApiName": "RLM_DefaultPricingProcedure",
+  "versionApiName": "RLM_DefaultPricingProcedure_V1",
+  "description": "F5 hygiene: remove abandoned BambooHR volume DES / waterfall label experiment. Clears BH_VolumeQty message-token mappings and shouldShowExplExternally on the two VolumeDiscount BKMs (platform cannot surface matched-tier labels; Volume Tier Coach LWC is the substitute). Aligns Default with NearCore.",
+  "externalDependencies": {
+    "note": "After apply, delete ExpressionSetMessageToken BH_VolumeQty if unused. Coach QLI fields (RLM_Volume_Tier_*) stay."
+  },
+  "updateSteps": [
+    {
+      "name": "Calculatenetunitnettotalandcontractpricesaftervolumebaseddiscounts",
+      "shouldShowExplExternally": false,
+      "passedMessageTokenMappings": [],
+      "failedMessageTokenMappings": [],
+      "noResultMessageTokenMappings": []
+    },
+    {
+      "name": "Calculatenetunitpriceandnettotalpriceaftervolumebaseddiscount",
+      "shouldShowExplExternally": false,
+      "passedMessageTokenMappings": [],
+      "failedMessageTokenMappings": [],
+      "noResultMessageTokenMappings": []
+    }
+  ]
+}

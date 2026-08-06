@@ -229,15 +229,16 @@ Deploy BambooHR volume-tier coach + US-only category qualification wiring (PCQ f
 13. **task** `apply_context_bamboohr_path_b_bundle_save`  `when: project_config.project__custom__bamboohr`
 14. **task** `apply_bamboohr_path_b_bundle_save_overlay`  `when: project_config.project__custom__bamboohr`
 15. **task** `apply_bamboohr_path_b_bundle_save_overlay_nearcore`  `when: project_config.project__custom__bamboohr`
-16. **task** `ensure_bamboohr_quote_default_pricing_procedure`  `when: project_config.project__custom__bamboohr`
-17. **task** `stamp_bamboohr_volume_tiers`  `when: project_config.project__custom__bamboohr`
-18. **task** `validate_cml`  `when: project_config.project__custom__bamboohr and project_config.project__custom__constraints_data`
+16. **task** `apply_bamboohr_clear_volume_des_labels_overlay`  `when: project_config.project__custom__bamboohr`
+17. **task** `ensure_bamboohr_quote_default_pricing_procedure`  `when: project_config.project__custom__bamboohr`
+18. **task** `stamp_bamboohr_volume_tiers`  `when: project_config.project__custom__bamboohr`
+19. **task** `validate_cml`  `when: project_config.project__custom__bamboohr and project_config.project__custom__constraints_data`
    - `cml_dir`: `scripts/cml`
    - `data_dir`: `datasets/constraints/bamboohr/BambooHrPlans`
-19. **task** `import_cml`  `when: project_config.project__custom__bamboohr and project_config.project__custom__constraints_data`
+20. **task** `import_cml`  `when: project_config.project__custom__bamboohr and project_config.project__custom__constraints_data`
    - `data_dir`: `datasets/constraints/bamboohr/BambooHrPlans`
    - `dataset_dirs`: `datasets/sfdmu/bamboohr/en-US/bh-pcm`
-20. **task** `manage_expression_sets`  `when: project_config.project__custom__bamboohr and project_config.project__custom__constraints_data`
+21. **task** `manage_expression_sets`  `when: project_config.project__custom__bamboohr and project_config.project__custom__constraints_data`
    - `operation`: `activate_versions`
    - `version_full_names`: `BambooHrPlans_V1`
 

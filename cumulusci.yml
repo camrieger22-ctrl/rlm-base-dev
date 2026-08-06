@@ -1470,6 +1470,16 @@ tasks:
     options:
       overlay_file: datasets/expression_set_overlays/bamboohr_path_b_bundle_save_nearcore.json
 
+  apply_bamboohr_clear_volume_des_labels_overlay:
+    group: Revenue Lifecycle Management
+    description: >
+      F5 hygiene: strip abandoned BH_VolumeQty DES / waterfall label mappings
+      from volume BKMs on RLM_DefaultPricingProcedure (matched-tier labels are
+      not platform-supported; Volume Tier Coach LWC remains the UX).
+    class_path: tasks.rlm_expression_set_connect.ApplyExpressionSetOverlay
+    options:
+      overlay_file: datasets/expression_set_overlays/bamboohr_clear_volume_des_labels.json
+
   ensure_bamboohr_quote_default_pricing_procedure:
     group: Revenue Lifecycle Management
     description: >
@@ -4181,24 +4191,27 @@ flows:
         task: apply_bamboohr_path_b_bundle_save_overlay_nearcore
         when: project_config.project__custom__bamboohr
       16:
-        task: ensure_bamboohr_quote_default_pricing_procedure
+        task: apply_bamboohr_clear_volume_des_labels_overlay
         when: project_config.project__custom__bamboohr
       17:
-        task: stamp_bamboohr_volume_tiers
+        task: ensure_bamboohr_quote_default_pricing_procedure
         when: project_config.project__custom__bamboohr
       18:
+        task: stamp_bamboohr_volume_tiers
+        when: project_config.project__custom__bamboohr
+      19:
         task: validate_cml
         when: project_config.project__custom__bamboohr and project_config.project__custom__constraints_data
         options:
           cml_dir: scripts/cml
           data_dir: *bamboohr_plans_constraints_data_dir
-      19:
+      20:
         task: import_cml
         when: project_config.project__custom__bamboohr and project_config.project__custom__constraints_data
         options:
           data_dir: *bamboohr_plans_constraints_data_dir
           dataset_dirs: *bamboohr_pcm_dataset
-      20:
+      21:
         task: manage_expression_sets
         when: project_config.project__custom__bamboohr and project_config.project__custom__constraints_data
         options:
