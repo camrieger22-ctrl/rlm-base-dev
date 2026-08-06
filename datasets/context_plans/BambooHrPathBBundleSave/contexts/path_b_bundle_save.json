@@ -31,6 +31,22 @@
       "mappingType": "SOBJECT",
       "sObject": "QuoteLineItem",
       "sObjectField": "RLM_Bamboo_BundleSave_Target__c"
+    },
+    {
+      "mappingName": "OrderEntitiesMapping",
+      "contextNode": "SalesTransaction",
+      "contextAttribute": "RLM_Bamboo_PathB_BundleSave__c",
+      "mappingType": "SOBJECT",
+      "sObject": "Order",
+      "sObjectField": "RLM_Bamboo_PathB_BundleSave__c"
+    },
+    {
+      "mappingName": "OrderEntitiesMapping",
+      "contextNode": "SalesTransactionItem",
+      "contextAttribute": "RLM_Bamboo_BundleSave_Target__c",
+      "mappingType": "SOBJECT",
+      "sObject": "OrderItem",
+      "sObjectField": "RLM_Bamboo_BundleSave_Target__c"
     }
   ],
   "contextTagsByName": [

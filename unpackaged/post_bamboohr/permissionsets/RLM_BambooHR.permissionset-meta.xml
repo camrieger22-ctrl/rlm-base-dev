@@ -31,6 +31,21 @@
     </fieldPermissions>
     <fieldPermissions>
         <editable>true</editable>
+        <field>Order.RLM_Bamboo_PathB_BundleSave__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>Order.RLM_Is_Nonprofit_Account__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>OrderItem.RLM_Bamboo_BundleSave_Target__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
         <field>ProductCategoryDisqual.RLM_BillingCountry__c</field>
         <readable>true</readable>
     </fieldPermissions>

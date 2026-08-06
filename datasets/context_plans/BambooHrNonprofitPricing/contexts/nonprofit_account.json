@@ -17,6 +17,14 @@
       "mappingType": "SOBJECT",
       "sObject": "Quote",
       "sObjectField": "RLM_Is_Nonprofit_Account__c"
+    },
+    {
+      "mappingName": "OrderEntitiesMapping",
+      "contextNode": "SalesTransaction",
+      "contextAttribute": "RLM_Is_Nonprofit_Account__c",
+      "mappingType": "SOBJECT",
+      "sObject": "Order",
+      "sObjectField": "RLM_Is_Nonprofit_Account__c"
     }
   ],
   "contextTagsByName": [
