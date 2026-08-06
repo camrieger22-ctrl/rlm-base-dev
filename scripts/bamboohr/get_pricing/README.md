@@ -71,8 +71,13 @@ DocGen uses Active `RLM_QuoteProposal` (override with `DOCGEN_TEMPLATE_NAME` or
   --out /tmp/bamboo-quote.pdf
 ```
 
+## Experience Cloud shell
+
+Lightning / Experience Builder LWC that opens this BFF — see
+**[EXPERIENCE_CLOUD.md](./EXPERIENCE_CLOUD.md)**.
+
 ## Still deferred
 
-- Experience Cloud site shell (can embed/redirect to this BFF)
 - Browser-held guest Connected App (secrets stay server-side by design)
 - Bamboo-branded custom `.docx` (today uses Foundations `RLM_QuoteProposal`)
+- Dedicated Customer Digital Experience site metadata (use Builder + LWC today)

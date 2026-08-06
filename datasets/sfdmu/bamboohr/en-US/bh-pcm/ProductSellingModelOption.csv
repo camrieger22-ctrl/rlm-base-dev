@@ -1,6 +1,8 @@
 $$Product2.StockKeepingUnit$ProductSellingModel.Name$ProductSellingModel.SellingModelType,IsDefault,Product2.StockKeepingUnit,ProductSellingModel.$$Name$SellingModelType,ProrationPolicy.Name
 BAMBOO-CORE;Term Monthly;TermDefined,true,BAMBOO-CORE,Term Monthly;TermDefined,Default Proration Policy
 BAMBOO-CORE;Term Annual;TermDefined,false,BAMBOO-CORE,Term Annual;TermDefined,Default Proration Policy
+BAMBOO-CORE-FLAT-SM;Term Monthly;TermDefined,true,BAMBOO-CORE-FLAT-SM,Term Monthly;TermDefined,Default Proration Policy
+BAMBOO-CORE-FLAT-SM;Term Annual;TermDefined,false,BAMBOO-CORE-FLAT-SM,Term Annual;TermDefined,Default Proration Policy
 BAMBOO-PRO;Term Monthly;TermDefined,true,BAMBOO-PRO,Term Monthly;TermDefined,Default Proration Policy
 BAMBOO-PRO;Term Annual;TermDefined,false,BAMBOO-PRO,Term Annual;TermDefined,Default Proration Policy
 BAMBOO-ELITE;Term Monthly;TermDefined,true,BAMBOO-ELITE,Term Monthly;TermDefined,Default Proration Policy

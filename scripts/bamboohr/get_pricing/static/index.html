@@ -33,11 +33,16 @@
       <label>
         Plan
         <select id="planSku" name="planSku">
-          <option value="BAMBOO-CORE">Core — $10 PEPM</option>
+          <option value="BAMBOO-CORE">Core — $10 PEPM (or $250 flat ≤25 emp.)</option>
           <option value="BAMBOO-PRO" selected>Pro — $17 PEPM</option>
           <option value="BAMBOO-ELITE">Elite — $25 PEPM</option>
         </select>
       </label>
+      <p class="hint" id="flatHint" hidden>
+        ≤25 employees: Plan defaults to Core and the small-business flat SKU
+        (<code>BAMBOO-CORE-FLAT-SM</code>) at <strong>$250/mo</strong> qty 1 — not PEPM×headcount.
+        You can still change Plan if needed. Add-ons stay PEPM×headcount.
+      </p>
 
       <fieldset class="addons">
         <legend>Add-ons</legend>
@@ -46,6 +51,12 @@
         <label class="check"><input type="checkbox" name="addon" value="BAMBOO-ADD-BENEFITS" data-us-only /> Benefits — $6 PEPM</label>
         <label class="check"><input type="checkbox" name="addon" value="BAMBOO-ADD-TIME" /> Time &amp; Attendance — $4 PEPM</label>
         <label class="check"><input type="checkbox" name="addon" value="BAMBOO-ADD-GLOBAL" /> Global Employment — $12 PEPM</label>
+      </fieldset>
+
+      <fieldset class="addons">
+        <legend>Free trial</legend>
+        <p class="hint">Convert later: 30-day $0 quote for the plan and selected add-ons. After trial, convert to a paid quote (same config).</p>
+        <label class="check"><input type="checkbox" id="freeTrial" name="freeTrial" /> Start with 30-day free trial</label>
       </fieldset>
 
       <div class="actions">

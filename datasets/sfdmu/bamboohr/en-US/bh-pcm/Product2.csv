@@ -1,5 +1,6 @@
 BasedOn.Code,CanRamp,ConfigureDuringSale,Description,DisplayUrl,Family,IsActive,IsAssetizable,IsSoldOnlyWithOtherProds,Name,ProductCode,QuantityUnitOfMeasure,SpecificationType,StockKeepingUnit,Type,UnitOfMeasure.UnitCode
 ,false,Allowed,BambooHR Core — $10 PEPM.,,Software,true,true,false,BambooHR Core,BAMBOO-CORE,,Commercial,BAMBOO-CORE,,
+,false,Allowed,BambooHR Core small-business flat — $250/mo for ≤25 employees (qty 1; not PEPM).,,Software,true,true,false,BambooHR Core Small Business Flat,BAMBOO-CORE-FLAT-SM,,Commercial,BAMBOO-CORE-FLAT-SM,,
 ,false,Allowed,BambooHR Pro — $17 PEPM (everything in Core + more).,,Software,true,true,false,BambooHR Pro,BAMBOO-PRO,,Commercial,BAMBOO-PRO,,
 ,false,Allowed,BambooHR Elite — $25 PEPM (everything in Pro + more).,,Software,true,true,false,BambooHR Elite,BAMBOO-ELITE,,Commercial,BAMBOO-ELITE,,
 ,false,Allowed,BambooHR Payroll add-on (US employees only). Demo PEPM placeholder $8.,,Software,true,true,false,BambooHR Payroll,BAMBOO-ADD-PAYROLL,,Commercial,BAMBOO-ADD-PAYROLL,,

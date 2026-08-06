@@ -1357,9 +1357,11 @@ tasks:
     description: >
       Deploy BambooHR volume-tier coach metadata (QLI stamp fields, before-trigger,
       RLM_BambooVolumeTiers Apex + test, rlmVolumeTierCoach LWC, RLM_BambooHR
-      permission set) and ProductCategoryQualification criteria fields
-      (RLM_BillingCountry__c, RLM_Qualification_Key__c) from unpackaged/post_bamboohr.
-      Category qualification DT deploys separately via
+      permission set), ProductCategoryQualification criteria fields
+      (RLM_BillingCountry__c, RLM_Qualification_Key__c), and the Get Pricing
+      Experience Cloud / Lightning shell (rlmBambooGetPricingShell LWC, App Page,
+      tab, BFF URL Custom Label) from unpackaged/post_bamboohr. Category
+      qualification DT deploys separately via
       deploy_bamboohr_qualification_decision_tables. Quote page wiring ships via
       the bamboohr flexipage patch during prepare_ux / assemble_and_deploy_ux.
     class_path: cumulusci.tasks.salesforce.Deploy
@@ -1469,6 +1471,39 @@ tasks:
     class_path: tasks.rlm_expression_set_connect.ApplyExpressionSetOverlay
     options:
       overlay_file: datasets/expression_set_overlays/bamboohr_path_b_bundle_save_nearcore.json
+
+  apply_context_bamboohr_free_trial:
+    group: Revenue Lifecycle Management
+    description: >
+      Maps Quote.RLM_Bamboo_FreeTrial__c (and Order twin) into
+      RLM_SalesTransactionContext for convert-later free trial pricing.
+    class_path: tasks.rlm_context_service.ManageContextDefinition
+    options:
+      developer_name: *sales_transaction_context_name
+      plan_file: datasets/context_plans/BambooHrFreeTrial/manifest.json
+      translate_plan: true
+      deactivate_before: false
+      activate: true
+      verify: true
+
+  apply_bamboohr_free_trial_overlay:
+    group: Revenue Lifecycle Management
+    description: >
+      Adds ListGroup + ManualDiscount 100% on RLM_DefaultPricingProcedure when
+      Quote.RLM_Bamboo_FreeTrial__c is true (convert-later free trial; plan +
+      add-ons). Place after Path B Bundle & Save. Get Pricing uses 30-day EndDate.
+    class_path: tasks.rlm_expression_set_connect.ApplyExpressionSetOverlay
+    options:
+      overlay_file: datasets/expression_set_overlays/bamboohr_free_trial.json
+
+  apply_bamboohr_free_trial_overlay_nearcore:
+    group: Revenue Lifecycle Management
+    description: >
+      Same BambooHR convert-later free trial 100% ManualDiscount overlay on
+      RLM_DefaultNearCorePricingProcedure.
+    class_path: tasks.rlm_expression_set_connect.ApplyExpressionSetOverlay
+    options:
+      overlay_file: datasets/expression_set_overlays/bamboohr_free_trial_nearcore.json
 
   apply_bamboohr_clear_volume_des_labels_overlay:
     group: Revenue Lifecycle Management
@@ -4191,27 +4226,36 @@ flows:
         task: apply_bamboohr_path_b_bundle_save_overlay_nearcore
         when: project_config.project__custom__bamboohr
       16:
-        task: apply_bamboohr_clear_volume_des_labels_overlay
+        task: apply_context_bamboohr_free_trial
         when: project_config.project__custom__bamboohr
       17:
-        task: ensure_bamboohr_quote_default_pricing_procedure
+        task: apply_bamboohr_free_trial_overlay
         when: project_config.project__custom__bamboohr
       18:
-        task: stamp_bamboohr_volume_tiers
+        task: apply_bamboohr_free_trial_overlay_nearcore
         when: project_config.project__custom__bamboohr
       19:
+        task: apply_bamboohr_clear_volume_des_labels_overlay
+        when: project_config.project__custom__bamboohr
+      20:
+        task: ensure_bamboohr_quote_default_pricing_procedure
+        when: project_config.project__custom__bamboohr
+      21:
+        task: stamp_bamboohr_volume_tiers
+        when: project_config.project__custom__bamboohr
+      22:
         task: validate_cml
         when: project_config.project__custom__bamboohr and project_config.project__custom__constraints_data
         options:
           cml_dir: scripts/cml
           data_dir: *bamboohr_plans_constraints_data_dir
-      20:
+      23:
         task: import_cml
         when: project_config.project__custom__bamboohr and project_config.project__custom__constraints_data
         options:
           data_dir: *bamboohr_plans_constraints_data_dir
           dataset_dirs: *bamboohr_pcm_dataset
-      21:
+      24:
         task: manage_expression_sets
         when: project_config.project__custom__bamboohr and project_config.project__custom__constraints_data
         options:

@@ -8,6 +8,7 @@ default. Secrets stay on the BFF — the browser downloads through
 from __future__ import annotations
 
 import json
+import re
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -161,7 +162,8 @@ def generate_quote_pdf(
 
     template_id = template["Id"]
     mapping = template.get("TokenMappingMethodType") or "OmniDataTransform"
-    doc_title = title or f"BambooHR Pricing — {quote_id}"
+    # ASCII hyphen only — Unicode em-dash breaks latin-1 Content-Disposition.
+    doc_title = title or f"BambooHR Pricing - {quote_id}"
 
     request_text: dict[str, Any] = {
         "keepIntermediate": True,
@@ -280,6 +282,32 @@ def generate_quote_pdf(
     )
 
 
+def _safe_download_filename(title: str, ext: str) -> str:
+    """ASCII-only filename for Content-Disposition (latin-1 HTTP headers).
+
+    DocGen titles often include Unicode (e.g. em-dash). BaseHTTPRequestHandler
+    encodes headers as latin-1; a UnicodeEncodeError mid-response corrupts the
+    download into a broken 200/404 mix the browser surfaces as a PDF error.
+    """
+    base = (title or "document").strip()
+    if base.lower().endswith(f".{ext}"):
+        base = base[: -(len(ext) + 1)]
+    # Common typography → ASCII, then strip anything else non-ASCII.
+    for src, dst in (
+        ("\u2014", "-"),  # —
+        ("\u2013", "-"),  # –
+        ("\u2018", "'"),
+        ("\u2019", "'"),
+        ("\u201c", '"'),
+        ("\u201d", '"'),
+    ):
+        base = base.replace(src, dst)
+    base = base.encode("ascii", "replace").decode("ascii").replace("?", "")
+    base = re.sub(r'[\\/:*?"<>|\r\n]+', "-", base)
+    base = re.sub(r"\s+", " ", base).strip(" .-_") or "document"
+    return f"{base}.{ext}"
+
+
 def download_content_version(session: OrgSession, content_version_id: str) -> tuple[bytes, str, str]:
     """Return (bytes, filename, content_type) for a ContentVersion Id."""
     cv_id = (content_version_id or "").strip()
@@ -297,5 +325,5 @@ def download_content_version(session: OrgSession, content_version_id: str) -> tu
         f"/services/data/{API}/sobjects/ContentVersion/{cv_id}/VersionData"
     )
     ctype = "application/pdf" if ext == "pdf" else "application/octet-stream"
-    filename = f"{title}.{ext}" if not title.lower().endswith(f".{ext}") else title
+    filename = _safe_download_filename(title, ext)
     return raw, filename, ctype

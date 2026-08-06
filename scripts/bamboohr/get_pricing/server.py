@@ -114,19 +114,23 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/api/docgen-pdf/"):
             cv_id = path.split("/api/docgen-pdf/", 1)[1].strip("/")
             try:
+                # Fetch before send_response — a mid-header failure used to leave
+                # a half-written 200 and then a 404 on the same socket (browser
+                # PDF error / curl "Header without colon").
                 raw, filename, ctype = download_content_version(_session(), cv_id)
-                self.send_response(200)
-                self.send_header("Content-Type", ctype)
-                self.send_header("Content-Length", str(len(raw)))
-                self.send_header(
-                    "Content-Disposition", f'attachment; filename="{filename}"'
-                )
-                self.send_header("Cache-Control", "no-store")
-                self._cors()
-                self.end_headers()
-                self.wfile.write(raw)
             except Exception as exc:  # noqa: BLE001
                 self._json(404, {"ok": False, "error": str(exc)})
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(raw)))
+            self.send_header(
+                "Content-Disposition", f'attachment; filename="{filename}"'
+            )
+            self.send_header("Cache-Control", "no-store")
+            self._cors()
+            self.end_headers()
+            self.wfile.write(raw)
             return
 
         if path.startswith("/quote/"):
@@ -161,9 +165,67 @@ class Handler(BaseHTTPRequestHandler):
             bundle_note = (
                 "<p class='bundle-note'>Path B Bundle &amp; Save applied "
                 "(15% on Payroll + Benefits).</p>"
-                if data.get("pathBBundleSave")
+                if data.get("pathBBundleSave") and not data.get("freeTrial")
                 else ""
             )
+            trial_note = ""
+            convert_section = ""
+            convert_btn = ""
+            if data.get("freeTrial"):
+                paid = data.get("paidMonthlyEstimate")
+                paid_txt = f"${paid:,.2f}/mo" if paid is not None else "paid rates"
+                paid_annual = (
+                    f"${round(float(paid) * 12, 2):,.2f}" if paid is not None else "—"
+                )
+                days = int(data.get("trialDays") or 30)
+                hc = data.get("headcount")
+                trial_note = (
+                    f"<p class='trial-note'><strong>{days}-day free trial</strong> "
+                    f"(convert later). Quote totals are $0 now. "
+                    "Checkout creates $0 trial assets; use Convert to paid for a "
+                    "new paid quote.</p>"
+                )
+                paid_lines = data.get("paidLineItems") or []
+                if paid_lines:
+                    paid_rows = "".join(
+                        (
+                            "<tr>"
+                            f"<td>{li.get('name') or li.get('sku')}</td>"
+                            f"<td>{li.get('quantity')}</td>"
+                            f"<td>${float(li.get('netPepm') or 0):.2f}</td>"
+                            f"<td>${float(li.get('monthly') or 0):,.2f}</td>"
+                            "</tr>"
+                        )
+                        for li in paid_lines
+                    )
+                    paid_table = (
+                        "<table class='lines'><thead><tr>"
+                        "<th>Product</th><th>Qty</th><th>Net PEPM</th><th>Monthly</th>"
+                        "</tr></thead><tbody>"
+                        + paid_rows
+                        + "</tbody></table>"
+                    )
+                else:
+                    paid_table = ""
+                path_b_bit = (
+                    " Includes Path B Bundle &amp; Save (15% on Payroll + Benefits)."
+                    if data.get("pathBBundleSave")
+                    else ""
+                )
+                convert_section = (
+                    "<div class='convert-preview'>"
+                    "<h3>If converted — your cost</h3>"
+                    f"<p>At <strong>{hc} employees</strong>, these modules would "
+                    f"cost about <strong>{paid_txt}</strong> "
+                    f"(~{paid_annual}/yr) after the free trial."
+                    f"{path_b_bit}</p>"
+                    f"{paid_table}"
+                    "</div>"
+                )
+                convert_btn = (
+                    '<button type="button" id="convertTrialBtn" class="secondary">'
+                    "Convert to paid pricing</button>"
+                )
             for key, val in {
                 "{{planName}}": data["planName"],
                 "{{headcount}}": str(data["headcount"]),
@@ -177,6 +239,9 @@ class Handler(BaseHTTPRequestHandler):
                 "{{accountName}}": data["accountName"],
                 "{{lineItems}}": line_html,
                 "{{bundleSaveNote}}": bundle_note,
+                "{{trialNote}}": trial_note,
+                "{{convertPreview}}": convert_section,
+                "{{convertTrialButton}}": convert_btn,
                 "{{warnings}}": (
                     "<ul>"
                     + "".join(f"<li>{w}</li>" for w in data.get("warnings") or [])
@@ -210,9 +275,48 @@ class Handler(BaseHTTPRequestHandler):
                     plan_sku=str(body.get("planSku") or "BAMBOO-PRO"),
                     addon_skus=list(raw_addons),
                     place_quote=bool(body.get("placeQuote", True)),
+                    free_trial=bool(
+                        body.get("freeTrial") or body.get("free_trial")
+                    ),
                 )
                 result = get_pricing(_session(), req)
                 payload = result.as_dict()
+                if result.quote_id:
+                    QUOTE_CACHE[result.quote_id] = payload
+                    payload["quoteUrl"] = f"/quote/{result.quote_id}"
+                self._json(200, payload)
+            except Exception as exc:  # noqa: BLE001
+                self._json(400, {"ok": False, "error": str(exc)})
+            return
+
+        if path == "/api/convert-trial":
+            # Convert-later: place a paid quote from a trial quote's cached config.
+            trial_quote_id = str(body.get("quoteId") or "").strip()
+            cached = QUOTE_CACHE.get(trial_quote_id) if trial_quote_id else None
+            if not cached or not cached.get("freeTrial"):
+                self._json(
+                    400,
+                    {
+                        "ok": False,
+                        "error": (
+                            "quoteId must be a free-trial quote from this "
+                            "server session"
+                        ),
+                    },
+                )
+                return
+            try:
+                req = GetPricingRequest(
+                    headcount=int(cached.get("headcount") or 0),
+                    country=str(cached.get("country") or "US"),
+                    plan_sku=str(cached.get("planSku") or "BAMBOO-PRO"),
+                    addon_skus=list(cached.get("addonSkus") or []),
+                    place_quote=True,
+                    free_trial=False,
+                )
+                result = get_pricing(_session(), req)
+                payload = result.as_dict()
+                payload["convertedFromQuoteId"] = trial_quote_id
                 if result.quote_id:
                     QUOTE_CACHE[result.quote_id] = payload
                     payload["quoteUrl"] = f"/quote/{result.quote_id}"

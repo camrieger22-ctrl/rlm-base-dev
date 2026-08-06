@@ -31,6 +31,15 @@ PLAN_LABELS = {
     "BAMBOO-ELITE": "BambooHR Elite",
 }
 
+# Phase 2 Approach B — separate flat SKU for Core when headcount ≤ 25.
+CORE_FLAT_SKU = "BAMBOO-CORE-FLAT-SM"
+CORE_FLAT_PRICE = 250.0
+SMALL_BIZ_MAX_HEADCOUNT = 25
+
+
+def uses_core_flat(plan_sku: str, headcount: int) -> bool:
+    return plan_sku == "BAMBOO-CORE" and headcount <= SMALL_BIZ_MAX_HEADCOUNT
+
 ADDON_LIST = {
     "BAMBOO-ADD-PAYROLL": 8.0,
     "BAMBOO-ADD-BENEFITS": 6.0,
@@ -49,6 +58,9 @@ ADDON_LABELS = {
 US_ONLY_ADDONS = frozenset({"BAMBOO-ADD-PAYROLL", "BAMBOO-ADD-BENEFITS"})
 
 PATH_B_BUNDLE_SAVE = 0.15  # ManualDiscount on Payroll+Benefits when Path B
+
+# Phase 2 B2 — convert-later free trial (all plans + add-ons trialed with plan).
+TRIAL_DAYS = 30
 
 # Demo volume ladder (bh-pricing PAT) — keep in sync with RLM_BambooVolumeTiers.
 VOLUME_BANDS = (
@@ -99,6 +111,11 @@ class OrgSession:
         if not rid:
             raise RuntimeError(f"Create {sobject} failed: {result}")
         return rid
+
+    def patch(self, sobject: str, record_id: str, fields: dict) -> None:
+        self._http(
+            "PATCH", f"/services/data/{API}/sobjects/{sobject}/{record_id}", fields
+        )
 
     def post(self, path: str, body: dict) -> Any:
         return self._http("POST", path, body)
@@ -162,6 +179,7 @@ class GetPricingRequest:
     plan_sku: str = "BAMBOO-PRO"
     addon_skus: list[str] = field(default_factory=list)
     place_quote: bool = True
+    free_trial: bool = False
 
 
 @dataclass
@@ -185,6 +203,12 @@ class GetPricingResult:
     addon_skus: list[str] = field(default_factory=list)
     line_items: list[dict[str, Any]] = field(default_factory=list)
     path_b_bundle_save: bool = False
+    small_biz_flat: bool = False
+    sell_plan_sku: str = ""
+    free_trial: bool = False
+    trial_days: int = 0
+    paid_monthly_estimate: float | None = None
+    paid_line_items: list[dict[str, Any]] = field(default_factory=list)
     error: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
@@ -195,6 +219,12 @@ class GetPricingResult:
             "accountId": self.account_id,
             "planSku": self.plan_sku,
             "planName": self.plan_name,
+            "sellPlanSku": self.sell_plan_sku or self.plan_sku,
+            "smallBizFlat": self.small_biz_flat,
+            "freeTrial": self.free_trial,
+            "trialDays": self.trial_days,
+            "paidMonthlyEstimate": self.paid_monthly_estimate,
+            "paidLineItems": self.paid_line_items,
             "headcount": self.headcount,
             "listPepm": self.list_pepm,
             "volumePercent": self.volume_percent,
@@ -318,6 +348,23 @@ def get_pricing(session: OrgSession, req: GetPricingRequest) -> GetPricingResult
             "Path B Bundle & Save: 15% on Payroll + Benefits (a la carte with a plan)."
         )
 
+    use_flat = uses_core_flat(plan_sku, req.headcount)
+    sell_plan_sku = CORE_FLAT_SKU if use_flat else plan_sku
+    plan_qty = 1 if use_flat else req.headcount
+    if use_flat:
+        warnings.append(
+            f"Small-business flat: Core @ ≤{SMALL_BIZ_MAX_HEADCOUNT} employees uses "
+            f"{CORE_FLAT_SKU} at ${CORE_FLAT_PRICE:.0f}/mo (qty 1), not PEPM×headcount."
+        )
+
+    free_trial = bool(req.free_trial)
+    if free_trial:
+        warnings.append(
+            f"Free trial (convert later): {TRIAL_DAYS}-day term at $0 for plan + "
+            "selected add-ons. Convert later by placing a paid quote (same config, "
+            "trial off)."
+        )
+
     account_name = COUNTRY_ACCOUNT[country]
     catalog = session.soql(
         f"SELECT Id FROM ProductCatalog WHERE Name = '{CATALOG_NAME}' LIMIT 1"
@@ -327,7 +374,7 @@ def get_pricing(session: OrgSession, req: GetPricingRequest) -> GetPricingResult
     )[0]
     pb = session.soql("SELECT Id FROM Pricebook2 WHERE IsStandard = true LIMIT 1")[0]
 
-    skus_needed = [plan_sku, *addon_skus]
+    skus_needed = [sell_plan_sku, *addon_skus]
     pbes = {sku: _pbe_for_sku(session, sku) for sku in skus_needed}
 
     # Discover
@@ -345,24 +392,63 @@ def get_pricing(session: OrgSession, req: GetPricingRequest) -> GetPricingResult
         )
         if sku:
             discovered.append(sku)
-    if plan_sku not in discovered:
-        warnings.append(f"{plan_sku} not in PCM search results — check search index.")
+    if sell_plan_sku not in discovered and plan_sku not in discovered:
+        warnings.append(
+            f"{sell_plan_sku} / {plan_sku} not in PCM search results — check search index."
+        )
 
-    list_pepm = PLAN_LIST[plan_sku]
-    vol = volume_rate(req.headcount)
-    expected_plan = expected_net(plan_sku, req.headcount)
+    list_pepm = CORE_FLAT_PRICE if use_flat else PLAN_LIST[plan_sku]
+    vol = 0.0 if use_flat else volume_rate(req.headcount)
+    expected_plan_paid = (
+        CORE_FLAT_PRICE if use_flat else expected_net(plan_sku, req.headcount)
+    )
+    # Paid estimate (what convert-later charges) — always computed for UI.
+    plan_name_paid = (
+        "BambooHR Core Small Business Flat" if use_flat else PLAN_LABELS[plan_sku]
+    )
+    paid_line_items: list[dict[str, Any]] = [
+        {
+            "sku": sell_plan_sku,
+            "name": plan_name_paid,
+            "quantity": plan_qty,
+            "listPepm": list_pepm,
+            "netPepm": expected_plan_paid,
+            "monthly": round(expected_plan_paid * plan_qty, 2),
+            "isPlan": True,
+        }
+    ]
+    paid_monthly = paid_line_items[0]["monthly"]
+    for sku in addon_skus:
+        addon_net = expected_addon_net(sku, path_b=path_b)
+        addon_monthly = round(addon_net * req.headcount, 2)
+        paid_monthly = round(paid_monthly + addon_monthly, 2)
+        paid_line_items.append(
+            {
+                "sku": sku,
+                "name": ADDON_LABELS[sku],
+                "quantity": req.headcount,
+                "listPepm": ADDON_LIST[sku],
+                "netPepm": addon_net,
+                "monthly": addon_monthly,
+                "isPlan": False,
+            }
+        )
+
+    expected_plan = 0.0 if free_trial else expected_plan_paid
     quote_id: str | None = None
     net_pepm = expected_plan
     line_items: list[dict[str, Any]] = []
     path_b_flag = False
-    monthly = round(expected_plan * req.headcount, 2)
+    trial_flag = False
+    monthly = 0.0 if free_trial else round(expected_plan_paid * plan_qty, 2)
 
     if req.place_quote:
+        trial_tag = " trial" if free_trial else ""
         opp_id = session.create(
             "Opportunity",
             {
                 "Name": (
-                    f"Get Pricing {plan_sku} "
+                    f"Get Pricing{trial_tag} {plan_sku} "
                     f"{'+'.join(addon_skus) if addon_skus else 'plan'} "
                     f"{req.headcount} {country}"
                 )[:120],
@@ -373,16 +459,22 @@ def get_pricing(session: OrgSession, req: GetPricingRequest) -> GetPricingResult
             },
         )
         today = date.today().isoformat()
-        end = (date.today() + timedelta(days=365)).isoformat()
+        term_days = TRIAL_DAYS if free_trial else 365
+        end = (date.today() + timedelta(days=term_days)).isoformat()
+        quote_name = (
+            f"Get Pricing — {PLAN_LABELS[plan_sku]}"
+            + (f" + {len(addon_skus)} add-on(s)" if addon_skus else "")
+        )
+        if free_trial:
+            quote_name = f"{TRIAL_DAYS}-day trial — {PLAN_LABELS[plan_sku]}" + (
+                f" + {len(addon_skus)} add-on(s)" if addon_skus else ""
+            )
         records: list[dict[str, Any]] = [
             {
                 "referenceId": "refQuote",
                 "record": {
                     "attributes": {"method": "POST", "type": "Quote"},
-                    "Name": (
-                        f"Get Pricing — {PLAN_LABELS[plan_sku]}"
-                        + (f" + {len(addon_skus)} add-on(s)" if addon_skus else "")
-                    ),
+                    "Name": quote_name,
                     "OpportunityId": opp_id,
                     "Pricebook2Id": pb["Id"],
                     "QuoteAccountId": acct["Id"],
@@ -391,6 +483,7 @@ def get_pricing(session: OrgSession, req: GetPricingRequest) -> GetPricingResult
         ]
         for i, sku in enumerate(skus_needed):
             pbe = pbes[sku]
+            line_qty = plan_qty if sku == sell_plan_sku else req.headcount
             records.append(
                 {
                     "referenceId": f"refL{i}",
@@ -402,7 +495,7 @@ def get_pricing(session: OrgSession, req: GetPricingRequest) -> GetPricingResult
                         "QuoteId": "@{refQuote.id}",
                         "Product2Id": pbe["Product2Id"],
                         "PricebookEntryId": pbe["Id"],
-                        "Quantity": str(req.headcount),
+                        "Quantity": str(line_qty),
                         "StartDate": today,
                         "EndDate": end,
                         "PeriodBoundary": "Anniversary",
@@ -437,17 +530,30 @@ def get_pricing(session: OrgSession, req: GetPricingRequest) -> GetPricingResult
             raise RuntimeError(f"Place quote failed: {placed}")
         quote_id = placed["salesTransactionId"]
 
-        # Apex Path B flag stamps on line DML; System reprice applies volume + ManualDiscount.
+        # Ensure trial flag is persisted before System reprice (place graph may
+        # ignore unknown custom fields on some orgs; PATCH is authoritative).
+        if free_trial:
+            session.patch(
+                "Quote", quote_id, {"RLM_Bamboo_FreeTrial__c": True}
+            )
+
+        # Apex Path B flag stamps on line DML; System reprice applies volume +
+        # Path B / free-trial ManualDiscount.
         _system_reprice_quote(session, quote_id)
 
         qrows = session.soql(
-            "SELECT RLM_Bamboo_PathB_BundleSave__c FROM Quote "
-            f"WHERE Id = '{quote_id}'"
+            "SELECT RLM_Bamboo_PathB_BundleSave__c, RLM_Bamboo_FreeTrial__c "
+            f"FROM Quote WHERE Id = '{quote_id}'"
         )
         path_b_flag = bool(qrows and qrows[0].get("RLM_Bamboo_PathB_BundleSave__c"))
-        if path_b and not path_b_flag:
+        trial_flag = bool(qrows and qrows[0].get("RLM_Bamboo_FreeTrial__c"))
+        if path_b and not path_b_flag and not free_trial:
             warnings.append(
                 "Expected Path B Bundle & Save quote flag — check Apex trigger."
+            )
+        if free_trial and not trial_flag:
+            warnings.append(
+                "Expected Free Trial quote flag — check field deploy + BFF PATCH."
             )
 
         priced_lines = session.soql(
@@ -463,26 +569,38 @@ def get_pricing(session: OrgSession, req: GetPricingRequest) -> GetPricingResult
             net = float(pl.get("NetUnitPrice") or pl.get("UnitPrice") or 0)
             line_total = round(net * qty, 2)
             monthly += line_total
+            list_unit = (
+                CORE_FLAT_PRICE
+                if sku == CORE_FLAT_SKU
+                else (PLAN_LIST.get(sku) or ADDON_LIST.get(sku))
+            )
             line_items.append(
                 {
                     "sku": sku,
                     "name": name,
                     "quantity": int(qty),
-                    "listPepm": PLAN_LIST.get(sku) or ADDON_LIST.get(sku),
+                    "listPepm": list_unit,
                     "netPepm": net,
                     "monthly": line_total,
-                    "isPlan": sku in PLAN_LIST,
+                    "isPlan": sku in PLAN_LIST or sku == CORE_FLAT_SKU,
                 }
             )
-            if sku == plan_sku:
+            if sku == sell_plan_sku:
                 net_pepm = net
         monthly = round(monthly, 2)
 
-        if abs(net_pepm - expected_plan) > 0.08:
+        if free_trial:
+            if monthly > 0.08:
+                warnings.append(
+                    f"Free trial monthly ${monthly} expected ~$0 — check "
+                    "apply_bamboohr_free_trial_overlay + context mapping."
+                )
+            net_pepm = 0.0
+        elif abs(net_pepm - expected_plan) > 0.08:
             warnings.append(
-                f"Plan net ${net_pepm} differs from ladder expectation ${expected_plan}."
+                f"Plan net ${net_pepm} differs from expectation ${expected_plan}."
             )
-        if path_b_flag:
+        if path_b_flag and not free_trial:
             for sku in ("BAMBOO-ADD-PAYROLL", "BAMBOO-ADD-BENEFITS"):
                 list_p = ADDON_LIST[sku]
                 actual = next(
@@ -494,22 +612,29 @@ def get_pricing(session: OrgSession, req: GetPricingRequest) -> GetPricingResult
                         "(Path B Bundle & Save expected)."
                     )
 
-    elif addon_skus:
-        # Estimate-only (no quote): ladder + Path B math for display.
+    elif addon_skus or use_flat or free_trial:
+        # Estimate-only (no quote): ladder / flat + Path B math for display.
+        plan_name_est = (
+            "BambooHR Core Small Business Flat"
+            if use_flat
+            else PLAN_LABELS[plan_sku]
+        )
+        plan_net = 0.0 if free_trial else expected_plan_paid
         line_items = [
             {
-                "sku": plan_sku,
-                "name": PLAN_LABELS[plan_sku],
-                "quantity": req.headcount,
+                "sku": sell_plan_sku,
+                "name": plan_name_est,
+                "quantity": plan_qty,
                 "listPepm": list_pepm,
-                "netPepm": expected_plan,
-                "monthly": round(expected_plan * req.headcount, 2),
+                "netPepm": plan_net,
+                "monthly": round(plan_net * plan_qty, 2),
                 "isPlan": True,
             }
         ]
         monthly = line_items[0]["monthly"]
         for sku in addon_skus:
-            net = expected_addon_net(sku, path_b=path_b)
+            net = 0.0 if free_trial else expected_addon_net(sku, path_b=path_b)
+            # Add-ons stay PEPM × headcount even on small-biz flat Core.
             line_total = round(net * req.headcount, 2)
             monthly += line_total
             line_items.append(
@@ -525,6 +650,8 @@ def get_pricing(session: OrgSession, req: GetPricingRequest) -> GetPricingResult
             )
         monthly = round(monthly, 2)
         path_b_flag = path_b
+        trial_flag = free_trial
+        net_pepm = plan_net
 
     return GetPricingResult(
         ok=True,
@@ -543,6 +670,12 @@ def get_pricing(session: OrgSession, req: GetPricingRequest) -> GetPricingResult
         addon_skus=addon_skus,
         line_items=line_items,
         path_b_bundle_save=path_b_flag,
+        small_biz_flat=use_flat,
+        sell_plan_sku=sell_plan_sku,
+        free_trial=free_trial,
+        trial_days=TRIAL_DAYS if free_trial else 0,
+        paid_monthly_estimate=paid_monthly if free_trial else None,
+        paid_line_items=paid_line_items if free_trial else [],
         warnings=warnings,
         quote_id=quote_id,
         org_alias=session.alias,

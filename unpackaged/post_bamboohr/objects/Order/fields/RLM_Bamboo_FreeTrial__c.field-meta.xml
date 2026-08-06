@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>RLM_Bamboo_FreeTrial__c</fullName>
+    <defaultValue>false</defaultValue>
+    <description>Order twin of Quote.RLM_Bamboo_FreeTrial__c for context tag parity on OrderEntitiesMapping. Default false; trial is stamped at quote time by Get Pricing BFF.</description>
+    <externalId>false</externalId>
+    <label>BambooHR Free Trial</label>
+    <trackHistory>false</trackHistory>
+    <type>Checkbox</type>
+</CustomField>

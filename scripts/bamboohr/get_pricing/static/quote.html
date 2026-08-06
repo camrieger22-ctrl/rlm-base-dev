@@ -29,11 +29,14 @@
         <div><dt>Annual (12×)</dt><dd>${{annualTotal}}</dd></div>
       </dl>
       {{bundleSaveNote}}
+      {{trialNote}}
       {{lineItems}}
+      {{convertPreview}}
       <p class="quote-id">Salesforce Quote <code>{{quoteId}}</code></p>
       <div class="warnings">{{warnings}}</div>
       <div class="actions">
         <button type="button" id="checkoutBtn">Place order (checkout)</button>
+        {{convertTrialButton}}
         <button type="button" id="docgenBtn" class="secondary">Download PDF</button>
         <button type="button" class="secondary" onclick="window.print()">Print summary</button>
         <a class="button-link secondary" href="/">New estimate</a>
@@ -71,12 +74,55 @@
             }
             status.textContent =
               "PDF ready (" + (data.fileExtension || "pdf") + ") — downloading…";
-            window.location.href = data.downloadUrl;
+            // Blob download keeps this quote page open (Print summary still works).
+            const fileResp = await fetch(data.downloadUrl);
+            if (!fileResp.ok) {
+              const errBody = await fileResp.json().catch(() => ({}));
+              throw new Error(errBody.error || "PDF download failed (" + fileResp.status + ")");
+            }
+            const blob = await fileResp.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download =
+              (data.title || "BambooHR-Pricing").replace(/[^\w.\- ]+/g, "") +
+              "." +
+              (data.fileExtension || "pdf");
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+            status.textContent = "PDF downloaded.";
             docgenBtn.disabled = false;
           } catch (err) {
             status.textContent = String(err);
             status.classList.add("error");
             docgenBtn.disabled = false;
+          }
+        });
+      }
+
+      const convertBtn = document.getElementById("convertTrialBtn");
+      if (convertBtn) {
+        convertBtn.addEventListener("click", async () => {
+          convertBtn.disabled = true;
+          status.textContent = "Placing paid quote (convert later)…";
+          status.classList.remove("error");
+          try {
+            const resp = await fetch("/api/convert-trial", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ quoteId }),
+            });
+            const data = await resp.json();
+            if (!resp.ok || !data.ok || !data.quoteUrl) {
+              throw new Error(data.error || "Convert to paid failed");
+            }
+            window.location.href = data.quoteUrl;
+          } catch (err) {
+            status.textContent = String(err);
+            status.classList.add("error");
+            convertBtn.disabled = false;
           }
         });
       }

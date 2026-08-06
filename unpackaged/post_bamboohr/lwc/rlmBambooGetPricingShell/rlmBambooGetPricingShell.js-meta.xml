@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<LightningComponentBundle xmlns="http://soap.sforce.com/2006/04/metadata">
+    <apiVersion>67.0</apiVersion>
+    <isExposed>true</isExposed>
+    <masterLabel>BambooHR Get Pricing Shell</masterLabel>
+    <description>
+        Thin Experience Cloud / Lightning shell that opens the BambooHR Get Pricing
+        BFF (Revenue Cloud APIs run server-side). Set Custom Label
+        RLM_Bamboo_Get_Pricing_Bff_Url or the design-time BFF URL property.
+    </description>
+    <targets>
+        <target>lightning__AppPage</target>
+        <target>lightning__HomePage</target>
+        <target>lightningCommunity__Page</target>
+        <target>lightningCommunity__Default</target>
+        <target>lightningCommunity__Page_Layout</target>
+    </targets>
+    <targetConfigs>
+        <targetConfig targets="lightning__AppPage,lightning__HomePage,lightningCommunity__Default">
+            <property
+                name="bffUrlOverride"
+                type="String"
+                label="BFF base URL override"
+                description="Optional. When set, overrides Custom Label RLM_Bamboo_Get_Pricing_Bff_Url."
+            />
+            <property
+                name="autoRedirect"
+                type="Boolean"
+                label="Auto-redirect on load"
+                description="When true, navigates to the BFF immediately after load."
+                default="false"
+            />
+            <property
+                name="openInNewTab"
+                type="Boolean"
+                label="Open BFF in a new tab"
+                description="When true, Get Pricing opens a new browser tab."
+                default="true"
+            />
+        </targetConfig>
+    </targetConfigs>
+</LightningComponentBundle>

@@ -8,10 +8,15 @@
         <apexClass>RLM_BambooVolumeTiers</apexClass>
         <enabled>true</enabled>
     </classAccesses>
-    <description>BambooHR demo volume-tier coach fields, US-only category qualification criteria, nonprofit Account flag, Path B Bundle &amp; Save eligibility, and LWC Apex access.</description>
+    <description>BambooHR demo volume-tier coach fields, US-only category qualification criteria, nonprofit Account flag, Path B Bundle &amp; Save eligibility, convert-later free trial, and LWC Apex access.</description>
     <fieldPermissions>
         <editable>true</editable>
         <field>Account.RLM_Is_Nonprofit__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>Quote.RLM_Bamboo_FreeTrial__c</field>
         <readable>true</readable>
     </fieldPermissions>
     <fieldPermissions>
@@ -27,6 +32,11 @@
     <fieldPermissions>
         <editable>false</editable>
         <field>QuoteLineItem.RLM_Bamboo_BundleSave_Target__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>Order.RLM_Bamboo_FreeTrial__c</field>
         <readable>true</readable>
     </fieldPermissions>
     <fieldPermissions>
@@ -81,4 +91,8 @@
     </fieldPermissions>
     <hasActivationRequired>false</hasActivationRequired>
     <label>RLM BambooHR</label>
+    <tabSettings>
+        <tab>RLM_Bamboo_Get_Pricing</tab>
+        <visibility>Visible</visibility>
+    </tabSettings>
 </PermissionSet>

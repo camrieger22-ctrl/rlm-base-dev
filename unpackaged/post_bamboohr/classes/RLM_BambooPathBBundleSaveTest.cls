@@ -20,6 +20,17 @@ private class RLM_BambooPathBBundleSaveTest {
             )
         );
         System.assertEquals(
+            true,
+            RLM_BambooPathBBundleSave.isEligible(
+                new Set<String>{
+                    'BAMBOO-CORE-FLAT-SM',
+                    'BAMBOO-ADD-PAYROLL',
+                    'BAMBOO-ADD-BENEFITS'
+                }
+            ),
+            'Core flat SKU counts as a plan for Path B'
+        );
+        System.assertEquals(
             false,
             RLM_BambooPathBBundleSave.isEligible(
                 new Set<String>{

@@ -38,13 +38,14 @@ def main() -> int:
     print(f"BambooHR P3 checkout smoke against {args.target_org}")
     session = OrgSession(args.target_org)
 
-    print("\n== 1) Place Get Pricing quote (US Core @ 25) ==")
+    # Use Pro @ 25 so PEPM volume path is exercised (Core @ ≤25 is small-biz flat).
+    print("\n== 1) Place Get Pricing quote (US Pro @ 25) ==")
     priced = get_pricing(
         session,
         GetPricingRequest(
             headcount=25,
             country="US",
-            plan_sku="BAMBOO-CORE",
+            plan_sku="BAMBOO-PRO",
             place_quote=True,
         ),
     )

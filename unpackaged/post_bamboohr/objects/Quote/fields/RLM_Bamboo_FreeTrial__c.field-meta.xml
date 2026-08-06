@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>RLM_Bamboo_FreeTrial__c</fullName>
+    <defaultValue>false</defaultValue>
+    <description>True when Get Pricing (or AE) starts a convert-later free trial: 30-day term at $0 via ManualDiscount 100% on plan + add-on lines. Convert later by placing a paid quote (flag false).</description>
+    <externalId>false</externalId>
+    <label>BambooHR Free Trial</label>
+    <trackHistory>false</trackHistory>
+    <type>Checkbox</type>
+</CustomField>

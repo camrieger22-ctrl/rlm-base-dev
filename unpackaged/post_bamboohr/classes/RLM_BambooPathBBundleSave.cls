@@ -2,7 +2,7 @@
  * Maintains Quote.RLM_Bamboo_PathB_BundleSave__c for a la carte Bundle &amp; Save.
  *
  * Eligible when the quote has:
- *   - at least one of BAMBOO-CORE / BAMBOO-PRO / BAMBOO-ELITE
+ *   - at least one of BAMBOO-CORE / BAMBOO-CORE-FLAT-SM / BAMBOO-PRO / BAMBOO-ELITE
  *   - BAMBOO-ADD-PAYROLL
  *   - BAMBOO-ADD-BENEFITS
  *   - and no BAMBOO-PKG-* header (Path A uses BundleBasedAdjustment instead)
@@ -11,6 +11,7 @@ public inherited sharing class RLM_BambooPathBBundleSave {
 
     private static final Set<String> PLAN_SKUS = new Set<String>{
         'BAMBOO-CORE',
+        'BAMBOO-CORE-FLAT-SM',
         'BAMBOO-PRO',
         'BAMBOO-ELITE'
     };

@@ -35,6 +35,12 @@ or `ngrok` on `PATH`.
 
 ## Path B — JWT Connected App (real host / always-on)
 
+**Live on `master-demo` (2026-08-06):** Connected App **BambooHR Get Pricing BFF**
+(`BambooHR_Get_Pricing_BFF`), cert under `.secrets/`, Permission Set
+`BambooHR_Get_Pricing_BFF_Access` assigned to the demo admin. Local
+`scripts/bamboohr/get_pricing/.env` (gitignored) wires the Consumer Key.
+Verified: `GET /api/health` → `"authMode": "jwt"`.
+
 ### 1. Generate a cert (once; never commit the private key)
 
 ```bash
@@ -42,33 +48,47 @@ or `ngrok` on `PATH`.
 # writes scripts/bamboohr/get_pricing/.secrets/server.key + server.crt
 ```
 
-### 2. Create Connected App in `master-demo` (Setup)
+### 2. Create Connected App in `master-demo` (Setup or Metadata)
 
-1. **App Manager → New Connected App**
+1. **App Manager → New Connected App** (or deploy `ConnectedApp` metadata with
+   `oauthConfig.certificate` = PEM body of `server.crt`)
 2. Enable **OAuth Settings**
 3. Enable **Use digital signatures** → upload `server.crt`
 4. Selected OAuth scopes: **Full access (full)** or API + refresh (demo: `full` + `refresh_token` is fine)
 5. **Manage → Edit Policies**
    - Permitted Users: **Admin approved users are pre-authorized**
    - IP Relaxation: relax for demos if needed
-6. **Manage Profiles / Permission Sets** — pre-authorize a dedicated integration user
-   (or the demo admin) that can create Quotes/Orders and run RC APIs
+6. **Manage Profiles / Permission Sets** — pre-authorize via a **dedicated
+   Permission Set** assigned to the integration user (or demo admin).  
+   Relying only on `profileName` / System Administrator in metadata often still
+   yields `invalid_grant: user hasn't approved this consumer` for JWT until the
+   PS → Connected App → user chain exists (`SetupEntityAccess` +
+   `PermissionSetAssignment`).
 7. Copy **Consumer Key** → `SF_CLIENT_ID`
 
 ### 3. Run with JWT
 
+**Quote every `.env` value** (zsh treats `@` in emails as special if unquoted).
+
 ```bash
+# Prefer gitignored .env (see .env.example). Always quote:
+#   SF_USERNAME='camriegermasterdemoorg@demo.com'
+set -a; source scripts/bamboohr/get_pricing/.env; set +a
+
+# Or export by hand:
 export SF_CLIENT_ID='…consumer key…'
 export SF_USERNAME='camriegermasterdemoorg@demo.com'   # pre-authorized user
 export SF_PRIVATE_KEY_PATH="$PWD/scripts/bamboohr/get_pricing/.secrets/server.key"
-export SF_LOGIN_URL='https://trailsignup-….my.salesforce.com'  # My Domain
+export SF_LOGIN_URL='https://trailsignup-b4759183862b2b.my.salesforce.com'  # My Domain
 # optional: BFF_CORS_ORIGIN='*' PORT=8765
 
 ~/.local/pipx/venvs/cumulusci/bin/python \
   scripts/bamboohr/get_pricing/server.py --host 0.0.0.0 --port 8765
 ```
 
-Or copy `.env.example` → `.env` (gitignored) and `set -a; source .env; set +a`.
+Do **not** pass `--org` when using JWT (avoids confusion; JWT env wins over CCI
+anyway as long as `SF_CLIENT_ID` / `SF_USERNAME` / key are set and bearer env
+is unset).
 
 ### 4. Bootstrap bearer token from CCI (no Connected App yet)
 

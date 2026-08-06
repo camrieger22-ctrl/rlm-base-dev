@@ -174,3 +174,7 @@ scripts/build_harness/tui/settings.local.json
 # these AiEvaluationDefinition metadata files into the default package dir on
 # each run (force-overwritten); they should never be committed.
 force-app/main/default/aiEvaluationDefinitions/
+
+# BambooHR Get Pricing JWT secrets (never commit)
+scripts/bamboohr/get_pricing/.secrets/
+scripts/bamboohr/get_pricing/.env

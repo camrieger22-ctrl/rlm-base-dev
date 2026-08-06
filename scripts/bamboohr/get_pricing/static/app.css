@@ -146,6 +146,41 @@ table.lines th {
   font-size: 0.95rem;
 }
 
+.trial-note {
+  margin: 0 0 0.85rem;
+  padding: 0.75rem 0.9rem;
+  border-left: 3px solid var(--leaf-deep);
+  background: rgba(45, 106, 79, 0.08);
+  color: var(--ink);
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
+.convert-preview {
+  margin: 1.25rem 0 1rem;
+  padding: 1rem 1.1rem 1.15rem;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.convert-preview h3 {
+  margin: 0 0 0.45rem;
+  font-family: Fraunces, Georgia, serif;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.convert-preview > p {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: var(--ink);
+}
+
+.convert-preview .lines {
+  margin: 0;
+}
+
 input, select, button, .button-link {
   font: inherit;
 }
@@ -249,7 +284,41 @@ button:disabled { opacity: 0.55; cursor: wait; }
 .warnings .muted, .muted { color: var(--muted); }
 
 @media print {
-  .atmosphere { display: none; }
-  .actions { display: none; }
-  .panel { border: 0; background: #fff; }
+  .atmosphere,
+  .actions,
+  .status,
+  .checkout-result {
+    display: none !important;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+    color: #000 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .shell {
+    width: 100%;
+    margin: 0;
+    padding: 0;
+  }
+
+  .panel {
+    border: 0;
+    background: #fff !important;
+    backdrop-filter: none;
+    box-shadow: none;
+  }
+
+  .brand,
+  .hero h1,
+  .lede,
+  .metrics dt,
+  .metrics dd,
+  .quote-id,
+  .warnings {
+    color: #000 !important;
+  }
 }

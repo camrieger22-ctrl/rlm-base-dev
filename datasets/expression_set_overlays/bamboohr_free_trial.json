@@ -1,0 +1,242 @@
+{
+  "expressionSetApiName": "RLM_DefaultPricingProcedure",
+  "versionApiName": "RLM_DefaultPricingProcedure_V1",
+  "description": "BambooHR convert-later free trial: when Quote.RLM_Bamboo_FreeTrial__c is true, apply ManualDiscount 100% on ListPrice for all priced lines (plan + add-ons), after Path B Bundle & Save, before ABA/BBA/volume; copy NetUnitPrice back to InputUnitPrice so subsequent volume leaves nets at $0. Get Pricing stamps the flag and uses a 30-day EndDate; convert later = new paid quote with flag false.",
+  "externalDependencies": {
+    "customFields": [
+      "Quote.RLM_Bamboo_FreeTrial__c (Get Pricing / AE stamp)"
+    ],
+    "contextFields": [
+      "RLM_Bamboo_FreeTrial__c (SalesTransaction)"
+    ],
+    "note": "Requires datasets/context_plans/BambooHrFreeTrial and Path B overlay already applied (placement after ApplyBambooHRPathBBundleSave)."
+  },
+  "addVariables": [
+    {
+      "collection": false,
+      "dataType": "Numeric",
+      "decimalPlaces": 2,
+      "description": "BambooHR free trial ManualDiscount percent (convert-later $0)",
+      "input": false,
+      "name": "BambooHRFreeTrialPercent",
+      "output": false,
+      "type": "Constant",
+      "value": "100"
+    }
+  ],
+  "addSteps": [
+    {
+      "name": "ApplyBambooHRFreeTrial",
+      "description": "BambooHR free trial 100%",
+      "stepType": "ListGroup",
+      "resultIncluded": false,
+      "shouldExposeExecPathMsgOnly": true,
+      "shouldExposeConditionDetails": false,
+      "shouldShowExplExternally": false,
+      "hasNestedExplainability": false,
+      "passedMessageTokenMappings": [],
+      "failedMessageTokenMappings": [],
+      "noResultMessageTokenMappings": [],
+      "placement": {
+        "afterStep": "ApplyBambooHRPathBBundleSave"
+      }
+    },
+    {
+      "name": "FilterBambooHRFreeTrialLines",
+      "description": "",
+      "stepType": "AdvancedListFilter",
+      "resultIncluded": false,
+      "shouldExposeExecPathMsgOnly": true,
+      "shouldExposeConditionDetails": false,
+      "shouldShowExplExternally": false,
+      "hasNestedExplainability": false,
+      "passedMessageTokenMappings": [],
+      "failedMessageTokenMappings": [],
+      "noResultMessageTokenMappings": [],
+      "parentStep": "ApplyBambooHRFreeTrial",
+      "sequenceNumber": 1,
+      "advancedCondition": {
+        "conditionLogic": "1 AND 2 AND 3 AND 4",
+        "criteria": [
+          {
+            "operator": "Equals",
+            "sequenceNumber": 1,
+            "sourceFieldName": "RLM_Bamboo_FreeTrial__c",
+            "value": "true",
+            "valueType": "Literal"
+          },
+          {
+            "operator": "NotEquals",
+            "sequenceNumber": 2,
+            "sourceFieldName": "ItemPricingSource",
+            "value": "'LastTransaction'",
+            "valueType": "Literal"
+          },
+          {
+            "operator": "IsNotNull",
+            "sequenceNumber": 3,
+            "sourceFieldName": "DerivedPricingAttribute"
+          },
+          {
+            "operator": "Equals",
+            "sequenceNumber": 4,
+            "sourceFieldName": "DerivedPricingAttribute",
+            "value": "false",
+            "valueType": "Literal"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ApplyBambooHRFreeTrialPct",
+      "description": "BambooHR free trial 100% (convert later)",
+      "stepType": "BusinessKnowledgeModel",
+      "actionType": "ManualDiscount",
+      "resultIncluded": true,
+      "shouldExposeExecPathMsgOnly": true,
+      "shouldExposeConditionDetails": false,
+      "shouldShowExplExternally": false,
+      "hasNestedExplainability": false,
+      "passedMessageTokenMappings": [],
+      "failedMessageTokenMappings": [],
+      "noResultMessageTokenMappings": [],
+      "parentStep": "ApplyBambooHRFreeTrial",
+      "sequenceNumber": 2,
+      "customElement": {
+        "parameters": [
+          {
+            "input": true,
+            "name": "AdjustmentType",
+            "output": false,
+            "type": "Parameter",
+            "value": "PercentageStringConstant"
+          },
+          {
+            "input": true,
+            "name": "AdjustmentValue",
+            "output": false,
+            "type": "Parameter",
+            "value": "BambooHRFreeTrialPercent"
+          },
+          {
+            "input": true,
+            "name": "Quantity",
+            "output": false,
+            "type": "Parameter",
+            "value": "LineItemQuantity"
+          },
+          {
+            "input": true,
+            "name": "InputUnitPrice",
+            "output": false,
+            "type": "Parameter",
+            "value": "ListPrice"
+          },
+          {
+            "input": true,
+            "name": "HideWaterfall",
+            "output": false,
+            "type": "Literal",
+            "value": "false"
+          },
+          {
+            "input": true,
+            "name": "sectionCount",
+            "output": false,
+            "type": "Literal",
+            "value": "0"
+          },
+          {
+            "input": true,
+            "name": "selectedFunction",
+            "output": false,
+            "type": "Literal",
+            "value": "Get"
+          },
+          {
+            "input": true,
+            "name": "IsRealTime",
+            "output": false,
+            "type": "Literal",
+            "value": "false"
+          },
+          {
+            "input": false,
+            "name": "NetUnitPrice",
+            "output": true,
+            "type": "Parameter",
+            "value": "NetUnitPrice"
+          },
+          {
+            "input": false,
+            "name": "Subtotal",
+            "output": true,
+            "type": "Parameter",
+            "value": "ItemNetTotalPrice"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AssignFreeTrialNetToInputUnitPrice",
+      "description": "Assignment",
+      "stepType": "BusinessKnowledgeModel",
+      "actionType": "AssignmentElement",
+      "resultIncluded": false,
+      "shouldExposeExecPathMsgOnly": true,
+      "shouldExposeConditionDetails": false,
+      "shouldShowExplExternally": false,
+      "hasNestedExplainability": false,
+      "passedMessageTokenMappings": [],
+      "failedMessageTokenMappings": [],
+      "noResultMessageTokenMappings": [],
+      "parentStep": "ApplyBambooHRFreeTrial",
+      "sequenceNumber": 3,
+      "customElement": {
+        "parameters": [
+          {
+            "input": true,
+            "name": "section-0-input1",
+            "output": false,
+            "type": "Parameter",
+            "value": "NetUnitPrice"
+          },
+          {
+            "input": true,
+            "name": "sectionCount",
+            "output": false,
+            "type": "Literal",
+            "value": "1"
+          },
+          {
+            "input": true,
+            "name": "sectionJsonString1",
+            "output": false,
+            "type": "Literal",
+            "value": "{\"whereConditions\":[]}"
+          },
+          {
+            "input": true,
+            "name": "sectionJsonString2",
+            "output": false,
+            "type": "Literal",
+            "value": "{\"whereConditions\":[{\"field\":{\"dataType\":\"Currency\",\"name\":\"section-0-input1\",\"value\":\"NetUnitPrice\",\"allowCompatibleDataTypes\":true},\"value\":{\"dataType\":\"Currency\",\"name\":\"section-0-output\",\"value\":\"InputUnitPrice\",\"allowCompatibleDataTypes\":true}}]}"
+          },
+          {
+            "input": false,
+            "name": "section-0-output",
+            "output": true,
+            "type": "Parameter",
+            "value": "InputUnitPrice"
+          }
+        ]
+      }
+    }
+  ],
+  "labels": {
+    "ApplyBambooHRFreeTrial": "Apply BambooHR Free Trial",
+    "FilterBambooHRFreeTrialLines": "Filter BambooHR Free Trial Lines",
+    "ApplyBambooHRFreeTrialPct": "BambooHR Free Trial 100% (convert later)",
+    "AssignFreeTrialNetToInputUnitPrice": "Assign Free Trial Net to Input Unit Price"
+  }
+}

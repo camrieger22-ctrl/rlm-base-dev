@@ -3,7 +3,7 @@
 > **Auto-generated** by `scripts/ai/generate_cci_reference.py` from `cumulusci.yml`.  
 > Do not edit manually — re-run the script after changing `cumulusci.yml`.
 
-**290 tasks** across **10 groups**.
+**293 tasks** across **10 groups**.
 
 ---
 
@@ -1062,7 +1062,7 @@
 
 ## Revenue Lifecycle Management
 
-*180 task(s)*
+*183 task(s)*
 
 ### `activate_agents`
 
@@ -1253,6 +1253,30 @@
 
 ---
 
+### `apply_bamboohr_free_trial_overlay`
+
+**Description:** Adds ListGroup + ManualDiscount 100% on RLM_DefaultPricingProcedure when Quote.RLM_Bamboo_FreeTrial__c is true (convert-later free trial; plan + add-ons). Place after Path B Bundle & Save. Get Pricing uses 30-day EndDate.
+
+**Class:** `tasks.rlm_expression_set_connect.ApplyExpressionSetOverlay`
+
+**Options:**
+
+- `overlay_file`: `datasets/expression_set_overlays/bamboohr_free_trial.json`
+
+---
+
+### `apply_bamboohr_free_trial_overlay_nearcore`
+
+**Description:** Same BambooHR convert-later free trial 100% ManualDiscount overlay on RLM_DefaultNearCorePricingProcedure.
+
+**Class:** `tasks.rlm_expression_set_connect.ApplyExpressionSetOverlay`
+
+**Options:**
+
+- `overlay_file`: `datasets/expression_set_overlays/bamboohr_free_trial_nearcore.json`
+
+---
+
 ### `apply_bamboohr_nonprofit_pricing_overlay`
 
 **Description:** Adds ListGroup + ManualDiscount 15% on RLM_DefaultPricingProcedure when RLM_Is_Nonprofit_Account__c is true (after list→input, before ABA/BBA/volume) so Calculation Details shows the nonprofit adjustment; copies NetUnitPrice back to InputUnitPrice for correct volume stacking.
@@ -1310,6 +1334,23 @@
 **Options:**
 
 - `overlay_file`: `datasets/expression_set_overlays/bamboohr_category_qualification_billing_country.json`
+
+---
+
+### `apply_context_bamboohr_free_trial`
+
+**Description:** Maps Quote.RLM_Bamboo_FreeTrial__c (and Order twin) into RLM_SalesTransactionContext for convert-later free trial pricing.
+
+**Class:** `tasks.rlm_context_service.ManageContextDefinition`
+
+**Options:**
+
+- `developer_name`: `RLM_SalesTransactionContext`
+- `plan_file`: `datasets/context_plans/BambooHrFreeTrial/manifest.json`
+- `translate_plan`: `True`
+- `deactivate_before`: `False`
+- `activate`: `True`
+- `verify`: `True`
 
 ---
 
@@ -2003,7 +2044,7 @@
 
 ### `deploy_post_bamboohr`
 
-**Description:** Deploy BambooHR volume-tier coach metadata (QLI stamp fields, before-trigger, RLM_BambooVolumeTiers Apex + test, rlmVolumeTierCoach LWC, RLM_BambooHR permission set) and ProductCategoryQualification criteria fields (RLM_BillingCountry__c, RLM_Qualification_Key__c) from unpackaged/post_bamboohr. Category qualification DT deploys separately via deploy_bamboohr_qualification_decision_tables. Quote page wiring ships via the bamboohr flexipage patch during prepare_ux / assemble_and_deploy_ux.
+**Description:** Deploy BambooHR volume-tier coach metadata (QLI stamp fields, before-trigger, RLM_BambooVolumeTiers Apex + test, rlmVolumeTierCoach LWC, RLM_BambooHR permission set), ProductCategoryQualification criteria fields (RLM_BillingCountry__c, RLM_Qualification_Key__c), and the Get Pricing Experience Cloud / Lightning shell (rlmBambooGetPricingShell LWC, App Page, tab, BFF URL Custom Label) from unpackaged/post_bamboohr. Category qualification DT deploys separately via deploy_bamboohr_qualification_decision_tables. Quote page wiring ships via the bamboohr flexipage patch during prepare_ux / assemble_and_deploy_ux.
 
 **Class:** `cumulusci.tasks.salesforce.Deploy`
 

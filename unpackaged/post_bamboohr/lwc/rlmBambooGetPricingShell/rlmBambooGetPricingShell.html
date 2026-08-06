@@ -1,0 +1,29 @@
+<template>
+    <section class="shell" aria-labelledby="bh-title">
+        <div class="atmosphere" aria-hidden="true"></div>
+        <div class="panel">
+            <p class="brand">BambooHR</p>
+            <h1 id="bh-title">Get Pricing</h1>
+            <p class="lede">
+                Self-serve estimate powered by Salesforce Revenue Cloud.
+                Catalog, volume, Bundle &amp; Save, quote, order, and amend run in the org —
+                this page opens the Get Pricing experience.
+            </p>
+
+            <template if:true={hasUrl}>
+                <div class="actions">
+                    <button type="button" class="cta" onclick={handleGetPricing}>
+                        Continue to Get Pricing
+                    </button>
+                </div>
+                <p class="meta">Destination: <code>{displayUrl}</code></p>
+            </template>
+            <template if:false={hasUrl}>
+                <p class="warn" role="status">
+                    Set Custom Label <code>RLM_Bamboo_Get_Pricing_Bff_Url</code>
+                    (or the component BFF URL override) to your hosted Get Pricing BFF.
+                </p>
+            </template>
+        </div>
+    </section>
+</template>

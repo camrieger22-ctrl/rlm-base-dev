@@ -8,6 +8,8 @@ Asserts:
 3. US Pro + Payroll + Benefits → Path B flag + add-on nets ≈ list × 0.85 × volume
    (single 15% on ListPrice; must not be list × 0.85² from Instant/System compound)
 4. CA + Payroll requested → US-only add-ons stripped from quote
+5. US Core @ 25 → small-biz flat SKU $250 qty 1 (Phase 2 Approach B)
+6. US Pro + Payroll + Benefits @ 50 + free trial → $0 monthly, flag, 30-day term
 
 Usage:
   python scripts/bamboohr/get_pricing_smoke.py --target-org master-demo
@@ -22,7 +24,15 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent / "get_pricing"
 sys.path.insert(0, str(HERE))
 
-from service import GetPricingRequest, OrgSession, expected_net, get_pricing  # noqa: E402
+from service import (  # noqa: E402
+    CORE_FLAT_PRICE,
+    CORE_FLAT_SKU,
+    TRIAL_DAYS,
+    GetPricingRequest,
+    OrgSession,
+    expected_net,
+    get_pricing,
+)
 
 
 def main() -> int:
@@ -48,7 +58,7 @@ def main() -> int:
         raise AssertionError("Discovery missing BAMBOO-PRO")
     print(f"  PASS net={us.net_pepm} quote={us.quote_id} monthly={us.monthly_total}")
 
-    print("\n== 2) CA Core @ 10 (warning + quote) ==")
+    print("\n== 2) CA Core @ 10 (disqual warning + small-biz flat) ==")
     ca = get_pricing(
         session,
         GetPricingRequest(
@@ -57,9 +67,13 @@ def main() -> int:
     )
     if not any("Canada" in w or "disqual" in w.lower() for w in ca.warnings):
         raise AssertionError(f"Expected CA disqual warning, got {ca.warnings}")
-    if abs(ca.net_pepm - 10.0) > 0.08:
-        raise AssertionError(f"CA qty 10 expected ~10.0, got {ca.net_pepm}")
-    print(f"  PASS warning + net={ca.net_pepm} quote={ca.quote_id}")
+    if not ca.small_biz_flat or ca.sell_plan_sku != CORE_FLAT_SKU:
+        raise AssertionError(
+            f"Expected Core flat SKU, got flat={ca.small_biz_flat} sell={ca.sell_plan_sku}"
+        )
+    if abs(ca.net_pepm - CORE_FLAT_PRICE) > 0.08:
+        raise AssertionError(f"CA Core@10 flat expected ~{CORE_FLAT_PRICE}, got {ca.net_pepm}")
+    print(f"  PASS warning + flat net={ca.net_pepm} quote={ca.quote_id}")
 
     print("\n== 3) US Pro + Payroll + Benefits @ 50 (Path B) ==")
     path_b = get_pricing(
@@ -128,6 +142,90 @@ def main() -> int:
     if "BAMBOO-ADD-TIME" not in skus:
         raise AssertionError("Time line missing on CA quote")
     print(f"  PASS stripped addons={ca_add.addon_skus} quote={ca_add.quote_id}")
+
+    print("\n== 5) US Core @ 25 (small-biz flat $250 qty 1) ==")
+    flat = get_pricing(
+        session,
+        GetPricingRequest(
+            headcount=25, country="US", plan_sku="BAMBOO-CORE", place_quote=True
+        ),
+    )
+    if not flat.small_biz_flat or flat.sell_plan_sku != CORE_FLAT_SKU:
+        raise AssertionError(
+            f"Expected flat path, got flat={flat.small_biz_flat} sell={flat.sell_plan_sku}"
+        )
+    by_sku = {li["sku"]: li for li in flat.line_items}
+    if CORE_FLAT_SKU not in by_sku:
+        raise AssertionError(f"Missing flat line: {flat.line_items}")
+    if by_sku[CORE_FLAT_SKU]["quantity"] != 1:
+        raise AssertionError(f"Flat qty expected 1, got {by_sku[CORE_FLAT_SKU]}")
+    if abs(flat.net_pepm - CORE_FLAT_PRICE) > 0.08:
+        raise AssertionError(f"Flat net expected {CORE_FLAT_PRICE}, got {flat.net_pepm}")
+    if abs(flat.monthly_total - CORE_FLAT_PRICE) > 0.08:
+        raise AssertionError(
+            f"Flat-only monthly expected {CORE_FLAT_PRICE}, got {flat.monthly_total}"
+        )
+    if flat.volume_percent != 0:
+        raise AssertionError(f"Flat path should show 0% volume, got {flat.volume_percent}")
+    print(f"  PASS flat quote={flat.quote_id} monthly={flat.monthly_total}")
+
+    print("\n== 6) US Pro + Payroll + Benefits @ 50 (30-day free trial) ==")
+    trial = get_pricing(
+        session,
+        GetPricingRequest(
+            headcount=50,
+            country="US",
+            plan_sku="BAMBOO-PRO",
+            addon_skus=["BAMBOO-ADD-PAYROLL", "BAMBOO-ADD-BENEFITS"],
+            place_quote=True,
+            free_trial=True,
+        ),
+    )
+    if not trial.free_trial or trial.trial_days != TRIAL_DAYS:
+        raise AssertionError(
+            f"Expected free trial {TRIAL_DAYS}d, got "
+            f"freeTrial={trial.free_trial} days={trial.trial_days}"
+        )
+    if trial.monthly_total > 0.08:
+        raise AssertionError(
+            f"Trial monthly expected ~0, got {trial.monthly_total} "
+            f"(warnings={trial.warnings})"
+        )
+    if not trial.paid_monthly_estimate or trial.paid_monthly_estimate < 100:
+        raise AssertionError(
+            f"Expected paidMonthlyEstimate for convert-later, "
+            f"got {trial.paid_monthly_estimate}"
+        )
+    qflag = session.soql(
+        "SELECT RLM_Bamboo_FreeTrial__c FROM Quote "
+        f"WHERE Id = '{trial.quote_id}'"
+    )
+    if not qflag or not qflag[0].get("RLM_Bamboo_FreeTrial__c"):
+        raise AssertionError("Quote.RLM_Bamboo_FreeTrial__c should be true")
+    ends = session.soql(
+        "SELECT EndDate FROM QuoteLineItem "
+        f"WHERE QuoteId = '{trial.quote_id}' LIMIT 1"
+    )
+    if not ends or not ends[0].get("EndDate"):
+        raise AssertionError("Trial lines need EndDate")
+    # EndDate is within ~35 days of today (30-day term; allow calendar skew).
+    from datetime import date
+
+    end_raw = ends[0]["EndDate"]
+    end_d = (
+        date.fromisoformat(end_raw[:10])
+        if isinstance(end_raw, str)
+        else end_raw
+    )
+    delta = (end_d - date.today()).days
+    if delta < TRIAL_DAYS - 2 or delta > TRIAL_DAYS + 5:
+        raise AssertionError(
+            f"Trial EndDate delta {delta} days; expected ~{TRIAL_DAYS}"
+        )
+    print(
+        f"  PASS trial quote={trial.quote_id} monthly={trial.monthly_total} "
+        f"paidEstimate={trial.paid_monthly_estimate} endDelta={delta}d"
+    )
 
     print("\nGet Pricing smoke PASSED")
     return 0

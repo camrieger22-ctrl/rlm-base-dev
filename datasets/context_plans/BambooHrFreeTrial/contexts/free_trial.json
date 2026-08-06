@@ -1,0 +1,38 @@
+{
+  "planName": "BambooHrFreeTrial",
+  "developerName": "RLM_SalesTransactionContext",
+  "contextAttributesByName": [
+    {
+      "nodeName": "SalesTransaction",
+      "name": "RLM_Bamboo_FreeTrial__c",
+      "dataType": "BOOLEAN",
+      "fieldType": "INPUT"
+    }
+  ],
+  "mappingRules": [
+    {
+      "mappingName": "QuoteEntitiesMapping",
+      "contextNode": "SalesTransaction",
+      "contextAttribute": "RLM_Bamboo_FreeTrial__c",
+      "mappingType": "SOBJECT",
+      "sObject": "Quote",
+      "sObjectField": "RLM_Bamboo_FreeTrial__c"
+    },
+    {
+      "mappingName": "OrderEntitiesMapping",
+      "contextNode": "SalesTransaction",
+      "contextAttribute": "RLM_Bamboo_FreeTrial__c",
+      "mappingType": "SOBJECT",
+      "sObject": "Order",
+      "sObjectField": "RLM_Bamboo_FreeTrial__c"
+    }
+  ],
+  "contextTagsByName": [
+    {
+      "nodeName": "SalesTransaction",
+      "attributeName": "RLM_Bamboo_FreeTrial__c",
+      "name": "RLM_Bamboo_FreeTrial__c"
+    }
+  ],
+  "activate": true
+}

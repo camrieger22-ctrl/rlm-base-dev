@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomTab xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description>BambooHR Get Pricing Experience Cloud / Lightning shell (opens hosted BFF).</description>
+    <flexiPage>RLM_Bamboo_Get_Pricing</flexiPage>
+    <label>BambooHR Get Pricing</label>
+    <motif>Custom53: Balls</motif>
+</CustomTab>

@@ -1,6 +1,8 @@
 $$Product2.StockKeepingUnit$ProductSellingModel.Name$CurrencyIsoCode$Pricebook2.Name,CurrencyIsoCode,IsActive,IsDerived,Name,Pricebook2.$$Name$IsStandard,Product2.StockKeepingUnit,ProductSellingModel.$$Name$SellingModelType,UnitPrice
 BAMBOO-CORE;Term Monthly;USD;Standard Price Book,USD,true,false,BambooHR Core,Standard Price Book;true,BAMBOO-CORE,Term Monthly;TermDefined,10.0
 BAMBOO-CORE;Term Annual;USD;Standard Price Book,USD,true,false,BambooHR Core,Standard Price Book;true,BAMBOO-CORE,Term Annual;TermDefined,120.0
+BAMBOO-CORE-FLAT-SM;Term Monthly;USD;Standard Price Book,USD,true,false,BambooHR Core Small Business Flat,Standard Price Book;true,BAMBOO-CORE-FLAT-SM,Term Monthly;TermDefined,250.0
+BAMBOO-CORE-FLAT-SM;Term Annual;USD;Standard Price Book,USD,true,false,BambooHR Core Small Business Flat,Standard Price Book;true,BAMBOO-CORE-FLAT-SM,Term Annual;TermDefined,3000.0
 BAMBOO-PRO;Term Monthly;USD;Standard Price Book,USD,true,false,BambooHR Pro,Standard Price Book;true,BAMBOO-PRO,Term Monthly;TermDefined,17.0
 BAMBOO-PRO;Term Annual;USD;Standard Price Book,USD,true,false,BambooHR Pro,Standard Price Book;true,BAMBOO-PRO,Term Annual;TermDefined,204.0
 BAMBOO-ELITE;Term Monthly;USD;Standard Price Book,USD,true,false,BambooHR Elite,Standard Price Book;true,BAMBOO-ELITE,Term Monthly;TermDefined,25.0

@@ -16,7 +16,7 @@ Boolean flags that gate task/flow execution via `when:` clauses.
 | `agents` | `True` | 11 flow step(s) |
 | `analytics` | `True` | 2 flow step(s) |
 | `approvals` | `True` | 5 flow step(s) |
-| `bamboohr` | `False` | 22 flow step(s) |
+| `bamboohr` | `False` | 25 flow step(s) |
 | `billing` | `True` | 22 flow step(s) |
 | `billing_portal` | `False` | 3 flow step(s) |
 | `billing_portal_deploy` | `True` | 1 flow step(s) |
@@ -105,12 +105,15 @@ Boolean flags that gate task/flow execution via `when:` clauses.
 - `prepare_bamboohr` step 13 → `apply_context_bamboohr_path_b_bundle_save`
 - `prepare_bamboohr` step 14 → `apply_bamboohr_path_b_bundle_save_overlay`
 - `prepare_bamboohr` step 15 → `apply_bamboohr_path_b_bundle_save_overlay_nearcore`
-- `prepare_bamboohr` step 16 → `apply_bamboohr_clear_volume_des_labels_overlay`
-- `prepare_bamboohr` step 17 → `ensure_bamboohr_quote_default_pricing_procedure`
-- `prepare_bamboohr` step 18 → `stamp_bamboohr_volume_tiers`
-- `prepare_bamboohr` step 19 → `validate_cml`
-- `prepare_bamboohr` step 20 → `import_cml`
-- `prepare_bamboohr` step 21 → `manage_expression_sets`
+- `prepare_bamboohr` step 16 → `apply_context_bamboohr_free_trial`
+- `prepare_bamboohr` step 17 → `apply_bamboohr_free_trial_overlay`
+- `prepare_bamboohr` step 18 → `apply_bamboohr_free_trial_overlay_nearcore`
+- `prepare_bamboohr` step 19 → `apply_bamboohr_clear_volume_des_labels_overlay`
+- `prepare_bamboohr` step 20 → `ensure_bamboohr_quote_default_pricing_procedure`
+- `prepare_bamboohr` step 21 → `stamp_bamboohr_volume_tiers`
+- `prepare_bamboohr` step 22 → `validate_cml`
+- `prepare_bamboohr` step 23 → `import_cml`
+- `prepare_bamboohr` step 24 → `manage_expression_sets`
 
 ### `billing` (default: `True`)
 
@@ -189,9 +192,9 @@ Boolean flags that gate task/flow execution via `when:` clauses.
 
 ### `constraints` (default: `True`)
 
-- `prepare_bamboohr` step 19 → `validate_cml`
-- `prepare_bamboohr` step 20 → `import_cml`
-- `prepare_bamboohr` step 21 → `manage_expression_sets`
+- `prepare_bamboohr` step 22 → `validate_cml`
+- `prepare_bamboohr` step 23 → `import_cml`
+- `prepare_bamboohr` step 24 → `manage_expression_sets`
 - `prepare_constraints` step 1 → `insert_qb_transactionprocessingtypes_data`
 - `prepare_constraints` step 2 → `deploy_post_constraints`
 - `prepare_constraints` step 3 → `assign_permission_sets`
@@ -207,9 +210,9 @@ Boolean flags that gate task/flow execution via `when:` clauses.
 
 ### `constraints_data` (default: `True`)
 
-- `prepare_bamboohr` step 19 → `validate_cml`
-- `prepare_bamboohr` step 20 → `import_cml`
-- `prepare_bamboohr` step 21 → `manage_expression_sets`
+- `prepare_bamboohr` step 22 → `validate_cml`
+- `prepare_bamboohr` step 23 → `import_cml`
+- `prepare_bamboohr` step 24 → `manage_expression_sets`
 - `prepare_constraints` step 5 → `enable_constraints_settings`
 - `prepare_constraints` step 6 → `validate_cml`
 - `prepare_constraints` step 7 → `import_cml`
