@@ -9,8 +9,9 @@ Local thin BFF + branded form for the self-serve “Get Pricing” path (fork-on
    mapped demo Account, and headless-prices volume PEPM.
 3. Browser shows a branded summary (print → PDF). Cart = Salesforce Quote Id.
 4. **P3:** “Place order (checkout)” runs `createOrderFromQuote` → copy shipping →
-   activate Order → poll Initial Sale assets. Optional `amendQty` true-up via
-   Asset Amend Connect API.
+   activate Order → poll Initial Sale assets. Optional `amendQty` true-up:
+   Asset Amend → System reprice amend quote → order → activate → wait for
+   Upsells `AssetAction` qty.
 
 | Country | Demo Account |
 |---------|----------------|

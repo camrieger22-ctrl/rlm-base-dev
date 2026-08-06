@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""BambooHR dual-channel P3 smoke — Quote → Order → Activate → Asset → Amend qty.
+"""BambooHR dual-channel P3 smoke — Quote → Order → Asset → Amend E2E.
+
+Asserts Initial Sale assetize plus amend quote → order → activate with
+AssetAction Upsells bringing qty to --amend-qty.
 
 Usage (CCI pipx Python):
   ~/.local/pipx/venvs/cumulusci/bin/python \\
@@ -50,7 +53,7 @@ def main() -> int:
     print(f"  quote={priced.quote_id} net={priced.net_pepm}")
 
     print("\n== 2) createOrderFromQuote → ship → Activate → poll assets ==")
-    print("== 3) Amend first asset Quantity (true-up) ==")
+    print("== 3) Amend quote → order → Activate → Upsells qty ==")
     result = checkout_quote(
         session,
         priced.quote_id,
@@ -67,20 +70,29 @@ def main() -> int:
             "No assets after activation — cannot prove assetize. "
             f"warnings={result.warnings}"
         )
-    # Amend is required for P3 true-up proof when assets exist.
-    if not result.amend_transaction_id:
+    if not result.amend_quote_id:
         raise AssertionError(
-            "Amend did not return a transaction id — true-up incomplete. "
+            "Amend did not return a quote id — true-up incomplete. "
             f"warnings={result.warnings}"
         )
+    if not result.amend_order_id:
+        raise AssertionError(
+            "Amend quote was not ordered/activated — E2E incomplete. "
+            f"warnings={result.warnings}"
+        )
+    if result.asset_quantity is None or result.asset_quantity + 1e-6 < args.amend_qty:
+        raise AssertionError(
+            f"Expected asset qty >= {args.amend_qty}, got {result.asset_quantity}"
+        )
     print(
-        f"  PASS amend txn={result.amend_transaction_id} "
-        f"qty={result.amend_requested_qty}"
+        f"  PASS amend quote={result.amend_quote_id} "
+        f"order={result.amend_order_number or result.amend_order_id} "
+        f"assetQty={result.asset_quantity}"
     )
 
     print(
         f"\nP3 checkout smoke PASSED order={result.order_id} "
-        f"assets={len(result.asset_ids)}"
+        f"assets={len(result.asset_ids)} assetQty={result.asset_quantity}"
     )
     return 0
 

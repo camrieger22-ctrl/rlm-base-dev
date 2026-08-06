@@ -1,4 +1,4 @@
-"""BambooHR dual-channel P3 — Quote → Order → Activate → Asset → Amend qty."""
+"""BambooHR dual-channel P3 — Quote → Order → Activate → Asset → Amend E2E."""
 
 from __future__ import annotations
 
@@ -21,7 +21,10 @@ class CheckoutResult:
     order_id: str | None = None
     order_number: str | None = None
     asset_ids: list[str] = field(default_factory=list)
-    amend_transaction_id: str | None = None
+    asset_quantity: float | None = None
+    amend_quote_id: str | None = None
+    amend_order_id: str | None = None
+    amend_order_number: str | None = None
     amend_requested_qty: int | None = None
     warnings: list[str] = field(default_factory=list)
     error: str | None = None
@@ -33,8 +36,13 @@ class CheckoutResult:
             "orderId": self.order_id,
             "orderNumber": self.order_number,
             "assetIds": self.asset_ids,
-            "amendTransactionId": self.amend_transaction_id,
+            "assetQuantity": self.asset_quantity,
+            "amendQuoteId": self.amend_quote_id,
+            "amendOrderId": self.amend_order_id,
+            "amendOrderNumber": self.amend_order_number,
             "amendRequestedQty": self.amend_requested_qty,
+            # Back-compat alias used by earlier P3 smoke/UI.
+            "amendTransactionId": self.amend_quote_id,
             "warnings": self.warnings,
             "error": self.error,
         }
@@ -167,6 +175,17 @@ def activate_order(session: OrgSession, order_id: str) -> None:
     )
 
 
+def place_activate_order(
+    session: OrgSession, quote_id: str, account_id: str
+) -> tuple[str, str | None]:
+    """System reprice → createOrderFromQuote → copy shipping → Activate."""
+    reprice_quote_system(session, quote_id)
+    order_id, order_number = create_order_from_quote(session, quote_id)
+    set_order_shipping_from_account(session, order_id, account_id)
+    activate_order(session, order_id)
+    return order_id, order_number
+
+
 def poll_assets(session: OrgSession, order_id: str, *, timeout: int = 180) -> list[str]:
     """Poll AssetActionSource → Asset for Initial Sale on this order."""
     deadline = time.time() + timeout
@@ -213,6 +232,24 @@ def _current_asset_quantity(session: OrgSession, asset_id: str) -> float:
     return total
 
 
+def poll_asset_quantity(
+    session: OrgSession,
+    asset_id: str,
+    *,
+    min_qty: float,
+    timeout: int = 180,
+) -> float:
+    """Wait until summed AssetAction qty reaches ``min_qty`` (Upsells lag activate)."""
+    deadline = time.time() + timeout
+    last = 0.0
+    while time.time() < deadline:
+        last = _current_asset_quantity(session, asset_id)
+        if last >= min_qty - 1e-6:
+            return last
+        time.sleep(3)
+    return last
+
+
 def amend_asset_quantity(
     session: OrgSession,
     asset_id: str,
@@ -220,7 +257,7 @@ def amend_asset_quantity(
     *,
     start: datetime | None = None,
 ) -> str | None:
-    """Qty true-up via Connect amend; returns amendment quote/order id.
+    """Qty true-up via Connect amend; returns amendment quote id.
 
     R262 body uses ``assetIds`` + ``quantityChange`` (delta), not absolute qty.
     """
@@ -252,6 +289,33 @@ def amend_asset_quantity(
     return result.get("amendmentRecordId") or result.get("id")
 
 
+def complete_amend_quote(
+    session: OrgSession,
+    amend_quote_id: str,
+    account_id: str,
+    asset_id: str,
+    *,
+    target_qty: int,
+    poll_timeout: int = 180,
+) -> tuple[str, str | None, float]:
+    """Order + activate amendment quote; return (order_id, order_number, asset_qty)."""
+    # Amend quotes often already have QuoteAccountId; fall back to caller account.
+    rows = session.soql(
+        f"SELECT QuoteAccountId FROM Quote WHERE Id = '{amend_quote_id}'"
+    )
+    acct = (rows[0].get("QuoteAccountId") if rows else None) or account_id
+    order_id, order_number = place_activate_order(session, amend_quote_id, acct)
+    qty = poll_asset_quantity(
+        session, asset_id, min_qty=float(target_qty), timeout=poll_timeout
+    )
+    if qty + 1e-6 < target_qty:
+        raise RuntimeError(
+            f"Amend activated but asset {asset_id} qty={qty} "
+            f"(expected >= {target_qty})"
+        )
+    return order_id, order_number, qty
+
+
 def checkout_quote(
     session: OrgSession,
     quote_id: str,
@@ -259,12 +323,15 @@ def checkout_quote(
     amend_qty: int | None = None,
     poll_timeout: int = 180,
 ) -> CheckoutResult:
-    """Place order from quote, activate (assetize), optional qty amend true-up."""
+    """Place order from quote, activate (assetize), optional qty amend E2E."""
     warnings: list[str] = []
     order_id: str | None = None
     order_number: str | None = None
     assets: list[str] = []
-    amend_txn: str | None = None
+    asset_qty: float | None = None
+    amend_quote: str | None = None
+    amend_order: str | None = None
+    amend_order_number: str | None = None
 
     q = session.soql(
         f"SELECT Id, QuoteAccountId, Status FROM Quote WHERE Id = '{quote_id}'"
@@ -280,22 +347,31 @@ def checkout_quote(
         )
 
     try:
-        reprice_quote_system(session, quote_id)
-        order_id, order_number = create_order_from_quote(session, quote_id)
-        set_order_shipping_from_account(session, order_id, account_id)
-        activate_order(session, order_id)
+        order_id, order_number = place_activate_order(session, quote_id, account_id)
         assets = poll_assets(session, order_id, timeout=poll_timeout)
         if not assets:
             warnings.append(
                 "No Initial Sale assets found within poll window — "
                 "activation may still be processing."
             )
+        else:
+            asset_qty = _current_asset_quantity(session, assets[0])
+
         if amend_qty is not None and assets:
-            amend_txn = amend_asset_quantity(session, assets[0], amend_qty)
-            if not amend_txn:
+            amend_quote = amend_asset_quantity(session, assets[0], amend_qty)
+            if not amend_quote:
                 warnings.append(
                     "Amend API accepted but returned no amendmentRecordId — "
                     "check org for amendment quote/order."
+                )
+            else:
+                amend_order, amend_order_number, asset_qty = complete_amend_quote(
+                    session,
+                    amend_quote,
+                    account_id,
+                    assets[0],
+                    target_qty=amend_qty,
+                    poll_timeout=poll_timeout,
                 )
         elif amend_qty is not None and not assets:
             warnings.append("Skipped amend — no asset id available yet.")
@@ -306,7 +382,10 @@ def checkout_quote(
             order_id=order_id,
             order_number=order_number,
             asset_ids=assets,
-            amend_transaction_id=amend_txn,
+            asset_quantity=asset_qty,
+            amend_quote_id=amend_quote,
+            amend_order_id=amend_order,
+            amend_order_number=amend_order_number,
             amend_requested_qty=amend_qty,
             warnings=warnings,
         )
@@ -317,7 +396,10 @@ def checkout_quote(
             order_id=order_id,
             order_number=order_number,
             asset_ids=assets,
-            amend_transaction_id=amend_txn,
+            asset_quantity=asset_qty,
+            amend_quote_id=amend_quote,
+            amend_order_id=amend_order,
+            amend_order_number=amend_order_number,
             amend_requested_qty=amend_qty,
             error=str(exc),
             warnings=warnings,
