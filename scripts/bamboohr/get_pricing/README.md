@@ -51,6 +51,11 @@ Full JWT / Docker / Connected App steps: **HOSTED.md**.
 | GET | `/api/health` | — |
 | POST | `/api/get-pricing` | `{ headcount, country, planSku, addonSkus?, placeQuote? }` |
 | POST | `/api/checkout` | `{ quoteId, amendQty?, pollTimeout? }` |
+| POST | `/api/docgen-pdf` | `{ quoteId, templateName?, title?, timeout? }` → `downloadUrl` |
+| GET | `/api/docgen-pdf/<contentVersionId>` | PDF bytes (attachment) |
+
+DocGen uses Active `RLM_QuoteProposal` (override with `DOCGEN_TEMPLATE_NAME` or
+`templateName`). Quote summary **Download PDF** triggers generation then download.
 
 ## Smokes (no browser)
 
@@ -60,10 +65,14 @@ Full JWT / Docker / Connected App steps: **HOSTED.md**.
 
 ~/.local/pipx/venvs/cumulusci/bin/python \
   scripts/bamboohr/checkout_p3_smoke.py --target-org master-demo
+
+~/.local/pipx/venvs/cumulusci/bin/python \
+  scripts/bamboohr/docgen_pdf_smoke.py --target-org master-demo \
+  --out /tmp/bamboo-quote.pdf
 ```
 
 ## Still deferred
 
 - Experience Cloud site shell (can embed/redirect to this BFF)
 - Browser-held guest Connected App (secrets stay server-side by design)
-- DocGen PDF binary (print-to-PDF is the stand-in)
+- Bamboo-branded custom `.docx` (today uses Foundations `RLM_QuoteProposal`)

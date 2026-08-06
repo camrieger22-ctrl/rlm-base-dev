@@ -34,7 +34,8 @@
       <div class="warnings">{{warnings}}</div>
       <div class="actions">
         <button type="button" id="checkoutBtn">Place order (checkout)</button>
-        <button type="button" class="secondary" onclick="window.print()">Print / save PDF</button>
+        <button type="button" id="docgenBtn" class="secondary">Download PDF</button>
+        <button type="button" class="secondary" onclick="window.print()">Print summary</button>
         <a class="button-link secondary" href="/">New estimate</a>
       </div>
       <p class="status" id="checkoutStatus" aria-live="polite"></p>
@@ -45,9 +46,42 @@
     (function () {
       const quoteId = "{{quoteId}}";
       const btn = document.getElementById("checkoutBtn");
+      const docgenBtn = document.getElementById("docgenBtn");
       const status = document.getElementById("checkoutStatus");
       const out = document.getElementById("checkoutResult");
-      if (!quoteId || !btn) return;
+      if (!quoteId) return;
+
+      if (docgenBtn) {
+        docgenBtn.addEventListener("click", async () => {
+          docgenBtn.disabled = true;
+          status.textContent = "Generating quote PDF (DocGen)…";
+          status.classList.remove("error");
+          try {
+            const resp = await fetch("/api/docgen-pdf", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ quoteId }),
+            });
+            const data = await resp.json();
+            if (!data.ok || !data.downloadUrl) {
+              status.textContent = data.error || "PDF generation failed";
+              status.classList.add("error");
+              docgenBtn.disabled = false;
+              return;
+            }
+            status.textContent =
+              "PDF ready (" + (data.fileExtension || "pdf") + ") — downloading…";
+            window.location.href = data.downloadUrl;
+            docgenBtn.disabled = false;
+          } catch (err) {
+            status.textContent = String(err);
+            status.classList.add("error");
+            docgenBtn.disabled = false;
+          }
+        });
+      }
+
+      if (!btn) return;
       btn.addEventListener("click", async () => {
         btn.disabled = true;
         status.textContent = "Placing order, activating, waiting for assets…";

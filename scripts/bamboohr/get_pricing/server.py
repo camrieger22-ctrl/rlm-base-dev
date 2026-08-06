@@ -27,6 +27,11 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
 from checkout import checkout_quote  # noqa: E402
+from docgen import (  # noqa: E402
+    DEFAULT_TEMPLATE,
+    download_content_version,
+    generate_quote_pdf,
+)
 from service import GetPricingRequest, OrgSession, get_pricing  # noqa: E402
 
 # In-memory quote summaries for /quote/{id} branded page (demo only).
@@ -34,6 +39,7 @@ QUOTE_CACHE: dict[str, dict] = {}
 ORG_ALIAS = "master-demo"
 SESSION: OrgSession | None = None
 CORS_ORIGIN = ""  # empty = omit CORS headers; "*" or origin for hosted demos
+DOCGEN_TEMPLATE = os.environ.get("DOCGEN_TEMPLATE_NAME") or DEFAULT_TEMPLATE
 
 
 def _session() -> OrgSession:
@@ -105,6 +111,24 @@ class Handler(BaseHTTPRequestHandler):
             ctype = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
             self._send(200, file_path.read_bytes(), ctype)
             return
+        if path.startswith("/api/docgen-pdf/"):
+            cv_id = path.split("/api/docgen-pdf/", 1)[1].strip("/")
+            try:
+                raw, filename, ctype = download_content_version(_session(), cv_id)
+                self.send_response(200)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Length", str(len(raw)))
+                self.send_header(
+                    "Content-Disposition", f'attachment; filename="{filename}"'
+                )
+                self.send_header("Cache-Control", "no-store")
+                self._cors()
+                self.end_headers()
+                self.wfile.write(raw)
+            except Exception as exc:  # noqa: BLE001
+                self._json(404, {"ok": False, "error": str(exc)})
+            return
+
         if path.startswith("/quote/"):
             qid = path.split("/quote/", 1)[1].strip("/")
             data = QUOTE_CACHE.get(qid)
@@ -215,6 +239,29 @@ class Handler(BaseHTTPRequestHandler):
                 cached = QUOTE_CACHE.get(quote_id)
                 if cached is not None:
                     cached["checkout"] = payload
+                self._json(200 if result.ok else 400, payload)
+            except Exception as exc:  # noqa: BLE001
+                self._json(400, {"ok": False, "error": str(exc)})
+            return
+
+        if path == "/api/docgen-pdf":
+            quote_id = str(body.get("quoteId") or "").strip()
+            if not quote_id:
+                self._json(400, {"ok": False, "error": "quoteId is required"})
+                return
+            template_name = str(body.get("templateName") or DOCGEN_TEMPLATE).strip()
+            try:
+                result = generate_quote_pdf(
+                    _session(),
+                    quote_id,
+                    template_name=template_name,
+                    title=body.get("title"),
+                    timeout=int(body.get("timeout") or 180),
+                )
+                payload = result.as_dict()
+                cached = QUOTE_CACHE.get(quote_id)
+                if cached is not None and result.ok:
+                    cached["docgen"] = payload
                 self._json(200 if result.ok else 400, payload)
             except Exception as exc:  # noqa: BLE001
                 self._json(400, {"ok": False, "error": str(exc)})

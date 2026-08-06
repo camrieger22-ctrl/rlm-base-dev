@@ -103,6 +103,23 @@ class OrgSession:
     def post(self, path: str, body: dict) -> Any:
         return self._http("POST", path, body)
 
+    def get_bytes(self, path: str) -> bytes:
+        """GET a binary resource (e.g. ContentVersion VersionData)."""
+        req = urllib.request.Request(
+            f"{self._instance}{path}",
+            headers={
+                "Authorization": f"Bearer {self._token}",
+                "Accept": "*/*",
+            },
+            method="GET",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=180) as resp:
+                return resp.read()
+        except urllib.error.HTTPError as exc:
+            err = exc.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"GET {path} -> HTTP {exc.code}: {err[:2500]}") from exc
+
 
 def volume_rate(headcount: int) -> float:
     if headcount < 25:
