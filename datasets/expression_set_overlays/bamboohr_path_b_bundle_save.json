@@ -1,7 +1,7 @@
 {
   "expressionSetApiName": "RLM_DefaultPricingProcedure",
   "versionApiName": "RLM_DefaultPricingProcedure_V1",
-  "description": "BambooHR Path B Bundle & Save 15%: when Quote.RLM_Bamboo_PathB_BundleSave__c is true, apply ManualDiscount 15% on InputUnitPrice for Payroll/Benefits lines (RLM_Bamboo_BundleSave_Target__c), after nonprofit list discount, before ABA/BBA/volume. Path A package quotes keep BBA instead (flag false when BAMBOO-PKG-* present).",
+  "description": "BambooHR Path B Bundle & Save 15%: when Quote.RLM_Bamboo_PathB_BundleSave__c is true, apply ManualDiscount 15% on ListPrice for Payroll/Benefits lines (RLM_Bamboo_BundleSave_Target__c), after nonprofit list discount, before ABA/BBA/volume; copy NetUnitPrice back to InputUnitPrice so volume stacks once. Uses ListPrice (not InputUnitPrice) so Instant/System re-entry cannot compound the 15%. Path A package quotes keep BBA instead (flag false when BAMBOO-PKG-* present).",
   "externalDependencies": {
     "customFields": [
       "Quote.RLM_Bamboo_PathB_BundleSave__c (Apex-maintained a la carte eligibility)",
@@ -139,7 +139,7 @@
             "name": "InputUnitPrice",
             "output": false,
             "type": "Parameter",
-            "value": "InputUnitPrice"
+            "value": "ListPrice"
           },
           {
             "input": true,
@@ -237,6 +237,85 @@
             "output": true,
             "type": "Parameter",
             "value": "InputUnitPrice"
+          }
+        ]
+      }
+    }
+  ],
+  "updateSteps": [
+    {
+      "name": "ApplyBambooHRPathBBundleSavePct",
+      "customElement": {
+        "parameters": [
+          {
+            "input": true,
+            "name": "AdjustmentType",
+            "output": false,
+            "type": "Parameter",
+            "value": "PercentageStringConstant"
+          },
+          {
+            "input": true,
+            "name": "AdjustmentValue",
+            "output": false,
+            "type": "Parameter",
+            "value": "BambooHRPathBBundleSavePercent"
+          },
+          {
+            "input": true,
+            "name": "Quantity",
+            "output": false,
+            "type": "Parameter",
+            "value": "LineItemQuantity"
+          },
+          {
+            "input": true,
+            "name": "InputUnitPrice",
+            "output": false,
+            "type": "Parameter",
+            "value": "ListPrice"
+          },
+          {
+            "input": true,
+            "name": "HideWaterfall",
+            "output": false,
+            "type": "Literal",
+            "value": "false"
+          },
+          {
+            "input": true,
+            "name": "sectionCount",
+            "output": false,
+            "type": "Literal",
+            "value": "0"
+          },
+          {
+            "input": true,
+            "name": "selectedFunction",
+            "output": false,
+            "type": "Literal",
+            "value": "Get"
+          },
+          {
+            "input": true,
+            "name": "IsRealTime",
+            "output": false,
+            "type": "Literal",
+            "value": "false"
+          },
+          {
+            "input": false,
+            "name": "NetUnitPrice",
+            "output": true,
+            "type": "Parameter",
+            "value": "NetUnitPrice"
+          },
+          {
+            "input": false,
+            "name": "Subtotal",
+            "output": true,
+            "type": "Parameter",
+            "value": "ItemNetTotalPrice"
           }
         ]
       }

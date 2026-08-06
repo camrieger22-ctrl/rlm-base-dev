@@ -5,7 +5,8 @@ Asserts:
 
 1. US / Pro / qty 50 → net ≈ $16.15 (17 × 0.95), quote created
 2. CA request carries disqualification warning
-3. US Pro + Payroll + Benefits → Path B flag + add-on nets ≈ list × 0.85
+3. US Pro + Payroll + Benefits → Path B flag + add-on nets ≈ list × 0.85 × volume
+   (single 15% on ListPrice; must not be list × 0.85² from Instant/System compound)
 4. CA + Payroll requested → US-only add-ons stripped from quote
 
 Usage:
@@ -74,17 +75,22 @@ def main() -> int:
     if not path_b.path_b_bundle_save:
         raise AssertionError("Expected Path B Bundle & Save flag on quote")
     by_sku = {li["sku"]: li for li in path_b.line_items}
+    # qty 50 → plan volume band 5%; Path B ManualDiscount is on ListPrice so
+    # Instant/System re-entry cannot compound 15% → net = list × 0.85 × 0.95.
+    volume_at_50 = 0.95
     for sku, list_p in (
         ("BAMBOO-ADD-PAYROLL", 8.0),
         ("BAMBOO-ADD-BENEFITS", 6.0),
     ):
         if sku not in by_sku:
             raise AssertionError(f"Missing line {sku}: {path_b.line_items}")
-        # System reprice applies Path B (+ volume); nets must be below list.
-        if by_sku[sku]["netPepm"] >= list_p - 0.01:
+        net = by_sku[sku]["netPepm"]
+        expect_addon = round(list_p * 0.85 * volume_at_50, 3)
+        compounded = round(list_p * 0.85 * 0.85 * volume_at_50, 3)
+        if abs(net - expect_addon) > 0.05:
             raise AssertionError(
-                f"{sku}: expected discounted net < {list_p}, "
-                f"got {by_sku[sku]['netPepm']}"
+                f"{sku}: expected single Path B 15% then volume ≈ {expect_addon}, "
+                f"got {net} (compounded-15% would be ≈ {compounded})"
             )
     if abs(path_b.net_pepm - expect) > 0.08:
         raise AssertionError(f"Plan net expected ~{expect}, got {path_b.net_pepm}")
