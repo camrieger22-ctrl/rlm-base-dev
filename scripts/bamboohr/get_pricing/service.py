@@ -194,12 +194,55 @@ def expected_net(plan_sku: str, headcount: int, currency: str = "USD") -> float:
 
 
 def expected_addon_net(
-    addon_sku: str, *, path_b: bool, currency: str = "USD"
+    addon_sku: str,
+    *,
+    path_b: bool,
+    currency: str = "USD",
+    headcount: int = 0,
 ) -> float:
+    """Path B Bundle & Save (if eligible) on ListPrice, then volume by headcount."""
     list_price = addon_list_price(addon_sku, currency)
+    price = list_price
     if path_b and addon_sku in US_ONLY_ADDONS:
-        return round(list_price * (1.0 - PATH_B_BUNDLE_SAVE), 2)
-    return list_price
+        price *= 1.0 - PATH_B_BUNDLE_SAVE
+    if headcount:
+        price *= 1.0 - volume_rate(headcount)
+    return round(price, 2)
+
+
+def line_item_dict(
+    *,
+    sku: str,
+    name: str,
+    quantity: int,
+    list_pepm: float | None,
+    net_pepm: float,
+    monthly: float,
+    is_plan: bool,
+    path_b: bool,
+    volume_percent: float,
+) -> dict[str, Any]:
+    """Line with explicit list → Bundle & Save → volume → net waterfall fields."""
+    bundle_pct = (
+        PATH_B_BUNDLE_SAVE * 100.0
+        if path_b and not is_plan and sku in US_ONLY_ADDONS
+        else 0.0
+    )
+    after_bundle: float | None = None
+    if list_pepm is not None:
+        after_bundle = round(list_pepm * (1.0 - bundle_pct / 100.0), 2)
+    return {
+        "sku": sku,
+        "name": name,
+        "quantity": quantity,
+        "listPepm": list_pepm,
+        "bundleSavePercent": bundle_pct,
+        "afterBundlePepm": after_bundle,
+        "volumePercent": volume_percent,
+        "netPepm": net_pepm,
+        "monthly": monthly,
+        "isPlan": is_plan,
+    }
 
 
 def normalize_addons(raw: list[str] | None) -> list[str]:
@@ -539,32 +582,39 @@ def get_pricing(session: OrgSession, req: GetPricingRequest) -> GetPricingResult
     plan_name_paid = (
         "BambooHR Core Small Business Flat" if use_flat else PLAN_LABELS[plan_sku]
     )
+    vol_pct = round(vol * 100, 1)
     paid_line_items: list[dict[str, Any]] = [
-        {
-            "sku": sell_plan_sku,
-            "name": plan_name_paid,
-            "quantity": plan_qty,
-            "listPepm": list_pepm,
-            "netPepm": expected_plan_paid,
-            "monthly": round(expected_plan_paid * plan_qty, 2),
-            "isPlan": True,
-        }
+        line_item_dict(
+            sku=sell_plan_sku,
+            name=plan_name_paid,
+            quantity=plan_qty,
+            list_pepm=list_pepm,
+            net_pepm=expected_plan_paid,
+            monthly=round(expected_plan_paid * plan_qty, 2),
+            is_plan=True,
+            path_b=path_b,
+            volume_percent=0.0 if use_flat else vol_pct,
+        )
     ]
     paid_monthly = paid_line_items[0]["monthly"]
     for sku in addon_skus:
-        addon_net = expected_addon_net(sku, path_b=path_b, currency=currency)
+        addon_net = expected_addon_net(
+            sku, path_b=path_b, currency=currency, headcount=req.headcount
+        )
         addon_monthly = round(addon_net * req.headcount, 2)
         paid_monthly = round(paid_monthly + addon_monthly, 2)
         paid_line_items.append(
-            {
-                "sku": sku,
-                "name": ADDON_LABELS[sku],
-                "quantity": req.headcount,
-                "listPepm": addon_list_price(sku, currency),
-                "netPepm": addon_net,
-                "monthly": addon_monthly,
-                "isPlan": False,
-            }
+            line_item_dict(
+                sku=sku,
+                name=ADDON_LABELS[sku],
+                quantity=req.headcount,
+                list_pepm=addon_list_price(sku, currency),
+                net_pepm=addon_net,
+                monthly=addon_monthly,
+                is_plan=False,
+                path_b=path_b,
+                volume_percent=vol_pct,
+            )
         )
 
     expected_plan = 0.0 if free_trial else expected_plan_paid
@@ -730,16 +780,20 @@ def get_pricing(session: OrgSession, req: GetPricingRequest) -> GetPricingResult
                 list_unit = addon_list_price(sku, currency)
             else:
                 list_unit = None
+            is_plan_line = sku in PLAN_LIST or sku == CORE_FLAT_SKU
+            line_vol = 0.0 if (is_plan_line and use_flat) else vol_pct
             line_items.append(
-                {
-                    "sku": sku,
-                    "name": name,
-                    "quantity": int(qty),
-                    "listPepm": list_unit,
-                    "netPepm": net,
-                    "monthly": line_total,
-                    "isPlan": sku in PLAN_LIST or sku == CORE_FLAT_SKU,
-                }
+                line_item_dict(
+                    sku=sku,
+                    name=name,
+                    quantity=int(qty),
+                    list_pepm=list_unit,
+                    net_pepm=net,
+                    monthly=line_total,
+                    is_plan=is_plan_line,
+                    path_b=path_b,
+                    volume_percent=line_vol,
+                )
             )
             if sku == sell_plan_sku:
                 net_pepm = net
@@ -777,36 +831,45 @@ def get_pricing(session: OrgSession, req: GetPricingRequest) -> GetPricingResult
         )
         plan_net = 0.0 if free_trial else expected_plan_paid
         line_items = [
-            {
-                "sku": sell_plan_sku,
-                "name": plan_name_est,
-                "quantity": plan_qty,
-                "listPepm": list_pepm,
-                "netPepm": plan_net,
-                "monthly": round(plan_net * plan_qty, 2),
-                "isPlan": True,
-            }
+            line_item_dict(
+                sku=sell_plan_sku,
+                name=plan_name_est,
+                quantity=plan_qty,
+                list_pepm=list_pepm,
+                net_pepm=plan_net,
+                monthly=round(plan_net * plan_qty, 2),
+                is_plan=True,
+                path_b=path_b,
+                volume_percent=0.0 if use_flat else vol_pct,
+            )
         ]
         monthly = line_items[0]["monthly"]
         for sku in addon_skus:
             net = (
                 0.0
                 if free_trial
-                else expected_addon_net(sku, path_b=path_b, currency=currency)
+                else expected_addon_net(
+                    sku,
+                    path_b=path_b,
+                    currency=currency,
+                    headcount=req.headcount,
+                )
             )
             # Add-ons stay PEPM × headcount even on small-biz flat Core.
             line_total = round(net * req.headcount, 2)
             monthly += line_total
             line_items.append(
-                {
-                    "sku": sku,
-                    "name": ADDON_LABELS[sku],
-                    "quantity": req.headcount,
-                    "listPepm": addon_list_price(sku, currency),
-                    "netPepm": net,
-                    "monthly": line_total,
-                    "isPlan": False,
-                }
+                line_item_dict(
+                    sku=sku,
+                    name=ADDON_LABELS[sku],
+                    quantity=req.headcount,
+                    list_pepm=addon_list_price(sku, currency),
+                    net_pepm=net,
+                    monthly=line_total,
+                    is_plan=False,
+                    path_b=path_b,
+                    volume_percent=vol_pct,
+                )
             )
         monthly = round(monthly, 2)
         path_b_flag = path_b

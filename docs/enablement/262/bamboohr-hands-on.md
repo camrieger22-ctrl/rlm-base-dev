@@ -516,16 +516,20 @@ Features 1–4 → 7 (CA) → 8–9 self-serve (flat + trial + convert). Add Fea
 
 ## Recordings backlog
 
-Capture one short runtime clip per feature (or one combined AE cut + one dual-channel cut). Drop URLs into each feature’s **Configuration and Runtime Video** subsection when available.
+**Capture script:** [`bamboohr-recording-runbook.md`](bamboohr-recording-runbook.md) (shot list, expected on-screen values, clip map for URLs).
 
-| Suggested clip | Features covered |
-|----------------|------------------|
-| AE catalog → volume coach → Workforce package | 1, 2, 4 |
-| Nonprofit + further Discount % | 6 |
-| CA disqual vs Acme | 7 |
-| Get Pricing flat @25 → Pro@50 Path B → PDF → checkout | 3, 8 |
-| Free trial + convert preview | 9 |
-| UK/CA multi-currency checkout | 10 |
+Drop finished URLs into that runbook’s clip map **and** each feature’s **Configuration and Runtime Video** subsection below.
+
+| Clip | Features |
+|------|----------|
+| C1 AE catalog → volume → Workforce | 1, 2, 4 |
+| C2 Nonprofit + further Discount % | 6 |
+| C3 CA disqual vs Acme | 7 |
+| C4 Get Pricing flat → Path B → PDF → checkout | 3, 8 |
+| C5 Free trial + convert | 9 |
+| C6 UK/CA multi-currency | 10 |
+
+**Minimum partner set:** C1 + C4 (+ C2 if nonprofit is in scope).
 
 ---
 

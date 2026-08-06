@@ -3,48 +3,86 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>BambooHR pricing summary</title>
+  <title>Your BambooHR® pricing summary</title>
+  <link rel="icon" href="/static/brand/icon.png" type="image/png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;600;700&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/app.css" />
 </head>
-<body>
-  <div class="atmosphere" aria-hidden="true"></div>
-  <main class="shell quote-shell">
-    <header class="hero">
-      <p class="brand">BambooHR</p>
-      <h1>Your pricing summary</h1>
-      <p class="lede">Demo quote for {{accountName}} · {{country}} · {{currency}}</p>
-    </header>
+<body class="quote-page">
+  <header class="site-header">
+    <a class="logo-link" href="/" aria-label="BambooHR home">
+      <img class="logo-wordmark" src="/static/brand/wordmark-green.png" alt="bambooHR" />
+    </a>
+    <a class="header-cta" href="/">New estimate</a>
+  </header>
 
-    <section class="panel summary">
-      <h2>{{planName}}</h2>
-      <dl class="metrics">
-        <div><dt>Headcount</dt><dd>{{headcount}}</dd></div>
-        <div><dt>Plan list PEPM</dt><dd>${{listPepm}}</dd></div>
-        <div><dt>Volume</dt><dd>{{volumePercent}}%</dd></div>
-        <div><dt>Plan net PEPM</dt><dd>${{netPepm}}</dd></div>
-        <div><dt>Monthly</dt><dd>${{monthlyTotal}}</dd></div>
-        <div><dt>Annual (12×)</dt><dd>${{annualTotal}}</dd></div>
-      </dl>
-      {{bundleSaveNote}}
+  <section class="quote-hero">
+    <p class="eyebrow">Price quote</p>
+    <h1>Your pricing summary</h1>
+    <p class="lede">{{accountName}} · {{country}} · {{currency}}</p>
+  </section>
+
+  <main class="quote-shell">
+    <article class="quote-card">
+      <header class="quote-card-head">
+        <div>
+          <p class="quote-kicker">Selected plan</p>
+          <h2 class="quote-plan">{{planName}}</h2>
+        </div>
+        <div class="quote-total-block">
+          <p class="quote-total-label">Total today <span>(monthly)</span></p>
+          <p class="quote-total"><span class="sym">$</span>{{monthlyTotal}}</p>
+          <p class="quote-total-sub">${{annualTotal}} / year</p>
+        </div>
+      </header>
+
+      {{pricingLogic}}
+
       {{trialNote}}
-      {{lineItems}}
+      {{discountStack}}
+
+      <section class="quote-lines-block">
+        <h3>Line items</h3>
+        <p class="lines-lede">List → Bundle &amp; Save (if eligible) → volume → monthly.</p>
+        {{lineItems}}
+      </section>
+
       {{convertPreview}}
-      <p class="quote-id">Salesforce Quote <code>{{quoteId}}</code></p>
-      <div class="warnings">{{warnings}}</div>
-      <div class="actions">
-        <button type="button" id="checkoutBtn">Place order (checkout)</button>
-        {{convertTrialButton}}
-        <button type="button" id="docgenBtn" class="secondary">Download PDF</button>
-        <button type="button" class="secondary" onclick="window.print()">Print summary</button>
-        <a class="button-link secondary" href="/">New estimate</a>
+
+      <div class="quote-meta">
+        <p class="quote-id">Salesforce Quote <code>{{quoteId}}</code></p>
+        <div class="warnings">{{warnings}}</div>
       </div>
+
+      <div class="quote-actions">
+        <button type="button" id="checkoutBtn" class="quote-cta">Place order</button>
+        <div class="quote-actions-secondary">
+          {{convertTrialButton}}
+          <button type="button" id="docgenBtn" class="secondary">Download PDF</button>
+          <button type="button" class="secondary" onclick="window.print()">Print</button>
+          <a class="button-link secondary" href="/">New estimate</a>
+        </div>
+      </div>
+
       <p class="status" id="checkoutStatus" aria-live="polite"></p>
       <pre class="checkout-result muted" id="checkoutResult" hidden></pre>
-    </section>
+    </article>
+
+    <p class="quote-footnote">
+      <strong>*Volume and non-profit discounts are available.</strong>
+      Powered by Salesforce Revenue Cloud.
+    </p>
   </main>
+
+  <footer class="site-footer">
+    <div class="inner">
+      <span>Demo · BambooHR catalog · Revenue Cloud</span>
+      <a href="https://www.bamboohr.com/pricing/#compare-all-features" target="_blank" rel="noopener">Compare features on bamboohr.com</a>
+    </div>
+  </footer>
+
   <script>
     (function () {
       const quoteId = "{{quoteId}}";
@@ -74,29 +112,22 @@
             }
             status.textContent =
               "PDF ready (" + (data.fileExtension || "pdf") + ") — downloading…";
-            // Blob download keeps this quote page open (Print summary still works).
             const fileResp = await fetch(data.downloadUrl);
             if (!fileResp.ok) {
               const errBody = await fileResp.json().catch(() => ({}));
-              throw new Error(errBody.error || "PDF download failed (" + fileResp.status + ")");
+              throw new Error(errBody.error || "Download failed");
             }
             const blob = await fileResp.blob();
-            const url = URL.createObjectURL(blob);
             const a = document.createElement("a");
-            a.href = url;
-            a.download =
-              (data.title || "BambooHR-Pricing").replace(/[^\w.\- ]+/g, "") +
-              "." +
-              (data.fileExtension || "pdf");
-            document.body.appendChild(a);
+            a.href = URL.createObjectURL(blob);
+            a.download = "BambooHR-Quote-" + quoteId + "." + (data.fileExtension || "pdf");
             a.click();
-            a.remove();
-            URL.revokeObjectURL(url);
+            URL.revokeObjectURL(a.href);
             status.textContent = "PDF downloaded.";
-            docgenBtn.disabled = false;
           } catch (err) {
-            status.textContent = String(err);
+            status.textContent = err.message || String(err);
             status.classList.add("error");
+          } finally {
             docgenBtn.disabled = false;
           }
         });
@@ -106,7 +137,7 @@
       if (convertBtn) {
         convertBtn.addEventListener("click", async () => {
           convertBtn.disabled = true;
-          status.textContent = "Placing paid quote (convert later)…";
+          status.textContent = "Creating paid quote from trial…";
           status.classList.remove("error");
           try {
             const resp = await fetch("/api/convert-trial", {
@@ -115,12 +146,12 @@
               body: JSON.stringify({ quoteId }),
             });
             const data = await resp.json();
-            if (!resp.ok || !data.ok || !data.quoteUrl) {
-              throw new Error(data.error || "Convert to paid failed");
+            if (!data.ok || !data.quoteUrl) {
+              throw new Error(data.error || "Convert failed");
             }
             window.location.href = data.quoteUrl;
           } catch (err) {
-            status.textContent = String(err);
+            status.textContent = err.message || String(err);
             status.classList.add("error");
             convertBtn.disabled = false;
           }
@@ -130,7 +161,7 @@
       if (!btn) return;
       btn.addEventListener("click", async () => {
         btn.disabled = true;
-        status.textContent = "Placing order, activating, waiting for assets…";
+        status.textContent = "Creating order and activating…";
         status.classList.remove("error");
         out.hidden = true;
         try {
@@ -149,10 +180,15 @@
             return;
           }
           status.textContent =
-            "Order " + (data.orderNumber || data.orderId) +
-            " activated · " + (data.assetIds || []).length + " asset(s)";
+            "Order " +
+            (data.orderNumber || data.orderId) +
+            " · " +
+            (data.status || "Activated") +
+            (data.assetIds && data.assetIds.length
+              ? " · " + data.assetIds.length + " asset(s)"
+              : "");
         } catch (err) {
-          status.textContent = String(err);
+          status.textContent = err.message || String(err);
           status.classList.add("error");
           btn.disabled = false;
         }

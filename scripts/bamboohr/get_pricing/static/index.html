@@ -3,69 +3,406 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>BambooHR Get Pricing</title>
+  <title>BambooHR® Plans and Pricing</title>
+  <link rel="icon" href="/static/brand/icon.png" type="image/png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;600;700&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/app.css" />
 </head>
-<body>
-  <div class="atmosphere" aria-hidden="true"></div>
-  <main class="shell">
-    <header class="hero">
-      <p class="brand">BambooHR</p>
-      <h1>Get pricing for your team</h1>
-      <p class="lede">Enter headcount, country, plan, and optional add-ons. We’ll discover the catalog, apply volume and Bundle &amp; Save, and open a Salesforce quote.</p>
-    </header>
-
-    <form id="pricing-form" class="panel" novalidate>
-      <label>
-        Employees (headcount)
-        <input id="headcount" name="headcount" type="number" min="1" max="100000" value="50" required />
-      </label>
-      <label>
-        Country
-        <select id="country" name="country">
+<body class="config-page">
+  <header class="site-header">
+    <a class="logo-link" href="/" aria-label="BambooHR home">
+      <img class="logo-wordmark" src="/static/brand/wordmark-green.png" alt="bambooHR" />
+    </a>
+    <div class="header-right">
+      <label class="country-inline">
+        <span class="sr-only">Country</span>
+        <select id="country" name="country" aria-label="Country">
           <option value="US" selected>United States (USD)</option>
           <option value="CA">Canada (CAD)</option>
           <option value="UK">United Kingdom (GBP)</option>
         </select>
       </label>
-      <label>
-        Plan
-        <select id="planSku" name="planSku">
-          <option value="BAMBOO-CORE">Core — $10 PEPM (or $250 flat ≤25 emp.)</option>
-          <option value="BAMBOO-PRO" selected>Pro — $17 PEPM</option>
-          <option value="BAMBOO-ELITE">Elite — $25 PEPM</option>
-        </select>
-      </label>
-      <p class="hint" id="flatHint" hidden>
-        ≤25 employees: Plan defaults to Core and the small-business flat SKU
-        (<code>BAMBOO-CORE-FLAT-SM</code>) at <strong>$250/mo</strong> qty 1 — not PEPM×headcount.
-        You can still change Plan if needed. Add-ons stay PEPM×headcount.
-      </p>
+    </div>
+  </header>
 
-      <fieldset class="addons">
-        <legend>Add-ons</legend>
-        <p class="hint" id="addonHint">Payroll + Benefits together unlock Path B Bundle &amp; Save (15%). US-only for Payroll/Benefits.</p>
-        <label class="check"><input type="checkbox" name="addon" value="BAMBOO-ADD-PAYROLL" data-us-only /> Payroll — $8 PEPM</label>
-        <label class="check"><input type="checkbox" name="addon" value="BAMBOO-ADD-BENEFITS" data-us-only /> Benefits — $6 PEPM</label>
-        <label class="check"><input type="checkbox" name="addon" value="BAMBOO-ADD-TIME" /> Time &amp; Attendance — $4 PEPM</label>
-        <label class="check"><input type="checkbox" name="addon" value="BAMBOO-ADD-GLOBAL" /> Global Employment — $12 PEPM</label>
-      </fieldset>
+  <div class="promo-strip" role="note">
+    <span class="promo-icon" aria-hidden="true"></span>
+    <p>
+      <strong>Demo offer:</strong> Configure Core, Pro, or Elite with live Revenue Cloud pricing —
+      volume bands and Bundle &amp; Save apply automatically.
+    </p>
+  </div>
 
-      <fieldset class="addons">
-        <legend>Free trial</legend>
-        <p class="hint">Convert later: 30-day $0 quote for the plan and selected add-ons. After trial, convert to a paid quote (same config).</p>
-        <label class="check"><input type="checkbox" id="freeTrial" name="freeTrial" /> Start with 30-day free trial</label>
-      </fieldset>
-
-      <div class="actions">
-        <button type="submit" id="submit">Get pricing</button>
+  <section class="pricing-hero" aria-label="Get BambooHR plans and pricing">
+    <div class="pricing-hero-inner">
+      <div class="pricing-hero-copy">
+        <h1>Get BambooHR<sup>®</sup></h1>
+        <p class="pricing-hero-sub">Plans and Pricing</p>
+        <ul class="hero-bullets">
+          <li>
+            <strong>Comprehensive.</strong>
+            Take care of everything HR, payroll, and benefits in one platform.
+          </li>
+          <li>
+            <strong>Flexible.</strong>
+            Find the perfect fit with multiple plan options and add-ons.
+          </li>
+          <li>
+            <strong>One low monthly payment.</strong>
+            Pay per employee, per month. Automatic volume discounts.
+          </li>
+        </ul>
       </div>
-      <p id="status" class="status" role="status"></p>
-    </form>
-  </main>
+
+      <aside class="get-pricing-card">
+        <h2>Get Pricing</h2>
+        <form id="hero-lead-form" novalidate>
+          <div class="hero-fields hero-fields--2">
+            <label>
+              <span class="sr-only">First name</span>
+              <input name="firstName" type="text" placeholder="First Name" autocomplete="given-name" />
+            </label>
+            <label>
+              <span class="sr-only">Last name</span>
+              <input name="lastName" type="text" placeholder="Last Name" autocomplete="family-name" />
+            </label>
+          </div>
+          <label>
+            <span class="sr-only">Work email</span>
+            <input name="email" type="email" placeholder="Work Email" autocomplete="email" required />
+          </label>
+          <div class="hero-fields hero-fields--2">
+            <label>
+              <span class="sr-only">Job title</span>
+              <input name="jobTitle" type="text" placeholder="Job Title" autocomplete="organization-title" />
+            </label>
+            <label>
+              <span class="sr-only">Company name</span>
+              <input name="company" type="text" placeholder="Company Name" autocomplete="organization" />
+            </label>
+          </div>
+          <div class="hero-fields hero-fields--2">
+            <label>
+              <span class="sr-only">Phone number</span>
+              <input name="phone" type="tel" placeholder="Phone Number" autocomplete="tel" />
+            </label>
+            <label>
+              <span class="sr-only">Employee count</span>
+              <select name="heroHeadcount" id="heroHeadcount" aria-label="Employee count">
+                <option value="10">1–24 employees</option>
+                <option value="50" selected>25–75 employees</option>
+                <option value="100">76–150 employees</option>
+                <option value="250">151–300 employees</option>
+                <option value="400">301–500 employees</option>
+                <option value="600">501+ employees</option>
+              </select>
+            </label>
+          </div>
+          <label>
+            <span class="sr-only">Country</span>
+            <select name="heroCountry" id="heroCountry" aria-label="Country">
+              <option value="US" selected>United States</option>
+              <option value="CA">Canada</option>
+              <option value="UK">United Kingdom</option>
+            </select>
+          </label>
+          <p class="hero-legal">
+            By submitting, you agree this is a Revenue Cloud demo experience.
+            We’ll use your details only to personalize this quote session.
+          </p>
+          <button type="submit" class="hero-submit">See plans &amp; pricing</button>
+        </form>
+      </aside>
+    </div>
+  </section>
+
+  <form id="pricing-form" novalidate>
+    <input type="hidden" id="planSku" name="planSku" value="BAMBOO-PRO" />
+
+    <!-- Plans header sits above the rail so Your plan lines up with Core / Pro / Elite -->
+    <div class="plans-lead">
+      <div class="section-head">
+        <h2>1 · Choose your core plan</h2>
+        <div class="bill-toggle" role="group" aria-label="Billing period">
+          <button type="button" class="bill-opt" data-bill="annual" aria-pressed="true">Billed annually</button>
+          <button type="button" class="bill-opt" data-bill="monthly" aria-pressed="false">Billed monthly</button>
+        </div>
+      </div>
+      <p class="section-center-title">Plans and pricing for every organization</p>
+    </div>
+
+  <div class="config-layout">
+    <main class="config-main">
+        <!-- 1 · Plans -->
+        <section class="cfg-section cfg-section--plans" id="plans">
+          <div class="plan-grid" role="radiogroup" aria-label="Plan">
+            <button type="button" class="plan-card" data-plan="BAMBOO-CORE" data-list="10" aria-checked="false">
+              <div class="plan-banner plan-banner--spacer" aria-hidden="true"></div>
+              <div class="plan-hero">
+                <div class="plan-hero-main">
+                  <p class="plan-name">Core</p>
+                  <p class="price"><strong data-price>10</strong> <span class="cur">USD*</span></p>
+                  <p class="price-unit">per employee/month</p>
+                  <p class="overview-link"><span class="play" aria-hidden="true"></span> Core Overview</p>
+                </div>
+                <span class="select-cta foot-label">Get Quote</span>
+                <div class="plan-hero-aside">
+                  <p class="blurb">Foundational HR automation and insights to move your business forward</p>
+                  <p class="price-meta flat-note">$250/mo flat for ≤25 employees</p>
+                </div>
+              </div>
+              <div class="plan-includes">
+                <p class="includes-heading">Plan Includes:</p>
+                <ul class="feature-list">
+                  <li>HR Data &amp; Reporting</li>
+                  <li>Hiring &amp; Onboarding</li>
+                  <li>Time Off &amp; Benefits Tracking</li>
+                  <li>Employee Experience Tools</li>
+                  <li>HR Insights</li>
+                  <li>Compliance Intelligence</li>
+                  <li>Compliance Training: 1 Course</li>
+                  <li>On-Demand Pay <span class="new-pill">New</span></li>
+                  <li>AI Assistant</li>
+                </ul>
+              </div>
+            </button>
+
+            <button type="button" class="plan-card plan-card--popular" data-plan="BAMBOO-PRO" data-list="17" aria-checked="true">
+              <div class="plan-banner">Most popular</div>
+              <div class="plan-hero">
+                <div class="plan-hero-main">
+                  <p class="plan-name">Pro</p>
+                  <p class="price"><strong data-price>17</strong> <span class="cur">USD*</span></p>
+                  <p class="price-unit">per employee/month</p>
+                  <p class="overview-link"><span class="play" aria-hidden="true"></span> Pro Overview</p>
+                </div>
+                <span class="select-cta foot-label">Get Quote</span>
+                <div class="plan-hero-aside">
+                  <p class="blurb">People-focused solutions to elevate the employee experience</p>
+                  <p class="price-meta">&nbsp;</p>
+                </div>
+              </div>
+              <div class="plan-includes">
+                <p class="includes-heading">Everything in Core, plus:</p>
+                <ul class="feature-list">
+                  <li>Performance Management</li>
+                  <li>Employee Community</li>
+                  <li>Recognition &amp; Rewards <span class="new-pill">New</span></li>
+                  <li>Compliance Training: 15 Courses</li>
+                  <li>Upgraded AI Assistant</li>
+                </ul>
+              </div>
+            </button>
+
+            <button type="button" class="plan-card" data-plan="BAMBOO-ELITE" data-list="25" aria-checked="false">
+              <div class="plan-banner plan-banner--spacer" aria-hidden="true"></div>
+              <div class="plan-hero">
+                <div class="plan-hero-main">
+                  <p class="plan-name">Elite</p>
+                  <p class="price"><strong data-price>25</strong> <span class="cur">USD*</span></p>
+                  <p class="price-unit">per employee/month</p>
+                  <p class="overview-link"><span class="play" aria-hidden="true"></span> Elite Overview</p>
+                </div>
+                <span class="select-cta foot-label">Get Quote</span>
+                <div class="plan-hero-aside">
+                  <p class="blurb">Powerful insights and data benchmarks to inform smarter decisions for your business</p>
+                  <p class="price-meta">&nbsp;</p>
+                </div>
+              </div>
+              <div class="plan-includes">
+                <p class="includes-heading">Everything in Pro, plus:</p>
+                <ul class="feature-list">
+                  <li>Compensation Management</li>
+                  <li>Custom Dashboards &amp; Analytics</li>
+                  <li>HR Benchmarks</li>
+                  <li>Premium Services</li>
+                  <li>Compliance Training: 300+ Courses</li>
+                  <li>Advanced AI Assistant</li>
+                </ul>
+              </div>
+            </button>
+          </div>
+          <p class="plans-footnote">*Volume and non-profit discounts are available</p>
+          <p class="hint" id="flatHint" hidden>
+            ≤25 employees on Core uses flat SKU <code>BAMBOO-CORE-FLAT-SM</code> at qty 1 (not PEPM × headcount).
+          </p>
+        </section>
+
+        <!-- 2 · Add-ons -->
+        <section class="cfg-section" id="modules">
+          <div class="section-head section-head--stack">
+            <h2>2 · Add-on solutions</h2>
+            <span class="count-pill" id="addonCount">0 OF 4 ON</span>
+          </div>
+          <p class="section-center-title">Add-on solutions</p>
+          <p class="section-hint section-hint--center" id="addonHint">
+            Accomplish even more with additional capabilities.
+          </p>
+          <div class="module-grid">
+            <label class="module-card" data-us-only>
+              <input type="checkbox" name="addon" value="BAMBOO-ADD-PAYROLL" data-us-only data-list="8" />
+              <span class="check-box" aria-hidden="true"></span>
+              <p class="mod-name">Payroll</p>
+              <p class="mod-blurb">Fast, easy, and accurate paydays.</p>
+              <p class="mod-price"><strong data-addon-price>8</strong> <span>USD /emp/mo</span></p>
+              <p class="overview-link"><span class="play" aria-hidden="true"></span> Overview</p>
+              <ul class="feature-list">
+                <li>Direct Deposit</li>
+                <li>Flexible Pay Schedules</li>
+                <li>Federal &amp; State Tax Filing</li>
+                <li>Single Source of Data</li>
+                <li>Specialized Support Team</li>
+                <li class="feature-pad" aria-hidden="true"></li>
+              </ul>
+              <div class="mod-foot">
+                <p class="mod-more">Add to quote <span aria-hidden="true">›</span></p>
+                <p class="mod-note">* US employees only</p>
+              </div>
+            </label>
+            <label class="module-card" data-us-only>
+              <input type="checkbox" name="addon" value="BAMBOO-ADD-BENEFITS" data-us-only data-list="6" />
+              <span class="check-box" aria-hidden="true"></span>
+              <p class="mod-name">Benefits Administration</p>
+              <p class="mod-blurb">One place for HR and benefits.</p>
+              <p class="mod-price"><strong data-addon-price>6</strong> <span>USD /emp/mo</span></p>
+              <p class="overview-link"><span class="play" aria-hidden="true"></span> Overview</p>
+              <ul class="feature-list">
+                <li>Self-Guided Benefits Configuration</li>
+                <li>Open Enrollment, Life Events, and New Hires</li>
+                <li>Election Review and Approval</li>
+                <li>Reporting &amp; Data Review</li>
+                <li>Carrier Connections</li>
+                <li class="feature-pad" aria-hidden="true"></li>
+              </ul>
+              <div class="mod-foot">
+                <p class="mod-more">Add to quote <span aria-hidden="true">›</span></p>
+                <p class="mod-note">* US employees only</p>
+              </div>
+            </label>
+            <label class="module-card">
+              <input type="checkbox" name="addon" value="BAMBOO-ADD-TIME" data-list="4" />
+              <span class="check-box" aria-hidden="true"></span>
+              <p class="mod-name">Time &amp; Attendance</p>
+              <p class="mod-blurb">Spend minutes tracking hours.</p>
+              <p class="mod-price"><strong data-addon-price>4</strong> <span>USD /emp/mo</span></p>
+              <p class="overview-link"><span class="play" aria-hidden="true"></span> Overview</p>
+              <ul class="feature-list">
+                <li>Shift Scheduling</li>
+                <li>Meal &amp; Rest Breaks</li>
+                <li>Project Tracking &amp; Billable Hours</li>
+                <li>Automated Approval Workflows</li>
+                <li>Automatic Overtime Calculations</li>
+                <li>iPad Time Kiosk &amp; Time Clocks</li>
+              </ul>
+              <div class="mod-foot">
+                <p class="mod-more">Add to quote <span aria-hidden="true">›</span></p>
+                <p class="mod-note">&nbsp;</p>
+              </div>
+            </label>
+            <label class="module-card">
+              <input type="checkbox" name="addon" value="BAMBOO-ADD-GLOBAL" data-list="12" />
+              <span class="check-box" aria-hidden="true"></span>
+              <p class="mod-name">Global Employment<span class="mod-sub">powered by Remote</span></p>
+              <p class="mod-blurb">Hire workers worldwide.</p>
+              <p class="mod-price"><strong data-addon-price>12</strong> <span>USD /emp/mo</span></p>
+              <p class="overview-link"><span class="play" aria-hidden="true"></span> Overview</p>
+              <ul class="feature-list">
+                <li>Global Cost Calculator</li>
+                <li>Global Compliance Expertise and Support</li>
+                <li>Contractor Management</li>
+                <li>Employer of Record</li>
+                <li class="feature-pad" aria-hidden="true"></li>
+                <li class="feature-pad" aria-hidden="true"></li>
+              </ul>
+              <div class="mod-foot">
+                <p class="mod-more">Add to quote <span aria-hidden="true">›</span></p>
+                <p class="mod-note">&nbsp;</p>
+              </div>
+            </label>
+          </div>
+          <div class="bundle-banner">
+            <strong>Bundle &amp; Save!</strong> Get a 15% discount when you combine Payroll and Benefits Administration with any plan.*
+          </div>
+          <p class="plans-footnote">* Bundle discount currently only available for employees based in the US.</p>
+        </section>
+
+        <!-- 3 · Headcount -->
+        <section class="cfg-section" id="headcount-section">
+          <div class="section-head">
+            <h2>3 · How many employees?</h2>
+            <span class="count-pill" id="volumePill">0% VOLUME BAND</span>
+          </div>
+          <div class="hc-controls">
+            <button type="button" class="hc-step" id="hcMinus" aria-label="Decrease">−</button>
+            <input id="headcount" name="headcount" type="number" min="1" max="100000" value="50" required />
+            <button type="button" class="hc-step" id="hcPlus" aria-label="Increase">+</button>
+          </div>
+          <input id="hcRange" type="range" min="1" max="600" value="50" aria-label="Headcount slider" />
+          <div class="hc-presets" id="hcPresets">
+            <button type="button" data-hc="10">10</button>
+            <button type="button" data-hc="25">25</button>
+            <button type="button" data-hc="50" class="on">50</button>
+            <button type="button" data-hc="100">100</button>
+            <button type="button" data-hc="250">250</button>
+            <button type="button" data-hc="500">500</button>
+          </div>
+          <div class="band-grid" id="bandGrid"></div>
+        </section>
+
+        <!-- 4 · Trial -->
+        <section class="cfg-section" id="options">
+          <div class="section-head">
+            <h2>4 · Free trial</h2>
+            <span class="count-pill">OPTIONAL</span>
+          </div>
+          <label class="trial-card">
+            <input type="checkbox" id="freeTrial" name="freeTrial" />
+            <span class="check-box" aria-hidden="true"></span>
+            <span>
+              <strong>Start with a 30-day free trial</strong>
+              <span class="muted">$0 quote now — convert later to paid pricing for the same configuration.</span>
+            </span>
+          </label>
+        </section>
+
+        <p id="status" class="status" role="status"></p>
+    </main>
+
+    <aside class="plan-rail" aria-label="Your plan summary">
+      <div class="rail-card">
+        <div class="rail-head">
+          <h2>Your plan</h2>
+          <span class="rail-bill" id="railBill">Billed annually</span>
+        </div>
+        <p class="rail-pepm"><strong id="railPepm">0.00</strong></p>
+        <p class="rail-pepm-unit" id="railPepmUnit">per employee / month</p>
+        <ul class="rail-lines" id="railLines"></ul>
+        <div class="rail-totals">
+          <div class="rail-row muted">
+            <span id="railSubLabel">Subscription, per year</span>
+            <span id="railSub">$0</span>
+          </div>
+          <div class="rail-row total">
+            <span>Total today</span>
+            <span id="railTotal">$0</span>
+          </div>
+        </div>
+        <button type="submit" id="submit" class="rail-cta">Get your quote</button>
+        <p class="rail-foot">Live pricing via Revenue Cloud · BambooHR demo catalog</p>
+      </div>
+    </aside>
+  </div>
+  </form>
+
+  <footer class="site-footer">
+    <div class="inner">
+      <span>Demo · BambooHR catalog · Revenue Cloud</span>
+      <a href="https://www.bamboohr.com/pricing/#compare-all-features" target="_blank" rel="noopener">Compare features on bamboohr.com</a>
+    </div>
+  </footer>
+
   <script src="/static/app.js"></script>
 </body>
 </html>
