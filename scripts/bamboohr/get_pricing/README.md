@@ -4,14 +4,13 @@ Local thin BFF + branded form for the self-serve “Get Pricing” path (fork-on
 
 ## Flow
 
-1. User enters **headcount**, **country** (US/CA), and **plan**.
-2. BFF (CCI org OAuth) discovers the Bamboo catalog, places a Quote on the
-   mapped demo Account, and headless-prices volume PEPM.
-3. Browser shows a branded summary (print → PDF). Cart = Salesforce Quote Id.
-4. **P3:** “Place order (checkout)” runs `createOrderFromQuote` → copy shipping →
-   activate Order → poll Initial Sale assets. Optional `amendQty` true-up:
-   Asset Amend → System reprice amend quote → order → activate → wait for
-   Upsells `AssetAction` qty.
+1. User enters **headcount**, **country** (US/CA), **plan**, and optional
+   **add-ons** (Payroll / Benefits / Time / Global).
+2. BFF places a multi-line Quote, System-reprices (volume + Path B Bundle & Save
+   when plan + Payroll + Benefits). Canada strips Payroll/Benefits.
+3. Browser shows a branded summary with line table (print → PDF). Cart = Quote Id.
+4. **P3:** “Place order (checkout)” → order → activate → assets; optional
+   `amendQty` true-up through Upsells.
 
 | Country | Demo Account |
 |---------|----------------|
@@ -34,7 +33,7 @@ Then open http://127.0.0.1:8765/ in a browser (do not paste the `# open …` com
 
 | Method | Path | Body |
 |--------|------|------|
-| POST | `/api/get-pricing` | `{ headcount, country, planSku, placeQuote? }` |
+| POST | `/api/get-pricing` | `{ headcount, country, planSku, addonSkus?, placeQuote? }` |
 | POST | `/api/checkout` | `{ quoteId, amendQty?, pollTimeout? }` |
 
 ## Smokes (no browser)
@@ -52,4 +51,3 @@ Then open http://127.0.0.1:8765/ in a browser (do not paste the `# open …` com
 - Guest Connected App in the browser
 - Experience Cloud site hosting
 - DocGen PDF binary (print-to-PDF is the stand-in)
-- Add-on SKUs on the form (amend qty true-up is covered; add-ons optional later)

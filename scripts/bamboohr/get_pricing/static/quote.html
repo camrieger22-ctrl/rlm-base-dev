@@ -22,12 +22,14 @@
       <h2>{{planName}}</h2>
       <dl class="metrics">
         <div><dt>Headcount</dt><dd>{{headcount}}</dd></div>
-        <div><dt>List PEPM</dt><dd>${{listPepm}}</dd></div>
+        <div><dt>Plan list PEPM</dt><dd>${{listPepm}}</dd></div>
         <div><dt>Volume</dt><dd>{{volumePercent}}%</dd></div>
-        <div><dt>Net PEPM</dt><dd>${{netPepm}}</dd></div>
+        <div><dt>Plan net PEPM</dt><dd>${{netPepm}}</dd></div>
         <div><dt>Monthly</dt><dd>${{monthlyTotal}}</dd></div>
         <div><dt>Annual (12×)</dt><dd>${{annualTotal}}</dd></div>
       </dl>
+      {{bundleSaveNote}}
+      {{lineItems}}
       <p class="quote-id">Salesforce Quote <code>{{quoteId}}</code></p>
       <div class="warnings">{{warnings}}</div>
       <div class="actions">

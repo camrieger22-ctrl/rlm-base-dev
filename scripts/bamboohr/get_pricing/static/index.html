@@ -15,7 +15,7 @@
     <header class="hero">
       <p class="brand">BambooHR</p>
       <h1>Get pricing for your team</h1>
-      <p class="lede">Enter headcount and country. We’ll discover the catalog, apply volume tiers, and open a Salesforce quote.</p>
+      <p class="lede">Enter headcount, country, plan, and optional add-ons. We’ll discover the catalog, apply volume and Bundle &amp; Save, and open a Salesforce quote.</p>
     </header>
 
     <form id="pricing-form" class="panel" novalidate>
@@ -38,6 +38,16 @@
           <option value="BAMBOO-ELITE">Elite — $25 PEPM</option>
         </select>
       </label>
+
+      <fieldset class="addons">
+        <legend>Add-ons</legend>
+        <p class="hint" id="addonHint">Payroll + Benefits together unlock Path B Bundle &amp; Save (15%). US-only for Payroll/Benefits.</p>
+        <label class="check"><input type="checkbox" name="addon" value="BAMBOO-ADD-PAYROLL" data-us-only /> Payroll — $8 PEPM</label>
+        <label class="check"><input type="checkbox" name="addon" value="BAMBOO-ADD-BENEFITS" data-us-only /> Benefits — $6 PEPM</label>
+        <label class="check"><input type="checkbox" name="addon" value="BAMBOO-ADD-TIME" /> Time &amp; Attendance — $4 PEPM</label>
+        <label class="check"><input type="checkbox" name="addon" value="BAMBOO-ADD-GLOBAL" /> Global Employment — $12 PEPM</label>
+      </fieldset>
+
       <div class="actions">
         <button type="submit" id="submit">Get pricing</button>
       </div>

@@ -1,4 +1,4 @@
-"""BambooHR Get Pricing BFF service (P2) — Discovery → price → place Quote."""
+"""BambooHR Get Pricing BFF service (P2/P3) — Discovery → price → place Quote."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any
 
@@ -30,6 +30,25 @@ PLAN_LABELS = {
     "BAMBOO-PRO": "BambooHR Pro",
     "BAMBOO-ELITE": "BambooHR Elite",
 }
+
+ADDON_LIST = {
+    "BAMBOO-ADD-PAYROLL": 8.0,
+    "BAMBOO-ADD-BENEFITS": 6.0,
+    "BAMBOO-ADD-TIME": 4.0,
+    "BAMBOO-ADD-GLOBAL": 12.0,
+}
+
+ADDON_LABELS = {
+    "BAMBOO-ADD-PAYROLL": "Payroll",
+    "BAMBOO-ADD-BENEFITS": "Benefits Administration",
+    "BAMBOO-ADD-TIME": "Time & Attendance",
+    "BAMBOO-ADD-GLOBAL": "Global Employment",
+}
+
+# Category disqualification — not sellable on CA demo Account.
+US_ONLY_ADDONS = frozenset({"BAMBOO-ADD-PAYROLL", "BAMBOO-ADD-BENEFITS"})
+
+PATH_B_BUNDLE_SAVE = 0.15  # ManualDiscount on Payroll+Benefits when Path B
 
 # Demo volume ladder (bh-pricing PAT) — keep in sync with RLM_BambooVolumeTiers.
 VOLUME_BANDS = (
@@ -114,11 +133,32 @@ def expected_net(plan_sku: str, headcount: int) -> float:
     return round(list_price * (1.0 - volume_rate(headcount)), 2)
 
 
+def expected_addon_net(addon_sku: str, *, path_b: bool) -> float:
+    list_price = ADDON_LIST[addon_sku]
+    if path_b and addon_sku in US_ONLY_ADDONS:
+        return round(list_price * (1.0 - PATH_B_BUNDLE_SAVE), 2)
+    return list_price
+
+
+def normalize_addons(raw: list[str] | None) -> list[str]:
+    out: list[str] = []
+    for sku in raw or []:
+        s = str(sku or "").upper().strip()
+        if not s:
+            continue
+        if s not in ADDON_LIST:
+            raise ValueError(f"Unsupported add-on {s!r}")
+        if s not in out:
+            out.append(s)
+    return out
+
+
 @dataclass
 class GetPricingRequest:
     headcount: int
     country: str
     plan_sku: str = "BAMBOO-PRO"
+    addon_skus: list[str] = field(default_factory=list)
     place_quote: bool = True
 
 
@@ -140,6 +180,9 @@ class GetPricingResult:
     warnings: list[str]
     quote_id: str | None
     org_alias: str
+    addon_skus: list[str] = field(default_factory=list)
+    line_items: list[dict[str, Any]] = field(default_factory=list)
+    path_b_bundle_save: bool = False
     error: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
@@ -157,6 +200,9 @@ class GetPricingResult:
             "monthlyTotal": self.monthly_total,
             "annualTotal": self.annual_total,
             "discoveredSkus": self.discovered_skus,
+            "addonSkus": self.addon_skus,
+            "lineItems": self.line_items,
+            "pathBBundleSave": self.path_b_bundle_save,
             "warnings": self.warnings,
             "quoteId": self.quote_id,
             "orgAlias": self.org_alias,
@@ -165,83 +211,76 @@ class GetPricingResult:
         }
 
 
-def _resolve_context(session: OrgSession) -> tuple[str, str]:
-    ctx_payload = session._http(
-        "GET",
-        f"/services/data/{API}/connect/context-definitions/RLM_SalesTransactionContext",
+def _pbe_for_sku(session: OrgSession, sku: str) -> dict:
+    rows = session.soql(
+        "SELECT Id, Product2Id FROM PricebookEntry WHERE Pricebook2.IsStandard = true "
+        f"AND Product2.StockKeepingUnit = '{sku}' "
+        "AND ProductSellingModel.SellingModelType = 'TermDefined' "
+        "AND ProductSellingModel.PricingTermUnit = 'Months' LIMIT 1"
     )
-    ctx_def_id = ctx_payload["contextDefinitionId"]
-    mapping_id = None
-    for version in ctx_payload.get("contextDefinitionVersionList") or []:
-        for mapping in version.get("contextMappings") or []:
-            base = mapping.get("baseReference") or ""
-            if base.endswith("/QuoteEntitiesMapping") or "QuoteEntitiesMapping" in base:
-                mapping_id = mapping.get("contextMappingId")
-                break
-        if mapping_id:
-            break
-    if not mapping_id:
-        raise RuntimeError("Could not resolve QuoteEntitiesMapping id")
-    return ctx_def_id, mapping_id
+    if not rows:
+        raise RuntimeError(f"No Term Monthly PBE for {sku}")
+    return rows[0]
 
 
-def _headless_net(
-    session: OrgSession,
-    *,
-    quote_id: str,
-    line: dict,
-    pricebook_id: str,
-    quantity: int,
-) -> float:
-    today = date.today().isoformat()
-    end = (date.today() + timedelta(days=365)).isoformat()
-    ctx_def_id, mapping_id = _resolve_context(session)
-    pricing_data = {
-        "SalesTransaction": {
-            "businessObjectType": "Quote",
-            "id": quote_id,
-            "Pricebook": pricebook_id,
-            "CurrencyIsoCode": "USD",
-            "SalesTransactionItem": [
-                {
-                    "businessObjectType": "QuoteLineItem",
-                    "id": line["Id"],
-                    "Product": line["Product2Id"],
-                    "ProductSellingModel": line["ProductSellingModelId"],
-                    "Quantity": quantity,
-                    "SalesTransactionItemSource": "LINE_ITEM1",
-                    "EffectiveFrom": f"{today}T00:00:00.000Z",
-                    "EffectiveTo": f"{end}T00:00:00.000Z",
-                }
-            ],
-        }
-    }
-    priced = session.post(
-        f"/services/data/{API}/actions/standard/runSalesforceHeadlessPricing",
+def _system_reprice_quote(session: OrgSession, quote_id: str) -> None:
+    """PST System reprice so volume + Path B ManualDiscount persist on lines."""
+    lines = session.soql(
+        f"SELECT Id, Quantity FROM QuoteLineItem WHERE QuoteId = '{quote_id}'"
+    )
+    if not lines:
+        raise RuntimeError(f"Quote {quote_id} has no lines to reprice")
+    records: list[dict[str, Any]] = [
         {
-            "inputs": [
-                {
-                    "contextDefinitionId": ctx_def_id,
-                    "contextMappingId": mapping_id,
-                    "pricingProcedureId": "RLM_DefaultPricingProcedure",
-                    "skipDiscovery": True,
-                    "displayContext": True,
-                    "isSkipWaterfall": False,
-                    "persistContext": True,
-                    "useSessionScopedContext": False,
-                    "taggedData": False,
-                    "pricingData": json.dumps(pricing_data, separators=(",", ":")),
+            "referenceId": "refQuote",
+            "record": {
+                "attributes": {
+                    "method": "PATCH",
+                    "type": "Quote",
+                    "id": quote_id,
                 }
-            ]
+            },
+        }
+    ]
+    for i, line in enumerate(lines):
+        records.append(
+            {
+                "referenceId": f"refL{i}",
+                "record": {
+                    "attributes": {
+                        "type": "QuoteLineItem",
+                        "method": "PATCH",
+                        "id": line["Id"],
+                    },
+                    "Quantity": str(int(line["Quantity"] or 1)),
+                },
+            }
+        )
+    placed = session.post(
+        f"/services/data/{API}/connect/rev/sales-transaction/actions/place",
+        {
+            "pricingPref": "System",
+            "catalogRatesPref": "Skip",
+            "taxPref": "Skip",
+            "configurationPref": {
+                "configurationMethod": "Skip",
+                "configurationOptions": {
+                    "validateProductCatalog": True,
+                    "validateAmendRenewCancel": True,
+                    "executeConfigurationRules": False,
+                    "addDefaultConfiguration": False,
+                },
+            },
+            "graph": {
+                "graphId": f"gprp{uuid.uuid4().hex[:8]}",
+                "records": records,
+            },
         },
     )
-    if isinstance(priced, list):
-        priced = priced[0]
-    outs = priced.get("outputValues") or {}
-    if outs.get("pricingProcessStatus") != "Completed":
-        raise RuntimeError(f"Headless pricing failed: {outs or priced}")
-    wf = json.loads(json.loads(outs["pricingResult"])["PriceWaterFall"][0]["value"])
-    return float(wf["output"]["NetUnitPrice"])
+    if isinstance(placed, list):
+        placed = placed[0]
+    if not placed.get("isSuccess"):
+        raise RuntimeError(f"System reprice failed: {placed}")
 
 
 def get_pricing(session: OrgSession, req: GetPricingRequest) -> GetPricingResult:
@@ -255,13 +294,29 @@ def get_pricing(session: OrgSession, req: GetPricingRequest) -> GetPricingResult
     if req.headcount < 1 or req.headcount > 100000:
         raise ValueError("headcount must be between 1 and 100000")
 
-    account_name = COUNTRY_ACCOUNT[country]
+    addon_skus = normalize_addons(req.addon_skus)
     if country == "CA":
         warnings.append(
             "Canada: Payroll and Benefits are hidden via category disqualification. "
             "Plans and other add-ons remain available."
         )
+        blocked = [s for s in addon_skus if s in US_ONLY_ADDONS]
+        if blocked:
+            warnings.append(
+                "Removed US-only add-ons for Canada: "
+                + ", ".join(ADDON_LABELS[s] for s in blocked)
+            )
+            addon_skus = [s for s in addon_skus if s not in US_ONLY_ADDONS]
 
+    path_b = (
+        "BAMBOO-ADD-PAYROLL" in addon_skus and "BAMBOO-ADD-BENEFITS" in addon_skus
+    )
+    if path_b:
+        warnings.append(
+            "Path B Bundle & Save: 15% on Payroll + Benefits (a la carte with a plan)."
+        )
+
+    account_name = COUNTRY_ACCOUNT[country]
     catalog = session.soql(
         f"SELECT Id FROM ProductCatalog WHERE Name = '{CATALOG_NAME}' LIMIT 1"
     )[0]
@@ -269,12 +324,9 @@ def get_pricing(session: OrgSession, req: GetPricingRequest) -> GetPricingResult
         f"SELECT Id, BillingCountry FROM Account WHERE Name = '{account_name}' LIMIT 1"
     )[0]
     pb = session.soql("SELECT Id FROM Pricebook2 WHERE IsStandard = true LIMIT 1")[0]
-    pbe = session.soql(
-        "SELECT Id, Product2Id FROM PricebookEntry WHERE Pricebook2.IsStandard = true "
-        f"AND Product2.StockKeepingUnit = '{plan_sku}' "
-        "AND ProductSellingModel.SellingModelType = 'TermDefined' "
-        "AND ProductSellingModel.PricingTermUnit = 'Months' LIMIT 1"
-    )[0]
+
+    skus_needed = [plan_sku, *addon_skus]
+    pbes = {sku: _pbe_for_sku(session, sku) for sku in skus_needed}
 
     # Discover
     payload = session.post(
@@ -296,15 +348,22 @@ def get_pricing(session: OrgSession, req: GetPricingRequest) -> GetPricingResult
 
     list_pepm = PLAN_LIST[plan_sku]
     vol = volume_rate(req.headcount)
-    expected = expected_net(plan_sku, req.headcount)
+    expected_plan = expected_net(plan_sku, req.headcount)
     quote_id: str | None = None
-    net_pepm = expected
+    net_pepm = expected_plan
+    line_items: list[dict[str, Any]] = []
+    path_b_flag = False
+    monthly = round(expected_plan * req.headcount, 2)
 
     if req.place_quote:
         opp_id = session.create(
             "Opportunity",
             {
-                "Name": f"Get Pricing {plan_sku} {req.headcount} {country}",
+                "Name": (
+                    f"Get Pricing {plan_sku} "
+                    f"{'+'.join(addon_skus) if addon_skus else 'plan'} "
+                    f"{req.headcount} {country}"
+                )[:120],
                 "AccountId": acct["Id"],
                 "StageName": "Prospecting",
                 "CloseDate": "2026-12-31",
@@ -313,6 +372,42 @@ def get_pricing(session: OrgSession, req: GetPricingRequest) -> GetPricingResult
         )
         today = date.today().isoformat()
         end = (date.today() + timedelta(days=365)).isoformat()
+        records: list[dict[str, Any]] = [
+            {
+                "referenceId": "refQuote",
+                "record": {
+                    "attributes": {"method": "POST", "type": "Quote"},
+                    "Name": (
+                        f"Get Pricing — {PLAN_LABELS[plan_sku]}"
+                        + (f" + {len(addon_skus)} add-on(s)" if addon_skus else "")
+                    ),
+                    "OpportunityId": opp_id,
+                    "Pricebook2Id": pb["Id"],
+                    "QuoteAccountId": acct["Id"],
+                },
+            }
+        ]
+        for i, sku in enumerate(skus_needed):
+            pbe = pbes[sku]
+            records.append(
+                {
+                    "referenceId": f"refL{i}",
+                    "record": {
+                        "attributes": {
+                            "type": "QuoteLineItem",
+                            "method": "POST",
+                        },
+                        "QuoteId": "@{refQuote.id}",
+                        "Product2Id": pbe["Product2Id"],
+                        "PricebookEntryId": pbe["Id"],
+                        "Quantity": str(req.headcount),
+                        "StartDate": today,
+                        "EndDate": end,
+                        "PeriodBoundary": "Anniversary",
+                        "BillingFrequency": "Monthly",
+                    },
+                }
+            )
         placed = session.post(
             f"/services/data/{API}/connect/rev/sales-transaction/actions/place",
             {
@@ -330,35 +425,7 @@ def get_pricing(session: OrgSession, req: GetPricingRequest) -> GetPricingResult
                 },
                 "graph": {
                     "graphId": f"gp{uuid.uuid4().hex[:8]}",
-                    "records": [
-                        {
-                            "referenceId": "refQuote",
-                            "record": {
-                                "attributes": {"method": "POST", "type": "Quote"},
-                                "Name": f"Get Pricing — {PLAN_LABELS[plan_sku]}",
-                                "OpportunityId": opp_id,
-                                "Pricebook2Id": pb["Id"],
-                                "QuoteAccountId": acct["Id"],
-                            },
-                        },
-                        {
-                            "referenceId": "refL0",
-                            "record": {
-                                "attributes": {
-                                    "type": "QuoteLineItem",
-                                    "method": "POST",
-                                },
-                                "QuoteId": "@{refQuote.id}",
-                                "Product2Id": pbe["Product2Id"],
-                                "PricebookEntryId": pbe["Id"],
-                                "Quantity": str(req.headcount),
-                                "StartDate": today,
-                                "EndDate": end,
-                                "PeriodBoundary": "Anniversary",
-                                "BillingFrequency": "Monthly",
-                            },
-                        },
-                    ],
+                    "records": records,
                 },
             },
         )
@@ -367,23 +434,96 @@ def get_pricing(session: OrgSession, req: GetPricingRequest) -> GetPricingResult
         if not placed.get("isSuccess"):
             raise RuntimeError(f"Place quote failed: {placed}")
         quote_id = placed["salesTransactionId"]
-        line = session.soql(
-            "SELECT Id, Product2Id, ProductSellingModelId "
-            f"FROM QuoteLineItem WHERE QuoteId = '{quote_id}' LIMIT 1"
-        )[0]
-        net_pepm = _headless_net(
-            session,
-            quote_id=quote_id,
-            line=line,
-            pricebook_id=pb["Id"],
-            quantity=req.headcount,
+
+        # Apex Path B flag stamps on line DML; System reprice applies volume + ManualDiscount.
+        _system_reprice_quote(session, quote_id)
+
+        qrows = session.soql(
+            "SELECT RLM_Bamboo_PathB_BundleSave__c FROM Quote "
+            f"WHERE Id = '{quote_id}'"
         )
-        if abs(net_pepm - expected) > 0.08:
+        path_b_flag = bool(qrows and qrows[0].get("RLM_Bamboo_PathB_BundleSave__c"))
+        if path_b and not path_b_flag:
             warnings.append(
-                f"Priced net ${net_pepm} differs from ladder expectation ${expected}."
+                "Expected Path B Bundle & Save quote flag — check Apex trigger."
             )
 
-    monthly = round(net_pepm * req.headcount, 2)
+        priced_lines = session.soql(
+            "SELECT Id, Quantity, UnitPrice, NetUnitPrice, TotalPrice, "
+            "Product2.StockKeepingUnit, Product2.Name "
+            f"FROM QuoteLineItem WHERE QuoteId = '{quote_id}'"
+        )
+        monthly = 0.0
+        for pl in priced_lines:
+            sku = (pl.get("Product2") or {}).get("StockKeepingUnit") or ""
+            name = (pl.get("Product2") or {}).get("Name") or sku
+            qty = float(pl.get("Quantity") or req.headcount)
+            net = float(pl.get("NetUnitPrice") or pl.get("UnitPrice") or 0)
+            line_total = round(net * qty, 2)
+            monthly += line_total
+            line_items.append(
+                {
+                    "sku": sku,
+                    "name": name,
+                    "quantity": int(qty),
+                    "listPepm": PLAN_LIST.get(sku) or ADDON_LIST.get(sku),
+                    "netPepm": net,
+                    "monthly": line_total,
+                    "isPlan": sku in PLAN_LIST,
+                }
+            )
+            if sku == plan_sku:
+                net_pepm = net
+        monthly = round(monthly, 2)
+
+        if abs(net_pepm - expected_plan) > 0.08:
+            warnings.append(
+                f"Plan net ${net_pepm} differs from ladder expectation ${expected_plan}."
+            )
+        if path_b_flag:
+            for sku in ("BAMBOO-ADD-PAYROLL", "BAMBOO-ADD-BENEFITS"):
+                list_p = ADDON_LIST[sku]
+                actual = next(
+                    (li["netPepm"] for li in line_items if li["sku"] == sku), None
+                )
+                if actual is not None and actual >= list_p - 0.01:
+                    warnings.append(
+                        f"{sku} net ${actual} did not drop below list ${list_p} "
+                        "(Path B Bundle & Save expected)."
+                    )
+
+    elif addon_skus:
+        # Estimate-only (no quote): ladder + Path B math for display.
+        line_items = [
+            {
+                "sku": plan_sku,
+                "name": PLAN_LABELS[plan_sku],
+                "quantity": req.headcount,
+                "listPepm": list_pepm,
+                "netPepm": expected_plan,
+                "monthly": round(expected_plan * req.headcount, 2),
+                "isPlan": True,
+            }
+        ]
+        monthly = line_items[0]["monthly"]
+        for sku in addon_skus:
+            net = expected_addon_net(sku, path_b=path_b)
+            line_total = round(net * req.headcount, 2)
+            monthly += line_total
+            line_items.append(
+                {
+                    "sku": sku,
+                    "name": ADDON_LABELS[sku],
+                    "quantity": req.headcount,
+                    "listPepm": ADDON_LIST[sku],
+                    "netPepm": net,
+                    "monthly": line_total,
+                    "isPlan": False,
+                }
+            )
+        monthly = round(monthly, 2)
+        path_b_flag = path_b
+
     return GetPricingResult(
         ok=True,
         country=country,
@@ -398,6 +538,9 @@ def get_pricing(session: OrgSession, req: GetPricingRequest) -> GetPricingResult
         monthly_total=monthly,
         annual_total=round(monthly * 12, 2),
         discovered_skus=sorted(set(discovered)),
+        addon_skus=addon_skus,
+        line_items=line_items,
+        path_b_bundle_save=path_b_flag,
         warnings=warnings,
         quote_id=quote_id,
         org_alias=session.alias,

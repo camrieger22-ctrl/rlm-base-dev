@@ -78,6 +78,34 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(404, b"Quote summary not in this server session", "text/plain")
                 return
             html = (STATIC / "quote.html").read_text(encoding="utf-8")
+            lines = data.get("lineItems") or []
+            if lines:
+                rows = "".join(
+                    (
+                        "<tr>"
+                        f"<td>{li.get('name') or li.get('sku')}</td>"
+                        f"<td>{li.get('quantity')}</td>"
+                        f"<td>${float(li.get('netPepm') or 0):.2f}</td>"
+                        f"<td>${float(li.get('monthly') or 0):,.2f}</td>"
+                        "</tr>"
+                    )
+                    for li in lines
+                )
+                line_html = (
+                    "<table class='lines'><thead><tr>"
+                    "<th>Product</th><th>Qty</th><th>Net PEPM</th><th>Monthly</th>"
+                    "</tr></thead><tbody>"
+                    + rows
+                    + "</tbody></table>"
+                )
+            else:
+                line_html = "<p class='muted'>No line detail.</p>"
+            bundle_note = (
+                "<p class='bundle-note'>Path B Bundle &amp; Save applied "
+                "(15% on Payroll + Benefits).</p>"
+                if data.get("pathBBundleSave")
+                else ""
+            )
             for key, val in {
                 "{{planName}}": data["planName"],
                 "{{headcount}}": str(data["headcount"]),
@@ -89,6 +117,8 @@ class Handler(BaseHTTPRequestHandler):
                 "{{annualTotal}}": f"{data['annualTotal']:,.2f}",
                 "{{quoteId}}": data["quoteId"] or "",
                 "{{accountName}}": data["accountName"],
+                "{{lineItems}}": line_html,
+                "{{bundleSaveNote}}": bundle_note,
                 "{{warnings}}": (
                     "<ul>"
                     + "".join(f"<li>{w}</li>" for w in data.get("warnings") or [])
@@ -113,10 +143,14 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/get-pricing":
             try:
+                raw_addons = body.get("addonSkus") or body.get("addons") or []
+                if isinstance(raw_addons, str):
+                    raw_addons = [s.strip() for s in raw_addons.split(",") if s.strip()]
                 req = GetPricingRequest(
                     headcount=int(body.get("headcount") or 0),
                     country=str(body.get("country") or "US"),
                     plan_sku=str(body.get("planSku") or "BAMBOO-PRO"),
+                    addon_skus=list(raw_addons),
                     place_quote=bool(body.get("placeQuote", True)),
                 )
                 result = get_pricing(_session(), req)
