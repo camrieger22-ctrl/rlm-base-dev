@@ -19,20 +19,32 @@ import os
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 HERE = Path(__file__).resolve().parent
 STATIC = HERE / "static"
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
+from account_console import (  # noqa: E402
+    load_account_console,
+    place_account_changes,
+    preview_qty_delta,
+)
+from ec_handoff import EcHandoffError, verify_ec_token  # noqa: E402
 from checkout import checkout_quote  # noqa: E402
 from docgen import (  # noqa: E402
     DEFAULT_TEMPLATE,
     download_content_version,
     generate_quote_pdf,
 )
-from service import GetPricingRequest, OrgSession, get_pricing  # noqa: E402
+from service import (  # noqa: E402
+    BuyerInfo,
+    GetPricingRequest,
+    OrgSession,
+    get_pricing,
+    hydrate_catalog,
+)
 
 # In-memory quote summaries for /quote/{id} branded page (demo only).
 QUOTE_CACHE: dict[str, dict] = {}
@@ -60,11 +72,50 @@ def _warnings_html(warnings: list) -> str:
     shown = [
         w
         for w in warnings
-        if "Path B Bundle" not in str(w) and "Bundle & Save" not in str(w)
+        if "Path B Bundle" not in str(w)
+        and "Bundle & Save" not in str(w)
+        and "Created new Account" not in str(w)
+        and "Created Contact" not in str(w)
+        and "Using seeded demo Account" not in str(w)
     ]
     if not shown:
         return ""
     return "<ul>" + "".join(f"<li>{w}</li>" for w in shown) + "</ul>"
+
+
+def _buyer_card_html(data: dict) -> str:
+    account = data.get("accountName") or "—"
+    account_id = data.get("accountId") or ""
+    contact = data.get("contactName") or ""
+    email = data.get("contactEmail") or ""
+    created = bool(data.get("accountCreated"))
+    badge = (
+        "<span class='line-badge'>New customer</span>"
+        if created
+        else (
+            "<span class='line-badge'>Demo account</span>"
+            if account in ("Acme", "Prestige Worldwide", "BambooHR UK Demo")
+            and not data.get("contactId")
+            else ""
+        )
+    )
+    contact_line = ""
+    if contact or email:
+        who = contact or "Buyer"
+        contact_line = (
+            f"<p class='buyer-contact'>{who}"
+            + (f" · {email}" if email else "")
+            + "</p>"
+        )
+    id_bit = f"<code>{account_id}</code>" if account_id else ""
+    return (
+        "<section class='buyer-card'>"
+        f"<p class='buyer-kicker'>Customer in Salesforce {badge}</p>"
+        f"<h3 class='buyer-account'>{account}</h3>"
+        f"{contact_line}"
+        f"<p class='buyer-ids'>Account {id_bit}</p>"
+        "</section>"
+    )
 
 
 _PATH_B_SKUS = frozenset({"BAMBOO-ADD-PAYROLL", "BAMBOO-ADD-BENEFITS"})
@@ -407,6 +458,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/health":
             try:
                 sess = _session()
+                base = (sess._instance or "").rstrip("/")
                 self._json(
                     200,
                     {
@@ -414,8 +466,71 @@ class Handler(BaseHTTPRequestHandler):
                         "service": "bamboohr-get-pricing",
                         "authMode": sess.auth_mode,
                         "org": sess.alias,
+                        "instanceUrl": base,
+                        "links": {
+                            "home": f"{base}/lightning/page/home" if base else "",
+                            "accounts": (
+                                f"{base}/lightning/o/Account/home" if base else ""
+                            ),
+                            "orders": f"{base}/lightning/o/Order/home" if base else "",
+                            "assets": f"{base}/lightning/o/Asset/home" if base else "",
+                        },
                     },
                 )
+            except Exception as exc:  # noqa: BLE001
+                self._json(503, {"ok": False, "error": str(exc)})
+            return
+        if path == "/api/catalog":
+            try:
+                qs = parse_qs(urlparse(self.path).query)
+                country = (qs.get("country") or ["US"])[0]
+                self._json(200, hydrate_catalog(_session(), country))
+            except ValueError as exc:
+                self._json(400, {"ok": False, "error": str(exc)})
+            except Exception as exc:  # noqa: BLE001
+                self._json(503, {"ok": False, "error": str(exc)})
+            return
+        if path == "/api/ec-handoff":
+            try:
+                qs = parse_qs(urlparse(self.path).query)
+                token = (qs.get("token") or [None])[0]
+                claims = verify_ec_token(token or "")
+                self._json(
+                    200,
+                    {
+                        "ok": True,
+                        "accountId": claims["accountId"],
+                        "contactId": claims["contactId"],
+                        "exp": claims["exp"],
+                    },
+                )
+            except EcHandoffError as exc:
+                self._json(401, {"ok": False, "error": str(exc)})
+            except Exception as exc:  # noqa: BLE001
+                self._json(503, {"ok": False, "error": str(exc)})
+            return
+        if path == "/api/account-console":
+            try:
+                qs = parse_qs(urlparse(self.path).query)
+                account_id = (qs.get("accountId") or [None])[0]
+                company = (qs.get("company") or [None])[0]
+                ec_token = (qs.get("ecToken") or [None])[0]
+                if ec_token:
+                    claims = verify_ec_token(ec_token)
+                    account_id = claims["accountId"]
+                    company = None
+                self._json(
+                    200,
+                    load_account_console(
+                        _session(),
+                        account_id=account_id,
+                        company=company,
+                    ),
+                )
+            except EcHandoffError as exc:
+                self._json(401, {"ok": False, "error": str(exc)})
+            except ValueError as exc:
+                self._json(400, {"ok": False, "error": str(exc)})
             except Exception as exc:  # noqa: BLE001
                 self._json(503, {"ok": False, "error": str(exc)})
             return
@@ -457,6 +572,13 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(raw)
             return
 
+        if path in ("/account", "/account.html", "/licenses"):
+            self._send(
+                200,
+                (STATIC / "account.html").read_bytes(),
+                "text/html; charset=utf-8",
+            )
+            return
         if path.startswith("/quote/"):
             qid = path.split("/quote/", 1)[1].strip("/")
             data = QUOTE_CACHE.get(qid)
@@ -470,6 +592,7 @@ class Handler(BaseHTTPRequestHandler):
             line_html = _lines_table(lines, path_b=path_b, volume_percent=vol_pct)
             pricing_logic = _pricing_logic_html(data)
             discount_stack = _discount_stack_html(data)
+            buyer_card = _buyer_card_html(data)
             trial_note = ""
             convert_section = ""
             convert_btn = ""
@@ -528,6 +651,7 @@ class Handler(BaseHTTPRequestHandler):
                 "{{lineItems}}": line_html,
                 "{{pricingLogic}}": pricing_logic,
                 "{{discountStack}}": discount_stack,
+                "{{buyerCard}}": buyer_card,
                 "{{trialNote}}": trial_note,
                 "{{convertPreview}}": convert_section,
                 "{{convertTrialButton}}": convert_btn,
@@ -552,6 +676,14 @@ class Handler(BaseHTTPRequestHandler):
                 raw_addons = body.get("addonSkus") or body.get("addons") or []
                 if isinstance(raw_addons, str):
                     raw_addons = [s.strip() for s in raw_addons.split(",") if s.strip()]
+                buyer_raw = body.get("buyer") if isinstance(body.get("buyer"), dict) else {
+                    "company": body.get("company") or body.get("accountName"),
+                    "firstName": body.get("firstName"),
+                    "lastName": body.get("lastName"),
+                    "email": body.get("email"),
+                    "phone": body.get("phone"),
+                    "jobTitle": body.get("jobTitle"),
+                }
                 req = GetPricingRequest(
                     headcount=int(body.get("headcount") or 0),
                     country=str(body.get("country") or "US"),
@@ -561,6 +693,7 @@ class Handler(BaseHTTPRequestHandler):
                     free_trial=bool(
                         body.get("freeTrial") or body.get("free_trial")
                     ),
+                    buyer=BuyerInfo.from_mapping(buyer_raw),
                 )
                 result = get_pricing(_session(), req)
                 payload = result.as_dict()
@@ -589,6 +722,7 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 return
             try:
+                name_parts = str(cached.get("contactName") or "").split()
                 req = GetPricingRequest(
                     headcount=int(cached.get("headcount") or 0),
                     country=str(cached.get("country") or "US"),
@@ -596,6 +730,15 @@ class Handler(BaseHTTPRequestHandler):
                     addon_skus=list(cached.get("addonSkus") or []),
                     place_quote=True,
                     free_trial=False,
+                    account_id=str(cached.get("accountId") or "") or None,
+                    buyer=BuyerInfo.from_mapping(
+                        {
+                            "company": cached.get("accountName"),
+                            "email": cached.get("contactEmail"),
+                            "firstName": name_parts[0] if name_parts else "",
+                            "lastName": " ".join(name_parts[1:]),
+                        }
+                    ),
                 )
                 result = get_pricing(_session(), req)
                 payload = result.as_dict()
@@ -608,6 +751,67 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(400, {"ok": False, "error": str(exc)})
             return
 
+        if path == "/api/account-amend":
+            account_id = str(body.get("accountId") or "").strip()
+            asset_id = str(body.get("assetId") or "").strip() or None
+            raw_addons = body.get("addonSkus") or body.get("addons") or []
+            if not isinstance(raw_addons, list):
+                raw_addons = []
+            addon_skus = [str(s).strip() for s in raw_addons if str(s).strip()]
+            new_qty: int | None
+            if body.get("newQty") in (None, ""):
+                new_qty = None
+            else:
+                try:
+                    new_qty = int(body.get("newQty"))
+                except (TypeError, ValueError):
+                    self._json(400, {"ok": False, "error": "newQty must be an integer"})
+                    return
+            if not account_id:
+                self._json(400, {"ok": False, "error": "accountId is required"})
+                return
+            if new_qty is None and not addon_skus:
+                self._json(
+                    400,
+                    {
+                        "ok": False,
+                        "error": "Provide newQty and/or addonSkus to place a change",
+                    },
+                )
+                return
+            try:
+                result = place_account_changes(
+                    _session(),
+                    account_id=account_id,
+                    asset_id=asset_id,
+                    new_qty=new_qty,
+                    addon_skus=addon_skus,
+                )
+                self._json(200 if result.ok else 400, result.as_dict())
+            except Exception as exc:  # noqa: BLE001
+                self._json(400, {"ok": False, "error": str(exc)})
+            return
+
+        if path == "/api/account-preview":
+            try:
+                list_pepm = float(body.get("listPepm") or 0)
+                current_qty = int(body.get("currentQty") or 0)
+                new_qty = int(body.get("newQty") or 0)
+                self._json(
+                    200,
+                    {
+                        "ok": True,
+                        **preview_qty_delta(
+                            list_pepm=list_pepm,
+                            current_qty=current_qty,
+                            new_qty=new_qty,
+                        ),
+                    },
+                )
+            except Exception as exc:  # noqa: BLE001
+                self._json(400, {"ok": False, "error": str(exc)})
+            return
+
         if path == "/api/checkout":
             quote_id = str(body.get("quoteId") or "").strip()
             if not quote_id:
@@ -616,14 +820,44 @@ class Handler(BaseHTTPRequestHandler):
             amend_raw = body.get("amendQty")
             amend_qty = int(amend_raw) if amend_raw not in (None, "") else None
             try:
+                sess = _session()
                 result = checkout_quote(
-                    _session(),
+                    sess,
                     quote_id,
                     amend_qty=amend_qty,
                     poll_timeout=int(body.get("pollTimeout") or 180),
                 )
                 payload = result.as_dict()
-                cached = QUOTE_CACHE.get(quote_id)
+                cached = QUOTE_CACHE.get(quote_id) or {}
+                base = (sess._instance or "").rstrip("/")
+                account_id = cached.get("accountId") or ""
+                contact_id = cached.get("contactId") or ""
+                order_id = payload.get("orderId") or ""
+                asset_ids = payload.get("assetIds") or []
+
+                def _lex(entity: str, rid: str) -> str:
+                    return f"{base}/lightning/r/{entity}/{rid}/view" if rid else ""
+
+                payload.update(
+                    {
+                        "instanceUrl": base,
+                        "accountId": account_id,
+                        "accountName": cached.get("accountName") or "",
+                        "accountCreated": bool(cached.get("accountCreated")),
+                        "contactId": contact_id,
+                        "contactName": cached.get("contactName") or "",
+                        "contactEmail": cached.get("contactEmail") or "",
+                        "planName": cached.get("planName") or "",
+                        "monthlyTotal": cached.get("monthlyTotal"),
+                        "links": {
+                            "account": _lex("Account", account_id),
+                            "contact": _lex("Contact", contact_id),
+                            "quote": _lex("Quote", quote_id),
+                            "order": _lex("Order", order_id),
+                            "assets": [_lex("Asset", aid) for aid in asset_ids if aid],
+                        },
+                    }
+                )
                 if cached is not None:
                     cached["checkout"] = payload
                 self._json(200 if result.ok else 400, payload)

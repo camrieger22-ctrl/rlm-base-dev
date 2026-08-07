@@ -15,6 +15,7 @@
 
   const FX = { US: 1, CA: 1.35, UK: 0.79 };
   const CUR = { US: "USD", CA: "CAD", UK: "GBP" };
+  // Seeded demo lists (USD). Overwritten by GET /api/catalog with currency-native PBE prices.
   const PLAN_LIST = { "BAMBOO-CORE": 10, "BAMBOO-PRO": 17, "BAMBOO-ELITE": 25 };
   const PLAN_LABELS = {
     "BAMBOO-CORE": "Core",
@@ -33,6 +34,9 @@
     "BAMBOO-ADD-TIME": "Time & Attendance",
     "BAMBOO-ADD-GLOBAL": "Global Employment",
   };
+  let useOrgList = false;
+  let coreFlatList = 250;
+  let catalogBadge = null;
   const VOLUME_BANDS = [
     { lo: 1, hi: 24, rate: 0, label: "1–24" },
     { lo: 25, hi: 75, rate: 0.05, label: "25–75" },
@@ -72,10 +76,13 @@
     return a.includes("BAMBOO-ADD-PAYROLL") && a.includes("BAMBOO-ADD-BENEFITS");
   };
 
-  const listPlan = (sku) => round2(PLAN_LIST[sku] * fx());
-  const listAddon = (sku) => round2(ADDON_LIST[sku] * fx());
-  const flatPrice = () => round2(250 * fx());
   const round2 = (n) => Math.round(n * 100) / 100;
+  const listPlan = (sku) =>
+    useOrgList ? round2(PLAN_LIST[sku]) : round2(PLAN_LIST[sku] * fx());
+  const listAddon = (sku) =>
+    useOrgList ? round2(ADDON_LIST[sku]) : round2(ADDON_LIST[sku] * fx());
+  const flatPrice = () =>
+    useOrgList ? round2(coreFlatList) : round2(coreFlatList * fx());
 
   const netPlanPepm = (hc) => {
     if (usesFlat()) return null;
@@ -140,9 +147,10 @@
   const syncCountryAddons = () => {
     const nonUs = country.value === "CA" || country.value === "UK";
     form.querySelectorAll('input[name="addon"][data-us-only]').forEach((el) => {
-      el.disabled = nonUs;
-      if (nonUs) el.checked = false;
-      el.closest(".module-card")?.classList.toggle("disabled", nonUs);
+      const forceOff = nonUs || el.dataset.available === "false";
+      el.disabled = forceOff;
+      if (forceOff) el.checked = false;
+      el.closest(".module-card")?.classList.toggle("disabled", forceOff);
     });
     if (addonHint) {
       if (nonUs) {
@@ -159,6 +167,14 @@
       if (el) el.textContent = displayList(listPlan(card.dataset.plan));
       const curEl = card.querySelector(".price .cur");
       if (curEl) curEl.textContent = `${cur}*`;
+      const nameEl = card.querySelector(".plan-name");
+      if (nameEl && PLAN_LABELS[card.dataset.plan]) {
+        nameEl.textContent = PLAN_LABELS[card.dataset.plan];
+      }
+      const flatNote = card.querySelector(".price-meta.flat-note");
+      if (flatNote && card.dataset.plan === "BAMBOO-CORE") {
+        flatNote.textContent = `${cur} ${displayList(flatPrice())}/mo flat for ≤25 employees`;
+      }
     });
     form.querySelectorAll("input[name=addon][data-list]").forEach((input) => {
       const card = input.closest(".module-card");
@@ -166,7 +182,61 @@
       if (el) el.textContent = displayList(listAddon(input.value));
       const unit = card?.querySelector(".mod-price span");
       if (unit) unit.textContent = `${cur} /emp/mo`;
+      const nameEl = card?.querySelector(".mod-name");
+      if (nameEl && ADDON_LABELS[input.value]) {
+        const sub = nameEl.querySelector(".mod-sub");
+        nameEl.textContent = ADDON_LABELS[input.value];
+        if (sub) nameEl.appendChild(sub);
+      }
     });
+    if (catalogBadge) {
+      catalogBadge.textContent = useOrgList
+        ? `List prices from Salesforce price book (${cur})`
+        : `Demo list prices (${cur})`;
+    }
+  };
+
+  const applyCatalog = (data) => {
+    if (!data || !data.ok) return;
+    (data.plans || []).forEach((p) => {
+      if (p.sku in PLAN_LIST) PLAN_LIST[p.sku] = Number(p.listPepm);
+      if (p.name) PLAN_LABELS[p.sku] = p.name;
+      const card = document.querySelector(`.plan-card[data-plan="${p.sku}"]`);
+      if (card) {
+        card.dataset.list = String(p.listPepm);
+        card.dataset.available = p.available ? "true" : "false";
+        card.classList.toggle("disabled", !p.available);
+        card.disabled = !p.available;
+      }
+    });
+    (data.addons || []).forEach((a) => {
+      if (a.sku in ADDON_LIST) ADDON_LIST[a.sku] = Number(a.listPepm);
+      if (a.name) ADDON_LABELS[a.sku] = a.name;
+      const input = form.querySelector(`input[name="addon"][value="${a.sku}"]`);
+      if (input) {
+        input.dataset.list = String(a.listPepm);
+        input.dataset.available = a.available ? "true" : "false";
+      }
+    });
+    if (data.coreFlat && data.coreFlat.listPrice != null) {
+      coreFlatList = Number(data.coreFlat.listPrice);
+    }
+    useOrgList = data.source === "pricebook" || data.source === "mixed";
+    syncCountryAddons();
+    syncEstimate();
+  };
+
+  const loadCatalog = async () => {
+    try {
+      const resp = await fetch(`/api/catalog?country=${encodeURIComponent(country.value)}`);
+      const data = await resp.json();
+      if (!resp.ok || !data.ok) throw new Error(data.error || "catalog failed");
+      applyCatalog(data);
+    } catch (_) {
+      useOrgList = false;
+      syncCountryAddons();
+      syncEstimate();
+    }
   };
 
   const isSmallBizHeadcount = () => {
@@ -324,8 +394,7 @@
   };
 
   country.addEventListener("change", () => {
-    syncCountryAddons();
-    syncEstimate();
+    loadCatalog();
   });
   headcount.addEventListener("input", () => setHeadcount(headcount.value));
   headcount.addEventListener("change", () => setHeadcount(headcount.value));
@@ -344,13 +413,36 @@
   });
   document.getElementById("freeTrial")?.addEventListener("change", syncEstimate);
 
+  catalogBadge = document.getElementById("catalogSource");
   syncCountryAddons();
   wasSmallBiz = isSmallBizHeadcount();
   selectPlan(planSku.value || "BAMBOO-PRO");
+  loadCatalog();
 
   const heroForm = document.getElementById("hero-lead-form");
   const heroCountry = document.getElementById("heroCountry");
   const heroHeadcount = document.getElementById("heroHeadcount");
+
+  const openSf = document.getElementById("openSalesforce");
+  const openAcct = document.getElementById("openSfAccounts");
+  openSf?.addEventListener("click", (event) => {
+    if (!openSf.getAttribute("href") || openSf.getAttribute("href") === "#") {
+      event.preventDefault();
+      status.textContent = "Salesforce link not ready yet — wait a moment and try again.";
+    }
+  });
+  fetch("/api/health")
+    .then((r) => r.json())
+    .then((data) => {
+      if (!data.ok || !data.links) return;
+      if (openSf && data.links.home) openSf.href = data.links.home;
+      if (openAcct && data.links.accounts) {
+        openAcct.href = data.links.accounts;
+        openAcct.hidden = false;
+      }
+    })
+    .catch(() => {});
+
   if (heroCountry) heroCountry.value = country.value;
   if (heroHeadcount) {
     const hc = Number(headcount.value) || 50;
@@ -362,6 +454,7 @@
   }
   heroCountry?.addEventListener("change", () => {
     country.value = heroCountry.value;
+    // country "change" already triggers loadCatalog
     country.dispatchEvent(new Event("change"));
   });
   country.addEventListener("change", () => {
@@ -369,6 +462,61 @@
       heroCountry.value = country.value;
     }
   });
+  const readHeroLead = () => {
+    try {
+      return JSON.parse(sessionStorage.getItem("bhHeroLead") || "{}") || {};
+    } catch (_) {
+      return {};
+    }
+  };
+
+  const saveHeroLead = (lead) => {
+    try {
+      sessionStorage.setItem("bhHeroLead", JSON.stringify(lead));
+    } catch (_) {
+      /* ignore quota / private mode */
+    }
+  };
+
+  const fillDemoCustomer = () => {
+    if (!heroForm) return null;
+    const stamp = new Date()
+      .toISOString()
+      .slice(5, 16)
+      .replace(/[-:T]/g, "");
+    const lead = {
+      firstName: "Casey",
+      lastName: "Nguyen",
+      email: `casey.nguyen+nw${stamp}@northwind.example`,
+      company: "Northwind Robotics",
+      phone: "415-555-0148",
+      jobTitle: "Head of People",
+    };
+    if (heroForm.firstName) heroForm.firstName.value = lead.firstName;
+    if (heroForm.lastName) heroForm.lastName.value = lead.lastName;
+    if (heroForm.email) heroForm.email.value = lead.email;
+    if (heroForm.company) heroForm.company.value = lead.company;
+    if (heroForm.phone) heroForm.phone.value = lead.phone;
+    if (heroForm.jobTitle) heroForm.jobTitle.value = lead.jobTitle;
+    if (heroCountry) {
+      heroCountry.value = "US";
+      country.value = "US";
+      country.dispatchEvent(new Event("change"));
+    }
+    if (heroHeadcount) {
+      heroHeadcount.value = "50";
+      setHeadcount(50);
+    }
+    saveHeroLead(lead);
+    status.textContent =
+      "Demo customer loaded: Northwind Robotics — open Salesforce beside this tab, then continue.";
+    status.classList.remove("error");
+    heroForm.scrollIntoView({ behavior: "smooth", block: "center" });
+    return lead;
+  };
+
+  document.getElementById("loadDemoCustomer")?.addEventListener("click", fillDemoCustomer);
+
   heroForm?.addEventListener("submit", (event) => {
     event.preventDefault();
     if (heroCountry) {
@@ -381,19 +529,59 @@
       lastName: heroForm.lastName?.value || "",
       email: heroForm.email?.value || "",
       company: heroForm.company?.value || "",
+      phone: heroForm.phone?.value || "",
+      jobTitle: heroForm.jobTitle?.value || "",
     };
-    try {
-      sessionStorage.setItem("bhHeroLead", JSON.stringify(lead));
-    } catch (_) {
-      /* ignore quota / private mode */
+    if (!lead.company || !lead.email) {
+      status.textContent =
+        "Enter company name and work email so we can create your Salesforce Account.";
+      status.classList.add("error");
+      return;
     }
+    status.textContent = "";
+    status.classList.remove("error");
+    saveHeroLead(lead);
     document.getElementById("plans")?.scrollIntoView({ behavior: "smooth", block: "start" });
   });
 
+  // Prefill hero from a prior visit in this browser session.
+  const existingLead = readHeroLead();
+  if (heroForm && existingLead.email) {
+    if (heroForm.firstName) heroForm.firstName.value = existingLead.firstName || "";
+    if (heroForm.lastName) heroForm.lastName.value = existingLead.lastName || "";
+    if (heroForm.email) heroForm.email.value = existingLead.email || "";
+    if (heroForm.company) heroForm.company.value = existingLead.company || "";
+    if (heroForm.phone) heroForm.phone.value = existingLead.phone || "";
+    if (heroForm.jobTitle) heroForm.jobTitle.value = existingLead.jobTitle || "";
+  }
+
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    status.textContent = "Creating quote in Revenue Cloud…";
     status.classList.remove("error");
+    let buyer = readHeroLead();
+    // Prefer live hero fields if the user is still on the page.
+    if (heroForm) {
+      buyer = {
+        firstName: heroForm.firstName?.value || buyer.firstName || "",
+        lastName: heroForm.lastName?.value || buyer.lastName || "",
+        email: heroForm.email?.value || buyer.email || "",
+        company: heroForm.company?.value || buyer.company || "",
+        phone: heroForm.phone?.value || buyer.phone || "",
+        jobTitle: heroForm.jobTitle?.value || buyer.jobTitle || "",
+      };
+      saveHeroLead(buyer);
+    }
+    if (!buyer.company || !buyer.email) {
+      status.textContent =
+        "New customer required: use Get Pricing above with company + work email, then get your quote.";
+      status.classList.add("error");
+      document.querySelector(".get-pricing-card")?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+      return;
+    }
+    status.textContent = "Creating Account / Contact / Quote in Revenue Cloud…";
     submit.disabled = true;
     try {
       const body = {
@@ -403,6 +591,7 @@
         addonSkus: selectedAddons(),
         placeQuote: true,
         freeTrial: !!document.getElementById("freeTrial")?.checked,
+        buyer,
       };
       const resp = await fetch("/api/get-pricing", {
         method: "POST",

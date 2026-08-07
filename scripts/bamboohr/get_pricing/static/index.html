@@ -16,6 +16,9 @@
       <img class="logo-wordmark" src="/static/brand/wordmark-green.png" alt="bambooHR" />
     </a>
     <div class="header-right">
+      <nav class="site-nav">
+        <a href="/account">Licenses &amp; billing</a>
+      </nav>
       <label class="country-inline">
         <span class="sr-only">Country</span>
         <select id="country" name="country" aria-label="Country">
@@ -34,6 +37,31 @@
       volume bands and Bundle &amp; Save apply automatically.
     </p>
   </div>
+
+  <aside class="demo-playbook" aria-label="SE demo playbook">
+    <div class="demo-playbook-inner">
+      <div class="demo-playbook-copy">
+        <p class="demo-playbook-kicker">SE demo tip</p>
+        <h2>Run it side-by-side with Salesforce</h2>
+        <ol class="demo-steps">
+          <li><strong>Load demo customer</strong> — pre-fills <em>Northwind Robotics</em> (easy to find in the org).</li>
+          <li><strong>Open Salesforce</strong> in a second window (Accounts list).</li>
+          <li>Quote → place order here, then click through Account → Order → Assets over there.</li>
+        </ol>
+      </div>
+      <div class="demo-playbook-actions">
+        <button type="button" class="demo-btn demo-btn-primary" id="loadDemoCustomer">
+          Load demo customer
+        </button>
+        <a class="demo-btn demo-btn-secondary" id="openSalesforce" href="#" target="_blank" rel="noopener">
+          Open Salesforce
+        </a>
+        <a class="demo-btn demo-btn-ghost" id="openSfAccounts" href="#" target="_blank" rel="noopener" hidden>
+          Accounts
+        </a>
+      </div>
+    </div>
+  </aside>
 
   <section class="pricing-hero" aria-label="Get BambooHR plans and pricing">
     <div class="pricing-hero-inner">
@@ -69,10 +97,10 @@
               <input name="lastName" type="text" placeholder="Last Name" autocomplete="family-name" />
             </label>
           </div>
-          <label>
-            <span class="sr-only">Work email</span>
-            <input name="email" type="email" placeholder="Work Email" autocomplete="email" required />
-          </label>
+            <label>
+              <span class="sr-only">Work email</span>
+              <input name="email" type="email" placeholder="Work Email *" autocomplete="email" required />
+            </label>
           <div class="hero-fields hero-fields--2">
             <label>
               <span class="sr-only">Job title</span>
@@ -80,7 +108,7 @@
             </label>
             <label>
               <span class="sr-only">Company name</span>
-              <input name="company" type="text" placeholder="Company Name" autocomplete="organization" />
+              <input name="company" type="text" placeholder="Company Name *" autocomplete="organization" required />
             </label>
           </div>
           <div class="hero-fields hero-fields--2">
@@ -225,6 +253,7 @@
             </button>
           </div>
           <p class="plans-footnote">*Volume and non-profit discounts are available</p>
+          <p class="plans-footnote catalog-source" id="catalogSource">Loading list prices from Salesforce…</p>
           <p class="hint" id="flatHint" hidden>
             ≤25 employees on Core uses flat SKU <code>BAMBOO-CORE-FLAT-SM</code> at qty 1 (not PEPM × headcount).
           </p>

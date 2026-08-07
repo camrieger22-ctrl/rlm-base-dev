@@ -15,7 +15,30 @@
                     <button type="button" class="cta" onclick={handleGetPricing}>
                         Continue to Get Pricing
                     </button>
+                    <template if:true={showManageLicenses}>
+                        <button
+                            type="button"
+                            class="cta secondary"
+                            onclick={handleManageLicenses}
+                            disabled={handoffBusy}
+                        >
+                            Manage licenses &amp; billing
+                        </button>
+                    </template>
+                    <template if:false={showManageLicenses}>
+                        <template if:true={showSignInForLicenses}>
+                            <button type="button" class="cta secondary" onclick={handleSignIn}>
+                                Sign in for licenses
+                            </button>
+                        </template>
+                    </template>
                 </div>
+                <template if:true={showIdentityMessage}>
+                    <p class="identity" role="status">{identityMessage}</p>
+                </template>
+                <template if:true={handoffError}>
+                    <p class="warn" role="alert">{handoffError}</p>
+                </template>
                 <p class="meta">Destination: <code>{displayUrl}</code></p>
             </template>
             <template if:false={hasUrl}>

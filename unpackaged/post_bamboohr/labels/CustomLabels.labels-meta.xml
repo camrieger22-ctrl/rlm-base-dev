@@ -8,4 +8,12 @@
         <shortDescription>BambooHR Get Pricing BFF base URL</shortDescription>
         <value>http://127.0.0.1:8765</value>
     </labels>
+    <labels>
+        <fullName>RLM_Bamboo_Ec_Handoff_Secret</fullName>
+        <categories>BambooHR</categories>
+        <language>en_US</language>
+        <protected>false</protected>
+        <shortDescription>HMAC secret for EC → BFF licenses handoff</shortDescription>
+        <value>bh-ec-handoff-demo-master-2026</value>
+    </labels>
 </CustomLabels>

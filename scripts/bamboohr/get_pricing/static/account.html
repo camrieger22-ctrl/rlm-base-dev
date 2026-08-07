@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Licenses &amp; billing · BambooHR</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body class="account-page">
+  <header class="site-header">
+    <a class="logo-link" href="/" aria-label="BambooHR home">
+      <img class="logo-wordmark" src="/static/brand/wordmark-green.png" alt="bambooHR" />
+    </a>
+    <div class="header-right">
+      <nav class="site-nav">
+        <a href="/">Get Pricing</a>
+        <a href="/account" aria-current="page">Licenses &amp; billing</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="account-wrap">
+    <header class="account-hero">
+      <div>
+        <p class="account-kicker">Manage account</p>
+        <h1>Licenses &amp; billing</h1>
+        <p class="account-sub" id="accountSub">
+          See what you own, recent orders, and the effect of changes before you place them.
+        </p>
+      </div>
+      <a class="demo-btn demo-btn-secondary" id="openSfAccount" href="#" target="_blank" rel="noopener" hidden>
+        Open in Salesforce
+      </a>
+    </header>
+
+    <section class="account-login card-panel" id="loginPanel">
+      <h2>Continue as customer</h2>
+      <p class="muted">
+        Demo pin (Experience Cloud login comes later). Use the Account from your last purchase,
+        or look up <strong>Northwind Robotics</strong>.
+      </p>
+      <div class="account-login-row">
+        <label>
+          <span>Company name</span>
+          <input type="text" id="companyInput" placeholder="Northwind Robotics" value="Northwind Robotics" />
+        </label>
+        <label>
+          <span>Or Account Id</span>
+          <input type="text" id="accountIdInput" placeholder="001…" autocomplete="off" />
+        </label>
+        <button type="button" class="demo-btn demo-btn-primary" id="loadAccountBtn">Open console</button>
+      </div>
+      <p class="status" id="loginStatus" role="status"></p>
+    </section>
+
+    <div id="consoleRoot" hidden>
+      <p class="identity-note" id="identityNote"></p>
+
+      <div class="account-grid">
+        <div class="account-main">
+          <section class="card-panel sub-card">
+            <div class="panel-head">
+              <div>
+                <h2>Your subscription</h2>
+                <p class="muted" id="subMeta"></p>
+              </div>
+              <span class="pill-live" id="subLivePill">Live in Salesforce</span>
+            </div>
+            <ul class="sub-lines" id="subLines"></ul>
+            <div class="sub-total-row">
+              <span>Account recurring total</span>
+              <strong id="subRecurring">—</strong>
+            </div>
+          </section>
+
+          <section class="card-panel">
+            <h2>Expand your plan</h2>
+            <p class="muted">Adjust employee count. Preview updates as you move — Place order commits an OOTB Asset amend.</p>
+            <div class="expand-block">
+              <div class="expand-label-row">
+                <span>Employees</span>
+                <strong id="qtyDeltaLabel">No change</strong>
+              </div>
+              <div class="expand-row">
+                <button type="button" class="hc-step" data-qty-delta="-10">−10</button>
+                <button type="button" class="hc-step" id="qtyMinus" aria-label="Decrease">−</button>
+                <input type="number" id="qtyInput" min="1" max="100000" />
+                <button type="button" class="hc-step" id="qtyPlus" aria-label="Increase">+</button>
+                <button type="button" class="hc-step" data-qty-delta="10">+10</button>
+              </div>
+              <input type="range" id="qtyRange" min="1" max="600" />
+            </div>
+          </section>
+
+          <section class="card-panel">
+            <div class="panel-head">
+              <h2>Add modules</h2>
+              <span class="count-pill" id="moduleCount">0 available</span>
+            </div>
+            <p class="muted">
+              Toggle modules you don’t own. Place order creates a supplemental Quote → Order → Assets in Salesforce.
+            </p>
+            <div class="module-grid module-grid--compact" id="moduleGrid"></div>
+          </section>
+
+          <section class="card-panel checkout-card">
+            <h2>Order summary</h2>
+            <ul class="checkout-lines" id="checkoutLines"></ul>
+            <div class="checkout-math">
+              <div><span>Current monthly</span><strong id="prevCurrent">—</strong></div>
+              <div><span>After this change</span><strong id="prevAfter">—</strong></div>
+              <div class="checkout-diff"><span>Difference</span><strong id="prevDiff">—</strong></div>
+            </div>
+            <div class="due-today">
+              <span>Due today <em>(estimate)</em></span>
+              <strong id="dueToday">—</strong>
+            </div>
+            <button type="button" class="place-order-btn" id="placeAmendBtn">Place order</button>
+            <p class="status" id="amendStatus" role="status"></p>
+          </section>
+        </div>
+
+        <aside class="account-aside">
+          <section class="card-panel card-panel--dark unlock-card" id="unlockCard">
+            <p class="unlock-kicker">Volume discount</p>
+            <h2 id="unlockTitle">Select a volume band</h2>
+            <p id="unlockBody">Increase headcount to unlock deeper PEPM discounts on your plan.</p>
+          </section>
+          <section class="card-panel">
+            <h2>Volume levels</h2>
+            <table class="acct-table" id="volumeTable">
+              <thead>
+                <tr><th>Employees</th><th>Off list</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </section>
+          <section class="card-panel card-panel--rc">
+            <h2>Connected to Revenue Cloud</h2>
+            <p>Assets, Orders, and amends sync to Salesforce — this page is the branded shell.</p>
+          </section>
+          <section class="card-panel">
+            <h2>Recent activity</h2>
+            <ul class="activity-list" id="orderList"></ul>
+          </section>
+        </aside>
+      </div>
+    </div>
+  </main>
+
+  <script src="/static/account.js"></script>
+</body>
+</html>

@@ -38,6 +38,8 @@
         </div>
       </header>
 
+      {{buyerCard}}
+
       {{pricingLogic}}
 
       {{trialNote}}
@@ -56,7 +58,7 @@
         <div class="warnings">{{warnings}}</div>
       </div>
 
-      <div class="quote-actions">
+      <div class="quote-actions" id="quoteActions">
         <button type="button" id="checkoutBtn" class="quote-cta">Place order</button>
         <div class="quote-actions-secondary">
           {{convertTrialButton}}
@@ -67,7 +69,30 @@
       </div>
 
       <p class="status" id="checkoutStatus" aria-live="polite"></p>
-      <pre class="checkout-result muted" id="checkoutResult" hidden></pre>
+
+      <section class="order-success" id="orderSuccess" hidden>
+        <div class="order-success-badge" aria-hidden="true">✓</div>
+        <p class="order-success-kicker">You're all set</p>
+        <h3 class="order-success-title">Welcome, <span id="successCompany">{{accountName}}</span></h3>
+        <p class="order-success-lede">
+          Your order is activated in Salesforce Revenue Cloud — Account, Quote, Order, and Assets are live.
+        </p>
+        <div class="success-metrics" id="successMetrics"></div>
+        <div class="success-links" id="successLinks"></div>
+        <p class="success-demo-tip">
+          <strong>Demo tip:</strong> keep Salesforce open beside this tab — open Account, then Order, then an Asset.
+        </p>
+        <div class="quote-actions-secondary success-actions">
+          <a class="button-link" id="openSfAccountBtn" href="#" target="_blank" rel="noopener" hidden>Open Account in Salesforce</a>
+          <a class="button-link" id="openLicensesBtn" href="/account" hidden>Licenses &amp; billing</a>
+          <button type="button" id="docgenBtnSuccess" class="secondary">Download PDF</button>
+          <a class="button-link secondary" href="/">Start another estimate</a>
+        </div>
+        <details class="success-raw">
+          <summary>Technical details</summary>
+          <pre class="checkout-result muted" id="checkoutResult"></pre>
+        </details>
+      </section>
     </article>
 
     <p class="quote-footnote">
@@ -86,51 +111,57 @@
   <script>
     (function () {
       const quoteId = "{{quoteId}}";
+      const accountName = "{{accountName}}";
       const btn = document.getElementById("checkoutBtn");
       const docgenBtn = document.getElementById("docgenBtn");
+      const docgenBtnSuccess = document.getElementById("docgenBtnSuccess");
       const status = document.getElementById("checkoutStatus");
       const out = document.getElementById("checkoutResult");
+      const success = document.getElementById("orderSuccess");
+      const actions = document.getElementById("quoteActions");
       if (!quoteId) return;
 
-      if (docgenBtn) {
-        docgenBtn.addEventListener("click", async () => {
-          docgenBtn.disabled = true;
-          status.textContent = "Generating quote PDF (DocGen)…";
-          status.classList.remove("error");
-          try {
-            const resp = await fetch("/api/docgen-pdf", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ quoteId }),
-            });
-            const data = await resp.json();
-            if (!data.ok || !data.downloadUrl) {
-              status.textContent = data.error || "PDF generation failed";
-              status.classList.add("error");
-              docgenBtn.disabled = false;
-              return;
-            }
-            status.textContent =
-              "PDF ready (" + (data.fileExtension || "pdf") + ") — downloading…";
-            const fileResp = await fetch(data.downloadUrl);
-            if (!fileResp.ok) {
-              const errBody = await fileResp.json().catch(() => ({}));
-              throw new Error(errBody.error || "Download failed");
-            }
-            const blob = await fileResp.blob();
-            const a = document.createElement("a");
-            a.href = URL.createObjectURL(blob);
-            a.download = "BambooHR-Quote-" + quoteId + "." + (data.fileExtension || "pdf");
-            a.click();
-            URL.revokeObjectURL(a.href);
-            status.textContent = "PDF downloaded.";
-          } catch (err) {
-            status.textContent = err.message || String(err);
+      const runDocgen = async (triggerBtn) => {
+        if (triggerBtn) triggerBtn.disabled = true;
+        status.textContent = "Generating quote PDF (DocGen)…";
+        status.classList.remove("error");
+        try {
+          const resp = await fetch("/api/docgen-pdf", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ quoteId }),
+          });
+          const data = await resp.json();
+          if (!data.ok || !data.downloadUrl) {
+            status.textContent = data.error || "PDF generation failed";
             status.classList.add("error");
-          } finally {
-            docgenBtn.disabled = false;
+            return;
           }
-        });
+          status.textContent =
+            "PDF ready (" + (data.fileExtension || "pdf") + ") — downloading…";
+          const fileResp = await fetch(data.downloadUrl);
+          if (!fileResp.ok) {
+            const errBody = await fileResp.json().catch(() => ({}));
+            throw new Error(errBody.error || "Download failed");
+          }
+          const blob = await fileResp.blob();
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = "BambooHR-Quote-" + quoteId + "." + (data.fileExtension || "pdf");
+          a.click();
+          URL.revokeObjectURL(a.href);
+          status.textContent = "PDF downloaded.";
+        } catch (err) {
+          status.textContent = err.message || String(err);
+          status.classList.add("error");
+        } finally {
+          if (triggerBtn) triggerBtn.disabled = false;
+        }
+      };
+
+      if (docgenBtn) docgenBtn.addEventListener("click", () => runDocgen(docgenBtn));
+      if (docgenBtnSuccess) {
+        docgenBtnSuccess.addEventListener("click", () => runDocgen(docgenBtnSuccess));
       }
 
       const convertBtn = document.getElementById("convertTrialBtn");
@@ -158,12 +189,97 @@
         });
       }
 
+      const showSuccess = (data) => {
+        const company = data.accountName || accountName || "your company";
+        const companyEl = document.getElementById("successCompany");
+        if (companyEl) companyEl.textContent = company;
+
+        const metrics = document.getElementById("successMetrics");
+        const assetCount = (data.assetIds && data.assetIds.length) || 0;
+        const chips = [
+          ["Order", data.orderNumber || data.orderId || "—"],
+          ["Status", "Activated"],
+          ["Assets", String(assetCount)],
+        ];
+        if (data.monthlyTotal != null && data.monthlyTotal !== "") {
+          chips.push(["Monthly", "$" + Number(data.monthlyTotal).toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })]);
+        }
+        metrics.innerHTML = chips
+          .map(
+            ([label, value]) =>
+              '<div class="q-metric"><span class="q-label">' +
+              label +
+              '</span><span class="q-value">' +
+              value +
+              "</span></div>"
+          )
+          .join("");
+
+        const links = data.links || {};
+        const linkHost = document.getElementById("successLinks");
+        const items = [
+          ["Account", links.account, data.accountId],
+          ["Contact", links.contact, data.contactId],
+          ["Quote", links.quote, quoteId],
+          ["Order", links.order, data.orderId],
+        ];
+        (links.assets || []).forEach((url, i) => {
+          items.push(["Asset " + (i + 1), url, (data.assetIds || [])[i]]);
+        });
+        linkHost.innerHTML =
+          '<p class="success-links-label">Open in Salesforce</p><ul class="success-link-list">' +
+          items
+            .filter((row) => row[1])
+            .map(
+              ([label, url, id]) =>
+                '<li><a href="' +
+                url +
+                '" target="_blank" rel="noopener">' +
+                label +
+                '</a><code>' +
+                (id || "") +
+                "</code></li>"
+            )
+            .join("") +
+          "</ul>";
+
+        const openAcctBtn = document.getElementById("openSfAccountBtn");
+        if (openAcctBtn && links.account) {
+          openAcctBtn.href = links.account;
+          openAcctBtn.hidden = false;
+        }
+        const licensesBtn = document.getElementById("openLicensesBtn");
+        if (licensesBtn && data.accountId) {
+          try {
+            sessionStorage.setItem(
+              "bhAccountPin",
+              JSON.stringify({
+                accountId: data.accountId,
+                company: data.accountName || "",
+              })
+            );
+          } catch (_) {
+            /* ignore */
+          }
+          licensesBtn.href = "/account?accountId=" + encodeURIComponent(data.accountId);
+          licensesBtn.hidden = false;
+        }
+
+        if (out) out.textContent = JSON.stringify(data, null, 2);
+        if (actions) actions.hidden = true;
+        success.hidden = false;
+        status.textContent = "";
+        success.scrollIntoView({ behavior: "smooth", block: "start" });
+      };
+
       if (!btn) return;
       btn.addEventListener("click", async () => {
         btn.disabled = true;
-        status.textContent = "Creating order and activating…";
+        status.textContent = "Creating order and activating assets in Salesforce…";
         status.classList.remove("error");
-        out.hidden = true;
         try {
           const resp = await fetch("/api/checkout", {
             method: "POST",
@@ -171,22 +287,16 @@
             body: JSON.stringify({ quoteId }),
           });
           const data = await resp.json();
-          out.hidden = false;
-          out.textContent = JSON.stringify(data, null, 2);
           if (!data.ok) {
             status.textContent = data.error || "Checkout failed";
             status.classList.add("error");
             btn.disabled = false;
+            if (out) {
+              out.textContent = JSON.stringify(data, null, 2);
+            }
             return;
           }
-          status.textContent =
-            "Order " +
-            (data.orderNumber || data.orderId) +
-            " · " +
-            (data.status || "Activated") +
-            (data.assetIds && data.assetIds.length
-              ? " · " + data.assetIds.length + " asset(s)"
-              : "");
+          showSuccess(data);
         } catch (err) {
           status.textContent = err.message || String(err);
           status.classList.add("error");

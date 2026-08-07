@@ -6,18 +6,21 @@ See **[HOSTED.md](./HOSTED.md)** for public demos.
 
 ## Flow
 
-1. User enters **headcount**, **country** (US/CA), **plan**, and optional
-   **add-ons** (Payroll / Benefits / Time / Global).
-2. BFF places a multi-line Quote, System-reprices (volume + Path B Bundle & Save
-   when plan + Payroll + Benefits). Canada strips Payroll/Benefits.
-3. Browser shows a branded summary with line table (print → PDF). Cart = Quote Id.
-4. **P3:** “Place order (checkout)” → order → activate → assets; optional
-   `amendQty` true-up through Upsells.
+1. User enters **company + work email** (Get Pricing hero), **headcount**,
+   **country**, **plan**, and optional **add-ons**.
+2. BFF **creates Account + Contact** in Salesforce (or reuses Contact email /
+   Account name). API callers that omit buyer still use seeded demo Accounts.
+3. BFF places a multi-line Quote on that Account, System-reprices (volume +
+   Path B Bundle & Save when plan + Payroll + Benefits). Canada/UK strip
+   US-only add-ons.
+4. Browser shows a branded summary (customer card + list→bundle→volume table).
+5. **P3:** “Place order” → order → activate → assets; optional `amendQty`.
 
-| Country | Demo Account |
-|---------|----------------|
+| Country | Fallback demo Account (no buyer) |
+|---------|-----------------------------------|
 | US | Acme |
 | CA | Prestige Worldwide (Payroll/Benefits disqual) |
+| UK | BambooHR UK Demo |
 
 ## Run (local)
 
@@ -49,13 +52,23 @@ Full JWT / Docker / Connected App steps: **HOSTED.md**.
 | Method | Path | Body |
 |--------|------|------|
 | GET | `/api/health` | — |
+| GET | `/api/catalog?country=US\|CA\|UK` | Curated SKUs → org PBE list PEPM / names / availability |
+| GET | `/api/account-console?accountId=\|company=\|ecToken=` | Licenses & billing (demo pin or EC HMAC handoff) |
+| GET | `/api/ec-handoff?token=` | Verify EC handoff → `{ accountId, contactId, exp }` |
+| POST | `/api/account-amend` | `{ accountId, assetId?, newQty?, addonSkus? }` → qty amend and/or add-module sale |
 | POST | `/api/get-pricing` | `{ headcount, country, planSku, addonSkus?, placeQuote? }` |
 | POST | `/api/checkout` | `{ quoteId, amendQty?, pollTimeout? }` |
 | POST | `/api/docgen-pdf` | `{ quoteId, templateName?, title?, timeout? }` → `downloadUrl` |
 | GET | `/api/docgen-pdf/<contentVersionId>` | PDF bytes (attachment) |
 
-DocGen uses Active `RLM_QuoteProposal` (override with `DOCGEN_TEMPLATE_NAME` or
-`templateName`). Quote summary **Download PDF** triggers generation then download.
+**Licenses & billing UI:** `/account` — subscription, recent orders, qty amend preview/place.
+Demo pin via Account Id / company name; buyer path via Experience Cloud login →
+signed `ecToken` (see `EXPERIENCE_CLOUD.md`).
+
+DocGen defaults to Active `RLM_Bamboo_QuoteProposal` (Bamboo-branded `.docx` in
+`assets/`, same ODTs as Foundations `RLM_QuoteProposal`). Override with
+`DOCGEN_TEMPLATE_NAME` or API `templateName`. Quote summary **Download PDF**
+triggers generation then download.
 
 ## Smokes (no browser)
 
@@ -79,5 +92,4 @@ Lightning / Experience Builder LWC that opens this BFF — see
 ## Still deferred
 
 - Browser-held guest Connected App (secrets stay server-side by design)
-- Bamboo-branded custom `.docx` (today uses Foundations `RLM_QuoteProposal`)
 - Dedicated Customer Digital Experience site metadata (use Builder + LWC today)

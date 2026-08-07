@@ -1,0 +1,99 @@
+{
+  "_comment": "BambooHR Get Pricing quote proposal — tokens match RLMQuoteExtractBasic / RLMQuoteTransformBasic",
+  "page": {"margin_inches": 0.7},
+  "elements": [
+    {
+      "type": "image",
+      "path": "scripts/bamboohr/get_pricing/static/brand/wordmark-green.png",
+      "width_inches": 2.2,
+      "alignment": "left"
+    },
+    {
+      "type": "heading",
+      "text": "Quote Proposal",
+      "level": 1,
+      "alignment": "left",
+      "bold": true
+    },
+    {
+      "type": "paragraph",
+      "text": "BambooHR plans and pricing · Powered by Salesforce Revenue Cloud",
+      "size_pt": 10,
+      "color": "#2d7919"
+    },
+    {"type": "spacer"},
+    {
+      "type": "table",
+      "columns": 2,
+      "style": "Table Grid",
+      "rows": [
+        [
+          "Bill To\n{{AccountName}}\n{{BillingStreet}}\n{{BillingCity}}, {{BillingState}} {{BillingPostalCode}}",
+          "Quote details\nQuote: {{QuoteNumber}}\nCreated: {{CreatedDate}}\nExpires: {{ExpirationDate}}\nSales rep: {{SalesRep}}"
+        ]
+      ]
+    },
+    {"type": "spacer"},
+    {
+      "type": "paragraph",
+      "text": "Line items",
+      "bold": true,
+      "size_pt": 12,
+      "color": "#2d7919"
+    },
+    {
+      "type": "table",
+      "columns": 6,
+      "style": "Table Grid",
+      "header": [
+        "Product",
+        "Qty",
+        "List",
+        "Discount",
+        "Net unit",
+        "Net total"
+      ],
+      "rows": [
+        [
+          "{{#Line}}{{ProductName}}",
+          "{{Quantity}}",
+          "{{ListPrice}}",
+          "{{Discount}}",
+          "{{NetUnitPrice}}",
+          "{{NetTotalPrice}}{{/Line}}"
+        ]
+      ]
+    },
+    {"type": "spacer"},
+    {
+      "type": "paragraph",
+      "text": "Grand total: {{GrandTotal}}",
+      "bold": true,
+      "size_pt": 14,
+      "alignment": "right",
+      "color": "#1a1c1e"
+    },
+    {"type": "spacer"},
+    {
+      "type": "paragraph",
+      "text": "Seller",
+      "bold": true,
+      "size_pt": 11,
+      "color": "#2d7919"
+    },
+    {
+      "type": "paragraph",
+      "text": "{{SellerCompanyName}}\n{{SellerStreet}}\n{{SellerCity}}, {{SellerState}} {{SellerPostalCode}}\n{{SellerCountry}}\n{{SellerPhone}} · {{SellerEmail}}\n{{SellerWebsite}}",
+      "size_pt": 9,
+      "color": "#55575a"
+    },
+    {"type": "spacer"},
+    {
+      "type": "paragraph",
+      "text": "This proposal was generated from your BambooHR Get Pricing session. Final amounts reflect Revenue Cloud pricing (volume and Bundle & Save where applicable).",
+      "size_pt": 9,
+      "italic": true,
+      "color": "#55575a"
+    }
+  ]
+}

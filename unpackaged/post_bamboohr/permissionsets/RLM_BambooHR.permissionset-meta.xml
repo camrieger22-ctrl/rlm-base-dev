@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <PermissionSet xmlns="http://soap.sforce.com/2006/04/metadata">
     <classAccesses>
+        <apexClass>RLM_BambooEcIdentity</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <classAccesses>
         <apexClass>RLM_BambooPathBBundleSave</apexClass>
         <enabled>true</enabled>
     </classAccesses>
@@ -8,7 +12,7 @@
         <apexClass>RLM_BambooVolumeTiers</apexClass>
         <enabled>true</enabled>
     </classAccesses>
-    <description>BambooHR demo volume-tier coach fields, US-only category qualification criteria, nonprofit Account flag, Path B Bundle &amp; Save eligibility, convert-later free trial, and LWC Apex access.</description>
+    <description>BambooHR demo volume-tier coach fields, US-only category qualification criteria, nonprofit Account flag, Path B Bundle &amp; Save eligibility, convert-later free trial, EC licenses handoff, and LWC Apex access.</description>
     <fieldPermissions>
         <editable>true</editable>
         <field>Account.RLM_Is_Nonprofit__c</field>

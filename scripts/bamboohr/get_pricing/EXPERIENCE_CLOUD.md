@@ -8,10 +8,14 @@ Revenue Cloud APIs stay on the BFF; the site is only branding + navigation.
 | Asset | Path |
 |-------|------|
 | LWC | `unpackaged/post_bamboohr/lwc/rlmBambooGetPricingShell` |
+| Apex handoff | `RLM_BambooEcIdentity` (User → Contact → Account + HMAC token) |
+| EC buyer PS | `RLM_BambooEcBuyer` (assign to community users) |
 | App page | `unpackaged/post_bamboohr/flexipages/RLM_Bamboo_Get_Pricing` |
 | Tab | `unpackaged/post_bamboohr/tabs/RLM_Bamboo_Get_Pricing` |
 | BFF URL label | `RLM_Bamboo_Get_Pricing_Bff_Url` (default `http://127.0.0.1:8765`) |
+| Handoff secret | `RLM_Bamboo_Ec_Handoff_Secret` ↔ BFF `EC_HANDOFF_SECRET` |
 | Set URL script | `scripts/bamboohr/set_get_pricing_bff_url.py` |
+| Provision user | `scripts/bamboohr/get_pricing/provision_ec_demo_user.py` |
 
 ## Deploy
 
@@ -71,10 +75,52 @@ sf data update record --sobject Network --record-id <networkId> \
    - **Open BFF in a new tab** — default true
 4. **Publish**
 
-Guest users: home route is `pageAccess: Public`. Custom Labels resolve without
-Apex. The BFF still uses server-side Salesforce auth — guests never receive a
-Salesforce token. Keep the Custom Label pointed at a live tunnel/host
-(`set_get_pricing_bff_url.py`).
+Guest users: home route is `pageAccess: Public`. Guests see **Sign in for
+licenses** (no Apex). Authenticated Customer Community users with
+`RLM_BambooEcBuyer` see **Manage licenses & billing**, which calls Apex to mint
+a short-lived HMAC handoff and opens the BFF `/account?ecToken=…`. The BFF
+verifies the token (`EC_HANDOFF_SECRET`) and loads that Account’s console.
+Guests never receive a Salesforce token. Keep the BFF URL label pointed at a
+live tunnel/host (`set_get_pricing_bff_url.py`).
+
+## Returning customer login (5b)
+
+```bash
+# 1) Deploy Apex + PS + LWC, assign internal PS for SE Lightning testing
+cci task run deploy_post_bamboohr --org master-demo
+cci task run assign_permission_sets --org master-demo -o api_names RLM_BambooHR
+
+# 2) BFF secret must match Custom Label RLM_Bamboo_Ec_Handoff_Secret
+#    Add to scripts/bamboohr/get_pricing/.env:
+#    EC_HANDOFF_SECRET='bh-ec-handoff-demo-master-2026'
+
+# 3) Deploy custom community profile (preferred) + provision Northwind user
+sf project deploy start --source-dir unpackaged/post_bamboohr/profiles \
+  --target-org master-demo
+set -a; source scripts/bamboohr/get_pricing/.env; set +a
+~/.local/pipx/venvs/cumulusci/bin/python \
+  scripts/bamboohr/get_pricing/provision_ec_demo_user.py --org master-demo
+# Credentials → .agents/artifacts/bamboohr-ec-demo-login.md (private)
+
+# 4) Experience Builder → Administration → Members:
+#    allow "BambooHR Customer Login" (script adds NetworkMemberGroup when possible).
+#    Publish if you change membership.
+```
+
+**Why a custom profile?** Creating users on the standard
+`Customer Community Login User` profile requires Setup → Digital Experiences →
+Settings → *Allow using standard external profiles…*. That org preference is not
+reliably deployable via Metadata API here, so the repo ships
+`BambooHR Customer Login` (Customer Community Login license) instead.
+
+Demo path:
+
+1. Open https://trailsignup-b4759183862b2b.my.site.com/bamboohr/s/login/
+2. Sign in with the provisioned username/password (see private artifact above)
+3. Home → **Manage licenses & billing** → BFF `/account?ecToken=…` for Northwind
+
+Demo pin (`accountId` / company name on `/account`) remains for SE walkthroughs
+without EC. Prefer the signed handoff for the buyer story.
 
 ## Why not iframe?
 

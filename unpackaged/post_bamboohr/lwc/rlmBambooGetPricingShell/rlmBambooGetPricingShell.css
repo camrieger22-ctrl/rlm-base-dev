@@ -78,6 +78,28 @@ h1 {
     background: var(--leaf-deep);
 }
 
+.cta.secondary {
+    background: transparent;
+    color: var(--leaf-deep);
+    border: 1px solid var(--line);
+}
+
+.cta.secondary:hover {
+    background: #e7f3ec;
+}
+
+.cta:disabled {
+    opacity: 0.55;
+    cursor: wait;
+}
+
+.identity {
+    margin: 0 0 0.75rem;
+    font-size: 0.85rem;
+    color: var(--leaf-deep);
+    line-height: 1.4;
+}
+
 .meta,
 .warn {
     margin: 0;

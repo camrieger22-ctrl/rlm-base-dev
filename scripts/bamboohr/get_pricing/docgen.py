@@ -1,8 +1,9 @@
 """Generate a Quote PDF via OmniStudio DocumentGenerationProcess (DGP).
 
-Uses the Foundations ``RLM_QuoteProposal`` template (ODT Extract/Transform) by
-default. Secrets stay on the BFF — the browser downloads through
-``GET /api/docgen-pdf/<contentVersionId>``.
+Uses the Bamboo-branded ``RLM_Bamboo_QuoteProposal`` template by default
+(same Extract/Transform ODTs as Foundations ``RLM_QuoteProposal``). Override with
+``DOCGEN_TEMPLATE_NAME`` or the API ``templateName`` field. Secrets stay on the
+BFF — the browser downloads through ``GET /api/docgen-pdf/<contentVersionId>``.
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ from typing import Any
 
 from service import API, OrgSession
 
-DEFAULT_TEMPLATE = "RLM_QuoteProposal"
+DEFAULT_TEMPLATE = "RLM_Bamboo_QuoteProposal"
 
 
 @dataclass
@@ -170,8 +171,18 @@ def generate_quote_pdf(
         "title": doc_title,
     }
     cv_template = resolve_template_content_version(session, template_name)
-    if cv_template:
-        request_text["templateContentVersionId"] = cv_template
+    if not cv_template:
+        return DocgenPdfResult(
+            ok=False,
+            quote_id=quote_id,
+            template_id=template_id,
+            template_name=template_name,
+            error=(
+                f"No ContentVersion for template {template_name!r} in "
+                "DocgenDocumentTemplateLibrary — upload the .docx binary first."
+            ),
+        )
+    request_text["templateContentVersionId"] = cv_template
 
     body: dict[str, Any] = {
         "Type": "GenerateAndConvert",
@@ -224,7 +235,7 @@ def generate_quote_pdf(
             continue
         status = rows[0].get("Status") or ""
         response_text = rows[0].get("ResponseText") or ""
-        if status in ("Completed", "Success", "Failed", "Error"):
+        if status in ("Completed", "Success", "Failed", "Failure", "Error"):
             break
         time.sleep(2)
     else:

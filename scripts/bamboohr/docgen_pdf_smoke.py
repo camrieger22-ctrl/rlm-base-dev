@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Smoke: generate RLM_QuoteProposal PDF for a Bamboo Get Pricing quote.
+"""Smoke: generate Bamboo-branded quote PDF for a Get Pricing quote.
 
 Usage:
   ~/.local/pipx/venvs/cumulusci/bin/python \\
@@ -18,7 +18,11 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent / "get_pricing"
 sys.path.insert(0, str(HERE))
 
-from docgen import download_content_version, generate_quote_pdf  # noqa: E402
+from docgen import (  # noqa: E402
+    DEFAULT_TEMPLATE,
+    download_content_version,
+    generate_quote_pdf,
+)
 from service import GetPricingRequest, OrgSession, get_pricing  # noqa: E402
 
 
@@ -26,7 +30,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--target-org", default="master-demo")
     parser.add_argument("--quote-id", default="")
-    parser.add_argument("--template", default="RLM_QuoteProposal")
+    parser.add_argument("--template", default=DEFAULT_TEMPLATE)
     parser.add_argument("--out", default="")
     args = parser.parse_args()
 

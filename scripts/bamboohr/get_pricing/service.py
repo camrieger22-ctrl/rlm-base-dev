@@ -27,6 +27,51 @@ COUNTRY_CURRENCY = {
     "UK": "GBP",
 }
 
+# State/Country picklist values used by demo Accounts (category disqualification).
+COUNTRY_BILLING = {
+    "US": "US",
+    "CA": "CA",
+    "UK": "GB",
+}
+
+# Minimal shipping so createOrderFromQuote → Activate succeeds for new Accounts.
+COUNTRY_SHIPPING = {
+    "US": {
+        "ShippingStreet": "1 Market Street",
+        "ShippingCity": "New York",
+        "ShippingState": "NY",
+        "ShippingPostalCode": "10001",
+        "ShippingCountry": "US",
+        "BillingStreet": "1 Market Street",
+        "BillingCity": "New York",
+        "BillingState": "NY",
+        "BillingPostalCode": "10001",
+        "BillingCountry": "US",
+    },
+    "CA": {
+        "ShippingStreet": "100 King St W",
+        "ShippingCity": "Toronto",
+        "ShippingState": "ON",
+        "ShippingPostalCode": "M5X 1A9",
+        "ShippingCountry": "CA",
+        "BillingStreet": "100 King St W",
+        "BillingCity": "Toronto",
+        "BillingState": "ON",
+        "BillingPostalCode": "M5X 1A9",
+        "BillingCountry": "CA",
+    },
+    "UK": {
+        "ShippingStreet": "1 Canada Square",
+        "ShippingCity": "London",
+        "ShippingPostalCode": "E14 5AB",
+        "ShippingCountry": "GB",
+        "BillingStreet": "1 Canada Square",
+        "BillingCity": "London",
+        "BillingPostalCode": "E14 5AB",
+        "BillingCountry": "GB",
+    },
+}
+
 # Demo list FX vs USD (bh-pricing PBEs). Keep in sync with PricebookEntry.csv.
 CURRENCY_FX = {
     "USD": 1.0,
@@ -97,6 +142,138 @@ def core_flat_price(currency: str = "USD") -> float:
 
 def addon_list_price(addon_sku: str, currency: str = "USD") -> float:
     return round(ADDON_LIST_USD[addon_sku] * _fx(currency), 2)
+
+
+# Curated Get Pricing SKUs (UI cards). Hydrate list PEPM / names from org PBEs.
+CATALOG_PLAN_SKUS = tuple(PLAN_LIST_USD.keys())
+CATALOG_ADDON_SKUS = tuple(ADDON_LIST_USD.keys())
+CATALOG_ALL_SKUS = (*CATALOG_PLAN_SKUS, *CATALOG_ADDON_SKUS, CORE_FLAT_SKU)
+
+
+def _short_catalog_label(name: str | None, sku: str) -> str:
+    if name:
+        cleaned = name.replace("BambooHR ", "").strip()
+        if cleaned:
+            return cleaned
+    if sku in PLAN_LABELS:
+        return PLAN_LABELS[sku].replace("BambooHR ", "")
+    return ADDON_LABELS.get(sku, sku)
+
+
+def hydrate_catalog(session: OrgSession, country: str = "US") -> dict[str, Any]:
+    """Load curated SKU list prices / names / availability from the org price book.
+
+    Cards stay curated (fixed SKUs). List PEPM comes from Term Monthly PBEs on the
+    standard price book for the country currency. Falls back to demo USD×FX tables
+    when a PBE is missing so the UI still renders.
+    """
+    country = (country or "US").upper()
+    if country not in COUNTRY_CURRENCY:
+        raise ValueError(f"Unsupported country {country!r}")
+    currency = COUNTRY_CURRENCY[country]
+    non_us = country in NON_US_COUNTRIES
+
+    sku_in = "', '".join(CATALOG_ALL_SKUS)
+    rows = session.soql(
+        "SELECT Id, UnitPrice, CurrencyIsoCode, IsActive, "
+        "Product2.Id, Product2.Name, Product2.StockKeepingUnit, Product2.IsActive "
+        "FROM PricebookEntry "
+        "WHERE Pricebook2.IsStandard = true "
+        f"AND Product2.StockKeepingUnit IN ('{sku_in}') "
+        f"AND CurrencyIsoCode = '{currency}' "
+        "AND ProductSellingModel.SellingModelType = 'TermDefined' "
+        "AND ProductSellingModel.PricingTermUnit = 'Months'"
+    )
+    by_sku: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        product = row.get("Product2") or {}
+        sku = product.get("StockKeepingUnit")
+        if not sku or sku in by_sku:
+            continue
+        by_sku[sku] = row
+
+    warnings: list[str] = []
+    hydrated = 0
+    fallback = 0
+
+    def _entry(sku: str, fallback_usd: float, *, us_only: bool = False) -> dict[str, Any]:
+        nonlocal hydrated, fallback
+        row = by_sku.get(sku)
+        sellable = not (us_only and non_us)
+        if row:
+            product = row.get("Product2") or {}
+            active = bool(row.get("IsActive", True)) and bool(
+                product.get("IsActive", True)
+            )
+            hydrated += 1
+            return {
+                "sku": sku,
+                "name": _short_catalog_label(product.get("Name"), sku),
+                "listPepm": round(float(row["UnitPrice"]), 2),
+                "currency": currency,
+                "available": sellable and active,
+                "usOnly": us_only,
+                "source": "pricebook",
+                "pricebookEntryId": row.get("Id"),
+                "product2Id": product.get("Id"),
+            }
+        fallback += 1
+        warnings.append(f"No {currency} Term Monthly PBE for {sku}; using demo list.")
+        return {
+            "sku": sku,
+            "name": _short_catalog_label(None, sku),
+            "listPepm": round(fallback_usd * _fx(currency), 2),
+            "currency": currency,
+            "available": sellable,
+            "usOnly": us_only,
+            "source": "fallback",
+            "pricebookEntryId": None,
+            "product2Id": None,
+        }
+
+    plans = [
+        _entry(sku, PLAN_LIST_USD[sku]) for sku in CATALOG_PLAN_SKUS
+    ]
+    addons = [
+        _entry(
+            sku,
+            ADDON_LIST_USD[sku],
+            us_only=sku in US_ONLY_ADDONS,
+        )
+        for sku in CATALOG_ADDON_SKUS
+    ]
+    core_flat = _entry(CORE_FLAT_SKU, CORE_FLAT_PRICE_USD)
+
+    catalog_rows = session.soql(
+        f"SELECT Id, Name FROM ProductCatalog WHERE Name = '{CATALOG_NAME}' LIMIT 1"
+    )
+    catalog_id = catalog_rows[0]["Id"] if catalog_rows else None
+
+    return {
+        "ok": True,
+        "country": country,
+        "currency": currency,
+        "catalogName": CATALOG_NAME,
+        "catalogId": catalog_id,
+        "source": "pricebook" if fallback == 0 else ("mixed" if hydrated else "fallback"),
+        "hydratedCount": hydrated,
+        "fallbackCount": fallback,
+        "plans": plans,
+        "addons": addons,
+        "coreFlat": {
+            "sku": core_flat["sku"],
+            "name": core_flat["name"],
+            "listPrice": core_flat["listPepm"],  # flat is monthly total, not PEPM
+            "currency": currency,
+            "available": core_flat["available"],
+            "source": core_flat["source"],
+            "pricebookEntryId": core_flat["pricebookEntryId"],
+            "product2Id": core_flat["product2Id"],
+            "maxHeadcount": SMALL_BIZ_MAX_HEADCOUNT,
+        },
+        "warnings": warnings,
+    }
+
 
 PATH_B_BUNDLE_SAVE = 0.15  # ManualDiscount on Payroll+Benefits when Path B
 
@@ -259,6 +436,36 @@ def normalize_addons(raw: list[str] | None) -> list[str]:
 
 
 @dataclass
+class BuyerInfo:
+    """Self-serve buyer from the Get Pricing hero form."""
+
+    company: str = ""
+    first_name: str = ""
+    last_name: str = ""
+    email: str = ""
+    phone: str = ""
+    job_title: str = ""
+
+    @classmethod
+    def from_mapping(cls, raw: dict[str, Any] | None) -> "BuyerInfo":
+        raw = raw or {}
+        return cls(
+            company=str(raw.get("company") or raw.get("accountName") or "").strip(),
+            first_name=str(raw.get("firstName") or raw.get("first_name") or "").strip(),
+            last_name=str(raw.get("lastName") or raw.get("last_name") or "").strip(),
+            email=str(raw.get("email") or "").strip(),
+            phone=str(raw.get("phone") or "").strip(),
+            job_title=str(
+                raw.get("jobTitle") or raw.get("job_title") or ""
+            ).strip(),
+        )
+
+    @property
+    def has_new_customer(self) -> bool:
+        return bool(self.company and self.email)
+
+
+@dataclass
 class GetPricingRequest:
     headcount: int
     country: str
@@ -266,6 +473,9 @@ class GetPricingRequest:
     addon_skus: list[str] = field(default_factory=list)
     place_quote: bool = True
     free_trial: bool = False
+    buyer: BuyerInfo | None = None
+    # Pin an existing Account (convert-later / returning flows).
+    account_id: str | None = None
 
 
 @dataclass
@@ -297,6 +507,11 @@ class GetPricingResult:
     paid_line_items: list[dict[str, Any]] = field(default_factory=list)
     currency: str = "USD"
     error: str | None = None
+    contact_id: str | None = None
+    contact_name: str = ""
+    contact_email: str = ""
+    account_created: bool = False
+    contact_created: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -304,6 +519,11 @@ class GetPricingResult:
             "country": self.country,
             "accountName": self.account_name,
             "accountId": self.account_id,
+            "accountCreated": self.account_created,
+            "contactId": self.contact_id,
+            "contactName": self.contact_name,
+            "contactEmail": self.contact_email,
+            "contactCreated": self.contact_created,
             "planSku": self.plan_sku,
             "planName": self.plan_name,
             "sellPlanSku": self.sell_plan_sku or self.plan_sku,
@@ -328,6 +548,147 @@ class GetPricingResult:
             "error": self.error,
             "currency": self.currency,
         }
+
+
+def _soql_escape(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("'", "\\'")
+
+
+def resolve_buyer_account(
+    session: OrgSession,
+    country: str,
+    buyer: BuyerInfo | None,
+    *,
+    currency: str,
+    account_id: str | None = None,
+) -> tuple[dict[str, Any], str | None, dict[str, Any]]:
+    """Return (account, contact_id, meta) for quote placement.
+
+    New customer (company + email): create Account + Contact (or reuse Contact
+    email / Account name match). Otherwise use the seeded country demo Account.
+    """
+    meta = {
+        "accountCreated": False,
+        "contactCreated": False,
+        "contactName": "",
+        "contactEmail": "",
+        "usedDemoAccount": False,
+    }
+    buyer = buyer or BuyerInfo()
+
+    if account_id:
+        acct_rows = session.soql(
+            "SELECT Id, Name, BillingCountry FROM Account "
+            f"WHERE Id = '{_soql_escape(account_id)}' LIMIT 1"
+        )
+        if not acct_rows:
+            raise ValueError(f"Account {account_id} not found")
+        acct = acct_rows[0]
+        contact_id = None
+        if buyer.email:
+            crows = session.soql(
+                "SELECT Id, FirstName, LastName, Email FROM Contact "
+                f"WHERE AccountId = '{acct['Id']}' AND Email = "
+                f"'{_soql_escape(buyer.email)}' LIMIT 1"
+            )
+            if crows:
+                contact_id = crows[0]["Id"]
+                meta["contactName"] = (
+                    f"{crows[0].get('FirstName') or ''} "
+                    f"{crows[0].get('LastName') or ''}"
+                ).strip()
+                meta["contactEmail"] = crows[0].get("Email") or buyer.email
+        if not contact_id:
+            any_c = session.soql(
+                "SELECT Id, FirstName, LastName, Email FROM Contact "
+                f"WHERE AccountId = '{acct['Id']}' LIMIT 1"
+            )
+            if any_c:
+                contact_id = any_c[0]["Id"]
+                meta["contactName"] = (
+                    f"{any_c[0].get('FirstName') or ''} "
+                    f"{any_c[0].get('LastName') or ''}"
+                ).strip()
+                meta["contactEmail"] = any_c[0].get("Email") or ""
+        return acct, contact_id, meta
+
+    if not buyer.has_new_customer:
+        demo_name = COUNTRY_ACCOUNT[country]
+        acct = session.soql(
+            "SELECT Id, Name, BillingCountry FROM Account "
+            f"WHERE Name = '{_soql_escape(demo_name)}' LIMIT 1"
+        )[0]
+        meta["usedDemoAccount"] = True
+        meta["contactEmail"] = buyer.email
+        return acct, None, meta
+
+    billing = COUNTRY_BILLING[country]
+    ship = dict(COUNTRY_SHIPPING[country])
+    contact_id: str | None = None
+
+    # Prefer existing Contact by email (returning buyer without portal login).
+    if buyer.email:
+        existing = session.soql(
+            "SELECT Id, AccountId, FirstName, LastName, Email FROM Contact "
+            f"WHERE Email = '{_soql_escape(buyer.email)}' LIMIT 1"
+        )
+        if existing and existing[0].get("AccountId"):
+            c = existing[0]
+            acct = session.soql(
+                "SELECT Id, Name, BillingCountry FROM Account "
+                f"WHERE Id = '{c['AccountId']}' LIMIT 1"
+            )[0]
+            contact_id = c["Id"]
+            meta["contactName"] = (
+                f"{c.get('FirstName') or ''} {c.get('LastName') or ''}".strip()
+            )
+            meta["contactEmail"] = c.get("Email") or buyer.email
+            # Keep shipping usable for checkout if account was incomplete.
+            if not session.soql(
+                "SELECT ShippingCity FROM Account "
+                f"WHERE Id = '{acct['Id']}' AND ShippingCity != null LIMIT 1"
+            ):
+                session.patch("Account", acct["Id"], ship)
+            return acct, contact_id, meta
+
+    # Reuse Account with same Name when present; else create.
+    by_name = session.soql(
+        "SELECT Id, Name, BillingCountry FROM Account "
+        f"WHERE Name = '{_soql_escape(buyer.company)}' LIMIT 1"
+    )
+    if by_name:
+        acct = by_name[0]
+    else:
+        acct_fields: dict[str, Any] = {
+            "Name": buyer.company[:255],
+            "CurrencyIsoCode": currency,
+            **ship,
+        }
+        # BillingCountry already in ship; ensure country code matches selector.
+        acct_fields["BillingCountry"] = billing
+        acct_fields["ShippingCountry"] = billing if country != "UK" else "GB"
+        acct_id = session.create("Account", acct_fields)
+        acct = {"Id": acct_id, "Name": buyer.company, "BillingCountry": billing}
+        meta["accountCreated"] = True
+
+    last = buyer.last_name or buyer.company or "Buyer"
+    first = buyer.first_name or "New"
+    c_fields: dict[str, Any] = {
+        "AccountId": acct["Id"],
+        "FirstName": first[:40],
+        "LastName": last[:80],
+        "Email": buyer.email,
+        "CurrencyIsoCode": currency,
+    }
+    if buyer.phone:
+        c_fields["Phone"] = buyer.phone[:40]
+    if buyer.job_title:
+        c_fields["Title"] = buyer.job_title[:128]
+    contact_id = session.create("Contact", c_fields)
+    meta["contactCreated"] = True
+    meta["contactName"] = f"{first} {last}".strip()
+    meta["contactEmail"] = buyer.email
+    return acct, contact_id, meta
 
 
 def _pbe_for_sku(session: OrgSession, sku: str, currency: str = "USD") -> dict:
@@ -541,13 +902,32 @@ def get_pricing(session: OrgSession, req: GetPricingRequest) -> GetPricingResult
             "trial off)."
         )
 
-    account_name = COUNTRY_ACCOUNT[country]
     catalog = session.soql(
         f"SELECT Id FROM ProductCatalog WHERE Name = '{CATALOG_NAME}' LIMIT 1"
     )[0]
-    acct = session.soql(
-        f"SELECT Id, BillingCountry FROM Account WHERE Name = '{account_name}' LIMIT 1"
-    )[0]
+    acct, contact_id, buyer_meta = resolve_buyer_account(
+        session,
+        country,
+        req.buyer,
+        currency=currency,
+        account_id=req.account_id,
+    )
+    account_name = acct.get("Name") or COUNTRY_ACCOUNT[country]
+    if buyer_meta.get("usedDemoAccount"):
+        warnings.append(
+            "Using seeded demo Account "
+            f"({account_name}). Submit company + work email on Get Pricing "
+            "to create a new customer Account and Contact in Salesforce."
+        )
+    elif buyer_meta.get("accountCreated"):
+        warnings.append(
+            f"Created new Account “{account_name}” in Salesforce for this quote."
+        )
+    if buyer_meta.get("contactCreated"):
+        warnings.append(
+            f"Created Contact {buyer_meta.get('contactName') or ''} "
+            f"<{buyer_meta.get('contactEmail')}> on that Account."
+        )
     pb = session.soql("SELECT Id FROM Pricebook2 WHERE IsStandard = true LIMIT 1")[0]
 
     skus_needed = [sell_plan_sku, *addon_skus]
@@ -903,4 +1283,9 @@ def get_pricing(session: OrgSession, req: GetPricingRequest) -> GetPricingResult
         warnings=warnings,
         quote_id=quote_id,
         org_alias=session.alias,
+        contact_id=contact_id,
+        contact_name=str(buyer_meta.get("contactName") or ""),
+        contact_email=str(buyer_meta.get("contactEmail") or ""),
+        account_created=bool(buyer_meta.get("accountCreated")),
+        contact_created=bool(buyer_meta.get("contactCreated")),
     )

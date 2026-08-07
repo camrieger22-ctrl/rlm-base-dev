@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PermissionSet xmlns="http://soap.sforce.com/2006/04/metadata">
+    <classAccesses>
+        <apexClass>RLM_BambooEcIdentity</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <description>
+        Experience Cloud buyer access for BambooHR Licenses &amp; billing handoff
+        (RLM_BambooEcIdentity). Assign to Customer Community users on the BambooHR site.
+    </description>
+    <hasActivationRequired>false</hasActivationRequired>
+    <label>RLM BambooHR EC Buyer</label>
+</PermissionSet>

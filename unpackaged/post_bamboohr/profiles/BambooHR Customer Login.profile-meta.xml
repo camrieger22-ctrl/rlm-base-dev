@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Custom clone of Customer Community Login for BambooHR EC buyers.
+  Standard external profiles are blocked until Digital Experiences → Settings
+  allows them; this custom profile can be assigned via API without that toggle.
+-->
+<Profile xmlns="http://soap.sforce.com/2006/04/metadata">
+    <classAccesses>
+        <apexClass>RLM_BambooEcIdentity</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <custom>true</custom>
+    <userLicense>Customer Community Login</userLicense>
+</Profile>
