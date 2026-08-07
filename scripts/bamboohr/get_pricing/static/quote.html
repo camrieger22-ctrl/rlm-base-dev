@@ -63,6 +63,7 @@
         <div class="quote-actions-secondary">
           {{convertTrialButton}}
           <button type="button" id="docgenBtn" class="secondary">Download PDF</button>
+          <button type="button" id="emailQuoteBtn" class="secondary">Email quote</button>
           <button type="button" class="secondary" onclick="window.print()">Print</button>
           <a class="button-link secondary" href="/">New estimate</a>
         </div>
@@ -86,6 +87,7 @@
           <a class="button-link" id="openSfAccountBtn" href="#" target="_blank" rel="noopener" hidden>Open Account in Salesforce</a>
           <a class="button-link" id="openLicensesBtn" href="/account" hidden>Licenses &amp; billing</a>
           <button type="button" id="docgenBtnSuccess" class="secondary">Download PDF</button>
+          <button type="button" id="emailQuoteBtnSuccess" class="secondary">Email quote</button>
           <a class="button-link secondary" href="/">Start another estimate</a>
         </div>
         <details class="success-raw">
@@ -162,6 +164,43 @@
       if (docgenBtn) docgenBtn.addEventListener("click", () => runDocgen(docgenBtn));
       if (docgenBtnSuccess) {
         docgenBtnSuccess.addEventListener("click", () => runDocgen(docgenBtnSuccess));
+      }
+
+      const runEmailQuote = async (triggerBtn) => {
+        if (triggerBtn) triggerBtn.disabled = true;
+        status.textContent =
+          "Generating PDF and sending quote email from Salesforce…";
+        status.classList.remove("error");
+        try {
+          const resp = await fetch("/api/quote-email", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ quoteId, attachPdf: true }),
+          });
+          const data = await resp.json();
+          if (!resp.ok || !data.ok) {
+            throw new Error(data.error || data.message || "Email failed");
+          }
+          status.textContent =
+            data.message ||
+            ("Quote email sent" +
+              (data.toAddress ? " to " + data.toAddress : "") +
+              ".");
+        } catch (err) {
+          status.textContent = err.message || String(err);
+          status.classList.add("error");
+        } finally {
+          if (triggerBtn) triggerBtn.disabled = false;
+        }
+      };
+
+      const emailBtn = document.getElementById("emailQuoteBtn");
+      const emailBtnSuccess = document.getElementById("emailQuoteBtnSuccess");
+      if (emailBtn) emailBtn.addEventListener("click", () => runEmailQuote(emailBtn));
+      if (emailBtnSuccess) {
+        emailBtnSuccess.addEventListener("click", () =>
+          runEmailQuote(emailBtnSuccess)
+        );
       }
 
       const convertBtn = document.getElementById("convertTrialBtn");

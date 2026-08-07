@@ -60,6 +60,7 @@ Full JWT / Docker / Connected App steps: **HOSTED.md**.
 | POST | `/api/checkout` | `{ quoteId, amendQty?, pollTimeout? }` |
 | POST | `/api/docgen-pdf` | `{ quoteId, templateName?, title?, timeout? }` → `downloadUrl` |
 | GET | `/api/docgen-pdf/<contentVersionId>` | PDF bytes (attachment) |
+| POST | `/api/quote-email` | `{ quoteId, toEmail?, attachPdf? }` → Salesforce sends quote email (+ DocGen PDF) |
 
 **Licenses & billing UI:** `/account` — subscription, recent orders, qty amend preview/place.
 Demo pin via Account Id / company name; buyer path via Experience Cloud login →

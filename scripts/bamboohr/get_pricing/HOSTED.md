@@ -63,6 +63,11 @@ CLOUDFLARE_TUNNEL_NAME='bamboohr-gp' \
 Or `CLOUDFLARE_TUNNEL_CONFIG` pointing at the filled YAML (see
 `cloudflared.named.example.yml`). Label sync uses `BFF_PUBLIC_URL`.
 
+**Prereq on this workstation:** `cloudflared tunnel login` (writes
+`~/.cloudflared/cert.pem`). Without that + a hostname on a Cloudflare DNS
+zone, stay on Path A (quick tunnel). Path C is documented and scripted; it is
+not auto-provisioned from the repo alone.
+
 ## Path B — JWT Connected App (real host / always-on)
 
 **Live on `master-demo` (2026-08-06):** Connected App **BambooHR Get Pricing BFF**

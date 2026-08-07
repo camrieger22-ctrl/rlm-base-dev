@@ -38,6 +38,7 @@ from docgen import (  # noqa: E402
     download_content_version,
     generate_quote_pdf,
 )
+from quote_email import send_quote_email  # noqa: E402
 from service import (  # noqa: E402
     BuyerInfo,
     GetPricingRequest,
@@ -884,6 +885,37 @@ class Handler(BaseHTTPRequestHandler):
                 if cached is not None and result.ok:
                     cached["docgen"] = payload
                 self._json(200 if result.ok else 400, payload)
+            except Exception as exc:  # noqa: BLE001
+                self._json(400, {"ok": False, "error": str(exc)})
+            return
+
+        if path == "/api/quote-email":
+            quote_id = str(body.get("quoteId") or "").strip()
+            if not quote_id:
+                self._json(400, {"ok": False, "error": "quoteId is required"})
+                return
+            to_address = str(body.get("toEmail") or body.get("toAddress") or "").strip() or None
+            cv_id = str(body.get("contentVersionId") or "").strip() or None
+            attach = body.get("attachPdf")
+            if attach is None:
+                attach_pdf = True
+            else:
+                attach_pdf = bool(attach)
+            try:
+                payload = send_quote_email(
+                    _session(),
+                    quote_id,
+                    to_address=to_address,
+                    content_version_id=cv_id,
+                    attach_pdf=attach_pdf,
+                    template_name=str(body.get("templateName") or DOCGEN_TEMPLATE).strip()
+                    or None,
+                    timeout=int(body.get("timeout") or 180),
+                )
+                cached = QUOTE_CACHE.get(quote_id)
+                if cached is not None and payload.get("ok"):
+                    cached["quoteEmail"] = payload
+                self._json(200 if payload.get("ok") else 400, payload)
             except Exception as exc:  # noqa: BLE001
                 self._json(400, {"ok": False, "error": str(exc)})
             return
