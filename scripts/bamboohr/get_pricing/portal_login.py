@@ -12,6 +12,7 @@ import os
 import re
 import secrets
 import string
+import time
 from typing import Any
 from urllib.parse import quote
 
@@ -120,11 +121,55 @@ def _assign_permset(session: OrgSession, user_id: str, permset_id: str) -> None:
 
 
 def _set_password(session: OrgSession, user_id: str, password: str) -> None:
-    session._http(
-        "POST",
-        f"/services/data/v67.0/sobjects/User/{user_id}/password",
-        {"NewPassword": password},
-    )
+    """Set community User password with retries (new Users race the password API)."""
+    last_exc: Exception | None = None
+    for attempt in range(4):
+        try:
+            # Clear soft lockouts when present (field may be unavailable).
+            try:
+                session.patch(
+                    "User",
+                    user_id,
+                    {"IsPasswordLocked": False, "NumberOfFailedLogins": 0},
+                )
+            except Exception:
+                pass
+            session._http(
+                "POST",
+                f"/services/data/v67.0/sobjects/User/{user_id}/password",
+                {"NewPassword": password},
+            )
+            return
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            msg = str(exc).lower()
+            # Policy / reuse failures won't recover with sleep.
+            if "password" in msg and (
+                "policy" in msg or "previously" in msg or "history" in msg
+            ):
+                break
+            time.sleep(1.5 * (attempt + 1))
+    assert last_exc is not None
+    raise last_exc
+
+
+def _verify_password_set(session: OrgSession, user_id: str) -> bool:
+    """Best-effort: User still active and not password-locked after set."""
+    try:
+        rows = session.soql(
+            "SELECT Id, IsActive, IsPasswordLocked FROM User "
+            f"WHERE Id = '{_soql_str(user_id)}' LIMIT 1"
+        )
+    except Exception:
+        return True  # field unavailable — assume OK
+    if not rows:
+        return False
+    row = rows[0]
+    if not row.get("IsActive"):
+        return False
+    if row.get("IsPasswordLocked"):
+        return False
+    return True
 
 
 def _resolve_profile(session: OrgSession) -> dict[str, str]:
@@ -259,12 +304,20 @@ def create_buyer_login(
             },
         )
         created = True
+        # New community Users briefly reject password sets — give insert a beat.
+        time.sleep(2.0)
 
     try:
         _set_password(session, user_id, password)
+        if not _verify_password_set(session, user_id):
+            # One more hard retry after unlock.
+            time.sleep(1.0)
+            _set_password(session, user_id, password)
     except Exception as exc:  # noqa: BLE001
         raise ValueError(
-            f"Could not set password (check Salesforce password policies): {exc}"
+            "Could not set password (check Salesforce password policies — "
+            "try a new password that is not one of your last few, with upper, "
+            f"lower, number, and symbol): {exc}"
         ) from exc
 
     permsets = session.soql(

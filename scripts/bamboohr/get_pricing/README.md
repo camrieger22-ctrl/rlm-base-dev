@@ -84,7 +84,17 @@ HOSTED.md Path C (`publish_bff.py --named`).
 ~/.local/pipx/venvs/cumulusci/bin/python \
   scripts/bamboohr/get_pricing/cleanup_demo_data.py --org master-demo \
   --preset northwind --execute --delete-opps
+
+# Ephemeral buyer Accounts (allowlist + 24h age gate; dry-run)
+~/.local/pipx/venvs/cumulusci/bin/python \
+  scripts/bamboohr/get_pricing/cleanup_demo_data.py --org master-demo \
+  --preset ephemeral --min-age-hours 24
 ```
+
+Qty amends use ASP quantity on the effective start date (bumped to the latest
+`AssetStatePeriod` when needed) so **decreases** validate. Preview tags Draft
+amendment Quotes with `[bamboohr-preview]` and discards leftovers before the
+next preview / after activate.
 
 Presets: `northwind`, `seeded` (Acme / Prestige / BambooHR UK Demo), `get-pricing` (both).
 

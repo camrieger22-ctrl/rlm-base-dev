@@ -467,7 +467,16 @@ def poll_assets(session: OrgSession, order_id: str, *, timeout: int = 180) -> li
 
 
 def _current_asset_quantity(session: OrgSession, asset_id: str) -> float:
-    """Sum AssetAction.QuantityChange (Asset.Quantity is often null for LMA)."""
+    """Latest contracted qty from AssetAction.TotalQuantity (fallback: sum changes)."""
+    rows = session.soql(
+        "SELECT QuantityChange, TotalQuantity FROM AssetAction "
+        f"WHERE AssetId = '{asset_id}' AND QuantityChange != null "
+        "ORDER BY CreatedDate DESC LIMIT 1"
+    )
+    if rows and rows[0].get("TotalQuantity") is not None:
+        total = float(rows[0]["TotalQuantity"])
+        if total != 0:
+            return total
     rows = session.soql(
         "SELECT QuantityChange FROM AssetAction "
         f"WHERE AssetId = '{asset_id}' AND QuantityChange != null"
@@ -478,19 +487,191 @@ def _current_asset_quantity(session: OrgSession, asset_id: str) -> float:
     return total
 
 
+def asset_quantity_at(
+    session: OrgSession,
+    asset_id: str,
+    *,
+    as_of: datetime | None = None,
+) -> float:
+    """Quantity covering ``as_of`` from AssetStatePeriod (amend delta basis).
+
+    Connect amend validates quantityChange against the ASP in effect on
+    ``amendmentStartDate``, not lifetime TotalQuantity. Using the wrong basis
+    makes decreases look like over-reductions ("less than zero").
+    """
+    when = as_of or datetime.now(timezone.utc)
+    # Compare as date strings; ASP datetimes are org/GMT ISO.
+    day = when.strftime("%Y-%m-%d")
+    periods = session.soql(
+        "SELECT Quantity, StartDate, EndDate FROM AssetStatePeriod "
+        f"WHERE AssetId = '{asset_id}' ORDER BY StartDate ASC LIMIT 200"
+    )
+    for period in periods:
+        start = str(period.get("StartDate") or "")[:10]
+        end = str(period.get("EndDate") or "9999-12-31")[:10]
+        if start and start <= day <= end:
+            qty = period.get("Quantity")
+            if qty is not None:
+                return float(qty)
+    # No ASP for that day — fall back to latest TotalQuantity.
+    return _current_asset_quantity(session, asset_id)
+
+
+def latest_asp_start(session: OrgSession, asset_id: str) -> datetime | None:
+    """StartDate of the newest AssetStatePeriod (UTC date at 12:00)."""
+    rows = session.soql(
+        "SELECT StartDate FROM AssetStatePeriod "
+        f"WHERE AssetId = '{asset_id}' ORDER BY StartDate DESC LIMIT 1"
+    )
+    if not rows or not rows[0].get("StartDate"):
+        return None
+    day = str(rows[0]["StartDate"])[:10]
+    try:
+        y, m, d = (int(x) for x in day.split("-"))
+        return datetime(y, m, d, 12, 0, 0, tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def resolve_amend_start(
+    session: OrgSession,
+    asset_ids: list[str],
+    requested: datetime | None,
+) -> datetime:
+    """Pick an amendment start that lands on the latest ASP for reliable decreases.
+
+    Prior upsells often create future ASPs. Amending \"tomorrow\" while the
+    high seat count only exists on a later ASP makes Salesforce reject
+    decreases as over-reductions. Bump start forward to the newest ASP start
+    (never earlier than tomorrow UTC).
+    """
+    tomorrow = datetime.now(timezone.utc) + timedelta(days=1)
+    tomorrow = datetime(
+        tomorrow.year, tomorrow.month, tomorrow.day, 12, 0, 0, tzinfo=timezone.utc
+    )
+    when = requested or tomorrow
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    when = datetime(when.year, when.month, when.day, 12, 0, 0, tzinfo=timezone.utc)
+    if when < tomorrow:
+        when = tomorrow
+    floor = when
+    for aid in asset_ids:
+        latest = latest_asp_start(session, aid)
+        if latest and latest > floor:
+            floor = latest
+    return floor
+
+
+def discard_stale_amend_drafts(
+    session: OrgSession,
+    account_id: str,
+    *,
+    keep_quote_ids: list[str] | None = None,
+) -> list[str]:
+    """Delete or cancel Draft Amendment Quotes for an Account (preview hygiene).
+
+    Tags Description with a cleanup marker before delete/cancel so org audits
+    can tell preview leftovers from intentional drafts. Returns handled Quote
+    ids. Keeps any ids in ``keep_quote_ids``.
+    """
+    keep = {k for k in (keep_quote_ids or []) if k}
+    # QuoteAccountId is the RLM account FK; also match classic AccountId.
+    # Description is not filterable in SOQL — select it and match in Python.
+    rows = session.soql(
+        "SELECT Id, Name, QuoteNumber, Description FROM Quote "
+        f"WHERE Status = 'Draft' "
+        f"AND (QuoteAccountId = '{account_id}' OR AccountId = '{account_id}') "
+        "AND (Name LIKE 'Amendment%' OR Name LIKE '%Amendment%') "
+        "ORDER BY CreatedDate DESC LIMIT 100"
+    )
+    deleted: list[str] = []
+    tag = "[bamboohr-preview] stale amend draft — auto-cleanup"
+    for row in rows:
+        qid = row["Id"]
+        if qid in keep:
+            continue
+        name = (row.get("Name") or "").lower()
+        desc = (row.get("Description") or "").strip()
+        if (
+            "amendment" not in name
+            and "[bamboohr-preview]" not in desc
+        ):
+            continue
+        if "[bamboohr-preview]" not in desc:
+            try:
+                session.patch(
+                    "Quote",
+                    qid,
+                    {"Description": (desc + "\n" + tag).strip() if desc else tag},
+                )
+            except Exception:
+                pass
+        try:
+            session.delete("Quote", qid)
+            deleted.append(qid)
+            continue
+        except Exception:
+            pass
+        for status in ("Denied", "Rejected", "Cancelled"):
+            try:
+                session.patch("Quote", qid, {"Status": status})
+                deleted.append(qid)
+                break
+            except Exception:
+                continue
+    return deleted
+
+
+def tag_amend_preview_quote(session: OrgSession, quote_id: str) -> None:
+    """Mark a freshly created amend draft so hygiene can find it later."""
+    if not quote_id:
+        return
+    try:
+        rows = session.soql(
+            f"SELECT Description FROM Quote WHERE Id = '{quote_id}' LIMIT 1"
+        )
+        desc = ((rows[0].get("Description") if rows else None) or "").strip()
+        marker = "[bamboohr-preview]"
+        if marker in desc:
+            return
+        session.patch(
+            "Quote",
+            quote_id,
+            {
+                "Description": (
+                    (desc + "\n" + marker).strip() if desc else marker
+                )
+            },
+        )
+    except Exception:
+        pass
+
+
 def poll_asset_quantity(
     session: OrgSession,
     asset_id: str,
     *,
-    min_qty: float,
+    min_qty: float | None = None,
+    target_qty: float | None = None,
     timeout: int = 180,
 ) -> float:
-    """Wait until summed AssetAction qty reaches ``min_qty`` (Upsells lag activate)."""
+    """Wait until asset qty reaches target (increase or decrease).
+
+    Prefer ``target_qty`` (equality). ``min_qty`` kept for older callers
+    (treat as target for increases).
+    """
+    goal = target_qty if target_qty is not None else min_qty
+    if goal is None:
+        raise ValueError("target_qty or min_qty is required")
     deadline = time.time() + timeout
     last = 0.0
     while time.time() < deadline:
         last = _current_asset_quantity(session, asset_id)
-        if last >= min_qty - 1e-6:
+        if abs(last - float(goal)) < 0.51:
+            return last
+        # Upsell lag: accept at-or-above when increasing.
+        if min_qty is not None and target_qty is None and last >= min_qty - 1e-6:
             return last
         time.sleep(3)
     return last
@@ -518,23 +699,38 @@ def amend_assets_quantity(
     """Qty true-up via Connect amend for one or more assets; returns quote id.
 
     R262 body uses ``assetIds`` + ``quantityChange`` (delta), not absolute qty.
-    All ``asset_ids`` must share the same delta (same current qty → same target).
+    Delta is computed from **ASP quantity on amendmentStartDate** unless
+    ``quantity_change`` is passed explicitly.
     """
     ids = [a for a in asset_ids if a]
     if not ids:
         raise RuntimeError("assetIds is required for amend")
+    when = resolve_amend_start(session, ids, start)
+
     if quantity_change is None:
-        current = _current_asset_quantity(session, ids[0])
+        current = asset_quantity_at(session, ids[0], as_of=when)
         quantity_change = float(new_qty) - current
-    if quantity_change == 0:
+    if abs(float(quantity_change)) < 1e-9:
         raise RuntimeError(
-            f"Amend no-op: asset(s) already at target quantity ({new_qty})"
+            f"Amend no-op: asset(s) already at target quantity ({new_qty}) "
+            f"on {when.date().isoformat()}"
         )
-    # Org timezone can treat "today 00:00Z" as past — use tomorrow UTC.
-    when = start or (datetime.now(timezone.utc) + timedelta(days=1))
+    if float(new_qty) < 1:
+        raise RuntimeError("newQty must be >= 1")
+    # Guard over-reduction against ASP-at-start for clearer errors.
+    for aid in ids:
+        at_start = asset_quantity_at(session, aid, as_of=when)
+        if float(quantity_change) < 0 and at_start + float(quantity_change) < -1e-9:
+            raise RuntimeError(
+                f"Cannot decrease asset {aid}: quantity on "
+                f"{when.date().isoformat()} is {at_start:g}; "
+                f"requested change {quantity_change:+g} would go below zero. "
+                f"Pick a later start date (after future upsells) or a higher seat count."
+            )
+
     body = {
         "assetIds": ids,
-        "amendmentStartDate": when.strftime("%Y-%m-%dT00:00:00"),
+        "amendmentStartDate": when.strftime("%Y-%m-%dT00:00:00.000Z"),
         "outputRecordType": "Quote",
         "quantityChange": float(quantity_change),
     }
@@ -542,6 +738,13 @@ def amend_assets_quantity(
     try:
         result = session.post(path, body)
     except RuntimeError as exc:
+        msg = str(exc)
+        if "less than zero" in msg.lower() or "INVALID_API_INPUT" in msg:
+            raise RuntimeError(
+                f"Asset amend failed (decrease/start-date conflict): {msg}. "
+                "Tip: set Change starts after pending future quantity changes, "
+                "or discard stale Draft amendment Quotes first."
+            ) from exc
         raise RuntimeError(f"Asset amend failed: {exc}") from exc
     if isinstance(result, list) and result:
         result = result[0]
@@ -579,13 +782,13 @@ def complete_amend_quote(
     last_qty = 0.0
     for aid in poll_ids:
         qty = poll_asset_quantity(
-            session, aid, min_qty=float(target_qty), timeout=poll_timeout
+            session, aid, target_qty=float(target_qty), timeout=poll_timeout
         )
         last_qty = qty
-        if qty + 1e-6 < target_qty:
+        if abs(qty - float(target_qty)) > 0.51:
             raise RuntimeError(
                 f"Amend activated but asset {aid} qty={qty} "
-                f"(expected >= {target_qty})"
+                f"(expected {target_qty})"
             )
     return order_id, order_number, last_qty
 

@@ -694,6 +694,8 @@ def resolve_buyer_account(
         acct_fields: dict[str, Any] = {
             "Name": buyer.company[:255],
             "CurrencyIsoCode": currency,
+            # Marker for cleanup_demo_data.py --preset ephemeral (age-gated).
+            "Description": "[bamboohr-ephemeral] Created by Get Pricing self-service",
             **ship,
         }
         # BillingCountry already in ship; ensure country code matches selector.

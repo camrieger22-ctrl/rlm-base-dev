@@ -490,6 +490,14 @@
         throw new Error(data.error || "Preview failed");
       }
       pricedPreview = data;
+      // Server may bump start onto the latest ASP so decreases validate.
+      const startEl = document.getElementById("startDateInput");
+      if (data.amendStartDate && startEl) {
+        const bumped = String(data.amendStartDate).slice(0, 10);
+        if (bumped && startEl.value !== bumped) {
+          startEl.value = bumped;
+        }
+      }
       const lines = (data.lines || []).map((l) => ({
         name: l.name,
         sku: l.sku,
@@ -517,6 +525,12 @@
         provisional: false,
         quoteNumbers,
       });
+      if (src && data.pricingSource === "revenueCloud") {
+        const warn = (data.warnings || []).filter(Boolean).slice(0, 2).join(" ");
+        src.textContent = warn
+          ? `Priced in Revenue Cloud. ${warn}`
+          : "Priced in Revenue Cloud.";
+      }
       if (amendStatus && !amendStatus.classList.contains("error")) {
         amendStatus.textContent = "";
       }

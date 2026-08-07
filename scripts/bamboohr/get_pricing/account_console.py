@@ -16,10 +16,14 @@ from typing import Any
 from checkout import (
     amend_assets_quantity,
     apply_amend_volume_pricing,
+    asset_quantity_at,
     checkout_quote,
     complete_amend_quote,
+    discard_stale_amend_drafts,
     reprice_quote_system,
+    resolve_amend_start,
     resolve_volume_tier_percent,
+    tag_amend_preview_quote,
     _current_asset_quantity,
 )
 from service import (
@@ -454,19 +458,38 @@ def create_qty_amend_drafts(
             "assetId": primary,
         }
 
+    warnings: list[str] = []
+    # Drop leftover Draft amendment Quotes so ASP/locks don't block decreases.
+    discarded = discard_stale_amend_drafts(session, account_id)
+    if discarded:
+        warnings.append(f"Discarded {len(discarded)} stale Draft amendment Quote(s).")
+
+    # Deltas from ASP quantity on the effective amend start (not lifetime
+    # TotalQuantity — that breaks decreases when future ASPs exist).
     by_delta: dict[float, list[dict[str, Any]]] = {}
     skipped: list[str] = []
+    sample_ids = [a["id"] for a in headcount_assets]
+    tomorrow = datetime.now(timezone.utc) + timedelta(days=1)
+    requested_day = (start or tomorrow).date()
+    eff_start = resolve_amend_start(session, sample_ids, start)
+    if eff_start.date() > requested_day:
+        warnings.append(
+            f"Change start moved to {eff_start.date().isoformat()} so the "
+            "amend lands on your latest quantity period (needed for decreases)."
+        )
     for asset in headcount_assets:
-        current = float(asset["quantity"])
+        current = asset_quantity_at(session, asset["id"], as_of=eff_start)
+        asset["quantity"] = current
         delta = float(new_qty) - current
         if abs(delta) < 1e-6:
             skipped.append(str(asset.get("sku") or asset["id"]))
             continue
         by_delta.setdefault(delta, []).append(asset)
-
-    warnings: list[str] = []
     if skipped:
-        warnings.append("Already at target qty (skipped): " + ", ".join(skipped))
+        warnings.append(
+            "Already at target qty on "
+            f"{eff_start.date().isoformat()} (skipped): " + ", ".join(skipped)
+        )
     if not by_delta:
         return {
             "ok": True,
@@ -475,6 +498,7 @@ def create_qty_amend_drafts(
             "assetId": primary or headcount_assets[0]["id"],
             "assetIds": [a["id"] for a in headcount_assets],
             "noop": True,
+            "amendStartDate": eff_start.date().isoformat(),
         }
 
     drafts: list[dict[str, Any]] = []
@@ -486,7 +510,7 @@ def create_qty_amend_drafts(
                 session,
                 ids,
                 new_qty,
-                start=start,
+                start=eff_start,
                 quantity_change=delta,
             )
             if not amend_quote:
@@ -497,6 +521,7 @@ def create_qty_amend_drafts(
                     "error": f"Amend API returned no amendment quote id ({labels})",
                     "assetId": primary or ids[0],
                 }
+            tag_amend_preview_quote(session, amend_quote)
             reprice_quote_system(session, amend_quote)
             apply_amend_volume_pricing(
                 session, amend_quote, volume_headcount=int(new_qty)
@@ -521,14 +546,27 @@ def create_qty_amend_drafts(
             "assetId": primary or (drafts[0]["assetIds"][0] if drafts else ""),
             "assetIds": [aid for d in drafts for aid in d["assetIds"]],
             "noop": False,
+            "amendStartDate": eff_start.date().isoformat(),
         }
     except Exception as exc:  # noqa: BLE001
+        # Preview failed mid-flight — drop any drafts we just created.
+        for draft in drafts:
+            qid = str(draft.get("quoteId") or "")
+            if qid:
+                try:
+                    session.delete("Quote", qid)
+                except Exception:
+                    try:
+                        session.patch("Quote", qid, {"Status": "Denied"})
+                    except Exception:
+                        pass
         return {
             "ok": False,
-            "drafts": drafts,
+            "drafts": [],
             "warnings": warnings,
             "error": str(exc),
             "assetId": primary,
+            "amendStartDate": eff_start.date().isoformat(),
         }
 
 
@@ -577,6 +615,12 @@ def activate_qty_amend_drafts(
                 asset_id=primary,
                 requested_qty=new_qty,
                 error="No amend quote drafts to activate",
+            )
+        # Order creation often leaves the Amendment Quote in Draft — scrub leftovers.
+        discarded = discard_stale_amend_drafts(session, account_id)
+        if discarded:
+            warnings.append(
+                f"Cleaned {len(discarded)} leftover Draft amendment Quote(s)."
             )
         return AmendQtyResult(
             ok=True,
@@ -1140,6 +1184,9 @@ def preview_account_changes(
     amend_drafts: list[dict[str, Any]] = []
     net_from_quote: dict[str, float] = {}
     due_parts: list[dict[str, Any]] = []
+    amend_start_iso: str | None = (
+        amend_start.date().isoformat() if amend_start is not None else None
+    )
     if qty_changing:
         if not asset_id and headcount_assets:
             asset_id = headcount_assets[0]["id"]
@@ -1151,11 +1198,14 @@ def preview_account_changes(
             start=amend_start,
         )
         warnings.extend(created.get("warnings") or [])
+        if created.get("amendStartDate"):
+            amend_start_iso = str(created["amendStartDate"])
         if not created.get("ok"):
             return {
                 "ok": False,
                 "error": created.get("error") or "Amend preview failed",
                 "warnings": warnings,
+                "amendStartDate": amend_start_iso,
             }
         for d in created.get("drafts") or []:
             snap = d.get("snapshot") or {}
@@ -1179,8 +1229,11 @@ def preview_account_changes(
             )
             for ql in snap.get("lines") or []:
                 sku = (ql.get("sku") or "").upper()
-                if sku and _is_headcount_sku(sku):
-                    net_from_quote[sku] = float(ql.get("netUnitPrice") or 0)
+                # Amend delta lines often have NetUnitPrice=0 (LastTransaction);
+                # skip so recurring-after falls back to the volume schedule.
+                net = float(ql.get("netUnitPrice") or 0)
+                if sku and _is_headcount_sku(sku) and net > 0:
+                    net_from_quote[sku] = net
 
     # --- Draft add-module quote (RC) ---
     module_quote_id: str | None = None
@@ -1211,8 +1264,9 @@ def preview_account_changes(
             )
             for ql in module_snapshot.get("lines") or []:
                 sku = (ql.get("sku") or "").upper()
-                if sku and _is_headcount_sku(sku):
-                    net_from_quote[sku] = float(ql.get("netUnitPrice") or 0)
+                net = float(ql.get("netUnitPrice") or 0)
+                if sku and _is_headcount_sku(sku) and net > 0:
+                    net_from_quote[sku] = net
         except Exception as exc:  # noqa: BLE001
             return {
                 "ok": False,
@@ -1233,7 +1287,7 @@ def preview_account_changes(
                 currency=currency,
                 is_flat=True,
             )
-        elif a["sku"] in net_from_quote:
+        elif a["sku"] in net_from_quote and net_from_quote[a["sku"]] > 0:
             net = net_from_quote[a["sku"]]
             line = {
                 "sku": a["sku"],
@@ -1311,6 +1365,7 @@ def preview_account_changes(
         "currency": currency,
         "currentQty": int(current_qty),
         "newQty": target_qty,
+        "amendStartDate": amend_start_iso,
         "pricingSource": "revenueCloud",
         "monthly": {
             "today": monthly_before,
