@@ -14,24 +14,54 @@ holds a Salesforce token.
 
 Resolution order is implemented in `auth.py`.
 
-## Path A — Public URL in minutes (tunnel)
+## Path A — Public URL in minutes (quick tunnel + EC label sync)
 
-Keeps CCI OAuth on your machine; Cloudflare/ngrok publishes the form.
+Keeps JWT/CCI auth on your machine; Cloudflare quick tunnel publishes HTTPS.
+`publish_bff.py` **captures the URL and PATCHes** Custom Label
+`RLM_Bamboo_Get_Pricing_Bff_Url` so Experience Cloud Get Pricing / Manage
+licenses open the live host (not `127.0.0.1`).
 
 ```bash
-# terminal 1 — bind all interfaces
+# terminal 1 — BFF (JWT .env recommended for demos)
+set -a; source scripts/bamboohr/get_pricing/.env; set +a
 ~/.local/pipx/venvs/cumulusci/bin/python \
-  scripts/bamboohr/get_pricing/server.py --org master-demo --host 0.0.0.0 --port 8765
+  scripts/bamboohr/get_pricing/server.py --host 127.0.0.1 --port 8765
 
-# terminal 2 — public HTTPS URL
+# terminal 2 — public HTTPS + sync EC label
 ./scripts/bamboohr/get_pricing/run_tunnel.sh
+# or: ~/.local/pipx/venvs/cumulusci/bin/python \
+#       scripts/bamboohr/get_pricing/publish_bff.py --org master-demo
 ```
 
-Open the printed `https://….trycloudflare.com/` (or ngrok) URL. Health check:
-`GET /api/health` → `{"ok": true, "authMode": "cci", …}`.
+Open the printed `https://….trycloudflare.com/` URL. Health:
+`GET /api/health` → `{"ok": true, "authMode": "jwt"|…}`.
 
-Requires [`cloudflared`](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/)
-or `ngrok` on `PATH`.
+**Caveat:** quick-tunnel hostnames change every run. Re-run `publish_bff.py`
+(or Path C) before an EC demo. Requires
+[`cloudflared`](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/).
+
+## Path C — Stable hostname (named Cloudflare Tunnel)
+
+Same laptop/JWT process, **fixed** public URL for EC and buyers.
+
+```bash
+# One-time (Cloudflare account + DNS zone on Cloudflare)
+cloudflared tunnel login
+cloudflared tunnel create bamboohr-gp
+cloudflared tunnel route dns bamboohr-gp gp.YOURDOMAIN.com
+# Copy cloudflared.named.example.yml → .secrets/cloudflared.yml and fill UUID
+
+# Every demo session
+# terminal 1: BFF as usual
+# terminal 2:
+BFF_PUBLIC_URL='https://gp.YOURDOMAIN.com' \
+CLOUDFLARE_TUNNEL_NAME='bamboohr-gp' \
+  ~/.local/pipx/venvs/cumulusci/bin/python \
+    scripts/bamboohr/get_pricing/publish_bff.py --org master-demo --named
+```
+
+Or `CLOUDFLARE_TUNNEL_CONFIG` pointing at the filled YAML (see
+`cloudflared.named.example.yml`). Label sync uses `BFF_PUBLIC_URL`.
 
 ## Path B — JWT Connected App (real host / always-on)
 

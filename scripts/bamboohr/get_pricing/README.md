@@ -65,6 +65,10 @@ Full JWT / Docker / Connected App steps: **HOSTED.md**.
 Demo pin via Account Id / company name; buyer path via Experience Cloud login →
 signed `ecToken` (see `EXPERIENCE_CLOUD.md`).
 
+**Public / EC URL:** keep BFF running, then
+`./scripts/bamboohr/get_pricing/run_tunnel.sh` (syncs Custom Label). Stable host:
+HOSTED.md Path C (`publish_bff.py --named`).
+
 DocGen defaults to Active `RLM_Bamboo_QuoteProposal` (Bamboo-branded `.docx` in
 `assets/`, same ODTs as Foundations `RLM_QuoteProposal`). Override with
 `DOCGEN_TEMPLATE_NAME` or API `templateName`. Quote summary **Download PDF**

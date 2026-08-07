@@ -1,0 +1,22 @@
+# Stable Cloudflare Tunnel config for BambooHR Get Pricing BFF.
+# Copy to a gitignored path (e.g. scripts/bamboohr/get_pricing/.secrets/cloudflared.yml),
+# fill tunnel UUID + credentials-file, then:
+#
+#   BFF_PUBLIC_URL='https://YOUR-HOSTNAME' \
+#   CLOUDFLARE_TUNNEL_CONFIG="$PWD/scripts/bamboohr/get_pricing/.secrets/cloudflared.yml" \
+#     ~/.local/pipx/venvs/cumulusci/bin/python \
+#       scripts/bamboohr/get_pricing/publish_bff.py --org master-demo --named
+#
+# One-time setup (Cloudflare account + domain on Cloudflare DNS):
+#   cloudflared tunnel login
+#   cloudflared tunnel create bamboohr-gp
+#   cloudflared tunnel route dns bamboohr-gp YOUR-HOSTNAME
+#   # credentials land in ~/.cloudflared/<tunnel-uuid>.json
+
+tunnel: REPLACE_WITH_TUNNEL_UUID
+credentials-file: /Users/YOU/.cloudflared/REPLACE_WITH_TUNNEL_UUID.json
+
+ingress:
+  - hostname: YOUR-HOSTNAME
+    service: http://127.0.0.1:8765
+  - service: http_status:404

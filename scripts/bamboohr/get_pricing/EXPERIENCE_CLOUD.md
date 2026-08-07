@@ -29,11 +29,16 @@ cci task run assign_permission_sets --org master-demo -o api_names RLM_BambooHR
 ## Point at your public BFF
 
 ```bash
-# BFF + tunnel running (see HOSTED.md)
+# Preferred: publish_bff.py starts the tunnel and syncs this label automatically
+./scripts/bamboohr/get_pricing/run_tunnel.sh
+
+# Or set manually:
 ~/.local/pipx/venvs/cumulusci/bin/python \
   scripts/bamboohr/set_get_pricing_bff_url.py --org master-demo \
   --url https://YOUR-SUBDOMAIN.trycloudflare.com
 ```
+
+For a **stable** hostname (named Cloudflare Tunnel), see HOSTED.md Path C.
 
 ## Use inside Salesforce (SE path)
 
