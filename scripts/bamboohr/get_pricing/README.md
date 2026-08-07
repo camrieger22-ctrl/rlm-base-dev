@@ -96,6 +96,11 @@ Qty amends use ASP quantity on the effective start date (bumped to the latest
 amendment Quotes with `[bamboohr-preview]` and discards leftovers before the
 next preview / after activate.
 
+Amend volume: BFF stamps `RLM_Bamboo_Amend_Volume__c` +
+`RLM_Amend_Volume_Qty__c`, System-reprices (overlay
+`ApplyBambooHRAmendVolumeDiscount`), and falls back to Force+`Discount` when
+Net still misses the schedule tier.
+
 Presets: `northwind`, `seeded` (Acme / Prestige / BambooHR UK Demo), `get-pricing` (both).
 
 DocGen defaults to Active `RLM_Bamboo_QuoteProposal` (Bamboo-branded `.docx` in

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>RLM_Bamboo_Amend_Volume__c</fullName>
+    <defaultValue>false</defaultValue>
+    <description>Get Pricing stamps true on asset-amend Quotes so Default pricing runs Volume Discount for LastTransaction lines using RLM_Amend_Volume_Qty__c.</description>
+    <externalId>false</externalId>
+    <label>BambooHR Amend Volume</label>
+    <trackHistory>false</trackHistory>
+    <type>Checkbox</type>
+</CustomField>

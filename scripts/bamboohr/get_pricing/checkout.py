@@ -273,38 +273,84 @@ def apply_amend_volume_pricing(
     *,
     volume_headcount: int,
 ) -> None:
-    """Apply schedule volume % on amendment quotes after System reprice.
+    """Stamp post-amend headcount and System-reprice for Volume on amends.
 
-    Why this is not a pure System Volume Discount waterfall entry:
+    Amend lines use ``ItemPricingSource = LastTransaction`` and delta
+    ``Quantity``, so OOTB Volume skips them. The BambooHR overlay
+    (``ApplyBambooHRAmendVolumeDiscount``) runs Volume Discount when
+    ``RLM_Amend_Volume_Qty__c`` is set — BFF stamps that field to the
+    absolute post-amend headcount, then System-reprices.
 
-    - Amend lines use ``ItemPricingSource = LastTransaction``.
-    - ``RLM_DefaultPricingProcedure`` only runs the Volume Discount BKM when
-      pricing source is *not* LastTransaction (and quantity is the delta).
-    - Empirically, System/Force at absolute headcount still leaves Net = list
-      on Amend quotes; ``QuoteLinePriceAdjustment`` value fields are stripped.
-
-    So we resolve the correct tier from the live Volume
-    ``PriceAdjustmentSchedule`` / ``PriceAdjustmentTier`` for the *post-amend*
-    headcount, then persist that percentage via Force + QLI ``Discount``
-    (only mechanism that updates NetUnitPrice on amends today). Calculation
-    Details will show Discount, not Volume, until a procedure overlay also
-    runs Volume Discount for LastTransaction lines with post-amend qty.
+    If Net still misses the schedule tier (overlay not applied / context
+    missing), falls back to Force + QLI ``Discount`` so demos stay correct.
     """
+    from service import _system_reprice_quote  # local package
+
     qcur = session.soql(
         f"SELECT CurrencyIsoCode FROM Quote WHERE Id = '{quote_id}'"
     )
     currency = (qcur[0].get("CurrencyIsoCode") if qcur else None) or "USD"
 
     lines = session.soql(
-        "SELECT Id, Quantity, UnitPrice, NetUnitPrice, Product2Id, "
+        "SELECT Id, Quantity, UnitPrice, NetUnitPrice, Discount, Product2Id, "
         "ProductSellingModelId, Product2.StockKeepingUnit, "
-        "PricebookEntry.UnitPrice "
+        "PricebookEntry.UnitPrice, RLM_Amend_Volume_Qty__c "
         f"FROM QuoteLineItem WHERE QuoteId = '{quote_id}'"
     )
     if not lines:
         raise RuntimeError(f"Quote {quote_id} has no lines for amend volume")
 
-    records: list[dict[str, Any]] = [
+    headcount = int(volume_headcount)
+    pepm_lines: list[dict[str, Any]] = []
+    for line in lines:
+        sku = (line.get("Product2") or {}).get("StockKeepingUnit") or ""
+        if not sku or sku == CORE_FLAT_SKU or "FLAT" in sku.upper():
+            continue
+        list_p = float((line.get("PricebookEntry") or {}).get("UnitPrice") or 0)
+        if list_p <= 0:
+            continue
+        pepm_lines.append(line)
+
+    if not pepm_lines:
+        return
+
+    # REST stamp (Place Skip often strips custom fields on amend Quotes).
+    try:
+        session.patch(
+            "Quote",
+            quote_id,
+            {"RLM_Bamboo_Amend_Volume__c": True},
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(
+            f"Could not stamp Quote.RLM_Bamboo_Amend_Volume__c on {quote_id}: "
+            f"{exc}. Deploy unpackaged/post_bamboohr and apply "
+            "apply_context_bamboohr_amend_volume."
+        ) from exc
+    for line in pepm_lines:
+        try:
+            session.patch(
+                "QuoteLineItem",
+                line["Id"],
+                {"RLM_Amend_Volume_Qty__c": headcount, "Discount": 0},
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(
+                f"Could not stamp RLM_Amend_Volume_Qty__c on {line['Id']}: "
+                f"{exc}. Deploy unpackaged/post_bamboohr and apply "
+                "apply_context_bamboohr_amend_volume."
+            ) from exc
+
+    _system_reprice_quote(session, quote_id)
+
+    # Verify Volume landed; Discount fallback if overlay missing.
+    lines_after = session.soql(
+        "SELECT Id, Quantity, NetUnitPrice, Discount, Product2Id, "
+        "ProductSellingModelId, Product2.StockKeepingUnit, "
+        "PricebookEntry.UnitPrice "
+        f"FROM QuoteLineItem WHERE QuoteId = '{quote_id}'"
+    )
+    fallback_records: list[dict[str, Any]] = [
         {
             "referenceId": "refQuote",
             "record": {
@@ -317,7 +363,7 @@ def apply_amend_volume_pricing(
         }
     ]
     patched = 0
-    for i, line in enumerate(lines):
+    for i, line in enumerate(lines_after):
         sku = (line.get("Product2") or {}).get("StockKeepingUnit") or ""
         if not sku or sku == CORE_FLAT_SKU or "FLAT" in sku.upper():
             continue
@@ -329,13 +375,13 @@ def apply_amend_volume_pricing(
             product2_id=line.get("Product2Id") or "",
             product_selling_model_id=line.get("ProductSellingModelId"),
             currency=currency,
-            headcount=int(volume_headcount),
+            headcount=headcount,
         )
         expected_net = round(list_p * (1.0 - vol_pct / 100.0), 2)
         net = float(line.get("NetUnitPrice") or line.get("UnitPrice") or 0)
         if abs(net - expected_net) < 0.02:
             continue
-        records.append(
+        fallback_records.append(
             {
                 "referenceId": f"refL{i}",
                 "record": {
@@ -344,9 +390,10 @@ def apply_amend_volume_pricing(
                         "method": "PATCH",
                         "id": line["Id"],
                     },
-                    "Quantity": str(int(line.get("Quantity") or 1)),
+                    "Quantity": str(int(float(line.get("Quantity") or 1))),
                     "UnitPrice": list_p,
                     "Discount": vol_pct,
+                    "RLM_Amend_Volume_Qty__c": headcount,
                 },
             }
         )
@@ -372,14 +419,14 @@ def apply_amend_volume_pricing(
             },
             "graph": {
                 "graphId": f"p3av{uuid.uuid4().hex[:8]}",
-                "records": records,
+                "records": fallback_records,
             },
         },
     )
     if isinstance(placed, list):
         placed = placed[0]
     if not placed.get("isSuccess"):
-        raise RuntimeError(f"Amend volume Force failed: {placed}")
+        raise RuntimeError(f"Amend volume Force fallback failed: {placed}")
 
 
 def place_activate_order(
@@ -392,7 +439,8 @@ def place_activate_order(
     """System reprice → createOrderFromQuote → copy shipping → Activate.
 
     Pass ``volume_headcount`` for amendment quotes (post-amend absolute qty) so
-    volume is stamped via Force+Discount after System reprice.
+    ``RLM_Amend_Volume_Qty__c`` is stamped and System Volume runs (Discount
+    fallback only if the amend Volume overlay is missing).
     """
     from service import _custom_price_quote  # local package
 

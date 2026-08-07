@@ -1,0 +1,234 @@
+{
+  "expressionSetApiName": "RLM_DefaultPricingProcedure",
+  "description": "BambooHR amend volume: Volume Discount BKM for LastTransaction lines using QuoteLineItem.RLM_Amend_Volume_Qty__c (post-amend headcount). Quantity on amend lines remains the delta; BFF stamps the absolute qty field before System reprice so Calculation Details show Volume (not Discount). Targets the active Default pricing version (apiName varies by org).",
+  "externalDependencies": {
+    "customFields": [
+      "Quote.RLM_Bamboo_Amend_Volume__c (Get Pricing BFF stamp)",
+      "Order.RLM_Bamboo_Amend_Volume__c (Order twin)",
+      "QuoteLineItem.RLM_Amend_Volume_Qty__c (Get Pricing BFF stamp)",
+      "OrderItem.RLM_Amend_Volume_Qty__c (Order twin)"
+    ],
+    "contextFields": [
+      "RLM_Bamboo_Amend_Volume__c (SalesTransaction)",
+      "RLM_Amend_Volume_Qty__c (SalesTransactionItem)"
+    ],
+    "note": "Requires datasets/context_plans/BambooHrAmendVolume and deploy_post_bamboohr field metadata. Place after OOTB non-contract Volume ListGroup. Omit versionApiName — apply against the active Default pricing version (apiName can drift per org)."
+  },
+  "addSteps": [
+    {
+      "failedMessageTokenMappings": [],
+      "hasNestedExplainability": false,
+      "name": "ApplyBambooHRAmendVolumeDiscount",
+      "noResultMessageTokenMappings": [],
+      "passedMessageTokenMappings": [],
+      "resultIncluded": false,
+      "shouldExposeConditionDetails": false,
+      "shouldExposeExecPathMsgOnly": true,
+      "shouldShowExplExternally": false,
+      "stepType": "ListGroup",
+      "placement": {
+        "afterStep": "Applyvolumebaseddiscountstolineswithoutcontractorlasttrxnpricing"
+      },
+      "description": "BambooHR amend Volume Discount (LastTransaction)"
+    },
+    {
+      "advancedCondition": {
+        "conditionLogic": "1 AND 2 AND 3",
+        "criteria": [
+          {
+            "operator": "Equals",
+            "sequenceNumber": 1,
+            "sourceFieldName": "RLM_Bamboo_Amend_Volume__c",
+            "value": "true",
+            "valueType": "Literal"
+          },
+          {
+            "operator": "Equals",
+            "sequenceNumber": 2,
+            "sourceFieldName": "ItemPricingSource",
+            "value": "'LastTransaction'",
+            "valueType": "Literal"
+          },
+          {
+            "operator": "IsNotNull",
+            "sequenceNumber": 3,
+            "sourceFieldName": "RLM_Amend_Volume_Qty__c"
+          }
+        ]
+      },
+      "failedMessageTokenMappings": [],
+      "hasNestedExplainability": false,
+      "name": "FilterBambooHRAmendVolumeLastTransactionLines",
+      "noResultMessageTokenMappings": [],
+      "parentStep": "ApplyBambooHRAmendVolumeDiscount",
+      "passedMessageTokenMappings": [],
+      "resultIncluded": false,
+      "sequenceNumber": 1,
+      "shouldExposeConditionDetails": false,
+      "shouldExposeExecPathMsgOnly": true,
+      "shouldShowExplExternally": false,
+      "stepType": "AdvancedListFilter",
+      "description": "Amend Quotes (flag) with LastTransaction lines and Amend Volume Qty"
+    },
+    {
+      "actionType": "VolumeDiscount",
+      "customElement": {
+        "parameters": [
+          {
+            "input": true,
+            "name": "PriceAdjustmentScheduleId",
+            "output": false,
+            "type": "Parameter",
+            "value": "VolumePASIdConstant"
+          },
+          {
+            "input": true,
+            "name": "LowerBound",
+            "output": false,
+            "type": "Parameter",
+            "value": "RLM_Amend_Volume_Qty__c"
+          },
+          {
+            "input": true,
+            "name": "UpperBound",
+            "output": false,
+            "type": "Parameter",
+            "value": "RLM_Amend_Volume_Qty__c"
+          },
+          {
+            "input": true,
+            "name": "Product2Id",
+            "output": false,
+            "type": "Parameter",
+            "value": "Product"
+          },
+          {
+            "input": true,
+            "name": "ProductSellingModelId",
+            "output": false,
+            "type": "Parameter",
+            "value": "ProductSellingModel"
+          },
+          {
+            "input": true,
+            "name": "EffectiveFrom",
+            "output": false,
+            "type": "Parameter",
+            "value": "EffectiveDate"
+          },
+          {
+            "input": true,
+            "name": "EffectiveTo",
+            "output": false,
+            "type": "Parameter",
+            "value": "EffectiveDate"
+          },
+          {
+            "input": true,
+            "name": "Quantity",
+            "output": false,
+            "type": "Parameter",
+            "value": "RLM_Amend_Volume_Qty__c"
+          },
+          {
+            "input": true,
+            "name": "InputUnitPrice",
+            "output": false,
+            "type": "Parameter",
+            "value": "ListPrice"
+          },
+          {
+            "input": true,
+            "name": "TierTypeField",
+            "output": false,
+            "type": "Parameter",
+            "value": "Constant_TierType_Price_Adjustment_Tier_Decision_Table_VD"
+          },
+          {
+            "input": true,
+            "name": "TierValueField",
+            "output": false,
+            "type": "Parameter",
+            "value": "Constant_TierValue_Price_Adjustment_Tier_Decision_Table_VD"
+          },
+          {
+            "input": true,
+            "name": "LookUpName",
+            "output": false,
+            "type": "Literal",
+            "value": "Volume Discount Entries"
+          },
+          {
+            "input": true,
+            "name": "LookUpApiName",
+            "output": false,
+            "type": "Literal",
+            "value": "Price_Adjustment_Tier_Decision_Table"
+          },
+          {
+            "input": true,
+            "name": "IsContractEnabled",
+            "output": false,
+            "type": "Literal",
+            "value": "false"
+          },
+          {
+            "input": true,
+            "name": "HideWaterfall",
+            "output": false,
+            "type": "Literal",
+            "value": "false"
+          },
+          {
+            "input": true,
+            "name": "sectionCount",
+            "output": false,
+            "type": "Literal",
+            "value": "0"
+          },
+          {
+            "input": true,
+            "name": "selectedFunction",
+            "output": false,
+            "type": "Literal",
+            "value": "Get"
+          },
+          {
+            "input": true,
+            "name": "IsRealTime",
+            "output": false,
+            "type": "Literal",
+            "value": "false"
+          },
+          {
+            "input": false,
+            "name": "NetUnitPrice",
+            "output": true,
+            "type": "Parameter",
+            "value": "NetUnitPrice"
+          },
+          {
+            "input": false,
+            "name": "Subtotal",
+            "output": true,
+            "type": "Parameter",
+            "value": "ItemNetTotalPrice"
+          }
+        ]
+      },
+      "description": "Volume Discount (amend post-headcount)",
+      "failedMessageTokenMappings": [],
+      "hasNestedExplainability": false,
+      "name": "CalculateBambooHRAmendVolumeDiscount",
+      "noResultMessageTokenMappings": [],
+      "parentStep": "ApplyBambooHRAmendVolumeDiscount",
+      "passedMessageTokenMappings": [],
+      "resultIncluded": true,
+      "sequenceNumber": 2,
+      "shouldExposeConditionDetails": false,
+      "shouldExposeExecPathMsgOnly": true,
+      "shouldShowExplExternally": false,
+      "stepType": "BusinessKnowledgeModel"
+    }
+  ]
+}

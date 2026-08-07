@@ -1,0 +1,65 @@
+{
+  "planName": "BambooHrAmendVolume",
+  "developerName": "RLM_SalesTransactionContext",
+  "contextAttributesByName": [
+    {
+      "nodeName": "SalesTransaction",
+      "name": "RLM_Bamboo_Amend_Volume__c",
+      "dataType": "BOOLEAN",
+      "fieldType": "INPUT"
+    },
+    {
+      "nodeName": "SalesTransactionItem",
+      "name": "RLM_Amend_Volume_Qty__c",
+      "dataType": "NUMBER",
+      "fieldType": "INPUT"
+    }
+  ],
+  "mappingRules": [
+    {
+      "mappingName": "QuoteEntitiesMapping",
+      "contextNode": "SalesTransaction",
+      "contextAttribute": "RLM_Bamboo_Amend_Volume__c",
+      "mappingType": "SOBJECT",
+      "sObject": "Quote",
+      "sObjectField": "RLM_Bamboo_Amend_Volume__c"
+    },
+    {
+      "mappingName": "OrderEntitiesMapping",
+      "contextNode": "SalesTransaction",
+      "contextAttribute": "RLM_Bamboo_Amend_Volume__c",
+      "mappingType": "SOBJECT",
+      "sObject": "Order",
+      "sObjectField": "RLM_Bamboo_Amend_Volume__c"
+    },
+    {
+      "mappingName": "QuoteEntitiesMapping",
+      "contextNode": "SalesTransactionItem",
+      "contextAttribute": "RLM_Amend_Volume_Qty__c",
+      "mappingType": "SOBJECT",
+      "sObject": "QuoteLineItem",
+      "sObjectField": "RLM_Amend_Volume_Qty__c"
+    },
+    {
+      "mappingName": "OrderEntitiesMapping",
+      "contextNode": "SalesTransactionItem",
+      "contextAttribute": "RLM_Amend_Volume_Qty__c",
+      "mappingType": "SOBJECT",
+      "sObject": "OrderItem",
+      "sObjectField": "RLM_Amend_Volume_Qty__c"
+    }
+  ],
+  "contextTagsByName": [
+    {
+      "nodeName": "SalesTransaction",
+      "attributeName": "RLM_Bamboo_Amend_Volume__c",
+      "name": "RLM_Bamboo_Amend_Volume__c"
+    },
+    {
+      "nodeName": "SalesTransactionItem",
+      "attributeName": "RLM_Amend_Volume_Qty__c",
+      "name": "RLM_Amend_Volume_Qty__c"
+    }
+  ],
+  "activate": true
+}

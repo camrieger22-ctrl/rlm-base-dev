@@ -3,7 +3,7 @@
 > **Auto-generated** by `scripts/ai/generate_cci_reference.py` from `cumulusci.yml`.  
 > Do not edit manually — re-run the script after changing `cumulusci.yml`.
 
-**293 tasks** across **10 groups**.
+**296 tasks** across **10 groups**.
 
 ---
 
@@ -1062,7 +1062,7 @@
 
 ## Revenue Lifecycle Management
 
-*183 task(s)*
+*186 task(s)*
 
 ### `activate_agents`
 
@@ -1229,6 +1229,30 @@
 
 ---
 
+### `apply_bamboohr_amend_volume_overlay`
+
+**Description:** Adds ListGroup + Volume Discount BKM on RLM_DefaultPricingProcedure for LastTransaction lines when RLM_Amend_Volume_Qty__c is set (post-amend headcount). Get Pricing stamps the field then System-reprices so Calculation Details show Volume instead of a Force+Discount workaround.
+
+**Class:** `tasks.rlm_expression_set_connect.ApplyExpressionSetOverlay`
+
+**Options:**
+
+- `overlay_file`: `datasets/expression_set_overlays/bamboohr_amend_volume.json`
+
+---
+
+### `apply_bamboohr_amend_volume_overlay_nearcore`
+
+**Description:** Same BambooHR amend Volume Discount overlay on RLM_DefaultNearCorePricingProcedure.
+
+**Class:** `tasks.rlm_expression_set_connect.ApplyExpressionSetOverlay`
+
+**Options:**
+
+- `overlay_file`: `datasets/expression_set_overlays/bamboohr_amend_volume_nearcore.json`
+
+---
+
 ### `apply_bamboohr_clear_volume_des_labels_overlay`
 
 **Description:** F5 hygiene: strip abandoned BH_VolumeQty DES / waterfall label mappings from volume BKMs on RLM_DefaultPricingProcedure (matched-tier labels are not platform-supported; Volume Tier Coach LWC remains the UX).
@@ -1334,6 +1358,23 @@
 **Options:**
 
 - `overlay_file`: `datasets/expression_set_overlays/bamboohr_category_qualification_billing_country.json`
+
+---
+
+### `apply_context_bamboohr_amend_volume`
+
+**Description:** Maps QuoteLineItem/OrderItem.RLM_Amend_Volume_Qty__c into RLM_SalesTransactionContext (SalesTransactionItem) so amend quotes can run Volume Discount on LastTransaction lines using post-amend headcount.
+
+**Class:** `tasks.rlm_context_service.ManageContextDefinition`
+
+**Options:**
+
+- `developer_name`: `RLM_SalesTransactionContext`
+- `plan_file`: `datasets/context_plans/BambooHrAmendVolume/manifest.json`
+- `translate_plan`: `True`
+- `deactivate_before`: `False`
+- `activate`: `True`
+- `verify`: `True`
 
 ---
 

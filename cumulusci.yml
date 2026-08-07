@@ -1505,6 +1505,41 @@ tasks:
     options:
       overlay_file: datasets/expression_set_overlays/bamboohr_free_trial_nearcore.json
 
+  apply_context_bamboohr_amend_volume:
+    group: Revenue Lifecycle Management
+    description: >
+      Maps QuoteLineItem/OrderItem.RLM_Amend_Volume_Qty__c into
+      RLM_SalesTransactionContext (SalesTransactionItem) so amend quotes can
+      run Volume Discount on LastTransaction lines using post-amend headcount.
+    class_path: tasks.rlm_context_service.ManageContextDefinition
+    options:
+      developer_name: *sales_transaction_context_name
+      plan_file: datasets/context_plans/BambooHrAmendVolume/manifest.json
+      translate_plan: true
+      deactivate_before: false
+      activate: true
+      verify: true
+
+  apply_bamboohr_amend_volume_overlay:
+    group: Revenue Lifecycle Management
+    description: >
+      Adds ListGroup + Volume Discount BKM on RLM_DefaultPricingProcedure for
+      LastTransaction lines when RLM_Amend_Volume_Qty__c is set (post-amend
+      headcount). Get Pricing stamps the field then System-reprices so
+      Calculation Details show Volume instead of a Force+Discount workaround.
+    class_path: tasks.rlm_expression_set_connect.ApplyExpressionSetOverlay
+    options:
+      overlay_file: datasets/expression_set_overlays/bamboohr_amend_volume.json
+
+  apply_bamboohr_amend_volume_overlay_nearcore:
+    group: Revenue Lifecycle Management
+    description: >
+      Same BambooHR amend Volume Discount overlay on
+      RLM_DefaultNearCorePricingProcedure.
+    class_path: tasks.rlm_expression_set_connect.ApplyExpressionSetOverlay
+    options:
+      overlay_file: datasets/expression_set_overlays/bamboohr_amend_volume_nearcore.json
+
   apply_bamboohr_clear_volume_des_labels_overlay:
     group: Revenue Lifecycle Management
     description: >
@@ -4160,7 +4195,9 @@ flows:
       qualification DT + procedure overlay), nonprofit 15% list discount
       (Account flag → SalesTransaction context → Default pricing overlay),
       Path B Bundle & Save 15% (a la carte plan+Payroll+Benefits eligibility →
-      ManualDiscount), and plan-exclusivity CML when constraints_data is on.
+      ManualDiscount), amend Volume Discount for LastTransaction lines
+      (RLM_Amend_Volume_Qty__c context + overlay), and plan-exclusivity CML
+      when constraints_data is on.
       Catalog/pricing data still loads via insert_bamboohr_* tasks. Quote page
       coach + TLE side-panel fields ship via the bamboohr flexipage patch during
       prepare_ux when bamboohr=true.
@@ -4235,27 +4272,36 @@ flows:
         task: apply_bamboohr_free_trial_overlay_nearcore
         when: project_config.project__custom__bamboohr
       19:
-        task: apply_bamboohr_clear_volume_des_labels_overlay
+        task: apply_context_bamboohr_amend_volume
         when: project_config.project__custom__bamboohr
       20:
-        task: ensure_bamboohr_quote_default_pricing_procedure
+        task: apply_bamboohr_amend_volume_overlay
         when: project_config.project__custom__bamboohr
       21:
-        task: stamp_bamboohr_volume_tiers
+        task: apply_bamboohr_amend_volume_overlay_nearcore
         when: project_config.project__custom__bamboohr
       22:
+        task: apply_bamboohr_clear_volume_des_labels_overlay
+        when: project_config.project__custom__bamboohr
+      23:
+        task: ensure_bamboohr_quote_default_pricing_procedure
+        when: project_config.project__custom__bamboohr
+      24:
+        task: stamp_bamboohr_volume_tiers
+        when: project_config.project__custom__bamboohr
+      25:
         task: validate_cml
         when: project_config.project__custom__bamboohr and project_config.project__custom__constraints_data
         options:
           cml_dir: scripts/cml
           data_dir: *bamboohr_plans_constraints_data_dir
-      23:
+      26:
         task: import_cml
         when: project_config.project__custom__bamboohr and project_config.project__custom__constraints_data
         options:
           data_dir: *bamboohr_plans_constraints_data_dir
           dataset_dirs: *bamboohr_pcm_dataset
-      24:
+      27:
         task: manage_expression_sets
         when: project_config.project__custom__bamboohr and project_config.project__custom__constraints_data
         options:
