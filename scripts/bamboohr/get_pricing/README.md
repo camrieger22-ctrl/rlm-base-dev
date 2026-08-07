@@ -70,6 +70,22 @@ signed `ecToken` (see `EXPERIENCE_CLOUD.md`).
 `./scripts/bamboohr/get_pricing/run_tunnel.sh` (syncs Custom Label). Stable host:
 HOSTED.md Path C (`publish_bff.py --named`).
 
+**Demo cleanup** (Quotes / Orders / Assets — not catalog pricing):
+
+```bash
+# Dry-run (default)
+~/.local/pipx/venvs/cumulusci/bin/python \
+  scripts/bamboohr/get_pricing/cleanup_demo_data.py --org master-demo \
+  --preset northwind
+
+# Apply
+~/.local/pipx/venvs/cumulusci/bin/python \
+  scripts/bamboohr/get_pricing/cleanup_demo_data.py --org master-demo \
+  --preset northwind --execute --delete-opps
+```
+
+Presets: `northwind`, `seeded` (Acme / Prestige / BambooHR UK Demo), `get-pricing` (both).
+
 DocGen defaults to Active `RLM_Bamboo_QuoteProposal` (Bamboo-branded `.docx` in
 `assets/`, same ODTs as Foundations `RLM_QuoteProposal`). Override with
 `DOCGEN_TEMPLATE_NAME` or API `templateName`. Quote summary **Download PDF**

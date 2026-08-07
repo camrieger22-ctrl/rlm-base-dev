@@ -335,6 +335,9 @@ class OrgSession:
             "PATCH", f"/services/data/{API}/sobjects/{sobject}/{record_id}", fields
         )
 
+    def delete(self, sobject: str, record_id: str) -> None:
+        self._http("DELETE", f"/services/data/{API}/sobjects/{sobject}/{record_id}")
+
     def post(self, path: str, body: dict) -> Any:
         return self._http("POST", path, body)
 
