@@ -557,6 +557,35 @@ def _soql_escape(value: str) -> str:
     return value.replace("\\", "\\\\").replace("'", "\\'")
 
 
+def lightning_record_url(instance_url: str, entity: str, record_id: str | None) -> str:
+    """Lightning record deep link (empty string when id missing)."""
+    base = (instance_url or "").rstrip("/")
+    rid = (record_id or "").strip()
+    if not base or not rid:
+        return ""
+    return f"{base}/lightning/r/{entity}/{rid}/view"
+
+
+def quote_related_ids(session: OrgSession, quote_id: str) -> dict[str, str]:
+    """Return OpportunityId / QuoteAccountId for a Quote when present."""
+    qid = (quote_id or "").strip()
+    if not qid:
+        return {}
+    rows = session.soql(
+        "SELECT Id, OpportunityId, QuoteAccountId "
+        f"FROM Quote WHERE Id = '{_soql_escape(qid)}' LIMIT 1"
+    )
+    if not rows:
+        return {}
+    r = rows[0]
+    out: dict[str, str] = {}
+    if r.get("OpportunityId"):
+        out["opportunityId"] = r["OpportunityId"]
+    if r.get("QuoteAccountId"):
+        out["accountId"] = r["QuoteAccountId"]
+    return out
+
+
 def resolve_buyer_account(
     session: OrgSession,
     country: str,
@@ -696,7 +725,8 @@ def resolve_buyer_account(
 
 def _pbe_for_sku(session: OrgSession, sku: str, currency: str = "USD") -> dict:
     rows = session.soql(
-        "SELECT Id, Product2Id, UnitPrice, CurrencyIsoCode FROM PricebookEntry "
+        "SELECT Id, Product2Id, UnitPrice, CurrencyIsoCode, ProductSellingModelId "
+        "FROM PricebookEntry "
         "WHERE Pricebook2.IsStandard = true "
         f"AND Product2.StockKeepingUnit = '{sku}' "
         f"AND CurrencyIsoCode = '{currency}' "

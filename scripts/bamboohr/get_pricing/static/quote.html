@@ -76,9 +76,42 @@
         <p class="order-success-kicker">You're all set</p>
         <h3 class="order-success-title">Welcome, <span id="successCompany">{{accountName}}</span></h3>
         <p class="order-success-lede">
-          Your order is activated in Salesforce Revenue Cloud — Account, Quote, Order, and Assets are live.
+          Your order is activated in Salesforce Revenue Cloud — Account, Opportunity, Quote, Order, and Assets are live.
         </p>
         <div class="success-metrics" id="successMetrics"></div>
+
+        <section class="create-login-card" id="createLoginCard" hidden>
+          <h4>Create your login</h4>
+          <p class="muted">
+            Choose an email and password to manage seats and modules later — same login
+            you’ll use on the BambooHR customer site.
+          </p>
+          <form id="createLoginForm" class="create-login-form" autocomplete="on">
+            <label>
+              <span>Email (username)</span>
+              <input type="email" id="loginEmail" name="email" required autocomplete="username" />
+            </label>
+            <label>
+              <span>Password</span>
+              <input type="password" id="loginPassword" name="password" required minlength="8" autocomplete="new-password" />
+            </label>
+            <label>
+              <span>Confirm password</span>
+              <input type="password" id="loginPasswordConfirm" name="passwordConfirm" required minlength="8" autocomplete="new-password" />
+            </label>
+            <p class="create-login-hint">
+              Use 8+ characters with a mix of upper, lower, number, and symbol.
+            </p>
+            <button type="submit" class="demo-btn demo-btn-primary" id="createLoginBtn">
+              Create login &amp; open Licenses
+            </button>
+            <p class="status" id="createLoginStatus" role="status"></p>
+          </form>
+          <p class="create-login-skip">
+            <a href="/account" id="skipLoginLink">Skip for now — open with demo pin</a>
+          </p>
+        </section>
+
         <div class="success-links" id="successLinks"></div>
         <p class="success-demo-tip">
           <strong>Demo tip:</strong> keep Salesforce open beside this tab — open Account, then Order, then an Asset.
@@ -228,7 +261,27 @@
         });
       }
 
+      const saveAccountPin = (accountId, company) => {
+        const payload = JSON.stringify({
+          accountId: accountId || "",
+          company: company || "",
+        });
+        try {
+          sessionStorage.setItem("bhAccountPin", payload);
+        } catch (_) {
+          /* ignore */
+        }
+        try {
+          localStorage.setItem("bhAccountPin", payload);
+        } catch (_) {
+          /* ignore */
+        }
+      };
+
+      let lastCheckout = null;
+
       const showSuccess = (data) => {
+        lastCheckout = data;
         const company = data.accountName || accountName || "your company";
         const companyEl = document.getElementById("successCompany");
         if (companyEl) companyEl.textContent = company;
@@ -262,6 +315,7 @@
         const items = [
           ["Account", links.account, data.accountId],
           ["Contact", links.contact, data.contactId],
+          ["Opportunity", links.opportunity, data.opportunityId],
           ["Quote", links.quote, quoteId],
           ["Order", links.order, data.orderId],
         ];
@@ -290,21 +344,26 @@
           openAcctBtn.href = links.account;
           openAcctBtn.hidden = false;
         }
+        const accountHref =
+          data.accountId
+            ? "/account?accountId=" + encodeURIComponent(data.accountId)
+            : "/account";
         const licensesBtn = document.getElementById("openLicensesBtn");
         if (licensesBtn && data.accountId) {
-          try {
-            sessionStorage.setItem(
-              "bhAccountPin",
-              JSON.stringify({
-                accountId: data.accountId,
-                company: data.accountName || "",
-              })
-            );
-          } catch (_) {
-            /* ignore */
-          }
-          licensesBtn.href = "/account?accountId=" + encodeURIComponent(data.accountId);
+          saveAccountPin(data.accountId, data.accountName || company);
+          licensesBtn.href = accountHref;
           licensesBtn.hidden = false;
+        }
+        const skipLink = document.getElementById("skipLoginLink");
+        if (skipLink) skipLink.href = accountHref;
+
+        const loginCard = document.getElementById("createLoginCard");
+        const emailInput = document.getElementById("loginEmail");
+        if (loginCard && data.accountId) {
+          loginCard.hidden = false;
+          if (emailInput) {
+            emailInput.value = data.contactEmail || emailInput.value || "";
+          }
         }
 
         if (out) out.textContent = JSON.stringify(data, null, 2);
@@ -313,6 +372,63 @@
         status.textContent = "";
         success.scrollIntoView({ behavior: "smooth", block: "start" });
       };
+
+      document.getElementById("createLoginForm")?.addEventListener("submit", async (ev) => {
+        ev.preventDefault();
+        const loginStatus = document.getElementById("createLoginStatus");
+        const createBtn = document.getElementById("createLoginBtn");
+        const email = (document.getElementById("loginEmail")?.value || "").trim();
+        const password = document.getElementById("loginPassword")?.value || "";
+        const confirm = document.getElementById("loginPasswordConfirm")?.value || "";
+        if (!lastCheckout?.accountId) {
+          if (loginStatus) {
+            loginStatus.textContent = "Missing account from checkout — try Skip.";
+            loginStatus.classList.add("error");
+          }
+          return;
+        }
+        if (password !== confirm) {
+          if (loginStatus) {
+            loginStatus.textContent = "Passwords do not match.";
+            loginStatus.classList.add("error");
+          }
+          return;
+        }
+        if (loginStatus) {
+          loginStatus.textContent = "Creating your community login in Salesforce…";
+          loginStatus.classList.remove("error");
+        }
+        if (createBtn) createBtn.disabled = true;
+        try {
+          const resp = await fetch("/api/create-login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              accountId: lastCheckout.accountId,
+              contactId: lastCheckout.contactId || undefined,
+              email,
+              password,
+            }),
+          });
+          const data = await resp.json();
+          if (!resp.ok || !data.ok) {
+            throw new Error(data.error || "Could not create login");
+          }
+          saveAccountPin(data.accountId, data.accountName || lastCheckout.accountName || "");
+          if (loginStatus) {
+            loginStatus.textContent = data.message || "Login ready — opening Licenses…";
+          }
+          window.location.href =
+            data.accountUrl ||
+            ("/account?ecToken=" + encodeURIComponent(data.ecToken || ""));
+        } catch (err) {
+          if (loginStatus) {
+            loginStatus.textContent = err.message || String(err);
+            loginStatus.classList.add("error");
+          }
+          if (createBtn) createBtn.disabled = false;
+        }
+      });
 
       if (!btn) return;
       btn.addEventListener("click", async () => {

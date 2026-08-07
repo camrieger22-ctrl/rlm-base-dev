@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from service import API, OrgSession
+from service import API, CORE_FLAT_SKU, OrgSession, volume_rate
 
 
 @dataclass
@@ -207,19 +207,206 @@ def activate_order(session: OrgSession, order_id: str) -> None:
     )
 
 
+def resolve_volume_tier_percent(
+    session: OrgSession,
+    *,
+    product2_id: str,
+    product_selling_model_id: str | None,
+    currency: str,
+    headcount: int,
+) -> tuple[float, str | None]:
+    """Look up Volume ``PriceAdjustmentTier.TierValue`` for post-amend headcount.
+
+    Returns ``(percent, tier_id)``. Falls back to the demo ladder in
+    ``volume_rate`` when no matching tier row exists (e.g. below lower bound).
+    """
+    hc = int(headcount)
+    cur = (currency or "USD").upper()
+    if hc < 1 or not product2_id:
+        return 0.0, None
+
+    pas_rows = session.soql(
+        "SELECT Id FROM PriceAdjustmentSchedule "
+        f"WHERE ScheduleType = 'Volume' AND CurrencyIsoCode = '{cur}' LIMIT 1"
+    )
+    if not pas_rows:
+        return round(volume_rate(hc) * 100.0, 2), None
+
+    pas_id = pas_rows[0]["Id"]
+    psm_filter = ""
+    if product_selling_model_id:
+        psm_filter = f"AND ProductSellingModelId = '{product_selling_model_id}' "
+
+    tiers = session.soql(
+        "SELECT Id, LowerBound, UpperBound, TierValue, ProductSellingModelId "
+        "FROM PriceAdjustmentTier "
+        f"WHERE PriceAdjustmentScheduleId = '{pas_id}' "
+        f"AND Product2Id = '{product2_id}' "
+        f"AND CurrencyIsoCode = '{cur}' "
+        f"{psm_filter}"
+        f"AND LowerBound <= {hc} "
+        f"AND (UpperBound = null OR UpperBound >= {hc}) "
+        "ORDER BY LowerBound DESC LIMIT 5"
+    )
+    if not tiers and product_selling_model_id:
+        # Retry without PSM in case amend line PSM differs from tier rows.
+        tiers = session.soql(
+            "SELECT Id, LowerBound, UpperBound, TierValue, ProductSellingModelId "
+            "FROM PriceAdjustmentTier "
+            f"WHERE PriceAdjustmentScheduleId = '{pas_id}' "
+            f"AND Product2Id = '{product2_id}' "
+            f"AND CurrencyIsoCode = '{cur}' "
+            f"AND LowerBound <= {hc} "
+            f"AND (UpperBound = null OR UpperBound >= {hc}) "
+            "ORDER BY LowerBound DESC LIMIT 5"
+        )
+    if not tiers:
+        return round(volume_rate(hc) * 100.0, 2), None
+
+    tier = tiers[0]
+    return float(tier.get("TierValue") or 0), tier.get("Id")
+
+
+def apply_amend_volume_pricing(
+    session: OrgSession,
+    quote_id: str,
+    *,
+    volume_headcount: int,
+) -> None:
+    """Apply schedule volume % on amendment quotes after System reprice.
+
+    Why this is not a pure System Volume Discount waterfall entry:
+
+    - Amend lines use ``ItemPricingSource = LastTransaction``.
+    - ``RLM_DefaultPricingProcedure`` only runs the Volume Discount BKM when
+      pricing source is *not* LastTransaction (and quantity is the delta).
+    - Empirically, System/Force at absolute headcount still leaves Net = list
+      on Amend quotes; ``QuoteLinePriceAdjustment`` value fields are stripped.
+
+    So we resolve the correct tier from the live Volume
+    ``PriceAdjustmentSchedule`` / ``PriceAdjustmentTier`` for the *post-amend*
+    headcount, then persist that percentage via Force + QLI ``Discount``
+    (only mechanism that updates NetUnitPrice on amends today). Calculation
+    Details will show Discount, not Volume, until a procedure overlay also
+    runs Volume Discount for LastTransaction lines with post-amend qty.
+    """
+    qcur = session.soql(
+        f"SELECT CurrencyIsoCode FROM Quote WHERE Id = '{quote_id}'"
+    )
+    currency = (qcur[0].get("CurrencyIsoCode") if qcur else None) or "USD"
+
+    lines = session.soql(
+        "SELECT Id, Quantity, UnitPrice, NetUnitPrice, Product2Id, "
+        "ProductSellingModelId, Product2.StockKeepingUnit, "
+        "PricebookEntry.UnitPrice "
+        f"FROM QuoteLineItem WHERE QuoteId = '{quote_id}'"
+    )
+    if not lines:
+        raise RuntimeError(f"Quote {quote_id} has no lines for amend volume")
+
+    records: list[dict[str, Any]] = [
+        {
+            "referenceId": "refQuote",
+            "record": {
+                "attributes": {
+                    "method": "PATCH",
+                    "type": "Quote",
+                    "id": quote_id,
+                }
+            },
+        }
+    ]
+    patched = 0
+    for i, line in enumerate(lines):
+        sku = (line.get("Product2") or {}).get("StockKeepingUnit") or ""
+        if not sku or sku == CORE_FLAT_SKU or "FLAT" in sku.upper():
+            continue
+        list_p = float((line.get("PricebookEntry") or {}).get("UnitPrice") or 0)
+        if list_p <= 0:
+            continue
+        vol_pct, _tier_id = resolve_volume_tier_percent(
+            session,
+            product2_id=line.get("Product2Id") or "",
+            product_selling_model_id=line.get("ProductSellingModelId"),
+            currency=currency,
+            headcount=int(volume_headcount),
+        )
+        expected_net = round(list_p * (1.0 - vol_pct / 100.0), 2)
+        net = float(line.get("NetUnitPrice") or line.get("UnitPrice") or 0)
+        if abs(net - expected_net) < 0.02:
+            continue
+        records.append(
+            {
+                "referenceId": f"refL{i}",
+                "record": {
+                    "attributes": {
+                        "type": "QuoteLineItem",
+                        "method": "PATCH",
+                        "id": line["Id"],
+                    },
+                    "Quantity": str(int(line.get("Quantity") or 1)),
+                    "UnitPrice": list_p,
+                    "Discount": vol_pct,
+                },
+            }
+        )
+        patched += 1
+
+    if patched == 0:
+        return
+
+    placed = session.post(
+        f"/services/data/{API}/connect/rev/sales-transaction/actions/place",
+        {
+            "pricingPref": "Force",
+            "catalogRatesPref": "Skip",
+            "taxPref": "Skip",
+            "configurationPref": {
+                "configurationMethod": "Skip",
+                "configurationOptions": {
+                    "validateProductCatalog": True,
+                    "validateAmendRenewCancel": True,
+                    "executeConfigurationRules": False,
+                    "addDefaultConfiguration": False,
+                },
+            },
+            "graph": {
+                "graphId": f"p3av{uuid.uuid4().hex[:8]}",
+                "records": records,
+            },
+        },
+    )
+    if isinstance(placed, list):
+        placed = placed[0]
+    if not placed.get("isSuccess"):
+        raise RuntimeError(f"Amend volume Force failed: {placed}")
+
+
 def place_activate_order(
-    session: OrgSession, quote_id: str, account_id: str
+    session: OrgSession,
+    quote_id: str,
+    account_id: str,
+    *,
+    volume_headcount: int | None = None,
 ) -> tuple[str, str | None]:
-    """System reprice → createOrderFromQuote → copy shipping → Activate."""
-    from service import _custom_price_quote, volume_rate  # local package
+    """System reprice → createOrderFromQuote → copy shipping → Activate.
+
+    Pass ``volume_headcount`` for amendment quotes (post-amend absolute qty) so
+    volume is stamped via Force+Discount after System reprice.
+    """
+    from service import _custom_price_quote  # local package
 
     qcur = session.soql(
         f"SELECT CurrencyIsoCode FROM Quote WHERE Id = '{quote_id}'"
     )
     currency = (qcur[0].get("CurrencyIsoCode") if qcur else None) or "USD"
     reprice_quote_system(session, quote_id)
-    # Same corporate-USD bleed as Get Pricing — restamp native currency.
-    if currency != "USD":
+    if volume_headcount is not None:
+        apply_amend_volume_pricing(
+            session, quote_id, volume_headcount=int(volume_headcount)
+        )
+    elif currency != "USD":
+        # Same corporate-USD bleed as Get Pricing — restamp native currency.
         lines = session.soql(
             "SELECT Id, Quantity, Product2.StockKeepingUnit, "
             "PricebookEntry.UnitPrice, PricebookEntry.Product2.StockKeepingUnit "
@@ -316,23 +503,40 @@ def amend_asset_quantity(
     *,
     start: datetime | None = None,
 ) -> str | None:
-    """Qty true-up via Connect amend; returns amendment quote id.
+    """Qty true-up for one asset via Connect amend; returns amendment quote id."""
+    return amend_assets_quantity(session, [asset_id], new_qty, start=start)
+
+
+def amend_assets_quantity(
+    session: OrgSession,
+    asset_ids: list[str],
+    new_qty: int,
+    *,
+    start: datetime | None = None,
+    quantity_change: float | None = None,
+) -> str | None:
+    """Qty true-up via Connect amend for one or more assets; returns quote id.
 
     R262 body uses ``assetIds`` + ``quantityChange`` (delta), not absolute qty.
+    All ``asset_ids`` must share the same delta (same current qty → same target).
     """
-    current = _current_asset_quantity(session, asset_id)
-    delta = float(new_qty) - current
-    if delta == 0:
+    ids = [a for a in asset_ids if a]
+    if not ids:
+        raise RuntimeError("assetIds is required for amend")
+    if quantity_change is None:
+        current = _current_asset_quantity(session, ids[0])
+        quantity_change = float(new_qty) - current
+    if quantity_change == 0:
         raise RuntimeError(
-            f"Amend no-op: asset {asset_id} already at quantity {current}"
+            f"Amend no-op: asset(s) already at target quantity ({new_qty})"
         )
     # Org timezone can treat "today 00:00Z" as past — use tomorrow UTC.
     when = start or (datetime.now(timezone.utc) + timedelta(days=1))
     body = {
-        "assetIds": [asset_id],
+        "assetIds": ids,
         "amendmentStartDate": when.strftime("%Y-%m-%dT00:00:00"),
         "outputRecordType": "Quote",
-        "quantityChange": delta,
+        "quantityChange": float(quantity_change),
     }
     path = f"/services/data/{API}/connect/revenue-management/assets/actions/amend"
     try:
@@ -356,6 +560,7 @@ def complete_amend_quote(
     *,
     target_qty: int,
     poll_timeout: int = 180,
+    asset_ids: list[str] | None = None,
 ) -> tuple[str, str | None, float]:
     """Order + activate amendment quote; return (order_id, order_number, asset_qty)."""
     # Amend quotes often already have QuoteAccountId; fall back to caller account.
@@ -363,16 +568,26 @@ def complete_amend_quote(
         f"SELECT QuoteAccountId FROM Quote WHERE Id = '{amend_quote_id}'"
     )
     acct = (rows[0].get("QuoteAccountId") if rows else None) or account_id
-    order_id, order_number = place_activate_order(session, amend_quote_id, acct)
-    qty = poll_asset_quantity(
-        session, asset_id, min_qty=float(target_qty), timeout=poll_timeout
+    # Volume bands must use post-amend headcount, not the delta Quantity on the line.
+    order_id, order_number = place_activate_order(
+        session,
+        amend_quote_id,
+        acct,
+        volume_headcount=int(target_qty),
     )
-    if qty + 1e-6 < target_qty:
-        raise RuntimeError(
-            f"Amend activated but asset {asset_id} qty={qty} "
-            f"(expected >= {target_qty})"
+    poll_ids = [a for a in (asset_ids or [asset_id]) if a]
+    last_qty = 0.0
+    for aid in poll_ids:
+        qty = poll_asset_quantity(
+            session, aid, min_qty=float(target_qty), timeout=poll_timeout
         )
-    return order_id, order_number, qty
+        last_qty = qty
+        if qty + 1e-6 < target_qty:
+            raise RuntimeError(
+                f"Amend activated but asset {aid} qty={qty} "
+                f"(expected >= {target_qty})"
+            )
+    return order_id, order_number, last_qty
 
 
 def checkout_quote(

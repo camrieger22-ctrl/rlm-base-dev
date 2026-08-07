@@ -37,6 +37,36 @@ def _b64_decode(raw: str) -> bytes:
     return base64.b64decode(raw + pad)
 
 
+def mint_ec_token(
+    account_id: str,
+    contact_id: str,
+    *,
+    ttl_seconds: int = 3600,
+    secret: str | None = None,
+    now: float | None = None,
+    nonce: str | None = None,
+) -> str:
+    """Build a token matching Apex RLM_BambooEcIdentity.buildHandoffToken."""
+    import secrets as _secrets
+
+    ts = now if now is not None else time.time()
+    payload = {
+        "aid": account_id,
+        "cid": contact_id,
+        "exp": int(ts) + int(ttl_seconds),
+        "n": nonce or _secrets.token_hex(8),
+    }
+    # Apex EncodingUtil.base64Encode — standard base64 with padding.
+    payload_b64 = base64.b64encode(
+        json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    ).decode("ascii")
+    key = (secret if secret is not None else handoff_secret()).encode("utf-8")
+    sig_b64 = base64.b64encode(
+        hmac.new(key, payload_b64.encode("utf-8"), hashlib.sha256).digest()
+    ).decode("ascii")
+    return f"{payload_b64}.{sig_b64}"
+
+
 def verify_ec_token(token: str, *, secret: str | None = None, now: float | None = None) -> dict[str, Any]:
     """Return {accountId, contactId, exp} or raise EcHandoffError."""
     if not token or "." not in token:

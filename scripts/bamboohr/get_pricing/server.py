@@ -29,10 +29,12 @@ if str(HERE) not in sys.path:
 from account_console import (  # noqa: E402
     load_account_console,
     place_account_changes,
+    preview_account_changes,
     preview_qty_delta,
 )
 from ec_handoff import EcHandoffError, verify_ec_token  # noqa: E402
 from checkout import checkout_quote  # noqa: E402
+from portal_login import create_buyer_login  # noqa: E402
 from docgen import (  # noqa: E402
     DEFAULT_TEMPLATE,
     download_content_version,
@@ -45,6 +47,7 @@ from service import (  # noqa: E402
     OrgSession,
     get_pricing,
     hydrate_catalog,
+    quote_related_ids,
 )
 
 # In-memory quote summaries for /quote/{id} branded page (demo only).
@@ -752,6 +755,76 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(400, {"ok": False, "error": str(exc)})
             return
 
+        if path == "/api/create-login":
+            account_id = str(body.get("accountId") or "").strip()
+            contact_id = str(body.get("contactId") or "").strip()
+            email = str(body.get("email") or "").strip()
+            password = str(body.get("password") or "")
+            username = str(body.get("username") or "").strip() or None
+            first_name = str(body.get("firstName") or "").strip() or None
+            last_name = str(body.get("lastName") or "").strip() or None
+            if not account_id:
+                self._json(400, {"ok": False, "error": "accountId is required"})
+                return
+            if not email or not password:
+                self._json(
+                    400,
+                    {"ok": False, "error": "email and password are required"},
+                )
+                return
+            try:
+                sess = _session()
+                if not contact_id:
+                    # Prefer Contact from a recent quote cache, else newest on Account.
+                    for cached in QUOTE_CACHE.values():
+                        if cached.get("accountId") == account_id and cached.get(
+                            "contactId"
+                        ):
+                            contact_id = str(cached["contactId"])
+                            break
+                if not contact_id:
+                    aid = account_id.replace("\\", "\\\\").replace("'", "\\'")
+                    rows = sess.soql(
+                        "SELECT Id FROM Contact "
+                        f"WHERE AccountId = '{aid}' "
+                        "ORDER BY CreatedDate DESC LIMIT 1"
+                    )
+                    if rows:
+                        contact_id = rows[0]["Id"]
+                if not contact_id:
+                    self._json(
+                        400,
+                        {
+                            "ok": False,
+                            "error": "No Contact on this Account — complete Get Pricing first.",
+                        },
+                    )
+                    return
+                result = create_buyer_login(
+                    sess,
+                    account_id=account_id,
+                    contact_id=contact_id,
+                    email=email,
+                    password=password,
+                    username=username,
+                    first_name=first_name,
+                    last_name=last_name,
+                )
+                self._json(200, result)
+            except EcHandoffError as exc:
+                self._json(
+                    503,
+                    {
+                        "ok": False,
+                        "error": f"Login created but handoff failed: {exc}",
+                    },
+                )
+            except ValueError as exc:
+                self._json(400, {"ok": False, "error": str(exc)})
+            except Exception as exc:  # noqa: BLE001
+                self._json(400, {"ok": False, "error": str(exc)})
+            return
+
         if path == "/api/account-amend":
             account_id = str(body.get("accountId") or "").strip()
             asset_id = str(body.get("assetId") or "").strip() or None
@@ -780,6 +853,33 @@ class Handler(BaseHTTPRequestHandler):
                     },
                 )
                 return
+            start_date = None
+            start_raw = str(body.get("startDate") or "").strip()
+            if start_raw:
+                try:
+                    from datetime import date as _date
+
+                    start_date = _date.fromisoformat(start_raw[:10])
+                except ValueError:
+                    self._json(
+                        400,
+                        {"ok": False, "error": "startDate must be YYYY-MM-DD"},
+                    )
+                    return
+            amend_quotes_raw = body.get("amendQuotes") or []
+            if not isinstance(amend_quotes_raw, list):
+                amend_quotes_raw = []
+            amend_quotes = [
+                {
+                    "quoteId": str(d.get("quoteId") or "").strip(),
+                    "assetIds": [
+                        str(a) for a in (d.get("assetIds") or []) if a
+                    ],
+                }
+                for d in amend_quotes_raw
+                if isinstance(d, dict) and d.get("quoteId")
+            ]
+            module_quote_id = str(body.get("moduleQuoteId") or "").strip() or None
             try:
                 result = place_account_changes(
                     _session(),
@@ -787,13 +887,63 @@ class Handler(BaseHTTPRequestHandler):
                     asset_id=asset_id,
                     new_qty=new_qty,
                     addon_skus=addon_skus,
+                    start_date=start_date,
+                    amend_quotes=amend_quotes or None,
+                    module_quote_id=module_quote_id,
                 )
                 self._json(200 if result.ok else 400, result.as_dict())
             except Exception as exc:  # noqa: BLE001
                 self._json(400, {"ok": False, "error": str(exc)})
             return
 
+        if path == "/api/account-amend-preview":
+            account_id = str(body.get("accountId") or "").strip()
+            asset_id = str(body.get("assetId") or "").strip() or None
+            raw_addons = body.get("addonSkus") or body.get("addons") or []
+            if not isinstance(raw_addons, list):
+                raw_addons = []
+            addon_skus = [str(s).strip() for s in raw_addons if str(s).strip()]
+            new_qty: int | None
+            if body.get("newQty") in (None, ""):
+                new_qty = None
+            else:
+                try:
+                    new_qty = int(body.get("newQty"))
+                except (TypeError, ValueError):
+                    self._json(400, {"ok": False, "error": "newQty must be an integer"})
+                    return
+            if not account_id:
+                self._json(400, {"ok": False, "error": "accountId is required"})
+                return
+            start_date = None
+            start_raw = str(body.get("startDate") or "").strip()
+            if start_raw:
+                try:
+                    from datetime import date as _date
+
+                    start_date = _date.fromisoformat(start_raw[:10])
+                except ValueError:
+                    self._json(
+                        400,
+                        {"ok": False, "error": "startDate must be YYYY-MM-DD"},
+                    )
+                    return
+            try:
+                result = preview_account_changes(
+                    _session(),
+                    account_id=account_id,
+                    asset_id=asset_id,
+                    new_qty=new_qty,
+                    addon_skus=addon_skus,
+                    start_date=start_date,
+                )
+                self._json(200 if result.get("ok") else 400, result)
+            except Exception as exc:  # noqa: BLE001
+                self._json(400, {"ok": False, "error": str(exc)})
+            return
+
         if path == "/api/account-preview":
+            # Legacy single-SKU estimate (kept for older callers).
             try:
                 list_pepm = float(body.get("listPepm") or 0)
                 current_qty = int(body.get("currentQty") or 0)
@@ -835,6 +985,8 @@ class Handler(BaseHTTPRequestHandler):
                 contact_id = cached.get("contactId") or ""
                 order_id = payload.get("orderId") or ""
                 asset_ids = payload.get("assetIds") or []
+                related = quote_related_ids(sess, quote_id)
+                opportunity_id = related.get("opportunityId") or ""
 
                 def _lex(entity: str, rid: str) -> str:
                     return f"{base}/lightning/r/{entity}/{rid}/view" if rid else ""
@@ -848,11 +1000,13 @@ class Handler(BaseHTTPRequestHandler):
                         "contactId": contact_id,
                         "contactName": cached.get("contactName") or "",
                         "contactEmail": cached.get("contactEmail") or "",
+                        "opportunityId": opportunity_id,
                         "planName": cached.get("planName") or "",
                         "monthlyTotal": cached.get("monthlyTotal"),
                         "links": {
                             "account": _lex("Account", account_id),
                             "contact": _lex("Contact", contact_id),
+                            "opportunity": _lex("Opportunity", opportunity_id),
                             "quote": _lex("Quote", quote_id),
                             "order": _lex("Order", order_id),
                             "assets": [_lex("Asset", aid) for aid in asset_ids if aid],

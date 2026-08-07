@@ -118,14 +118,28 @@ Settings → *Allow using standard external profiles…*. That org preference is
 reliably deployable via Metadata API here, so the repo ships
 `BambooHR Customer Login` (Customer Community Login license) instead.
 
-Demo path:
+## Golden demo identity: Northwind (sign-in story)
+
+Use **Northwind Robotics** as the prepared Experience Cloud login for the
+returning-customer story. New Get Pricing buyers can create a community login
+on the order-success screen (`POST /api/create-login` → Customer Community User
++ `ecToken` into Licenses & billing).
+
+| Role | Account | How to open Licenses |
+|------|---------|----------------------|
+| **Sign-in demo** | Northwind Robotics 170200 | EC login → Manage licenses & billing |
+| **New-customer demo** | Whatever the hero form creates | Create login on checkout success, or demo pin (company / `accountId`) |
+
+Demo path (Northwind):
 
 1. Open https://trailsignup-b4759183862b2b.my.site.com/bamboohr/s/login/
-2. Sign in with the provisioned username/password (see private artifact above)
-3. Home → **Manage licenses & billing** → BFF `/account?ecToken=…` for Northwind
+2. Sign in with the Northwind credentials (private artifact
+   `.agents/artifacts/bamboohr-ec-demo-login.md`)
+3. Home → **Manage licenses & billing** → BFF `/account?ecToken=…`
 
-Demo pin (`accountId` / company name on `/account`) remains for SE walkthroughs
-without EC. Prefer the signed handoff for the buyer story.
+Re-seed after cleanup: place Get Pricing for Northwind (or reuse Account Id
+`001gL00001enzlyQAA`), then
+`provision_ec_demo_user.py` if the community user is missing.
 
 ## Why not iframe?
 

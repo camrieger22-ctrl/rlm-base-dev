@@ -55,7 +55,9 @@ Full JWT / Docker / Connected App steps: **HOSTED.md**.
 | GET | `/api/catalog?country=US\|CA\|UK` | Curated SKUs → org PBE list PEPM / names / availability |
 | GET | `/api/account-console?accountId=\|company=\|ecToken=` | Licenses & billing (demo pin or EC HMAC handoff) |
 | GET | `/api/ec-handoff?token=` | Verify EC handoff → `{ accountId, contactId, exp }` |
-| POST | `/api/account-amend` | `{ accountId, assetId?, newQty?, addonSkus? }` → qty amend and/or add-module sale |
+| POST | `/api/create-login` | `{ accountId, contactId?, email, password }` → community User + `ecToken` handoff |
+| POST | `/api/account-amend-preview` | `{ accountId, newQty?, addonSkus?, startDate? }` → draft Quotes + System reprice totals (no Activate) |
+| POST | `/api/account-amend` | `{ accountId, newQty?, addonSkus?, amendQuotes?, moduleQuoteId? }` → activate preview Quotes (or create if omitted) |
 | POST | `/api/get-pricing` | `{ headcount, country, planSku, addonSkus?, placeQuote? }` |
 | POST | `/api/checkout` | `{ quoteId, amendQty?, pollTimeout? }` |
 | POST | `/api/docgen-pdf` | `{ quoteId, templateName?, title?, timeout? }` → `downloadUrl` |

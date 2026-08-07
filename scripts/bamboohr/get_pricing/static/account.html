@@ -39,8 +39,8 @@
     <section class="account-login card-panel" id="loginPanel">
       <h2>Continue as customer</h2>
       <p class="muted">
-        Demo pin (Experience Cloud login comes later). Use the Account from your last purchase,
-        or look up <strong>Northwind Robotics</strong>.
+        After checkout, create a login from the order confirmation — or open with your company
+        name / Account Id. Demo fallback: <strong>Northwind Robotics</strong>.
       </p>
       <div class="account-login-row">
         <label>
@@ -59,7 +59,29 @@
     <div id="consoleRoot" hidden>
       <p class="identity-note" id="identityNote"></p>
 
-      <div class="account-grid">
+      <section class="order-success account-change-success" id="changeSuccess" hidden>
+        <div class="order-success-badge" aria-hidden="true">✓</div>
+        <p class="order-success-kicker">You're all set</p>
+        <h3 class="order-success-title" id="changeSuccessTitle">Changes complete</h3>
+        <p class="order-success-lede" id="changeSuccessLede">
+          Your change is activated in Salesforce Revenue Cloud — Account, Opportunity, Quote, Order, and Assets are live.
+        </p>
+        <div class="success-metrics" id="changeSuccessMetrics"></div>
+        <div class="success-links" id="changeSuccessLinks"></div>
+        <p class="success-demo-tip">
+          <strong>Demo tip:</strong> keep Salesforce open beside this tab — open Account, then Opportunity, then Order, then an Asset.
+        </p>
+        <div class="quote-actions-secondary success-actions">
+          <a class="button-link" id="changeOpenSfAccountBtn" href="#" target="_blank" rel="noopener" hidden>Open Account in Salesforce</a>
+          <button type="button" class="secondary" id="changeSuccessDismiss">Back to licenses</button>
+        </div>
+        <details class="success-raw">
+          <summary>Technical details</summary>
+          <pre class="checkout-result muted" id="changeSuccessRaw"></pre>
+        </details>
+      </section>
+
+      <div class="account-grid" id="accountGrid">
         <div class="account-main">
           <section class="card-panel sub-card">
             <div class="panel-head">
@@ -78,7 +100,10 @@
 
           <section class="card-panel">
             <h2>Expand your plan</h2>
-            <p class="muted">Adjust employee count. Preview updates as you move — Place order commits an OOTB Asset amend.</p>
+            <p class="muted">
+              Type any employee count or use the steppers. Choose when the change starts to see
+              proration against your current term.
+            </p>
             <div class="expand-block">
               <div class="expand-label-row">
                 <span>Employees</span>
@@ -87,11 +112,16 @@
               <div class="expand-row">
                 <button type="button" class="hc-step" data-qty-delta="-10">−10</button>
                 <button type="button" class="hc-step" id="qtyMinus" aria-label="Decrease">−</button>
-                <input type="number" id="qtyInput" min="1" max="100000" />
+                <input type="number" id="qtyInput" min="1" max="100000" inputmode="numeric" />
                 <button type="button" class="hc-step" id="qtyPlus" aria-label="Increase">+</button>
                 <button type="button" class="hc-step" data-qty-delta="10">+10</button>
               </div>
               <input type="range" id="qtyRange" min="1" max="600" />
+              <label class="start-date-field">
+                <span>Change starts</span>
+                <input type="date" id="startDateInput" />
+              </label>
+              <p class="muted start-date-hint" id="termHint"></p>
             </div>
           </section>
 
@@ -104,22 +134,6 @@
               Toggle modules you don’t own. Place order creates a supplemental Quote → Order → Assets in Salesforce.
             </p>
             <div class="module-grid module-grid--compact" id="moduleGrid"></div>
-          </section>
-
-          <section class="card-panel checkout-card">
-            <h2>Order summary</h2>
-            <ul class="checkout-lines" id="checkoutLines"></ul>
-            <div class="checkout-math">
-              <div><span>Current monthly</span><strong id="prevCurrent">—</strong></div>
-              <div><span>After this change</span><strong id="prevAfter">—</strong></div>
-              <div class="checkout-diff"><span>Difference</span><strong id="prevDiff">—</strong></div>
-            </div>
-            <div class="due-today">
-              <span>Due today <em>(estimate)</em></span>
-              <strong id="dueToday">—</strong>
-            </div>
-            <button type="button" class="place-order-btn" id="placeAmendBtn">Place order</button>
-            <p class="status" id="amendStatus" role="status"></p>
           </section>
         </div>
 
@@ -148,6 +162,58 @@
           </section>
         </aside>
       </div>
+
+      <section class="card-panel checkout-card checkout-card--bottom" id="orderSummaryCard" hidden>
+        <h2>Order summary</h2>
+        <p class="seat-change-badge" id="seatChangeBadge" hidden></p>
+        <ul class="checkout-lines" id="checkoutLines"></ul>
+        <div class="checkout-math checkout-math--split">
+          <div class="checkout-math-col">
+            <p class="checkout-math-heading">Monthly</p>
+            <div>
+              <span>Recurring today</span>
+              <strong id="prevCurrentMo">—</strong>
+            </div>
+            <div>
+              <span>After this change</span>
+              <strong id="prevAfterMo">—</strong>
+            </div>
+            <div class="checkout-diff">
+              <span>Difference</span>
+              <strong id="prevDiffMo">—</strong>
+            </div>
+          </div>
+          <div class="checkout-math-col">
+            <p class="checkout-math-heading">Annual</p>
+            <div>
+              <span>Recurring today</span>
+              <strong id="prevCurrent">—</strong>
+            </div>
+            <div>
+              <span>After this change</span>
+              <strong id="prevAfter">—</strong>
+            </div>
+            <div class="checkout-diff">
+              <span>Difference</span>
+              <strong id="prevDiff">—</strong>
+            </div>
+          </div>
+        </div>
+        <div class="proration-block" id="prorationBlock">
+          <p class="proration-label" id="prorationLabel">Prorated for the remainder of your term</p>
+          <p class="proration-formula" id="prorationFormula"></p>
+        </div>
+        <div class="due-today">
+          <span id="dueTodayLabel">Charged today</span>
+          <strong id="dueToday">—</strong>
+        </div>
+        <p class="pricing-source muted" id="pricingSourceNote">
+          Pricing from Revenue Cloud Quotes (System reprice).
+        </p>
+        <p class="billing-foot" id="billingFoot"></p>
+        <button type="button" class="place-order-btn" id="placeAmendBtn">Place order</button>
+        <p class="status" id="amendStatus" role="status"></p>
+      </section>
     </div>
   </main>
 
