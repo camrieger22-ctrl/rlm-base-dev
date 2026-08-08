@@ -88,6 +88,13 @@ HOSTED.md Path C (`publish_bff.py --named`).
   scripts/bamboohr/get_pricing/bootstrap_paynow.py --org master-demo --execute --check
 ```
 
+**Pay Now smoke** (readiness; add `--create-link` to reuse/create a PaymentLink):
+
+```bash
+~/.local/pipx/venvs/cumulusci/bin/python \
+  scripts/bamboohr/get_pricing/paynow_smoke.py --org master-demo --create-link
+```
+
 **Demo cleanup** (Quotes / Orders / Assets — not catalog pricing):
 
 ```bash

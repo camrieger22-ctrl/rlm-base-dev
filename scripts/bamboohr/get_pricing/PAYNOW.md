@@ -7,7 +7,7 @@ creates invoices / Payment Links and shows branded CTAs.
 Related: [README.md](./README.md) · [HOSTED.md](./HOSTED.md) ·
 [EXPERIENCE_CLOUD.md](./EXPERIENCE_CLOUD.md)
 
-**Status:** Phases 0–4 shipped (org bootstrap + readiness, checkout, Licenses invoices, amend Pay Now, shared card)  
+**Status:** Phases 0–4 + 6 shipped (Phase 5 email/EC optional)  
 **Scope:** This BFF only — not Foundations product packaging.
 
 ---
@@ -81,10 +81,11 @@ session on the same domain often breaks the guest pay page.
 | Payment email not sent | Link only in browser (Phase 5) |
 | Invoice balance may lag after authorize | UI may still show balance until apply settles |
 
-### Shipped (Phases 0–4)
+### Shipped (Phases 0–4, 6)
 
 - `bootstrap_paynow.py` — Guest Browsing + Pay Now Profile commerce Reads
 - Richer `GET /api/payments-readiness` → `readyForPayNow`, `checks`, `blocking`, guest probes
+- `paynow_smoke.py` — readiness + optional `--create-link`
 
 - `list_open_invoices` / `build_payment_prompt_for_invoice` (+ Active link reuse)
 - `GET /api/account-invoices`, `collect-payment` accepts `invoiceId`
@@ -196,11 +197,17 @@ After amend activate, call the payment prompt and reuse the pay-now card on
 
 ---
 
-### Phase 6 — Docs & smoke
+### Phase 6 — Docs & smoke ✅
 
 - Keep this file + README API table in sync  
-- Smoke: readiness + create link; optional local Playwright guest pay  
-- Cleanup: disable unused Active links; don’t casually delete Payment history  
+- Smoke: `paynow_smoke.py` — readiness + optional `--create-link`  
+- Live Stripe charge remains manual (incognito + `4242…`)  
+- Cleanup: leave unused Active SingleUse links; don’t casually delete Payment history  
+
+```bash
+~/.local/pipx/venvs/cumulusci/bin/python \
+  scripts/bamboohr/get_pricing/paynow_smoke.py --org master-demo --create-link
+```
 
 ---
 
@@ -242,14 +249,14 @@ Phase 6 (docs / smoke)                  continuous
 
 ## Verification
 
-- [ ] `GET /api/payments-readiness` → ready  
-- [ ] Guest `payment-link-configs/{id}?asGuest=true` → 200  
-- [ ] Guest `session-context?asGuest=true` → 200  
-- [ ] Checkout → Pay now → Stripe `4242…` → thank-you confirmation  
-- [ ] Payment **Processed**; PaymentLink **Disabled**  
-- [ ] `/account` lists open invoice; Pay works in incognito  
-- [ ] Amend activate (balance &gt; 0) shows Pay now  
-- [ ] Admin cookie session documented as failure mode; incognito succeeds  
+- [x] `GET /api/payments-readiness` / `paynow_smoke.py` → `readyForPayNow`  
+- [x] Guest `payment-link-configs/{id}?asGuest=true` → 200 (readiness probe)  
+- [x] Guest `session-context?asGuest=true` → 200 (readiness probe)  
+- [x] Checkout → Pay now → Stripe `4242…` → thank-you confirmation (manual / prior E2E)  
+- [x] Payment **Processed**; PaymentLink **Disabled** (prior E2E)  
+- [x] `/account` lists open invoice; Pay works in incognito  
+- [x] Amend activate (balance &gt; 0) shows Pay now  
+- [x] Admin cookie session documented as failure mode; incognito succeeds  
 
 ---
 
@@ -282,6 +289,7 @@ Phase 6 (docs / smoke)                  continuous
 |------|------|
 | `payments.py` | Invoice generate, PaymentLink create, readiness, bootstrap helpers |
 | `bootstrap_paynow.py` | CLI: Guest Browsing + guest ObjectPermissions |
+| `paynow_smoke.py` | Phase 6 smoke: readiness + optional link create |
 | `checkout.py` | Post-activate `build_payment_prompt` |
 | `account_console.py` | Account invoices payload + amend `payment` |
 | `server.py` | `/api/checkout`, `/api/collect-payment`, `/api/account-invoices`, readiness |
