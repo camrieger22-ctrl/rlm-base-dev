@@ -494,6 +494,31 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 self._json(503, {"ok": False, "error": str(exc)})
             return
+        if path == "/api/payments-readiness":
+            try:
+                from payments import payments_readiness
+
+                ready = payments_readiness(_session())
+                self._json(
+                    200,
+                    {
+                        "ok": True,
+                        **ready,
+                        "payNowLikely": (
+                            ready["merchantAccountCount"] > 0
+                            and ready["paymentsWebhookLive"]
+                        ),
+                        "hint": (
+                            "Complete Salesforce Payments merchant setup + Pay Now "
+                            "site URL before checkout can return paymentUrl."
+                            if ready["merchantAccountCount"] == 0
+                            else "Merchant present — checkout can attempt PaymentLink."
+                        ),
+                    },
+                )
+            except Exception as exc:  # noqa: BLE001
+                self._json(503, {"ok": False, "error": str(exc)})
+            return
         if path == "/api/ec-handoff":
             try:
                 qs = parse_qs(urlparse(self.path).query)
@@ -963,6 +988,28 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(400, {"ok": False, "error": str(exc)})
             return
 
+        if path == "/api/collect-payment":
+            order_id = str(body.get("orderId") or "").strip()
+            if not order_id:
+                self._json(400, {"ok": False, "error": "orderId is required"})
+                return
+            try:
+                from payments import build_payment_prompt
+
+                prompt = build_payment_prompt(
+                    _session(),
+                    order_id,
+                    collect=True,
+                    poll_timeout=int(body.get("pollTimeout") or 90),
+                )
+                self._json(
+                    200 if prompt.invoice_id else 400,
+                    {"ok": bool(prompt.invoice_id), **prompt.as_dict()},
+                )
+            except Exception as exc:  # noqa: BLE001
+                self._json(400, {"ok": False, "error": str(exc)})
+            return
+
         if path == "/api/checkout":
             quote_id = str(body.get("quoteId") or "").strip()
             if not quote_id:
@@ -972,11 +1019,14 @@ class Handler(BaseHTTPRequestHandler):
             amend_qty = int(amend_raw) if amend_raw not in (None, "") else None
             try:
                 sess = _session()
+                collect_raw = body.get("collectPayment")
+                collect_payment = True if collect_raw is None else bool(collect_raw)
                 result = checkout_quote(
                     sess,
                     quote_id,
                     amend_qty=amend_qty,
                     poll_timeout=int(body.get("pollTimeout") or 180),
+                    collect_payment=collect_payment,
                 )
                 payload = result.as_dict()
                 cached = QUOTE_CACHE.get(quote_id) or {}
@@ -987,9 +1037,23 @@ class Handler(BaseHTTPRequestHandler):
                 asset_ids = payload.get("assetIds") or []
                 related = quote_related_ids(sess, quote_id)
                 opportunity_id = related.get("opportunityId") or ""
+                payment = payload.get("payment") or {}
 
                 def _lex(entity: str, rid: str) -> str:
                     return f"{base}/lightning/r/{entity}/{rid}/view" if rid else ""
+
+                links = {
+                    "account": _lex("Account", account_id),
+                    "contact": _lex("Contact", contact_id),
+                    "opportunity": _lex("Opportunity", opportunity_id),
+                    "quote": _lex("Quote", quote_id),
+                    "order": _lex("Order", order_id),
+                    "assets": [_lex("Asset", aid) for aid in asset_ids if aid],
+                }
+                if payment.get("invoiceUrl"):
+                    links["invoice"] = payment["invoiceUrl"]
+                if payment.get("paymentUrl"):
+                    links["payNow"] = payment["paymentUrl"]
 
                 payload.update(
                     {
@@ -1003,14 +1067,7 @@ class Handler(BaseHTTPRequestHandler):
                         "opportunityId": opportunity_id,
                         "planName": cached.get("planName") or "",
                         "monthlyTotal": cached.get("monthlyTotal"),
-                        "links": {
-                            "account": _lex("Account", account_id),
-                            "contact": _lex("Contact", contact_id),
-                            "opportunity": _lex("Opportunity", opportunity_id),
-                            "quote": _lex("Quote", quote_id),
-                            "order": _lex("Order", order_id),
-                            "assets": [_lex("Asset", aid) for aid in asset_ids if aid],
-                        },
+                        "links": links,
                     }
                 )
                 if cached is not None:

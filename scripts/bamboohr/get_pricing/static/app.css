@@ -1975,6 +1975,29 @@ body.quote-page {
   gap: 0.75rem;
 }
 
+.pay-now-card {
+  margin: 1.25rem 0;
+  padding: 1.1rem 1.15rem;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  background: rgba(115, 196, 29, 0.06);
+  display: grid;
+  gap: 0.65rem;
+}
+
+.pay-now-card h4 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.pay-now-card .quote-cta {
+  text-align: center;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .quote-cta {
   width: 100%;
   border: 0;

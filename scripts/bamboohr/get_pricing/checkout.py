@@ -26,6 +26,7 @@ class CheckoutResult:
     amend_order_id: str | None = None
     amend_order_number: str | None = None
     amend_requested_qty: int | None = None
+    payment: dict[str, Any] | None = None
     warnings: list[str] = field(default_factory=list)
     error: str | None = None
 
@@ -43,6 +44,7 @@ class CheckoutResult:
             "amendRequestedQty": self.amend_requested_qty,
             # Back-compat alias used by earlier P3 smoke/UI.
             "amendTransactionId": self.amend_quote_id,
+            "payment": self.payment,
             "warnings": self.warnings,
             "error": self.error,
         }
@@ -847,8 +849,9 @@ def checkout_quote(
     *,
     amend_qty: int | None = None,
     poll_timeout: int = 180,
+    collect_payment: bool = True,
 ) -> CheckoutResult:
-    """Place order from quote, activate (assetize), optional qty amend E2E."""
+    """Place order from quote, activate (assetize), optional qty amend + Pay Now."""
     warnings: list[str] = []
     order_id: str | None = None
     order_number: str | None = None
@@ -857,6 +860,7 @@ def checkout_quote(
     amend_quote: str | None = None
     amend_order: str | None = None
     amend_order_number: str | None = None
+    payment: dict[str, Any] | None = None
 
     q = session.soql(
         f"SELECT Id, QuoteAccountId, Status FROM Quote WHERE Id = '{quote_id}'"
@@ -901,6 +905,29 @@ def checkout_quote(
         elif amend_qty is not None and not assets:
             warnings.append("Skipped amend — no asset id available yet.")
 
+        pay_order = amend_order or order_id
+        if collect_payment and pay_order:
+            from payments import build_payment_prompt
+
+            try:
+                prompt = build_payment_prompt(
+                    session,
+                    pay_order,
+                    collect=True,
+                    poll_timeout=min(90, poll_timeout),
+                )
+                payment = prompt.as_dict()
+                if prompt.blocked_reason:
+                    warnings.append(f"Payment: {prompt.blocked_reason}")
+                warnings.extend(prompt.warnings)
+            except Exception as pay_exc:  # noqa: BLE001
+                warnings.append(f"Payment prompt failed: {pay_exc}")
+                payment = {
+                    "ready": False,
+                    "orderId": pay_order,
+                    "blockedReason": str(pay_exc),
+                }
+
         return CheckoutResult(
             ok=True,
             quote_id=quote_id,
@@ -912,6 +939,7 @@ def checkout_quote(
             amend_order_id=amend_order,
             amend_order_number=amend_order_number,
             amend_requested_qty=amend_qty,
+            payment=payment,
             warnings=warnings,
         )
     except Exception as exc:  # noqa: BLE001
@@ -926,6 +954,7 @@ def checkout_quote(
             amend_order_id=amend_order,
             amend_order_number=amend_order_number,
             amend_requested_qty=amend_qty,
+            payment=payment,
             error=str(exc),
             warnings=warnings,
         )

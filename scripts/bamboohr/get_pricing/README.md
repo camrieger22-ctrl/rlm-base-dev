@@ -2,7 +2,9 @@
 
 Thin BFF + branded form for the self-serve “Get Pricing” path (fork-only).
 Runs **locally** (CCI) or **hosted** (public URL via tunnel / JWT Connected App).
-See **[HOSTED.md](./HOSTED.md)** for public demos.
+See **[HOSTED.md](./HOSTED.md)** for public demos, **[EXPERIENCE_CLOUD.md](./EXPERIENCE_CLOUD.md)**
+for the EC shell, and **[PAYNOW.md](./PAYNOW.md)** for Salesforce Payments /
+Pay Now (checkout + Licenses weave-in plan).
 
 ## Flow
 
@@ -59,7 +61,9 @@ Full JWT / Docker / Connected App steps: **HOSTED.md**.
 | POST | `/api/account-amend-preview` | `{ accountId, newQty?, addonSkus?, startDate? }` → draft Quotes + System reprice totals (no Activate) |
 | POST | `/api/account-amend` | `{ accountId, newQty?, addonSkus?, amendQuotes?, moduleQuoteId? }` → activate preview Quotes (or create if omitted) |
 | POST | `/api/get-pricing` | `{ headcount, country, planSku, addonSkus?, placeQuote? }` |
-| POST | `/api/checkout` | `{ quoteId, amendQty?, pollTimeout? }` |
+| POST | `/api/checkout` | `{ quoteId, amendQty?, pollTimeout?, collectPayment? }` — after activate, invoices the order and attempts Salesforce Payments Pay Now (`payment` on response) |
+| GET | `/api/payments-readiness` | Merchant / webhook probe for Pay Now |
+| POST | `/api/collect-payment` | `{ orderId, pollTimeout? }` — invoice + PaymentLink for an existing Order |
 | POST | `/api/docgen-pdf` | `{ quoteId, templateName?, title?, timeout? }` → `downloadUrl` |
 | GET | `/api/docgen-pdf/<contentVersionId>` | PDF bytes (attachment) |
 | POST | `/api/quote-email` | `{ quoteId, toEmail?, attachPdf? }` → Salesforce sends quote email (+ DocGen PDF) |

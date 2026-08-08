@@ -80,6 +80,18 @@
         </p>
         <div class="success-metrics" id="successMetrics"></div>
 
+        <section class="pay-now-card" id="payNowCard" hidden>
+          <h4>Pay your first invoice</h4>
+          <p class="muted" id="payNowLede">
+            Salesforce Billing posted an invoice for this order. Pay securely with Salesforce Payments.
+          </p>
+          <p class="status" id="payNowStatus" role="status"></p>
+          <div class="quote-actions-secondary" id="payNowActions">
+            <a class="button-link quote-cta" id="payNowBtn" href="#" target="_blank" rel="noopener" hidden>Pay now</a>
+            <a class="button-link secondary" id="openInvoiceBtn" href="#" target="_blank" rel="noopener" hidden>Open invoice in Salesforce</a>
+          </div>
+        </section>
+
         <section class="create-login-card" id="createLoginCard" hidden>
           <h4>Create your login</h4>
           <p class="muted">
@@ -344,6 +356,57 @@
           openAcctBtn.href = links.account;
           openAcctBtn.hidden = false;
         }
+
+        const payCard = document.getElementById("payNowCard");
+        const payBtn = document.getElementById("payNowBtn");
+        const invBtn = document.getElementById("openInvoiceBtn");
+        const payStatus = document.getElementById("payNowStatus");
+        const payLede = document.getElementById("payNowLede");
+        const payment = data.payment || {};
+        if (payCard) {
+          const hasInvoice = !!(payment.invoiceId || links.invoice);
+          const hasPayUrl = !!(payment.paymentUrl || links.payNow);
+          if (hasInvoice || payment.blockedReason || hasPayUrl) {
+            payCard.hidden = false;
+            if (payLede && payment.invoiceNumber) {
+              const bal =
+                payment.invoiceBalance != null
+                  ? " · $" +
+                    Number(payment.invoiceBalance).toLocaleString(undefined, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    }) +
+                    " due"
+                  : "";
+              payLede.textContent =
+                "Invoice " + payment.invoiceNumber + bal + ".";
+            }
+            if (payBtn) {
+              if (hasPayUrl) {
+                payBtn.href = payment.paymentUrl || links.payNow;
+                payBtn.hidden = false;
+              } else {
+                payBtn.hidden = true;
+              }
+            }
+            if (invBtn && (payment.invoiceUrl || links.invoice)) {
+              invBtn.href = payment.invoiceUrl || links.invoice;
+              invBtn.hidden = false;
+            }
+            if (payStatus) {
+              if (hasPayUrl) {
+                payStatus.textContent = "Ready — open Pay now to complete payment.";
+                payStatus.classList.remove("error");
+              } else if (payment.blockedReason) {
+                payStatus.textContent = payment.blockedReason;
+                payStatus.classList.add("error");
+              } else {
+                payStatus.textContent = "";
+              }
+            }
+          }
+        }
+
         const accountHref =
           data.accountId
             ? "/account?accountId=" + encodeURIComponent(data.accountId)
