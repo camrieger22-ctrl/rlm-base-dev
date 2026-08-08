@@ -10,13 +10,21 @@
 
   let state = null;
   const selectedAddons = new Set();
-  /** Last successful RC preview — Place order reuses these Quote ids. */
+  /** Last successful RC preview — Generate quote caches this for the summary page. */
   let pricedPreview = null;
+  /** Sticky Draft Quote ids from the last RC preview (survive keystroke invalidation). */
+  let stickyAmendQuotes = [];
+  let stickyModuleQuoteId = null;
   let previewTimer = null;
   let previewSeq = 0;
+  let previewInFlight = false;
+  let previewNeedsRerun = false;
+  let pricingBusy = false;
   const changeSuccess = document.getElementById("changeSuccess");
   const accountGrid = document.getElementById("accountGrid");
   const orderSummaryCard = document.getElementById("orderSummaryCard");
+  const generateAmendQuoteBtn = document.getElementById("generateAmendQuoteBtn");
+  const amendRailCard = document.getElementById("amendRailCard");
 
   const showChangeSuccess = (data) => {
     const conf = data.confirmation || {};
@@ -178,6 +186,128 @@
     return `${sign}${cur} ${formatted}`;
   };
 
+  const esc = (value) =>
+    String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+
+  /** Lightning record link — prove the demo wrote real Salesforce data. */
+  const sfRecordLink = (url, label, objectLabel) => {
+    const text = esc(label);
+    if (!url) return `<strong>${text}</strong>`;
+    const title = objectLabel
+      ? `Open ${objectLabel} in Salesforce`
+      : "Open in Salesforce";
+    return `<strong><a class="sf-record-link" href="${esc(url)}" target="_blank" rel="noopener" title="${esc(title)}">${text}</a></strong>`;
+  };
+
+  /**
+   * Seats in effect on a calendar day — same basis Connect amend uses
+   * (AssetStatePeriod on amendmentStartDate), not today's CurrentQuantity.
+   */
+  const quantityAtStartDate = (isoDay) => {
+    const day = String(isoDay || "").slice(0, 10);
+    const todayQty = Number(state?.subscription?.currentQuantity) || 0;
+    const periods = state?.subscription?.timeline?.periods || [];
+    if (!day || !periods.length) return todayQty;
+    const covering = periods.find((p) => {
+      const start = String(p.startDate || "").slice(0, 10);
+      const end = String(p.endDate || "9999-12-31").slice(0, 10);
+      return start && start <= day && day <= end;
+    });
+    if (covering && covering.quantity != null) {
+      return Number(covering.quantity) || 0;
+    }
+    const sorted = [...periods].sort((a, b) =>
+      String(a.startDate || "").localeCompare(String(b.startDate || ""))
+    );
+    const last = sorted[sorted.length - 1];
+    if (
+      last &&
+      last.quantity != null &&
+      day > String(last.endDate || "").slice(0, 10)
+    ) {
+      return Number(last.quantity) || 0;
+    }
+    return todayQty;
+  };
+
+  const amendChangeCtx = () => {
+    if (!state?.account?.id) return null;
+    const todayQty = Number(state.subscription.currentQuantity) || 0;
+    const startIso =
+      document.getElementById("startDateInput")?.value || defaultStartDate();
+    // RC delta = target − qty in effect on start date (upcoming ASP), not today.
+    const baselineQty = quantityAtStartDate(startIso);
+    const parsed = readQty();
+    const newQty = parsed == null ? baselineQty : parsed;
+    const termEnd = termEndDate();
+    const daysLeft = daysBetween(
+      parseDate(startIso) || parseDate(defaultStartDate()),
+      termEnd
+    );
+    const qtyChanged = newQty !== baselineQty;
+    const addons = [...selectedAddons];
+    const hasChange = qtyChanged || addons.length > 0;
+    return {
+      currentQty: baselineQty,
+      baselineQty,
+      todayQty,
+      newQty,
+      startIso,
+      termEnd,
+      daysLeft,
+      qtyChanged,
+      addons,
+      hasChange,
+      qtyValid: parsed != null,
+    };
+  };
+
+  const previewIsFresh = (ctx = amendChangeCtx()) => {
+    if (!ctx || !pricedPreview?.ok) return false;
+    const previewAddonSkus = new Set(
+      (pricedPreview.lines || [])
+        .filter((l) => l.isNew)
+        .map((l) => String(l.sku || ""))
+    );
+    const addonsMatch =
+      ctx.addons.length === previewAddonSkus.size &&
+      ctx.addons.every((s) => previewAddonSkus.has(s));
+    const previewStart = String(
+      pricedPreview.amendStartDate || pricedPreview.startDate || ""
+    ).slice(0, 10);
+    const startMatch =
+      !previewStart || previewStart === String(ctx.startIso || "").slice(0, 10);
+    return (
+      pricedPreview.accountId === state.account.id &&
+      Number(pricedPreview.newQty) === Number(ctx.newQty) &&
+      addonsMatch &&
+      startMatch
+    );
+  };
+
+  const syncAmendActions = () => {
+    const ctx = amendChangeCtx();
+    const hasChange = !!(ctx && ctx.hasChange && ctx.qtyValid);
+    const fresh = previewIsFresh(ctx);
+    if (generateAmendQuoteBtn) {
+      generateAmendQuoteBtn.disabled = !hasChange || pricingBusy || !fresh;
+      generateAmendQuoteBtn.classList.toggle("busy", pricingBusy);
+      generateAmendQuoteBtn.textContent = pricingBusy
+        ? "Pricing…"
+        : !hasChange
+          ? "Generate quote"
+          : !fresh
+            ? "Waiting for pricing…"
+            : "Generate quote";
+    }
+    amendRailCard?.classList.toggle("is-pricing", !!pricingBusy);
+  };
+
   const parseDate = (iso) => {
     if (!iso) return null;
     const d = new Date(`${String(iso).slice(0, 10)}T12:00:00Z`);
@@ -220,16 +350,17 @@
         const when = (inv.createdDate || "").slice(0, 10);
         const bal = money(inv.balance, currency);
         const ready = !!inv.paymentUrl;
-        return `<li class="invoice-row" data-invoice-id="${inv.id}">
+        const label = inv.invoiceNumber || inv.id;
+        return `<li class="invoice-row" data-invoice-id="${esc(inv.id)}">
           <div>
-            <strong>${inv.invoiceNumber || inv.id}</strong>
-            <span>${when} · balance ${bal}</span>
+            ${sfRecordLink(inv.invoiceUrl, label, "Invoice")}
+            <span>${esc(when)} · balance ${esc(bal)}</span>
           </div>
           <div class="invoice-row-actions">
-            <span class="activity-badge">${inv.status || "Posted"}</span>
+            <span class="activity-badge">${esc(inv.status || "Posted")}</span>
             <button type="button" class="demo-btn demo-btn-primary invoice-pay-btn"
-              data-invoice-id="${inv.id}"
-              data-payment-url="${ready ? inv.paymentUrl : ""}">
+              data-invoice-id="${esc(inv.id)}"
+              data-payment-url="${ready ? esc(inv.paymentUrl) : ""}">
               Pay
             </button>
           </div>
@@ -615,8 +746,12 @@
     return Math.max(1, Math.min(100000, Math.round(n)));
   };
 
-  const qtyOrCurrent = () =>
-    readQty() ?? (Number(state?.subscription?.currentQuantity) || 1);
+  const qtyOrCurrent = () => {
+    const startIso =
+      document.getElementById("startDateInput")?.value || defaultStartDate();
+    // Parens required: ?? and || cannot mix without grouping (breaks whole file parse).
+    return readQty() ?? (quantityAtStartDate(startIso) || 1);
+  };
 
   const renderOrderMath = ({
     currency: cur,
@@ -626,144 +761,112 @@
     dueToday,
     daysLeft,
     termEnd,
-    provisional,
+    provisional = false,
+    awaitingPrice = false,
     quoteNumbers,
   }) => {
-    const monthlyDiff = Math.round((monthlyAfter - monthlyToday) * 100) / 100;
-    const annualBefore = Math.round(monthlyToday * 12 * 100) / 100;
     const annualAfter = Math.round(monthlyAfter * 12 * 100) / 100;
-    const annualDiff = Math.round((annualAfter - annualBefore) * 100) / 100;
+    const pepmLines = (lines || []).filter((l) => l.isPepm && l.qty);
+    const qty = pepmLines[0]?.qty || 0;
+    const pepm = qty > 0 ? monthlyAfter / qty : monthlyAfter;
 
-    const paintDiff = (el, amount, unit) => {
-      if (!el) return;
-      const prefix = amount > 0 ? "+" : amount < 0 ? "" : "";
-      el.textContent = `${prefix}${money(amount, cur)} / ${unit}`;
-      el.classList.toggle("is-up", amount > 0);
-      el.classList.toggle("is-down", amount < 0);
-    };
+    const railPepm = document.getElementById("railPepm");
+    const railPepmUnit = document.getElementById("railPepmUnit");
+    const railSub = document.getElementById("railSub");
+    const railTotal = document.getElementById("railTotal");
+    const railSubLabel = document.getElementById("railSubLabel");
+    const railTotalLabel = document.getElementById("railTotalLabel");
+    const railLines = document.getElementById("railLines");
+    const srcNote = document.getElementById("pricingSourceNote");
 
-    const prevCurrentMo = document.getElementById("prevCurrentMo");
-    const prevAfterMo = document.getElementById("prevAfterMo");
-    if (prevCurrentMo) prevCurrentMo.textContent = money(monthlyToday, cur);
-    if (prevAfterMo) prevAfterMo.textContent = money(monthlyAfter, cur);
-    paintDiff(document.getElementById("prevDiffMo"), monthlyDiff, "mo");
-    document.getElementById("prevCurrent").textContent = money(annualBefore, cur);
-    document.getElementById("prevAfter").textContent = money(annualAfter, cur);
-    paintDiff(document.getElementById("prevDiff"), annualDiff, "yr");
-
-    const checkout = document.getElementById("checkoutLines");
-    if (checkout && Array.isArray(lines)) {
-      checkout.innerHTML = lines
+    if (railPepm) {
+      railPepm.textContent =
+        monthlyAfter > 0
+          ? Number(pepm).toLocaleString(undefined, {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })
+          : "0.00";
+    }
+    if (railPepmUnit) railPepmUnit.textContent = `per employee / month · ${cur}`;
+    // Mirror Get Pricing rail: annual subscription + total (quote charge when known).
+    if (railSubLabel) railSubLabel.textContent = "Subscription, per year";
+    if (railSub) railSub.textContent = money(annualAfter, cur);
+    if (railTotalLabel) {
+      railTotalLabel.textContent =
+        dueToday != null && Number.isFinite(dueToday)
+          ? Number(dueToday) < 0
+            ? "Credit today"
+            : "Total today"
+          : "Total today";
+    }
+    if (railTotal) {
+      railTotal.textContent =
+        dueToday != null && Number.isFinite(dueToday)
+          ? money(dueToday, cur)
+          : money(monthlyAfter, cur);
+    }
+    if (railLines && Array.isArray(lines)) {
+      railLines.innerHTML = lines
         .map((l) => {
-          const detail = l.isFlat
+          const calc = l.isFlat
             ? `${money(l.flatMonthly || l.monthly, cur)} / mo flat`
-            : `${money(l.netPepm, cur)} /emp/mo × ${l.qty} seats`;
+            : `${money(l.netPepm, cur)} × ${l.qty} employees`;
           const tag = l.isNew ? " · adding" : "";
-          const src =
-            l.source === "amendQuote" || l.source === "moduleQuote"
-              ? " · RC"
-              : provisional
-                ? ""
-                : "";
           return `<li>
-            <div>
-              <strong>${l.name}</strong>
-              <span>${detail}${tag}${src}</span>
-            </div>
-            <em>${money(l.monthly, cur)}</em>
+            <span class="name">${l.name}${tag}</span>
+            <span class="calc">${calc}</span>
+            <span class="amt">${money(l.monthly, cur)}</span>
           </li>`;
         })
         .join("");
     }
-
-    const prorationLabel = document.getElementById("prorationLabel");
-    const prorationFormula = document.getElementById("prorationFormula");
-    const dueLabel = document.getElementById("dueTodayLabel");
-    const dueEl = document.getElementById("dueToday");
-    const srcNote = document.getElementById("pricingSourceNote");
-
-    if (dueToday != null && Number.isFinite(dueToday)) {
-      if (prorationLabel) {
-        prorationLabel.textContent =
-          daysLeft > 0
-            ? `Charged on your Revenue Cloud quote · ${daysLeft} day${
-                daysLeft === 1 ? "" : "s"
-              } left in term from start date`
-            : "Charged on your Revenue Cloud quote";
-      }
-      if (prorationFormula) {
-        const qn = (quoteNumbers || []).filter(Boolean).join(", ");
-        prorationFormula.textContent = qn
-          ? `Quote total ${money(dueToday, cur)} (${qn})`
-          : `Quote total ${money(dueToday, cur)}`;
-      }
-      if (dueLabel) {
-        dueLabel.innerHTML =
-          dueToday < 0
-            ? `Credit today <em>(Revenue Cloud)</em>`
-            : `Charged today <em>(Revenue Cloud)</em>`;
-      }
-      if (dueEl) dueEl.textContent = money(dueToday, cur);
-      if (srcNote) {
-        srcNote.textContent = provisional
-          ? "Refreshing Revenue Cloud pricing…"
-          : "Priced in Revenue Cloud (System reprice + live volume tiers).";
-      }
-    } else {
-      const estimate =
-        daysLeft > 0
-          ? Math.round(((annualDiff * daysLeft) / 365) * 100) / 100
-          : 0;
-      if (prorationLabel) {
-        prorationLabel.textContent = provisional
-          ? "Pricing in Revenue Cloud…"
-          : daysLeft > 0
-            ? `Prorated for the ${daysLeft} days left in your term`
-            : "No remaining term days from this start date";
-      }
-      if (prorationFormula) {
-        prorationFormula.textContent = provisional
-          ? "Creating amendment quote…"
-          : daysLeft > 0
-            ? `${money(annualDiff, cur)} × ${daysLeft} ÷ 365 = ${money(estimate, cur)}`
-            : "";
-      }
-      if (dueLabel) {
-        dueLabel.innerHTML = provisional
-          ? `Charged today <em>(pricing…)</em>`
-          : `Charged today <em>(estimate)</em>`;
-      }
-      if (dueEl) dueEl.textContent = provisional ? "…" : money(estimate, cur);
-      if (srcNote) {
-        srcNote.textContent = provisional
-          ? "Asking Revenue Cloud for quote totals…"
-          : "Local estimate — change seats to price in Revenue Cloud.";
+    if (srcNote) {
+      const qn = (quoteNumbers || []).filter(Boolean).join(", ");
+      if (provisional || awaitingPrice || pricingBusy) {
+        srcNote.textContent = "Pricing in Revenue Cloud…";
+      } else if (qn) {
+        srcNote.textContent = `Priced in Revenue Cloud (System reprice) · ${qn}`;
+      } else {
+        srcNote.textContent =
+          "Change seats or modules — Revenue Cloud updates this sticky quote.";
       }
     }
-
-    const billingFoot = document.getElementById("billingFoot");
-    if (billingFoot) {
-      billingFoot.textContent = `Then ${money(monthlyAfter, cur)} / mo (${money(
-        annualAfter,
-        cur
-      )} / yr) from ${formatDateLabel(termEnd)} · invoice to your billing contact`;
-    }
+    void daysLeft;
+    void termEnd;
   };
 
-  const scheduleRcPreview = (ctx) => {
-    if (previewTimer) clearTimeout(previewTimer);
-    previewTimer = setTimeout(() => fetchRcPreview(ctx), 450);
-  };
-
-  const fetchRcPreview = async ({ newQty, currentQty, startIso, daysLeft, termEnd }) => {
+  const fetchRcPreview = async (
+    { newQty, currentQty, startIso, daysLeft, termEnd },
+    { manual = false } = {}
+  ) => {
     if (!state?.account?.id) return;
     const qtyChanged = newQty !== currentQty;
     const addons = [...selectedAddons];
     if (!qtyChanged && !addons.length) return;
 
+    // Coalesce: never queue multiple Salesforce previews behind the account lock.
+    if (previewInFlight) {
+      previewNeedsRerun = true;
+      return;
+    }
+    previewInFlight = true;
+    previewNeedsRerun = false;
+
     const seq = ++previewSeq;
+    pricingBusy = true;
+    syncAmendActions();
     const src = document.getElementById("pricingSourceNote");
-    if (src) src.textContent = "Pricing in Revenue Cloud…";
+    if (src) {
+      src.textContent = manual
+        ? "Generating quote in Revenue Cloud (System reprice)…"
+        : "Pricing in Revenue Cloud…";
+    }
+    if (manual) {
+      amendStatus.textContent =
+        "Generating quote in Revenue Cloud (Opportunity + Quote, System reprice)…";
+      amendStatus.classList.remove("error");
+    }
     const cur = state.account.currency || "USD";
 
     try {
@@ -774,6 +877,8 @@
         startDate: startIso,
       };
       if (qtyChanged) body.newQty = newQty;
+      if (stickyAmendQuotes.length) body.amendQuotes = stickyAmendQuotes;
+      if (stickyModuleQuoteId) body.moduleQuoteId = stickyModuleQuoteId;
       const resp = await fetch("/api/account-amend-preview", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -785,6 +890,14 @@
         throw new Error(data.error || "Preview failed");
       }
       pricedPreview = data;
+      stickyAmendQuotes = (data.amendQuotes || [])
+        .filter((q) => q && q.quoteId)
+        .map((q) => ({
+          quoteId: q.quoteId,
+          assetIds: q.assetIds || [],
+          opportunityId: q.opportunityId,
+        }));
+      stickyModuleQuoteId = data.moduleQuoteId || null;
       // Server may bump start onto the latest ASP so decreases validate.
       const startEl = document.getElementById("startDateInput");
       if (data.amendStartDate && startEl) {
@@ -821,13 +934,23 @@
         quoteNumbers,
       });
       if (src && data.pricingSource === "revenueCloud") {
+        const stickyNote = data.sticky ? " · sticky Quote reused" : "";
         const warn = (data.warnings || []).filter(Boolean).slice(0, 2).join(" ");
         src.textContent = warn
-          ? `Today from Salesforce CurrentMrr · after priced in Revenue Cloud. ${warn}`
-          : "Today from Salesforce CurrentMrr · after priced in Revenue Cloud.";
+          ? `Today from Salesforce CurrentMrr · after priced in Revenue Cloud${stickyNote}. ${warn}`
+          : `Today from Salesforce CurrentMrr · after priced in Revenue Cloud${stickyNote}.`;
       }
-      if (amendStatus && !amendStatus.classList.contains("error")) {
-        amendStatus.textContent = "";
+      if (manual) {
+        const qn = quoteNumbers.filter(Boolean).join(", ");
+        amendStatus.textContent = qn
+          ? `Quote ready — ${qn}. Generate quote to open the amend summary.`
+          : "Quote ready. Generate quote to open the amend summary.";
+        amendStatus.classList.remove("error");
+      } else if (amendStatus && !amendStatus.classList.contains("error")) {
+        const qn = quoteNumbers.filter(Boolean).join(", ");
+        amendStatus.textContent = qn
+          ? `Live quote ${qn} — Generate quote when ready.`
+          : "Live quote updated — Generate quote when ready.";
       }
     } catch (err) {
       if (seq !== previewSeq) return;
@@ -837,18 +960,65 @@
           err.message || ""
         }`;
       }
+      if (manual) {
+        amendStatus.textContent =
+          err.message || "Could not price this change in Revenue Cloud.";
+        amendStatus.classList.add("error");
+      }
+    } finally {
+      previewInFlight = false;
+      if (seq === previewSeq) {
+        pricingBusy = false;
+        syncAmendActions();
+      }
+      if (previewNeedsRerun) {
+        previewNeedsRerun = false;
+        const ctx = amendChangeCtx();
+        if (ctx?.hasChange && ctx.qtyValid) {
+          fetchRcPreview(
+            {
+              newQty: ctx.newQty,
+              currentQty: ctx.baselineQty,
+              startIso: ctx.startIso,
+              daysLeft: ctx.daysLeft,
+              termEnd: ctx.termEnd,
+            },
+            { manual: false }
+          );
+        }
+      }
     }
+  };
+
+  const scheduleRcPreview = () => {
+    if (previewTimer) clearTimeout(previewTimer);
+    // Match Get Pricing: debounce + single-flight — RC System reprice is ~4–8s.
+    previewTimer = setTimeout(() => {
+      const ctx = amendChangeCtx();
+      if (!ctx?.hasChange || !ctx.qtyValid) return;
+      fetchRcPreview(
+        {
+          newQty: ctx.newQty,
+          currentQty: ctx.baselineQty,
+          startIso: ctx.startIso,
+          daysLeft: ctx.daysLeft,
+          termEnd: ctx.termEnd,
+        },
+        { manual: false }
+      );
+    }, 900);
   };
 
   const syncPreview = () => {
     if (!state) return;
     const cur = state.account.currency || "USD";
-    const currentQty = Number(state.subscription.currentQuantity) || 0;
-    const parsed = readQty();
-    const newQty = parsed == null ? currentQty : parsed;
-    const delta = newQty - currentQty;
     const startInput = document.getElementById("startDateInput");
     const startIso = startInput?.value || defaultStartDate();
+    const todayQty = Number(state.subscription.currentQuantity) || 0;
+    const baselineQty = quantityAtStartDate(startIso);
+    const parsed = readQty();
+    const newQty = parsed == null ? baselineQty : parsed;
+    const delta = newQty - baselineQty;
     const start = parseDate(startIso) || parseDate(defaultStartDate());
     const termEnd = termEndDate();
     const daysLeft = daysBetween(start, termEnd);
@@ -863,10 +1033,14 @@
 
     const termHint = document.getElementById("termHint");
     if (termHint) {
+      const baselineNote =
+        baselineQty !== todayQty
+          ? ` · ${baselineQty} seats in effect on ${formatDateLabel(start)}`
+          : "";
       termHint.textContent = termEnd
         ? `Current term ends ${formatDateLabel(termEnd)} · ${daysLeft} day${
             daysLeft === 1 ? "" : "s"
-          } from your start date`
+          } from your start date${baselineNote}`
         : "Term end unavailable — proration uses a 365-day estimate.";
     }
 
@@ -893,7 +1067,7 @@
         const sign = delta > 0 ? "+" : "−";
         badge.textContent = `${sign}${Math.abs(delta)} seats across ${pepmCount} per-employee product${
           pepmCount === 1 ? "" : "s"
-        } (${currentQty} → ${newQty})`;
+        } (${baselineQty} → ${newQty})`;
       } else {
         badge.hidden = false;
         badge.textContent = `Adding ${selectedAddons.size} module${
@@ -902,7 +1076,7 @@
       }
     }
 
-    // Local estimate while Revenue Cloud preview loads (or when no change).
+    // Local estimate immediately; live RC sticky preview replaces shortly.
     renderOrderMath({
       currency: cur,
       monthlyToday: before.total,
@@ -911,26 +1085,36 @@
       dueToday: null,
       daysLeft,
       termEnd,
-      provisional: hasChange,
+      provisional: false,
+      awaitingPrice: hasChange,
     });
 
     if (orderSummaryCard) orderSummaryCard.hidden = false;
 
-    if (hasChange) {
-      scheduleRcPreview({
-        newQty,
-        currentQty,
-        startIso,
-        daysLeft,
-        termEnd,
-      });
-    } else {
-      pricedPreview = null;
-      const src = document.getElementById("pricingSourceNote");
+    if (previewTimer) {
+      clearTimeout(previewTimer);
+      previewTimer = null;
+    }
+    // Invalidate freshness until the next RC response — keep sticky Quote ids.
+    pricedPreview = null;
+    syncAmendActions();
+    const src = document.getElementById("pricingSourceNote");
+    if (!hasChange) {
       if (src) {
         src.textContent =
-          "Recurring today from Salesforce (Asset CurrentMrr). Change seats or select a module to price in Revenue Cloud.";
+          "Change seats or select a module — live pricing updates Your plan.";
       }
+      if (amendStatus && !amendStatus.classList.contains("error")) {
+        amendStatus.textContent = "";
+      }
+      stickyAmendQuotes = [];
+      stickyModuleQuoteId = null;
+    } else {
+      if (src) {
+        src.textContent =
+          "Local estimate — Revenue Cloud is updating your sticky quote…";
+      }
+      scheduleRcPreview();
     }
 
     const band = activeBand(newQty);
@@ -1046,12 +1230,13 @@
     orders.innerHTML = (data.recentOrders || [])
       .map((o) => {
         const when = (o.createdDate || "").slice(0, 10);
+        const label = `Order ${o.orderNumber || o.id}`;
         return `<li>
           <div>
-            <strong>Order ${o.orderNumber || o.id}</strong>
-            <span>${when}</span>
+            ${sfRecordLink(o.orderUrl, label, "Order")}
+            <span>${esc(when)}</span>
           </div>
-          <span class="activity-badge">${o.status || "—"}</span>
+          <span class="activity-badge">${esc(o.status || "—")}</span>
         </li>`;
       })
       .join("") || "<li class='muted'>No orders yet.</li>";
@@ -1172,6 +1357,7 @@
       const resp = await fetch(`/api/account-console?${params}`);
       const data = await resp.json();
       if (!resp.ok || !data.ok) throw new Error(data.error || "Failed to load");
+      savePin(data.account?.id, data.account?.name);
       renderConsole(data);
       loginStatus.textContent = ecToken
         ? "Opened via Experience Cloud sign-in."
@@ -1188,15 +1374,44 @@
         window.history.replaceState({}, "", clean.pathname + clean.search);
       }
     } catch (err) {
+      // ecToken handoff often fails when EC_HANDOFF_SECRET isn't set — fall back
+      // to Account Id / company so the buyer still reaches Licenses.
+      const fallbackId =
+        accountId ||
+        new URLSearchParams(location.search).get("accountId") ||
+        readPin().accountId;
+      const fallbackCompany =
+        company ||
+        new URLSearchParams(location.search).get("company") ||
+        readPin().company;
+      if (ecToken && (fallbackId || fallbackCompany)) {
+        loginStatus.textContent =
+          "Sign-in handoff unavailable — opening with saved Account pin…";
+        loginStatus.classList.remove("error");
+        return loadConsole(
+          fallbackId
+            ? { accountId: fallbackId }
+            : { company: fallbackCompany }
+        );
+      }
       loginStatus.textContent = err.message || String(err);
       loginStatus.classList.add("error");
     }
   };
 
-  document.getElementById("loadAccountBtn")?.addEventListener("click", () => {
+  const openFromPinFields = () => {
     const accountId = accountIdInput.value.trim();
     const company = companyInput.value.trim();
     loadConsole(accountId ? { accountId } : { company });
+  };
+  document.getElementById("loadAccountBtn")?.addEventListener("click", openFromPinFields);
+  [companyInput, accountIdInput].forEach((el) => {
+    el?.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        openFromPinFields();
+      }
+    });
   });
 
   document.getElementById("refreshInvoicesBtn")?.addEventListener("click", () => {
@@ -1225,112 +1440,43 @@
     );
   });
   document.getElementById("startDateInput")?.addEventListener("change", () => {
+    // Recalc delta against seats in effect on the new start (upcoming ASP).
     syncPreview();
+    syncAmendActions();
   });
 
-  document.getElementById("placeAmendBtn")?.addEventListener("click", async () => {
-    if (!state?.account?.id) {
+  generateAmendQuoteBtn?.addEventListener("click", async () => {
+    const ctx = amendChangeCtx();
+    if (!ctx?.hasChange || !ctx.qtyValid) {
       amendStatus.textContent =
-        "No account loaded — complete a Get Pricing purchase first.";
-      amendStatus.classList.add("error");
-      return;
-    }
-    const newQty = readQty();
-    if (newQty == null) {
-      amendStatus.textContent = "Enter a valid employee count.";
-      amendStatus.classList.add("error");
-      return;
-    }
-    const current = Number(state.subscription.currentQuantity) || 0;
-    const qtyChanged = newQty !== current;
-    const addons = [...selectedAddons];
-    if (!qtyChanged && !addons.length) {
-      amendStatus.textContent =
-        "Change employee count and/or select a module before placing the order.";
+        "Change employee count and/or select a module first.";
       amendStatus.classList.remove("error");
       return;
     }
-    if (qtyChanged && !state.subscription.primaryAssetId) {
-      amendStatus.textContent = "No primary plan asset to amend quantity.";
-      amendStatus.classList.add("error");
+    if (!previewIsFresh(ctx) || !pricedPreview?.ok) {
+      amendStatus.textContent = "Wait for live pricing to finish, then generate quote.";
+      amendStatus.classList.remove("error");
       return;
     }
-    const startDate =
-      document.getElementById("startDateInput")?.value || defaultStartDate();
-    const parts = [];
-    if (qtyChanged) parts.push(`qty ${current}→${newQty}`);
-    if (addons.length) parts.push(`add ${addons.join(", ")}`);
-    parts.push(`start ${startDate}`);
-    amendStatus.textContent = `Placing in Revenue Cloud (${parts.join("; ")})…`;
+    amendStatus.textContent = "Opening amend summary…";
     amendStatus.classList.remove("error");
-    const btn = document.getElementById("placeAmendBtn");
-    btn.disabled = true;
     try {
-      // Prefer the priced preview Quotes so Place order matches the summary.
-      let preview = pricedPreview;
-      const previewAddonSkus = new Set(
-        (preview?.lines || []).filter((l) => l.isNew).map((l) => String(l.sku || ""))
-      );
-      const addonsMatch =
-        addons.length === previewAddonSkus.size &&
-        addons.every((s) => previewAddonSkus.has(s));
-      const previewFresh =
-        preview &&
-        preview.ok &&
-        preview.accountId === state.account.id &&
-        Number(preview.newQty) === Number(newQty) &&
-        addonsMatch;
-      if (!previewFresh) {
-        amendStatus.textContent = "Refreshing Revenue Cloud price before placing…";
-        await fetchRcPreview({
-          newQty,
-          currentQty: current,
-          startIso: startDate,
-          daysLeft: daysBetween(
-            parseDate(startDate) || parseDate(defaultStartDate()),
-            termEndDate()
-          ),
-          termEnd: termEndDate(),
-        });
-        preview = pricedPreview;
-        if (!preview?.ok) {
-          throw new Error("Could not price this change in Revenue Cloud.");
-        }
-      }
-
-      const body = {
-        accountId: state.account.id,
-        assetId: state.subscription.primaryAssetId || undefined,
-        addonSkus: addons,
-        startDate,
-        amendQuotes: (preview.amendQuotes || []).map((q) => ({
-          quoteId: q.quoteId,
-          assetIds: q.assetIds || [],
-        })),
-        moduleQuoteId: preview.moduleQuoteId || undefined,
+      const summary = {
+        ...pricedPreview,
+        assetId: state.subscription?.primaryAssetId || null,
+        country: state.account?.billingCountry || state.account?.country || "US",
       };
-      if (qtyChanged) body.newQty = newQty;
-      const resp = await fetch("/api/account-amend", {
+      const resp = await fetch("/api/account-amend-cache", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ summary }),
       });
       const data = await resp.json();
-      if (!resp.ok || !data.ok) throw new Error(data.error || "Change failed");
-      pricedPreview = null;
-      selectedAddons.clear();
-      showChangeSuccess(data);
-      // Refresh subscription data in the background so "Back to licenses" is current.
-      try {
-        await loadConsole({ accountId: state.account.id });
-      } catch (_) {
-        /* ignore — confirmation already shown */
-      }
+      if (!resp.ok || !data.ok) throw new Error(data.error || "Could not cache summary");
+      window.location.href = data.amendQuoteUrl || `/amend-quote/${data.id}`;
     } catch (err) {
       amendStatus.textContent = err.message || String(err);
       amendStatus.classList.add("error");
-    } finally {
-      btn.disabled = false;
     }
   });
 
@@ -1343,8 +1489,19 @@
   const qAccount = params.get("accountId");
   const qCompany = params.get("company");
   const pin = readPin();
+  // Prefer URL / saved pin over any placeholder — never force Northwind.
+  if (pin.company && companyInput && !companyInput.value) {
+    companyInput.value = pin.company;
+  }
+  if (pin.accountId && accountIdInput && !accountIdInput.value) {
+    accountIdInput.value = pin.accountId;
+  }
   if (qEcToken) {
-    loadConsole({ ecToken: qEcToken });
+    loadConsole({
+      ecToken: qEcToken,
+      accountId: qAccount || pin.accountId || undefined,
+      company: qCompany || pin.company || undefined,
+    });
   } else if (qAccount) {
     accountIdInput.value = qAccount;
     loadConsole({ accountId: qAccount });

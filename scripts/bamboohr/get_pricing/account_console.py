@@ -15,18 +15,24 @@ from typing import Any
 
 from checkout import (
     amend_assets_quantity,
+    amend_preview_cfg,
     apply_amend_volume_pricing,
     asset_live_metrics,
     asset_quantity_at,
     checkout_quote,
     complete_amend_quote,
     discard_stale_amend_drafts,
+    find_sticky_amend_draft,
+    find_sticky_amend_mutable,
+    find_sticky_module_draft,
+    module_preview_cfg,
     reprice_quote_system,
     resolve_amend_start,
     resolve_volume_tier_percent,
     tag_amend_preview_quote,
     _current_asset_quantity,
 )
+import threading
 from service import (
     ADDON_LABELS,
     ADDON_LIST_USD,
@@ -40,9 +46,23 @@ from service import (
     hydrate_catalog,
     lightning_record_url,
     quote_related_ids,
+    sync_quote_to_opportunity,
     volume_rate,
 )
 from subscription_timeline import list_account_periods
+
+_ACCOUNT_LOCKS: dict[str, threading.Lock] = {}
+_ACCOUNT_LOCKS_GUARD = threading.Lock()
+
+
+def _account_lock(account_id: str) -> threading.Lock:
+    aid = (account_id or "").strip() or "_none"
+    with _ACCOUNT_LOCKS_GUARD:
+        lock = _ACCOUNT_LOCKS.get(aid)
+        if lock is None:
+            lock = threading.Lock()
+            _ACCOUNT_LOCKS[aid] = lock
+        return lock
 
 
 def _soql_escape(value: str) -> str:
@@ -147,6 +167,7 @@ def load_account_console(
         f"FROM Order WHERE AccountId = '{aid}' "
         "ORDER BY CreatedDate DESC LIMIT 15"
     )
+    base = (session._instance or "").rstrip("/")
     orders = [
         {
             "id": r["Id"],
@@ -156,6 +177,7 @@ def load_account_console(
             "totalAmount": r.get("TotalAmount"),
             "effectiveDate": r.get("EffectiveDate"),
             "createdDate": r.get("CreatedDate"),
+            "orderUrl": lightning_record_url(base, "Order", r["Id"]),
         }
         for r in orders_raw
     ]
@@ -173,13 +195,12 @@ def load_account_console(
             "status": r.get("Status"),
             "grandTotal": r.get("TotalPrice"),
             "createdDate": r.get("CreatedDate"),
+            "quoteUrl": lightning_record_url(base, "Quote", r["Id"]),
         }
         for r in quotes_raw
     ]
 
     catalog = hydrate_catalog(session, country)
-    base = (session._instance or "").rstrip("/")
-
     try:
         from payments import list_open_invoices
 
@@ -266,6 +287,7 @@ class AmendQtyResult:
     amend_quote_id: str | None = None
     amend_order_id: str | None = None
     amend_order_number: str | None = None
+    opportunity_id: str | None = None
     asset_quantity: float | None = None
     warnings: list[str] = field(default_factory=list)
     error: str | None = None
@@ -280,6 +302,7 @@ class AmendQtyResult:
             "amendQuoteId": self.amend_quote_id,
             "amendOrderId": self.amend_order_id,
             "amendOrderNumber": self.amend_order_number,
+            "opportunityId": self.opportunity_id,
             "assetQuantity": self.asset_quantity,
             "warnings": self.warnings,
             "error": self.error,
@@ -454,6 +477,62 @@ def _flat_monthly(session: OrgSession, sku: str, currency: str) -> float | None:
     return float(pbe.get("UnitPrice") or 0) or None
 
 
+def ensure_amend_opportunity(
+    session: OrgSession,
+    *,
+    account_id: str,
+    currency: str,
+    name: str,
+    preferred_opp_id: str | None = None,
+    name_prefix: str = "Licenses amend",
+) -> str:
+    """Create or reuse a Prospecting Licenses Opportunity.
+
+    Connect amend accepts ``opportunityId`` so the amendment Quote syncs to an
+    Opp the same way Managed Asset viewer does when a sales Opp is selected.
+    """
+    if preferred_opp_id:
+        rows = session.soql(
+            "SELECT Id, StageName FROM Opportunity "
+            f"WHERE Id = '{_soql_escape(preferred_opp_id)}' LIMIT 1"
+        )
+        if rows and (rows[0].get("StageName") or "") == "Prospecting":
+            try:
+                session.patch("Opportunity", preferred_opp_id, {"Name": name[:120]})
+            except Exception:
+                pass
+            return preferred_opp_id
+
+    prefix = (name_prefix or "Licenses amend").replace("'", "\\'")
+    rows = session.soql(
+        "SELECT Id FROM Opportunity "
+        f"WHERE AccountId = '{_soql_escape(account_id)}' "
+        "AND StageName = 'Prospecting' "
+        f"AND Name LIKE '{prefix}%' "
+        "ORDER BY CreatedDate DESC LIMIT 5"
+    )
+    if rows:
+        opp_id = rows[0]["Id"]
+        try:
+            session.patch("Opportunity", opp_id, {"Name": name[:120]})
+        except Exception:
+            pass
+        return opp_id
+
+    pb = session.soql("SELECT Id FROM Pricebook2 WHERE IsStandard = true LIMIT 1")[0]
+    return session.create(
+        "Opportunity",
+        {
+            "Name": name[:120],
+            "AccountId": account_id,
+            "StageName": "Prospecting",
+            "CloseDate": "2026-12-31",
+            "Pricebook2Id": pb["Id"],
+            "CurrencyIsoCode": currency,
+        },
+    )
+
+
 def create_qty_amend_drafts(
     session: OrgSession,
     *,
@@ -461,10 +540,13 @@ def create_qty_amend_drafts(
     asset_id: str | None,
     new_qty: int,
     start: datetime | None = None,
+    preferred_drafts: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Create amendment Quotes, System-reprice + volume patch — do not order.
+    """Create or reuse sticky amendment Quotes, System-reprice — do not order.
 
     Returns ``{ ok, drafts: [{quoteId, assetIds, snapshot}], warnings, error }``.
+    Prefers reusing Draft Quotes tagged ``[bamboohr-preview] amend …`` when the
+    qty/start/asset fingerprint matches (live preview sticky path).
     """
     primary = asset_id or ""
     if new_qty < 1:
@@ -487,10 +569,12 @@ def create_qty_amend_drafts(
         }
 
     warnings: list[str] = []
-    # Drop leftover Draft amendment Quotes so ASP/locks don't block decreases.
-    discarded = discard_stale_amend_drafts(session, account_id)
-    if discarded:
-        warnings.append(f"Discarded {len(discarded)} stale Draft amendment Quote(s).")
+    preferred_by_assets: dict[str, str] = {}
+    for d in preferred_drafts or []:
+        qid = str(d.get("quoteId") or "").strip()
+        ids = [str(a) for a in (d.get("assetIds") or []) if a]
+        if qid and ids:
+            preferred_by_assets["+".join(sorted(ids))] = qid
 
     # Deltas from ASP quantity on the effective amend start (not lifetime
     # TotalQuantity — that breaks decreases when future ASPs exist).
@@ -529,17 +613,186 @@ def create_qty_amend_drafts(
             "amendStartDate": eff_start.date().isoformat(),
         }
 
-    drafts: list[dict[str, Any]] = []
+    start_iso = eff_start.date().isoformat()
+    # Attempt sticky reuse / qty retarget (like Get Pricing) before Connect amend.
+    reused: list[dict[str, Any]] = []
+    missing_groups: list[tuple[float, list[dict[str, Any]]]] = []
+    keep_ids: list[str] = []
+    for delta, group in by_delta.items():
+        ids = [a["id"] for a in group]
+        assets_key = "+".join(sorted(ids))
+        cfg = amend_preview_cfg(
+            new_qty=new_qty,
+            start_iso=start_iso,
+            asset_ids=ids,
+            quantity_change=delta,
+        )
+        preferred_qid = preferred_by_assets.get(assets_key)
+        # 1) Exact cfg → snapshot only (no Salesforce reprice).
+        sticky = find_sticky_amend_draft(
+            session,
+            account_id,
+            cfg=cfg,
+            preferred_quote_id=preferred_qid,
+        )
+        if sticky:
+            qid = sticky["Id"]
+            keep_ids.append(qid)
+            snapshot = _quote_pricing_snapshot(session, qid)
+            opp_id = sticky.get("OpportunityId")
+            reused.append(
+                {
+                    "quoteId": qid,
+                    "assetIds": ids,
+                    "quantityChange": delta,
+                    "skus": [str(a.get("sku") or "") for a in group],
+                    "opportunityId": opp_id,
+                    "snapshot": snapshot,
+                    "sticky": True,
+                    "fastPath": True,
+                }
+            )
+            warnings.append(
+                f"Sticky amend Quote unchanged (fast path) for {len(ids)} line(s)"
+            )
+            continue
+
+        # 2) Same assets+start+direction → retarget delta Quantity via System
+        #    place (mirrors initial-sale headcount-only sticky), skip Connect.
+        mutable = find_sticky_amend_mutable(
+            session,
+            account_id,
+            start_iso=start_iso,
+            asset_ids=ids,
+            quantity_change=delta,
+            preferred_quote_id=preferred_qid,
+        )
+        if mutable:
+            qid = mutable["Id"]
+            keep_ids.append(qid)
+            try:
+                lines = session.soql(
+                    "SELECT Id, Quantity, Product2.StockKeepingUnit "
+                    f"FROM QuoteLineItem WHERE QuoteId = '{qid}'"
+                )
+                qty_by_sku: dict[str, int] = {}
+                abs_delta = max(1, int(round(abs(float(delta)))))
+                for line in lines:
+                    sku = (
+                        (line.get("Product2") or {}).get("StockKeepingUnit") or ""
+                    ).upper()
+                    if sku:
+                        qty_by_sku[sku] = abs_delta
+                if qty_by_sku:
+                    _system_reprice_quote(
+                        session, qid, quantity_by_sku=qty_by_sku
+                    )
+                apply_amend_volume_pricing(
+                    session, qid, volume_headcount=int(new_qty)
+                )
+                tag_amend_preview_quote(session, qid, cfg=cfg, kind="amend")
+                opp_id = mutable.get("OpportunityId")
+                if opp_id:
+                    sync_quote_to_opportunity(session, qid, opp_id)
+                    try:
+                        session.patch(
+                            "Opportunity",
+                            opp_id,
+                            {"Name": f"Licenses amend — {new_qty} seats"[:120]},
+                        )
+                    except Exception:
+                        pass
+                snapshot = _quote_pricing_snapshot(session, qid)
+                reused.append(
+                    {
+                        "quoteId": qid,
+                        "assetIds": ids,
+                        "quantityChange": delta,
+                        "skus": [str(a.get("sku") or "") for a in group],
+                        "opportunityId": opp_id,
+                        "snapshot": snapshot,
+                        "sticky": True,
+                        "retargeted": True,
+                    }
+                )
+                warnings.append(
+                    f"Retargeted sticky amend Quote qty→{abs_delta} "
+                    f"(delta {delta:+g}) — skipped Connect amend"
+                )
+                continue
+            except Exception as exc:  # noqa: BLE001
+                warnings.append(
+                    f"Sticky amend retarget failed — recreating via Connect: {exc}"
+                )
+                keep_ids = [k for k in keep_ids if k != qid]
+        missing_groups.append((delta, group))
+
+    if not missing_groups and reused:
+        discarded = discard_stale_amend_drafts(
+            session, account_id, keep_quote_ids=keep_ids
+        )
+        if discarded:
+            warnings.append(
+                f"Discarded {len(discarded)} stale Draft amendment Quote(s)."
+            )
+        opportunity_id = next(
+            (str(d["opportunityId"]) for d in reused if d.get("opportunityId")),
+            None,
+        )
+        return {
+            "ok": True,
+            "drafts": reused,
+            "warnings": warnings,
+            "assetId": primary or (reused[0]["assetIds"][0] if reused else ""),
+            "assetIds": [aid for d in reused for aid in d["assetIds"]],
+            "opportunityId": opportunity_id,
+            "noop": False,
+            "amendStartDate": start_iso,
+            "sticky": True,
+        }
+
+    # Drop leftover Draft amendment Quotes so ASP/locks don't block decreases.
+    # Keep any sticky drafts we already refreshed in this request.
+    discarded = discard_stale_amend_drafts(
+        session, account_id, keep_quote_ids=keep_ids
+    )
+    if discarded:
+        warnings.append(f"Discarded {len(discarded)} stale Draft amendment Quote(s).")
+
+    drafts: list[dict[str, Any]] = list(reused)
+    opportunity_id: str | None = next(
+        (str(d["opportunityId"]) for d in reused if d.get("opportunityId")),
+        None,
+    )
     try:
-        for delta, group in by_delta.items():
+        acct_rows = session.soql(
+            "SELECT CurrencyIsoCode FROM Account "
+            f"WHERE Id = '{_soql_escape(account_id)}' LIMIT 1"
+        )
+        currency = (acct_rows[0].get("CurrencyIsoCode") if acct_rows else None) or "USD"
+        opportunity_id = ensure_amend_opportunity(
+            session,
+            account_id=account_id,
+            currency=currency,
+            name=f"Licenses amend — {new_qty} seats",
+            preferred_opp_id=opportunity_id,
+        )
+        for delta, group in missing_groups:
             ids = [a["id"] for a in group]
             labels = ", ".join(str(a.get("sku") or a["id"]) for a in group)
+            cfg = amend_preview_cfg(
+                new_qty=new_qty,
+                start_iso=start_iso,
+                asset_ids=ids,
+                quantity_change=delta,
+            )
             amend_quote = amend_assets_quantity(
                 session,
                 ids,
                 new_qty,
                 start=eff_start,
                 quantity_change=delta,
+                opportunity_id=opportunity_id,
             )
             if not amend_quote:
                 return {
@@ -548,12 +801,14 @@ def create_qty_amend_drafts(
                     "warnings": warnings,
                     "error": f"Amend API returned no amendment quote id ({labels})",
                     "assetId": primary or ids[0],
+                    "opportunityId": opportunity_id,
                 }
-            tag_amend_preview_quote(session, amend_quote)
+            tag_amend_preview_quote(session, amend_quote, cfg=cfg, kind="amend")
             reprice_quote_system(session, amend_quote)
             apply_amend_volume_pricing(
                 session, amend_quote, volume_headcount=int(new_qty)
             )
+            sync_quote_to_opportunity(session, amend_quote, opportunity_id)
             snapshot = _quote_pricing_snapshot(session, amend_quote)
             drafts.append(
                 {
@@ -561,7 +816,9 @@ def create_qty_amend_drafts(
                     "assetIds": ids,
                     "quantityChange": delta,
                     "skus": [str(a.get("sku") or "") for a in group],
+                    "opportunityId": opportunity_id,
                     "snapshot": snapshot,
+                    "sticky": False,
                 }
             )
             warnings.append(
@@ -573,12 +830,16 @@ def create_qty_amend_drafts(
             "warnings": warnings,
             "assetId": primary or (drafts[0]["assetIds"][0] if drafts else ""),
             "assetIds": [aid for d in drafts for aid in d["assetIds"]],
+            "opportunityId": opportunity_id,
             "noop": False,
-            "amendStartDate": eff_start.date().isoformat(),
+            "amendStartDate": start_iso,
+            "sticky": bool(reused) and not missing_groups,
         }
     except Exception as exc:  # noqa: BLE001
         # Preview failed mid-flight — drop any drafts we just created.
         for draft in drafts:
+            if draft.get("sticky"):
+                continue
             qid = str(draft.get("quoteId") or "")
             if qid:
                 try:
@@ -594,7 +855,8 @@ def create_qty_amend_drafts(
             "warnings": warnings,
             "error": str(exc),
             "assetId": primary,
-            "amendStartDate": eff_start.date().isoformat(),
+            "opportunityId": opportunity_id,
+            "amendStartDate": start_iso,
         }
 
 
@@ -613,6 +875,7 @@ def activate_qty_amend_drafts(
     last_quote: str | None = None
     last_order: str | None = None
     last_order_number: str | None = None
+    last_opp: str | None = None
     last_qty = float(new_qty)
     try:
         for draft in drafts:
@@ -620,6 +883,15 @@ def activate_qty_amend_drafts(
             ids = [str(a) for a in (draft.get("assetIds") or []) if a]
             if not qid or not ids:
                 continue
+            if draft.get("opportunityId"):
+                last_opp = str(draft["opportunityId"])
+            # Keep Opportunity.SyncedQuoteId pointed at this amendment Quote
+            # before native createOrderFromQuote / Activate.
+            if last_opp:
+                try:
+                    sync_quote_to_opportunity(session, qid, last_opp)
+                except Exception:
+                    pass
             order_id, order_number, asset_qty = complete_amend_quote(
                 session,
                 qid,
@@ -644,8 +916,20 @@ def activate_qty_amend_drafts(
                 requested_qty=new_qty,
                 error="No amend quote drafts to activate",
             )
-        # Order creation often leaves the Amendment Quote in Draft — scrub leftovers.
-        discarded = discard_stale_amend_drafts(session, account_id)
+        if not last_opp and last_quote:
+            related = quote_related_ids(session, last_quote)
+            last_opp = related.get("opportunityId") or None
+        # Hygiene must NOT delete Quotes we just ordered — createOrderFromQuote
+        # often leaves the Amendment Quote in Draft, and wiping it makes SF look
+        # like "no Quote was created" after Place order.
+        keep_ids = [
+            str(d.get("quoteId"))
+            for d in drafts
+            if d.get("quoteId")
+        ]
+        discarded = discard_stale_amend_drafts(
+            session, account_id, keep_quote_ids=keep_ids
+        )
         if discarded:
             warnings.append(
                 f"Cleaned {len(discarded)} leftover Draft amendment Quote(s)."
@@ -659,6 +943,7 @@ def activate_qty_amend_drafts(
             amend_quote_id=last_quote,
             amend_order_id=last_order,
             amend_order_number=last_order_number,
+            opportunity_id=last_opp,
             asset_quantity=last_qty,
             warnings=warnings,
         )
@@ -672,6 +957,7 @@ def activate_qty_amend_drafts(
             amend_quote_id=last_quote,
             amend_order_id=last_order,
             amend_order_number=last_order_number,
+            opportunity_id=last_opp,
             error=str(exc),
             warnings=warnings,
         )
@@ -752,8 +1038,13 @@ def _place_addon_quote(
     addon_skus: list[str],
     quantity: int,
     currency: str,
+    preferred_quote_id: str | None = None,
 ) -> str:
-    """Place a Quote with only add-on lines on an existing Account."""
+    """Place or reuse a sticky add-module Quote on an existing Account.
+
+    Native RC path: Opportunity + Quote via sales-transaction place, then
+    System reprice. Sticky Draft Quotes are tagged ``[bamboohr-preview] module``.
+    """
     skus = [s.upper() for s in addon_skus if s]
     if not skus:
         raise ValueError("addonSkus is required")
@@ -763,20 +1054,75 @@ def _place_addon_quote(
         if sku not in ADDON_LIST_USD:
             raise ValueError(f"Unknown add-on SKU: {sku}")
 
+    cfg = module_preview_cfg(quantity=quantity, addon_skus=skus)
+    sticky = find_sticky_module_draft(
+        session,
+        account_id,
+        cfg=cfg,
+        preferred_quote_id=preferred_quote_id,
+    )
+    if sticky:
+        qid = sticky["Id"]
+        # Keep line quantities aligned (native System update via place skip path:
+        # patch Quantity then System reprice).
+        try:
+            lines = session.soql(
+                "SELECT Id, Quantity, Product2.StockKeepingUnit "
+                f"FROM QuoteLineItem WHERE QuoteId = '{qid}'"
+            )
+            for line in lines:
+                sku = ((line.get("Product2") or {}).get("StockKeepingUnit") or "").upper()
+                if sku in skus and int(line.get("Quantity") or 0) != int(quantity):
+                    session.patch(
+                        "QuoteLineItem", line["Id"], {"Quantity": int(quantity)}
+                    )
+            tag_amend_preview_quote(session, qid, cfg=cfg, kind="module")
+            reprice_quote_system(session, qid)
+            apply_amend_volume_pricing(
+                session, qid, volume_headcount=int(quantity)
+            )
+            sync_quote_to_opportunity(session, qid, sticky.get("OpportunityId"))
+            return qid
+        except Exception:
+            # Fall through to create a fresh sticky Quote.
+            try:
+                session.delete("Quote", qid)
+            except Exception:
+                pass
+
+    # Discard other *module* sticky Drafts only — never wipe qty-amend Quotes.
+    try:
+        other = session.soql(
+            "SELECT Id, Name, Description FROM Quote WHERE Status = 'Draft' "
+            f"AND (QuoteAccountId = '{_soql_escape(account_id)}' "
+            f"OR AccountId = '{_soql_escape(account_id)}') "
+            "ORDER BY CreatedDate DESC LIMIT 40"
+        )
+        for row in other:
+            desc = row.get("Description") or ""
+            name = (row.get("Name") or "").lower()
+            if "[bamboohr-preview] module" not in desc and not name.startswith(
+                "add modules"
+            ):
+                continue
+            try:
+                session.delete("Quote", row["Id"])
+            except Exception:
+                try:
+                    session.patch("Quote", row["Id"], {"Status": "Denied"})
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
     pb = session.soql("SELECT Id FROM Pricebook2 WHERE IsStandard = true LIMIT 1")[0]
     pbes = {sku: _pbe_for_sku(session, sku, currency) for sku in skus}
-    opp_id = session.create(
-        "Opportunity",
-        {
-            "Name": (
-                f"Licenses add-on {'+'.join(skus)} ×{quantity}"
-            )[:120],
-            "AccountId": account_id,
-            "StageName": "Prospecting",
-            "CloseDate": "2026-12-31",
-            "Pricebook2Id": pb["Id"],
-            "CurrencyIsoCode": currency,
-        },
+    opp_id = ensure_amend_opportunity(
+        session,
+        account_id=account_id,
+        currency=currency,
+        name=f"Licenses add-on {'+'.join(skus)} ×{quantity}"[:120],
+        name_prefix="Licenses add-on",
     )
     today = date.today().isoformat()
     end = (date.today() + timedelta(days=365)).isoformat()
@@ -840,7 +1186,10 @@ def _place_addon_quote(
     if not placed.get("isSuccess"):
         raise RuntimeError(f"Place add-on quote failed: {placed}")
     quote_id = placed["salesTransactionId"]
+    tag_amend_preview_quote(session, quote_id, cfg=cfg, kind="module")
     _system_reprice_quote(session, quote_id)
+    apply_amend_volume_pricing(session, quote_id, volume_headcount=int(quantity))
+    sync_quote_to_opportunity(session, quote_id, opp_id)
     return quote_id
 
 
@@ -906,6 +1255,7 @@ def build_change_confirmation(
             quote_id=qid,
             order_id=oid,
             asset_ids=asset_ids,
+            opportunity_id=qty_amend.get("opportunityId"),
         )
         n_assets = len(asset_ids)
         transactions.append(
@@ -1134,11 +1484,13 @@ def preview_account_changes(
     addon_skus: list[str] | None = None,
     start_date: date | None = None,
     current_qty: int | None = None,
+    preferred_amend_quotes: list[dict[str, Any]] | None = None,
+    preferred_module_quote_id: str | None = None,
 ) -> dict[str, Any]:
     """Price change drafts in Revenue Cloud (no Activate).
 
-    Creates amendment Quote(s) and/or an add-module Quote, System-reprices
-    (plus amend volume patch), and returns totals the UI should render.
+    Creates or reuses sticky amendment Quote(s) and/or an add-module Quote,
+    System-reprices (plus amend volume patch), and returns totals for the UI.
     """
     warnings: list[str] = []
     addon_skus = [s.upper() for s in (addon_skus or []) if s]
@@ -1160,12 +1512,28 @@ def preview_account_changes(
 
     owned_assets = _owned_assets_detail(session, account_id)
     headcount_assets = [a for a in owned_assets if not a["isFlat"] and a.get("quantity")]
+    today_qty = 0
+    if headcount_assets:
+        today_qty = int(headcount_assets[0]["quantity"] or 0)
+    elif current_qty is not None:
+        today_qty = int(current_qty)
+
+    # Connect amend quantityChange is vs ASP on amendmentStartDate — not today.
+    sample_ids = [a["id"] for a in headcount_assets]
+    if sample_ids:
+        amend_start = resolve_amend_start(session, sample_ids, amend_start)
+    baseline_qty = today_qty
+    if sample_ids and amend_start is not None:
+        try:
+            baseline_qty = int(
+                asset_quantity_at(session, sample_ids[0], as_of=amend_start)
+            )
+        except Exception:
+            baseline_qty = today_qty
+
     if current_qty is None:
-        if headcount_assets:
-            current_qty = int(headcount_assets[0]["quantity"] or 0)
-        else:
-            current_qty = 0
-    target_qty = int(new_qty) if new_qty is not None else int(current_qty)
+        current_qty = baseline_qty
+    target_qty = int(new_qty) if new_qty is not None else int(baseline_qty)
 
     owned_skus = {a["sku"] for a in owned_assets}
     add_skus = [s for s in addon_skus if s not in owned_skus]
@@ -1181,7 +1549,7 @@ def preview_account_changes(
                 "warnings": warnings,
             }
 
-    qty_changing = new_qty is not None and int(new_qty) != int(current_qty)
+    qty_changing = new_qty is not None and int(new_qty) != int(baseline_qty)
     if not qty_changing and not add_skus:
         return {
             "ok": False,
@@ -1196,7 +1564,7 @@ def preview_account_changes(
             continue
         mrr = a.get("mrr")
         if mrr is not None:
-            hc = 1 if a["isFlat"] else int(a.get("quantity") or current_qty or 0)
+            hc = 1 if a["isFlat"] else int(a.get("quantity") or today_qty or 0)
             before_lines.append(
                 {
                     "sku": a["sku"],
@@ -1215,7 +1583,7 @@ def preview_account_changes(
             )
             continue
         # Fallback only when org has no CurrentMrr/ASP.Mrr yet
-        hc = 1 if a["isFlat"] else int(current_qty)
+        hc = 1 if a["isFlat"] else int(today_qty or baseline_qty)
         line = _line_monthly_from_schedule(
             session,
             sku=a["sku"],
@@ -1236,93 +1604,97 @@ def preview_account_changes(
     amend_start_iso: str | None = (
         amend_start.date().isoformat() if amend_start is not None else None
     )
-    if qty_changing:
-        if not asset_id and headcount_assets:
-            asset_id = headcount_assets[0]["id"]
-        created = create_qty_amend_drafts(
-            session,
-            account_id=account_id,
-            asset_id=asset_id,
-            new_qty=target_qty,
-            start=amend_start,
-        )
-        warnings.extend(created.get("warnings") or [])
-        if created.get("amendStartDate"):
-            amend_start_iso = str(created["amendStartDate"])
-        if not created.get("ok"):
-            return {
-                "ok": False,
-                "error": created.get("error") or "Amend preview failed",
-                "warnings": warnings,
-                "amendStartDate": amend_start_iso,
-            }
-        for d in created.get("drafts") or []:
-            snap = d.get("snapshot") or {}
-            amend_drafts.append(
-                {
-                    "quoteId": d.get("quoteId"),
-                    "assetIds": d.get("assetIds") or [],
-                    "quantityChange": d.get("quantityChange"),
-                    "skus": d.get("skus") or [],
-                    "quoteNumber": snap.get("quoteNumber"),
-                    "totalPrice": snap.get("totalPrice"),
-                }
-            )
-            due_parts.append(
-                {
-                    "kind": "qtyAmend",
-                    "quoteId": d.get("quoteId"),
-                    "quoteNumber": snap.get("quoteNumber"),
-                    "totalPrice": float(snap.get("totalPrice") or 0),
-                }
-            )
-            for ql in snap.get("lines") or []:
-                sku = (ql.get("sku") or "").upper()
-                # Amend delta lines often have NetUnitPrice=0 (LastTransaction);
-                # skip so recurring-after falls back to the volume schedule.
-                net = float(ql.get("netUnitPrice") or 0)
-                if sku and _is_headcount_sku(sku) and net > 0:
-                    net_from_quote[sku] = net
-
-    # --- Draft add-module quote (RC) ---
+    qty_preview_sticky = False
     module_quote_id: str | None = None
     module_snapshot: dict[str, Any] | None = None
-    if add_skus:
-        try:
-            module_quote_id = _place_addon_quote(
+    with _account_lock(account_id):
+        if qty_changing:
+            if not asset_id and headcount_assets:
+                asset_id = headcount_assets[0]["id"]
+            created = create_qty_amend_drafts(
                 session,
                 account_id=account_id,
-                addon_skus=add_skus,
-                quantity=target_qty,
-                currency=currency,
+                asset_id=asset_id,
+                new_qty=target_qty,
+                start=amend_start,
+                preferred_drafts=preferred_amend_quotes,
             )
-            reprice_quote_system(session, module_quote_id)
-            # New-sale lines get System volume; still align PEPM via schedule patch
-            # when Net drifts (same helper is safe — skips lines already correct).
-            apply_amend_volume_pricing(
-                session, module_quote_id, volume_headcount=int(target_qty)
-            )
-            module_snapshot = _quote_pricing_snapshot(session, module_quote_id)
-            due_parts.append(
-                {
-                    "kind": "moduleSale",
-                    "quoteId": module_quote_id,
-                    "quoteNumber": module_snapshot.get("quoteNumber"),
-                    "totalPrice": float(module_snapshot.get("totalPrice") or 0),
+            warnings.extend(created.get("warnings") or [])
+            qty_preview_sticky = bool(created.get("sticky"))
+            if created.get("amendStartDate"):
+                amend_start_iso = str(created["amendStartDate"])
+            if not created.get("ok"):
+                return {
+                    "ok": False,
+                    "error": created.get("error") or "Amend preview failed",
+                    "warnings": warnings,
+                    "amendStartDate": amend_start_iso,
                 }
-            )
-            for ql in module_snapshot.get("lines") or []:
-                sku = (ql.get("sku") or "").upper()
-                net = float(ql.get("netUnitPrice") or 0)
-                if sku and _is_headcount_sku(sku) and net > 0:
-                    net_from_quote[sku] = net
-        except Exception as exc:  # noqa: BLE001
-            return {
-                "ok": False,
-                "error": f"Add-module preview failed: {exc}",
-                "warnings": warnings,
-                "amendQuotes": amend_drafts,
-            }
+            for d in created.get("drafts") or []:
+                snap = d.get("snapshot") or {}
+                amend_drafts.append(
+                    {
+                        "quoteId": d.get("quoteId"),
+                        "assetIds": d.get("assetIds") or [],
+                        "quantityChange": d.get("quantityChange"),
+                        "skus": d.get("skus") or [],
+                        "opportunityId": d.get("opportunityId")
+                        or created.get("opportunityId"),
+                        "quoteNumber": snap.get("quoteNumber"),
+                        "totalPrice": snap.get("totalPrice"),
+                        "sticky": bool(d.get("sticky")),
+                    }
+                )
+                due_parts.append(
+                    {
+                        "kind": "qtyAmend",
+                        "quoteId": d.get("quoteId"),
+                        "quoteNumber": snap.get("quoteNumber"),
+                        "totalPrice": float(snap.get("totalPrice") or 0),
+                    }
+                )
+                for ql in snap.get("lines") or []:
+                    sku = (ql.get("sku") or "").upper()
+                    # Amend delta lines often have NetUnitPrice=0 (LastTransaction);
+                    # skip so recurring-after falls back to the volume schedule.
+                    net = float(ql.get("netUnitPrice") or 0)
+                    if sku and _is_headcount_sku(sku) and net > 0:
+                        net_from_quote[sku] = net
+
+        # --- Draft add-module quote (RC) ---
+        if add_skus:
+            try:
+                # _place_addon_quote already System-reprices + volume stamps.
+                module_quote_id = _place_addon_quote(
+                    session,
+                    account_id=account_id,
+                    addon_skus=add_skus,
+                    quantity=target_qty,
+                    currency=currency,
+                    preferred_quote_id=preferred_module_quote_id,
+                )
+                sync_quote_to_opportunity(session, module_quote_id)
+                module_snapshot = _quote_pricing_snapshot(session, module_quote_id)
+                due_parts.append(
+                    {
+                        "kind": "moduleSale",
+                        "quoteId": module_quote_id,
+                        "quoteNumber": module_snapshot.get("quoteNumber"),
+                        "totalPrice": float(module_snapshot.get("totalPrice") or 0),
+                    }
+                )
+                for ql in module_snapshot.get("lines") or []:
+                    sku = (ql.get("sku") or "").upper()
+                    net = float(ql.get("netUnitPrice") or 0)
+                    if sku and _is_headcount_sku(sku) and net > 0:
+                        net_from_quote[sku] = net
+            except Exception as exc:  # noqa: BLE001
+                return {
+                    "ok": False,
+                    "error": f"Add-module preview failed: {exc}",
+                    "warnings": warnings,
+                    "amendQuotes": amend_drafts,
+                }
 
     # --- Recurring after: prefer NetUnitPrice from priced quotes ---
     after_lines: list[dict[str, Any]] = []
@@ -1407,14 +1779,29 @@ def preview_account_changes(
         if draft.get("totalPrice") is not None:
             draft["totalPrice"] = round(float(draft["totalPrice"]), 2)
 
+    opportunity_id = None
+    for d in amend_drafts:
+        if d.get("opportunityId"):
+            opportunity_id = d["opportunityId"]
+            break
+    if not opportunity_id and module_quote_id:
+        opportunity_id = quote_related_ids(session, module_quote_id).get(
+            "opportunityId"
+        )
+
     return {
         "ok": True,
         "accountId": account_id,
         "accountName": acct.get("Name"),
         "currency": currency,
-        "currentQty": int(current_qty),
+        "currentQty": int(today_qty),
+        "baselineQty": int(baseline_qty),
+        "quantityChange": (
+            int(target_qty) - int(baseline_qty) if qty_changing else 0
+        ),
         "newQty": target_qty,
         "amendStartDate": amend_start_iso,
+        "opportunityId": opportunity_id,
         "pricingSource": "revenueCloud",
         "monthly": {
             "today": monthly_before,
@@ -1431,6 +1818,9 @@ def preview_account_changes(
         "lines": after_lines,
         "linesToday": before_lines,
         "amendQuotes": amend_drafts,
+        "sticky": bool(
+            qty_preview_sticky or any(d.get("sticky") for d in amend_drafts)
+        ),
         "moduleQuoteId": module_quote_id,
         "moduleQuote": (
             {
@@ -1445,6 +1835,8 @@ def preview_account_changes(
         "note": (
             "Totals from Revenue Cloud amendment/add-on Quotes after System "
             "reprice (amend volume aligned to live Price Adjustment Tiers). "
+            "Qty delta is vs seats in effect on amend start (AssetStatePeriod), "
+            "matching Connect amend / Managed Asset viewer. "
             "Charged today is the Quote TotalPrice sum."
         ),
     }
@@ -1542,9 +1934,16 @@ def place_account_changes(
                 error="No per-employee assets found to amend",
                 warnings=warnings,
             )
-        # Skip only when *every* headcount asset is already at the target.
+        # Skip only when every headcount asset is already at target *on start date*
+        # (ASP basis — same as Connect amend quantityChange).
+        as_of = amend_start or datetime.now(timezone.utc)
         all_at_target = bool(headcount) and all(
-            abs(float(a["quantity"]) - float(new_qty)) < 1e-6 for a in headcount
+            abs(
+                float(asset_quantity_at(session, a["id"], as_of=as_of))
+                - float(new_qty)
+            )
+            < 1e-6
+            for a in headcount
         )
         if all_at_target:
             warnings.append("Quantity unchanged — skipped qty amend.")

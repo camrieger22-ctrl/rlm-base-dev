@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Amend summary · BambooHR</title>
+  <link rel="icon" href="/static/brand/icon.png" type="image/png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body class="quote-page amend-quote-page">
+  <header class="site-header">
+    <a class="logo-link" href="/" aria-label="BambooHR home">
+      <img class="logo-wordmark" src="/static/brand/wordmark-green.png" alt="bambooHR" />
+    </a>
+    <div class="header-right">
+      <nav class="site-nav">
+        <a href="/">Get Pricing</a>
+        <a id="backToAccount" href="/account">Licenses &amp; billing</a>
+      </nav>
+    </div>
+  </header>
+
+  <section class="quote-hero">
+    <p class="eyebrow">License change</p>
+    <h1>Your amend summary</h1>
+    <p class="lede" id="amendLede">Loading…</p>
+  </section>
+
+  <main class="quote-shell">
+    <article class="quote-card amend-summary-card" id="amendCard" hidden>
+
+      <!-- 1. What am I paying for this change? -->
+      <section class="amend-pay-hero" id="payHero">
+        <p class="amend-pay-kicker" id="payKicker">What you’re paying for this change</p>
+        <p class="amend-pay-amount" id="dueAmount">—</p>
+        <p class="amend-pay-plain" id="payPlain"></p>
+        <p class="muted amend-pay-note" id="dueNote"></p>
+      </section>
+
+      <!-- 2. How your subscription changes -->
+      <section class="amend-impact">
+        <h3 class="amend-section-title">How your subscription changes</h3>
+        <div class="amend-compare" id="compareTable"></div>
+      </section>
+
+      <!-- 3. Product breakdown -->
+      <section class="amend-products">
+        <h3 class="amend-section-title">What’s included in this change</h3>
+        <p class="lines-lede" id="productsLede">
+          Each product below shows seats added and the monthly impact.
+        </p>
+        <div id="productList"></div>
+      </section>
+
+      <details class="amend-tech">
+        <summary>Salesforce details</summary>
+        <p class="quote-id">Quote(s) <code id="quoteIds">—</code></p>
+        <p class="muted" id="oppMeta"></p>
+        <div class="warnings" id="warnings"></div>
+      </details>
+
+      <div class="quote-actions">
+        <button type="button" id="placeAmendBtn" class="quote-cta">Place order</button>
+        <div class="quote-actions-secondary">
+          <a class="button-link secondary" id="editChangeLink" href="/account">Edit change</a>
+        </div>
+      </div>
+      <p class="status" id="placeStatus" role="status"></p>
+
+      <section class="order-success" id="orderSuccess" hidden>
+        <div class="order-success-badge" aria-hidden="true">✓</div>
+        <p class="order-success-kicker">You're all set</p>
+        <h3 class="order-success-title" id="successTitle">Changes complete</h3>
+        <p class="order-success-lede" id="successLede">
+          Your change is activated in Salesforce Revenue Cloud.
+        </p>
+        <div class="success-metrics" id="successMetrics"></div>
+        <div class="success-links" id="successLinks"></div>
+        <div class="quote-actions-secondary success-actions">
+          <a class="button-link" id="backLicenses" href="/account">Back to licenses</a>
+        </div>
+      </section>
+    </article>
+
+    <p class="status error" id="loadError" hidden></p>
+  </main>
+
+  <script src="/static/pay-now.js"></script>
+  <script src="/static/amend-quote.js"></script>
+</body>
+</html>

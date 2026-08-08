@@ -135,6 +135,80 @@ session on the same domain often breaks the guest pay page.
 Prefer a **runtime guest API probe** over trusting `Site.OptionsAllowGuestPaymentsApi`
 in SOQL (that field can lag or only reflect one Site record).
 
+#### Brand the Pay Now site (Experience Builder Theme)
+
+Card entry stays on the Salesforce Pay Now LWR page (do **not** iframe Stripe into
+the BFF). You can still make that tab feel BambooHR by theming the site chrome —
+logo, brand colors, fonts — so it matches Get Pricing / Licenses.
+
+**Tokens** (same as `static/app.css`):
+
+| Role | Hex | Notes |
+|------|-----|--------|
+| Brand / primary CTA | `#73C41D` | Lima |
+| Accent / links / hover | `#2D7919` | Bilbao |
+| Body text | `#1A1C1E` | Ink |
+| Muted / secondary text | `#55575A` | Abbey |
+| Page / surface background | `#F7FBF2` or `#FFFFFF` | Soft leaf wash → white |
+| Soft highlight | `#EEF8E3` | Leaf wash |
+| Borders | `#E3E5E8` | Line |
+
+**Logo assets** (repo):
+
+- Light chrome: `scripts/bamboohr/get_pricing/static/brand/wordmark-green.png`
+- Dark chrome (if header is Bilbao): `…/wordmark-white.png`
+- Favicon / small: `…/icon.png`
+
+**`master-demo` site**
+
+| Field | Value |
+|-------|--------|
+| Network | **Pay Now** (`0DBgL0000028O7FWAU`) |
+| Status | Live |
+| Path prefix | `paynowvforcesite` (vanity `/paynow` if configured) |
+| Builder | Setup → Digital Experiences → All Sites → **Pay Now** → **Builder** |
+
+Direct Builder URL (admin session on `master-demo`):
+
+`https://trailsignup-b4759183862b2b.my.salesforce.com/sfsites/picasso/core/config/commeditor.jsp?orgId=00DgL00000XnZrG&siteId=0DBgL0000028O7F`
+
+**Theme panel steps**
+
+1. Open **Builder** for the **Pay Now** site (not Payments Webhook).
+2. Left rail → **Theme** (paintbrush) → open the active theme (or **Clone** the
+   default first so you keep a rollback).
+3. **Images**
+   - **Company Logo** / header logo → upload `wordmark-green.png`.
+   - Optional favicon → `icon.png`.
+   - Leave hero / large background images empty unless the template exposes them;
+     Pay Now is a form page, not a marketing landing.
+4. **Colors** (names vary slightly by LWR theme; map by role):
+   - Brand / Primary → `#73C41D`
+   - Brand / Primary Contrast (text on brand buttons) → `#FFFFFF`
+   - Accent / Link → `#2D7919`
+   - Text / Heading → `#1A1C1E`
+   - Text / Detail or Secondary → `#55575A`
+   - Background / Page → `#F7FBF2` (or `#FFFFFF` if the theme looks muddy)
+   - Card / Surface → `#FFFFFF`
+   - Border / Divider → `#E3E5E8` if exposed
+5. **Fonts** (optional): pick a clean sans close to the BFF. Exact webfont matching
+   is not required for demo.
+6. **Preview** as **Guest User** (Builder preview → Guest). Confirm logo + green
+   chrome; Stripe / card fields will still look like Salesforce Payments — that is
+   expected.
+7. **Publish** the site. Theme edits are not live until publish.
+8. Smoke: from BFF **Pay now** → open link in **incognito** → confirm branded header
+   and successful `4242…` test charge.
+
+**What Theme will not change**
+
+- Stripe Elements / card iframe chrome inside the Payments component
+- BFF pages (`/quote`, `/account`) — already BambooHR-styled in `static/`
+- Email body beyond what `RLM_BambooPayNowEmail` already sends
+
+**After org rebuild:** re-upload logo and re-apply colors (Theme is not covered by
+`bootstrap_paynow.py`).
+
 ---
 
 ### Phase 1 — Shared payment prompt (BFF)

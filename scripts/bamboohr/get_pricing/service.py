@@ -479,6 +479,8 @@ class GetPricingRequest:
     buyer: BuyerInfo | None = None
     # Pin an existing Account (convert-later / returning flows).
     account_id: str | None = None
+    # Sticky Draft from /api/get-pricing-preview — promote when config matches.
+    preview_quote_id: str | None = None
 
 
 @dataclass
@@ -740,10 +742,88 @@ def _pbe_for_sku(session: OrgSession, sku: str, currency: str = "USD") -> dict:
     return rows[0]
 
 
-def _system_reprice_quote(session: OrgSession, quote_id: str) -> None:
-    """PST System reprice so volume + Path B ManualDiscount persist on lines."""
+def sync_quote_to_opportunity(
+    session: OrgSession,
+    quote_id: str,
+    opportunity_id: str | None = None,
+) -> bool:
+    """Start Quote→Opportunity sync (same effect as UI **Start Sync**).
+
+    Sets ``Opportunity.SyncedQuoteId`` so Opportunity Amount / products stay
+    aligned with the Quote after place + reprice. When Amount is still blank
+    after sync (seen with some term-defined-only carts), copies
+    ``Quote.TotalPrice`` onto ``Opportunity.Amount`` as a display fallback.
+    """
+    qid = (quote_id or "").strip()
+    if not qid:
+        return False
+    opp_id = (opportunity_id or "").strip() or None
+    if not opp_id:
+        rows = session.soql(
+            "SELECT OpportunityId FROM Quote "
+            f"WHERE Id = '{_soql_escape(qid)}' LIMIT 1"
+        )
+        opp_id = (rows[0].get("OpportunityId") if rows else None) or None
+    if not opp_id:
+        return False
+
+    synced = False
+    try:
+        opp_rows = session.soql(
+            "SELECT Id, Amount, SyncedQuoteId FROM Opportunity "
+            f"WHERE Id = '{_soql_escape(opp_id)}' LIMIT 1"
+        )
+        current = (opp_rows[0].get("SyncedQuoteId") if opp_rows else None) or None
+        if current != qid:
+            session.patch("Opportunity", opp_id, {"SyncedQuoteId": qid})
+        synced = True
+    except Exception:
+        synced = False
+
+    try:
+        qrows = session.soql(
+            "SELECT TotalPrice, GrandTotal FROM Quote "
+            f"WHERE Id = '{_soql_escape(qid)}' LIMIT 1"
+        )
+        total = None
+        if qrows:
+            raw = qrows[0].get("GrandTotal")
+            if raw is None:
+                raw = qrows[0].get("TotalPrice")
+            if raw is not None:
+                total = float(raw)
+        if total is None:
+            return synced
+        opp_rows = session.soql(
+            "SELECT Amount FROM Opportunity "
+            f"WHERE Id = '{_soql_escape(opp_id)}' LIMIT 1"
+        )
+        amount = opp_rows[0].get("Amount") if opp_rows else None
+        if amount is None:
+            try:
+                session.patch("Opportunity", opp_id, {"Amount": round(total, 2)})
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return synced
+
+
+def _system_reprice_quote(
+    session: OrgSession,
+    quote_id: str,
+    *,
+    quantity_by_sku: dict[str, int] | None = None,
+) -> None:
+    """PST System reprice so volume + Path B ManualDiscount persist on lines.
+
+    Optional ``quantity_by_sku`` patches Quantity in the same place graph —
+    used by sticky preview for headcount-only changes (avoids a separate
+    DELETE+POST Skip place).
+    """
     lines = session.soql(
-        f"SELECT Id, Quantity FROM QuoteLineItem WHERE QuoteId = '{quote_id}'"
+        "SELECT Id, Quantity, Product2.StockKeepingUnit "
+        f"FROM QuoteLineItem WHERE QuoteId = '{quote_id}'"
     )
     if not lines:
         raise RuntimeError(f"Quote {quote_id} has no lines to reprice")
@@ -760,6 +840,10 @@ def _system_reprice_quote(session: OrgSession, quote_id: str) -> None:
         }
     ]
     for i, line in enumerate(lines):
+        sku = ((line.get("Product2") or {}).get("StockKeepingUnit") or "").upper()
+        qty = line.get("Quantity") or 1
+        if quantity_by_sku and sku in quantity_by_sku:
+            qty = quantity_by_sku[sku]
         records.append(
             {
                 "referenceId": f"refL{i}",
@@ -769,7 +853,7 @@ def _system_reprice_quote(session: OrgSession, quote_id: str) -> None:
                         "method": "PATCH",
                         "id": line["Id"],
                     },
-                    "Quantity": str(int(line["Quantity"] or 1)),
+                    "Quantity": str(int(qty)),
                 },
             }
         )
@@ -1040,6 +1124,77 @@ def get_pricing(session: OrgSession, req: GetPricingRequest) -> GetPricingResult
     trial_flag = False
     monthly = 0.0 if free_trial else round(expected_plan_paid * plan_qty, 2)
 
+    # Phase 3: promote sticky preview Quote when Account + config match.
+    if req.place_quote and req.preview_quote_id:
+        try:
+            from pricing_preview import discard_preview_quote, promote_preview_quote
+
+            promoted = promote_preview_quote(
+                session,
+                req.preview_quote_id,
+                headcount=req.headcount,
+                country=country,
+                plan_sku=plan_sku,
+                addon_skus=addon_skus,
+                free_trial=free_trial,
+                account_id=acct["Id"],
+            )
+            if promoted:
+                quote_id = promoted["quoteId"]
+                line_items = list(promoted.get("lineItems") or [])
+                monthly = float(promoted.get("monthlyTotal") or 0)
+                net_pepm = float(promoted.get("netPepm") or 0)
+                path_b_flag = bool(promoted.get("pathBBundleSave"))
+                trial_flag = bool(promoted.get("freeTrial"))
+                use_flat = bool(promoted.get("smallBizFlat"))
+                sell_plan_sku = promoted.get("sellPlanSku") or sell_plan_sku
+                list_pepm = float(promoted.get("listPepm") or list_pepm)
+                vol_pct = float(promoted.get("volumePercent") or vol_pct)
+                vol = vol_pct / 100.0
+                warnings.append(
+                    "Promoted sticky Revenue Cloud preview Quote (no second Quote created)."
+                )
+                return GetPricingResult(
+                    ok=True,
+                    country=country,
+                    account_name=account_name,
+                    account_id=acct["Id"],
+                    plan_sku=plan_sku,
+                    plan_name=PLAN_LABELS[plan_sku],
+                    headcount=req.headcount,
+                    list_pepm=list_pepm,
+                    volume_percent=round(vol * 100, 1),
+                    net_pepm=net_pepm,
+                    monthly_total=monthly,
+                    annual_total=round(monthly * 12, 2),
+                    discovered_skus=sorted(set(discovered)),
+                    addon_skus=addon_skus,
+                    line_items=line_items,
+                    path_b_bundle_save=path_b_flag,
+                    small_biz_flat=use_flat,
+                    sell_plan_sku=sell_plan_sku,
+                    free_trial=free_trial,
+                    trial_days=TRIAL_DAYS if free_trial else 0,
+                    paid_monthly_estimate=paid_monthly if free_trial else None,
+                    paid_line_items=paid_line_items if free_trial else [],
+                    currency=currency,
+                    warnings=warnings,
+                    quote_id=quote_id,
+                    org_alias=session.alias,
+                    contact_id=contact_id,
+                    contact_name=str(buyer_meta.get("contactName") or ""),
+                    contact_email=str(buyer_meta.get("contactEmail") or ""),
+                    account_created=bool(buyer_meta.get("accountCreated")),
+                    contact_created=bool(buyer_meta.get("contactCreated")),
+                )
+            # Preview was on a different Account (usually demo) — discard and place fresh.
+            discard_preview_quote(session, req.preview_quote_id)
+            warnings.append(
+                "Preview Quote was on a different Account — created the buyer Quote fresh."
+            )
+        except Exception as exc:  # noqa: BLE001
+            warnings.append(f"Preview promote skipped: {exc}")
+
     if req.place_quote:
         trial_tag = " trial" if free_trial else ""
         opp_id = session.create(
@@ -1158,6 +1313,9 @@ def get_pricing(session: OrgSession, req: GetPricingRequest) -> GetPricingResult
                 f"Native {currency} line prices applied after System reprice "
                 "(Force; multi-currency volume workaround)."
             )
+
+        # Same as Quote page Start Sync — populate Opportunity Amount.
+        sync_quote_to_opportunity(session, quote_id, opp_id)
 
         qrows = session.soql(
             "SELECT RLM_Bamboo_PathB_BundleSave__c, RLM_Bamboo_FreeTrial__c "

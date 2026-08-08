@@ -747,8 +747,51 @@ def discard_stale_amend_drafts(
     return deleted
 
 
-def tag_amend_preview_quote(session: OrgSession, quote_id: str) -> None:
-    """Mark a freshly created amend draft so hygiene can find it later."""
+PREVIEW_MARKER = "[bamboohr-preview]"
+
+
+def amend_preview_cfg(
+    *,
+    new_qty: int,
+    start_iso: str,
+    asset_ids: list[str],
+    quantity_change: float,
+) -> str:
+    """Stable fingerprint for sticky amend Draft Quotes."""
+    assets = "+".join(sorted(a for a in asset_ids if a))
+    delta = f"{float(quantity_change):g}"
+    return f"qty={int(new_qty)};start={start_iso[:10]};assets={assets};delta={delta}"
+
+
+def module_preview_cfg(*, quantity: int, addon_skus: list[str]) -> str:
+    skus = "+".join(sorted(s.upper() for s in addon_skus if s))
+    return f"qty={int(quantity)};skus={skus}"
+
+
+def _soql_escape_local(value: str) -> str:
+    return (value or "").replace("\\", "\\\\").replace("'", "\\'")
+
+
+def parse_preview_cfg(description: str | None, kind: str) -> str | None:
+    """Return cfg string after ``[bamboohr-preview] {kind} `` or None."""
+    desc = description or ""
+    needle = f"{PREVIEW_MARKER} {kind} "
+    idx = desc.find(needle)
+    if idx < 0:
+        return None
+    rest = desc[idx + len(needle) :].strip()
+    # cfg is one token / one line
+    return rest.split()[0].split("\n")[0].strip() if rest else None
+
+
+def tag_amend_preview_quote(
+    session: OrgSession,
+    quote_id: str,
+    *,
+    cfg: str | None = None,
+    kind: str = "amend",
+) -> None:
+    """Mark a Draft Quote for sticky preview reuse + hygiene cleanup."""
     if not quote_id:
         return
     try:
@@ -756,20 +799,168 @@ def tag_amend_preview_quote(session: OrgSession, quote_id: str) -> None:
             f"SELECT Description FROM Quote WHERE Id = '{quote_id}' LIMIT 1"
         )
         desc = ((rows[0].get("Description") if rows else None) or "").strip()
-        marker = "[bamboohr-preview]"
-        if marker in desc:
-            return
-        session.patch(
-            "Quote",
-            quote_id,
-            {
-                "Description": (
-                    (desc + "\n" + marker).strip() if desc else marker
-                )
-            },
+        # Drop prior preview marker lines, then stamp current cfg.
+        lines = [
+            ln
+            for ln in desc.splitlines()
+            if PREVIEW_MARKER not in ln and ln.strip()
+        ]
+        stamp = (
+            f"{PREVIEW_MARKER} {kind} {cfg}"
+            if cfg
+            else f"{PREVIEW_MARKER} {kind}"
         )
+        lines.append(stamp)
+        session.patch("Quote", quote_id, {"Description": "\n".join(lines)})
     except Exception:
         pass
+
+
+def parse_amend_cfg_parts(cfg: str | None) -> dict[str, str]:
+    """Parse ``qty=…;start=…;assets=…;delta=…`` into a dict."""
+    out: dict[str, str] = {}
+    for part in (cfg or "").split(";"):
+        if "=" not in part:
+            continue
+        key, val = part.split("=", 1)
+        out[key.strip()] = val.strip()
+    return out
+
+
+def find_sticky_amend_draft(
+    session: OrgSession,
+    account_id: str,
+    *,
+    cfg: str,
+    preferred_quote_id: str | None = None,
+) -> dict[str, Any] | None:
+    """Return Draft Amendment Quote matching sticky cfg, if still reusable."""
+    if not account_id or not cfg:
+        return None
+    preferred = (preferred_quote_id or "").strip()
+    if preferred:
+        rows = session.soql(
+            "SELECT Id, Name, Status, Description, OpportunityId, QuoteNumber "
+            f"FROM Quote WHERE Id = '{_soql_escape_local(preferred)}' LIMIT 1"
+        )
+        if rows:
+            row = rows[0]
+            if (row.get("Status") or "") == "Draft":
+                parsed = parse_preview_cfg(row.get("Description"), "amend")
+                if parsed == cfg:
+                    return row
+    rows = session.soql(
+        "SELECT Id, Name, Status, Description, OpportunityId, QuoteNumber, "
+        "CreatedDate FROM Quote WHERE Status = 'Draft' "
+        f"AND (QuoteAccountId = '{_soql_escape_local(account_id)}' "
+        f"OR AccountId = '{_soql_escape_local(account_id)}') "
+        "AND (Name LIKE 'Amendment%' OR Name LIKE '%Amendment%') "
+        "ORDER BY CreatedDate DESC LIMIT 40"
+    )
+    for row in rows:
+        parsed = parse_preview_cfg(row.get("Description"), "amend")
+        if parsed == cfg:
+            return row
+    return None
+
+
+def find_sticky_amend_mutable(
+    session: OrgSession,
+    account_id: str,
+    *,
+    start_iso: str,
+    asset_ids: list[str],
+    quantity_change: float,
+    preferred_quote_id: str | None = None,
+) -> dict[str, Any] | None:
+    """Find a Draft amend Quote for the same assets+start (qty may differ).
+
+    Same sign of ``quantity_change`` required so we can retarget delta Quantity
+    via System place (initial-sale style) instead of Connect amend again.
+    """
+    if not account_id or not asset_ids:
+        return None
+    assets_key = "+".join(sorted(a for a in asset_ids if a))
+    start_key = (start_iso or "")[:10]
+    want_sign = 0 if abs(float(quantity_change)) < 1e-9 else (
+        1 if float(quantity_change) > 0 else -1
+    )
+
+    def _matches(row: dict[str, Any]) -> bool:
+        if (row.get("Status") or "") != "Draft":
+            return False
+        parts = parse_amend_cfg_parts(
+            parse_preview_cfg(row.get("Description"), "amend")
+        )
+        if parts.get("assets") != assets_key:
+            return False
+        if parts.get("start") != start_key:
+            return False
+        try:
+            old_delta = float(parts.get("delta") or 0)
+        except ValueError:
+            return False
+        old_sign = 0 if abs(old_delta) < 1e-9 else (1 if old_delta > 0 else -1)
+        return old_sign == want_sign
+
+    preferred = (preferred_quote_id or "").strip()
+    if preferred:
+        rows = session.soql(
+            "SELECT Id, Name, Status, Description, OpportunityId, QuoteNumber "
+            f"FROM Quote WHERE Id = '{_soql_escape_local(preferred)}' LIMIT 1"
+        )
+        if rows and _matches(rows[0]):
+            return rows[0]
+
+    rows = session.soql(
+        "SELECT Id, Name, Status, Description, OpportunityId, QuoteNumber, "
+        "CreatedDate FROM Quote WHERE Status = 'Draft' "
+        f"AND (QuoteAccountId = '{_soql_escape_local(account_id)}' "
+        f"OR AccountId = '{_soql_escape_local(account_id)}') "
+        "AND (Name LIKE 'Amendment%' OR Name LIKE '%Amendment%') "
+        "ORDER BY CreatedDate DESC LIMIT 40"
+    )
+    for row in rows:
+        if _matches(row):
+            return row
+    return None
+
+
+def find_sticky_module_draft(
+    session: OrgSession,
+    account_id: str,
+    *,
+    cfg: str,
+    preferred_quote_id: str | None = None,
+) -> dict[str, Any] | None:
+    """Return Draft add-module preview Quote matching sticky cfg."""
+    if not account_id or not cfg:
+        return None
+    preferred = (preferred_quote_id or "").strip()
+    if preferred:
+        rows = session.soql(
+            "SELECT Id, Name, Status, Description, OpportunityId, QuoteNumber "
+            f"FROM Quote WHERE Id = '{_soql_escape_local(preferred)}' LIMIT 1"
+        )
+        if rows:
+            row = rows[0]
+            if (row.get("Status") or "") == "Draft":
+                parsed = parse_preview_cfg(row.get("Description"), "module")
+                if parsed == cfg:
+                    return row
+    # Description is not SOQL-filterable — select Drafts and match in Python.
+    rows = session.soql(
+        "SELECT Id, Name, Status, Description, OpportunityId, QuoteNumber, "
+        "CreatedDate FROM Quote WHERE Status = 'Draft' "
+        f"AND (QuoteAccountId = '{_soql_escape_local(account_id)}' "
+        f"OR AccountId = '{_soql_escape_local(account_id)}') "
+        "ORDER BY CreatedDate DESC LIMIT 40"
+    )
+    for row in rows:
+        parsed = parse_preview_cfg(row.get("Description"), "module")
+        if parsed == cfg:
+            return row
+    return None
 
 
 def poll_asset_quantity(
@@ -819,12 +1010,16 @@ def amend_assets_quantity(
     *,
     start: datetime | None = None,
     quantity_change: float | None = None,
+    opportunity_id: str | None = None,
 ) -> str | None:
     """Qty true-up via Connect amend for one or more assets; returns quote id.
 
     R262 body uses ``assetIds`` + ``quantityChange`` (delta), not absolute qty.
     Delta is computed from **ASP quantity on amendmentStartDate** unless
     ``quantity_change`` is passed explicitly.
+
+    Pass ``opportunity_id`` to sync the amendment Quote to an Opportunity
+    (same as Managed Asset viewer / ``opportunityId`` on the Connect API).
     """
     ids = [a for a in asset_ids if a]
     if not ids:
@@ -852,12 +1047,14 @@ def amend_assets_quantity(
                 f"Pick a later start date (after future upsells) or a higher seat count."
             )
 
-    body = {
+    body: dict[str, Any] = {
         "assetIds": ids,
         "amendmentStartDate": when.strftime("%Y-%m-%dT00:00:00.000Z"),
         "outputRecordType": "Quote",
         "quantityChange": float(quantity_change),
     }
+    if opportunity_id:
+        body["opportunityId"] = opportunity_id
     path = f"/services/data/{API}/connect/revenue-management/assets/actions/amend"
     try:
         result = session.post(path, body)

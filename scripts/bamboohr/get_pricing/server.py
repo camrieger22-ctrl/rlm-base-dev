@@ -42,6 +42,7 @@ from docgen import (  # noqa: E402
 )
 from quote_email import send_quote_email  # noqa: E402
 from payment_email import send_payment_email  # noqa: E402
+from pricing_preview import preview_get_pricing  # noqa: E402
 from service import (  # noqa: E402
     BuyerInfo,
     GetPricingRequest,
@@ -53,6 +54,8 @@ from service import (  # noqa: E402
 
 # In-memory quote summaries for /quote/{id} branded page (demo only).
 QUOTE_CACHE: dict[str, dict] = {}
+# Amend summaries for /amend-quote/{id} (demo only — sticky preview payload).
+AMEND_CACHE: dict[str, dict] = {}
 ORG_ALIAS = "master-demo"
 SESSION: OrgSession | None = None
 CORS_ORIGIN = ""  # empty = omit CORS headers; "*" or origin for hosted demos
@@ -609,6 +612,23 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 self._json(503, {"ok": False, "error": str(exc)})
             return
+        if path.startswith("/api/account-amend-summary/"):
+            cache_id = path.split("/api/account-amend-summary/", 1)[1].strip("/")
+            summary = AMEND_CACHE.get(cache_id)
+            if not summary:
+                self._json(
+                    404,
+                    {
+                        "ok": False,
+                        "error": (
+                            "Amend summary not in this server session — "
+                            "generate quote again."
+                        ),
+                    },
+                )
+                return
+            self._json(200, {"ok": True, "id": cache_id, "summary": summary})
+            return
         if path in ("/", "/index.html"):
             self._send(
                 200,
@@ -651,6 +671,13 @@ class Handler(BaseHTTPRequestHandler):
             self._send(
                 200,
                 (STATIC / "account.html").read_bytes(),
+                "text/html; charset=utf-8",
+            )
+            return
+        if path.startswith("/amend-quote/"):
+            self._send(
+                200,
+                (STATIC / "amend-quote.html").read_bytes(),
                 "text/html; charset=utf-8",
             )
             return
@@ -746,6 +773,48 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400, {"ok": False, "error": "Invalid JSON"})
             return
 
+        if path == "/api/get-pricing-preview":
+            try:
+                raw_addons = body.get("addonSkus") or body.get("addons") or []
+                if isinstance(raw_addons, str):
+                    raw_addons = [s.strip() for s in raw_addons.split(",") if s.strip()]
+                buyer_raw = (
+                    body.get("buyer")
+                    if isinstance(body.get("buyer"), dict)
+                    else {
+                        "company": body.get("company") or body.get("accountName"),
+                        "firstName": body.get("firstName"),
+                        "lastName": body.get("lastName"),
+                        "email": body.get("email"),
+                        "phone": body.get("phone"),
+                        "jobTitle": body.get("jobTitle"),
+                    }
+                )
+                result = preview_get_pricing(
+                    _session(),
+                    headcount=int(body.get("headcount") or 0),
+                    country=str(body.get("country") or "US"),
+                    plan_sku=str(body.get("planSku") or "BAMBOO-PRO"),
+                    addon_skus=list(raw_addons),
+                    free_trial=bool(
+                        body.get("freeTrial") or body.get("free_trial")
+                    ),
+                    quote_id=str(body.get("quoteId") or body.get("previewQuoteId") or "")
+                    or None,
+                    buyer=BuyerInfo.from_mapping(buyer_raw),
+                    account_id=str(body.get("accountId") or "") or None,
+                )
+                if result.get("ok") and result.get("quoteId"):
+                    # Seed cache early so /quote/{id} works after promote/submit.
+                    QUOTE_CACHE[result["quoteId"]] = {
+                        **result,
+                        "quoteUrl": f"/quote/{result['quoteId']}",
+                    }
+                self._json(200 if result.get("ok") else 400, result)
+            except Exception as exc:  # noqa: BLE001
+                self._json(400, {"ok": False, "error": str(exc)})
+            return
+
         if path == "/api/get-pricing":
             try:
                 raw_addons = body.get("addonSkus") or body.get("addons") or []
@@ -769,6 +838,10 @@ class Handler(BaseHTTPRequestHandler):
                         body.get("freeTrial") or body.get("free_trial")
                     ),
                     buyer=BuyerInfo.from_mapping(buyer_raw),
+                    preview_quote_id=str(
+                        body.get("previewQuoteId") or body.get("quoteId") or ""
+                    )
+                    or None,
                 )
                 result = get_pricing(_session(), req)
                 payload = result.as_dict()
@@ -946,6 +1019,8 @@ class Handler(BaseHTTPRequestHandler):
                     "assetIds": [
                         str(a) for a in (d.get("assetIds") or []) if a
                     ],
+                    "opportunityId": str(d.get("opportunityId") or "").strip()
+                    or None,
                 }
                 for d in amend_quotes_raw
                 if isinstance(d, dict) and d.get("quoteId")
@@ -1000,6 +1075,24 @@ class Handler(BaseHTTPRequestHandler):
                     )
                     return
             try:
+                preferred_amends = []
+                raw_pref = body.get("amendQuotes") or []
+                if isinstance(raw_pref, list):
+                    preferred_amends = [
+                        {
+                            "quoteId": str(d.get("quoteId") or "").strip(),
+                            "assetIds": [
+                                str(a)
+                                for a in (d.get("assetIds") or [])
+                                if a
+                            ],
+                        }
+                        for d in raw_pref
+                        if isinstance(d, dict) and d.get("quoteId")
+                    ]
+                preferred_module = (
+                    str(body.get("moduleQuoteId") or "").strip() or None
+                )
                 result = preview_account_changes(
                     _session(),
                     account_id=account_id,
@@ -1007,10 +1100,38 @@ class Handler(BaseHTTPRequestHandler):
                     new_qty=new_qty,
                     addon_skus=addon_skus,
                     start_date=start_date,
+                    preferred_amend_quotes=preferred_amends or None,
+                    preferred_module_quote_id=preferred_module,
                 )
                 self._json(200 if result.get("ok") else 400, result)
             except Exception as exc:  # noqa: BLE001
                 self._json(400, {"ok": False, "error": str(exc)})
+            return
+
+        if path == "/api/account-amend-cache":
+            summary = body.get("summary") if isinstance(body.get("summary"), dict) else body
+            if not isinstance(summary, dict) or not summary.get("accountId"):
+                self._json(400, {"ok": False, "error": "summary with accountId is required"})
+                return
+            cache_id = ""
+            for q in summary.get("amendQuotes") or []:
+                if isinstance(q, dict) and q.get("quoteId"):
+                    cache_id = str(q["quoteId"])
+                    break
+            if not cache_id:
+                cache_id = str(summary.get("moduleQuoteId") or "").strip()
+            if not cache_id:
+                cache_id = f"amend-{summary['accountId']}"
+            AMEND_CACHE[cache_id] = dict(summary)
+            AMEND_CACHE[cache_id]["ok"] = True
+            self._json(
+                200,
+                {
+                    "ok": True,
+                    "id": cache_id,
+                    "amendQuoteUrl": f"/amend-quote/{cache_id}",
+                },
+            )
             return
 
         if path == "/api/account-preview":

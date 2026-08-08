@@ -468,9 +468,17 @@
           if (loginStatus) {
             loginStatus.textContent = data.message || "Login ready — opening Licenses…";
           }
+          // Always include accountId so Licenses opens even if ecToken handoff
+          // is misconfigured — no Experience Cloud password prompt required.
+          const aid = encodeURIComponent(data.accountId || lastCheckout.accountId);
           window.location.href =
             data.accountUrl ||
-            ("/account?ecToken=" + encodeURIComponent(data.ecToken || ""));
+            ("/account?accountId=" +
+              aid +
+              (data.ecToken
+                ? "&ecToken=" + encodeURIComponent(data.ecToken)
+                : "") +
+              "&focus=invoices");
         } catch (err) {
           if (loginStatus) {
             loginStatus.textContent = err.message || String(err);

@@ -10,13 +10,18 @@ Pay Now (checkout + Licenses weave-in plan).
 
 1. User enters **company + work email** (Get Pricing hero), **headcount**,
    **country**, **plan**, and optional **add-ons**.
-2. BFF **creates Account + Contact** in Salesforce (or reuses Contact email /
-   Account name). API callers that omit buyer still use seeded demo Accounts.
-3. BFF places a multi-line Quote on that Account, System-reprices (volume +
-   Path B Bundle & Save when plan + Payroll + Benefits). Canada/UK strip
-   US-only add-ons.
-4. Browser shows a branded summary (customer card + list→bundle→volume table).
-5. **P3:** “Place order” → order → activate → assets; optional `amendQty`.
+2. Configurator changes call **`/api/get-pricing-preview`**: **one Opportunity +
+   one sticky Draft Quote** per Account. Lines mutate via PST place (`DELETE` +
+   `POST`) then System reprice. The server also looks up the Account’s existing
+   preview Draft (so overlapping clicks don’t spawn more Opps/Quotes). Recreate
+   is only a fallback if PST replace fails.
+3. BFF **creates Account + Contact** in Salesforce when the buyer is submitted
+   (or reuses Contact email / Account name). Preview may already sit on that
+   Account if company + email were present during configure.
+4. **Get your quote** promotes the sticky Quote when Account + config match
+   (`previewQuoteId`); otherwise places a fresh Quote and discards the preview.
+5. Browser shows a branded summary (customer card + list→bundle→volume table).
+6. **P3:** “Place order” → order → activate → assets; optional `amendQty`.
 
 | Country | Fallback demo Account (no buyer) |
 |---------|-----------------------------------|
@@ -59,9 +64,10 @@ Full JWT / Docker / Connected App steps: **HOSTED.md**.
 | GET | `/api/account-invoices?accountId=\|company=\|ecToken=` | Posted invoices with balance &gt; 0 (+ Active Pay Now URL when present) |
 | GET | `/api/ec-handoff?token=` | Verify EC handoff → `{ accountId, contactId, exp }` |
 | POST | `/api/create-login` | `{ accountId, contactId?, email, password }` → community User + `ecToken` handoff |
-| POST | `/api/account-amend-preview` | `{ accountId, newQty?, addonSkus?, startDate? }` → draft Quotes + System reprice totals (no Activate) |
-| POST | `/api/account-amend` | `{ accountId, newQty?, addonSkus?, amendQuotes?, moduleQuoteId? }` → activate preview Quotes (or create if omitted) |
-| POST | `/api/get-pricing` | `{ headcount, country, planSku, addonSkus?, placeQuote? }` |
+| POST | `/api/account-amend-preview` | `{ accountId, newQty?, addonSkus?, startDate?, amendQuotes?, moduleQuoteId? }` → sticky Draft Quotes + System reprice (no Activate); live UI debounce reuses Quotes |
+| POST | `/api/account-amend` | `{ accountId, newQty?, addonSkus?, amendQuotes?, moduleQuoteId? }` → activate preview Quotes → Order (native createOrderFromQuote) |
+| POST | `/api/get-pricing-preview` | Sticky Draft Quote + System reprice for configurator (plan/tier/add-ons). Pass `quoteId` to reuse. |
+| POST | `/api/get-pricing` | `{ headcount, country, planSku, addonSkus?, placeQuote?, previewQuoteId? }` — promotes sticky preview when Account+config match |
 | POST | `/api/collect-payment` | `{ orderId? \| invoiceId?, pollTimeout?, emailPayment?, toEmail? }` — invoice + PaymentLink; optional Pay Now email |
 | POST | `/api/payment-email` | `{ paymentUrl? \| invoiceId? \| orderId?, toEmail?, accountId? }` — email Pay Now link via Apex |
 | POST | `/api/checkout` | `{ quoteId, amendQty?, pollTimeout?, collectPayment?, emailPayment?, toEmail? }` — after activate, invoices the order and attempts Salesforce Payments Pay Now (`payment` on response; optional email) |

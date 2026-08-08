@@ -362,7 +362,9 @@ def create_buyer_login(
         "contactId": contact_id,
         "ecToken": token,
         "accountUrl": (
-            f"/account?ecToken={quote(token, safe='')}&focus=invoices"
+            f"/account?accountId={quote(account_id, safe='')}"
+            f"&ecToken={quote(token, safe='')}"
+            f"&focus=invoices"
         ),
         "loginUrl": login_url(),
         "siteHome": site_home(),
