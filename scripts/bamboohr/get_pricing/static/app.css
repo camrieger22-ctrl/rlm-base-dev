@@ -2590,6 +2590,147 @@ body.quote-page {
   color: var(--bilbao);
 }
 
+.sub-timeline {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.panel-head--compact {
+  margin-bottom: 0.65rem;
+}
+
+.sub-timeline-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.sub-timeline-lede {
+  margin: 0.2rem 0 0;
+  font-size: 0.82rem;
+}
+
+.timeline-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.timeline-item {
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.timeline-item.is-current {
+  border-color: #73c991;
+  box-shadow: inset 3px 0 0 #73c991;
+}
+
+.timeline-item.is-future {
+  border-style: dashed;
+}
+
+.timeline-summary {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.35rem 1rem;
+  align-items: start;
+  padding: 0.75rem 0.9rem;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.timeline-summary:hover {
+  background: rgba(115, 201, 145, 0.06);
+}
+
+.timeline-label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 800;
+}
+
+.timeline-pill {
+  display: inline-block;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  background: #e8f6ec;
+  color: var(--bilbao);
+}
+
+.timeline-range {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.8rem;
+  color: #667;
+  font-weight: 500;
+}
+
+.timeline-metrics {
+  text-align: right;
+}
+
+.timeline-metrics strong {
+  display: block;
+  font-size: 1.05rem;
+  color: var(--bilbao);
+}
+
+.timeline-metrics span {
+  display: block;
+  font-size: 0.8rem;
+  color: #556;
+}
+
+.timeline-delta {
+  grid-column: 1 / -1;
+  font-size: 0.8rem;
+  color: #3a7a4a;
+  font-weight: 600;
+}
+
+.timeline-delta.is-down {
+  color: #9a4a2a;
+}
+
+.timeline-lines {
+  margin: 0;
+  padding: 0 0.9rem 0.75rem;
+  list-style: none;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.timeline-lines[hidden] {
+  display: none;
+}
+
+.timeline-lines li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.45rem 0 0;
+  font-size: 0.85rem;
+}
+
+.timeline-lines span {
+  color: #667;
+  font-size: 0.78rem;
+}
+
 .expand-block { margin-top: 0.75rem; }
 
 .expand-label-row {

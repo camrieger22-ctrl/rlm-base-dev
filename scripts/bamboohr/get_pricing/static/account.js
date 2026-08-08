@@ -519,6 +519,94 @@
     };
   };
 
+  const formatShortDate = (iso) => {
+    const d = parseDate(iso);
+    return d ? formatDateLabel(d) : iso || "—";
+  };
+
+  const renderSubscriptionTimeline = (timeline, currency) => {
+    const wrap = document.getElementById("subscriptionTimeline");
+    const list = document.getElementById("timelineList");
+    if (!wrap || !list) return;
+    const periods = timeline?.periods || [];
+    // Hide when empty or only a single current period with nothing upcoming.
+    const hasUpcoming = periods.some((p) => !p.isCurrent);
+    if (!periods.length || (periods.length === 1 && periods[0].isCurrent && !hasUpcoming)) {
+      wrap.hidden = true;
+      list.innerHTML = "";
+      return;
+    }
+    wrap.hidden = false;
+    const cur = currency || "USD";
+    list.innerHTML = periods
+      .map((p, idx) => {
+        const label = p.isCurrent
+          ? "Current"
+          : `Starts ${formatShortDate(p.startDate)}`;
+        const range = `${formatShortDate(p.startDate)} – ${formatShortDate(p.endDate)}`;
+        const seats =
+          p.quantity != null ? `${Number(p.quantity).toLocaleString()} seats` : "—";
+        const mrr = money(p.recurringMonthly, cur);
+        let deltaHtml = "";
+        if (p.deltaQuantity != null || p.deltaRecurringMonthly != null) {
+          const parts = [];
+          if (p.deltaQuantity != null && p.deltaQuantity !== 0) {
+            const sign = p.deltaQuantity > 0 ? "+" : "−";
+            parts.push(`${sign}${Math.abs(p.deltaQuantity)} seats`);
+          }
+          if (p.deltaRecurringMonthly != null && p.deltaRecurringMonthly !== 0) {
+            const sign = p.deltaRecurringMonthly > 0 ? "+" : "−";
+            parts.push(
+              `${sign}${money(Math.abs(p.deltaRecurringMonthly), cur)} / mo`
+            );
+          }
+          if (parts.length) {
+            const down = (p.deltaRecurringMonthly || 0) < 0;
+            deltaHtml = `<div class="timeline-delta${down ? " is-down" : ""}">${parts.join(" · ")} vs prior period</div>`;
+          }
+        }
+        const lines = (p.lines || [])
+          .map(
+            (l) => `<li>
+              <div>
+                <strong>${l.name || l.sku}</strong>
+                <span>${l.sku || ""} · ${l.quantity != null ? l.quantity : "—"} emp</span>
+              </div>
+              <em>${money(l.mrr, cur)} / mo</em>
+            </li>`
+          )
+          .join("");
+        const cls = p.isCurrent ? "is-current" : "is-future";
+        const pill = p.isCurrent ? `<span class="timeline-pill">Now</span>` : "";
+        return `<li class="timeline-item ${cls}" data-period-idx="${idx}">
+          <button type="button" class="timeline-summary" aria-expanded="false" data-timeline-toggle>
+            <div>
+              <div class="timeline-label">${label}${pill}</div>
+              <span class="timeline-range">${range}</span>
+            </div>
+            <div class="timeline-metrics">
+              <strong>${mrr} / mo</strong>
+              <span>${seats}</span>
+            </div>
+            ${deltaHtml}
+          </button>
+          <ul class="timeline-lines" hidden>${lines}</ul>
+        </li>`;
+      })
+      .join("");
+
+    list.querySelectorAll("[data-timeline-toggle]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const item = btn.closest(".timeline-item");
+        const detail = item?.querySelector(".timeline-lines");
+        if (!detail) return;
+        const open = detail.hidden;
+        detail.hidden = !open;
+        btn.setAttribute("aria-expanded", open ? "true" : "false");
+      });
+    });
+  };
+
   const readQty = () => {
     const raw = (qtyInput?.value || "").trim();
     if (raw === "") return null;
@@ -949,6 +1037,10 @@
         ? `${money(snap.total, data.account.currency)} / mo`
         : "—";
     }
+    renderSubscriptionTimeline(
+      data.subscription?.timeline,
+      data.account?.currency || "USD"
+    );
 
     const orders = document.getElementById("orderList");
     orders.innerHTML = (data.recentOrders || [])

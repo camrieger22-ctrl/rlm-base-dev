@@ -42,6 +42,7 @@ from service import (
     quote_related_ids,
     volume_rate,
 )
+from subscription_timeline import list_account_periods
 
 
 def _soql_escape(value: str) -> str:
@@ -230,6 +231,7 @@ def load_account_console(
             "recurringMonthly": round(recurring_monthly, 2) if assets else 0.0,
             "recurringComplete": recurring_complete,
             "recurringSource": "salesforceCurrentMrr",
+            "timeline": list_account_periods(session, aid),
         },
         "recentOrders": orders,
         "recentQuotes": quotes,

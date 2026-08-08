@@ -85,10 +85,14 @@ HOSTED.md Path C (`publish_bff.py --named`).
 ``CurrentQuantity`` (ASP fallback) — not a local catalog re-price. Amend
 “after” amounts still use Revenue Cloud System reprice preview.
 
+**Upcoming changes** on `/account` come from ``AssetStatePeriod`` (account-level
+date ranges with seats + MRR). Draft Place-order math is never mixed into that
+timeline.
+
 ```bash
 # Spot-check an Account (Rick Worldwide example)
 curl -sS 'http://127.0.0.1:8765/api/account-console?company=Rick%20Worldwide' \
-  | python -c 'import sys,json; d=json.load(sys.stdin); print(d["subscription"]["currentQuantity"], d["subscription"]["recurringMonthly"])'
+  | python -c 'import sys,json; d=json.load(sys.stdin); s=d["subscription"]; print(s["currentQuantity"], s["recurringMonthly"], len(s.get("timeline",{}).get("periods") or []))'
 ```
 
 **Pay Now org bootstrap** (Guest Browsing + guest profile Reads; UI public-APIs toggle stays manual — see PAYNOW.md):
