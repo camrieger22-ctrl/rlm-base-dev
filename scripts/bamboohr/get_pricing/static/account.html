@@ -69,18 +69,17 @@
         <div class="success-metrics" id="changeSuccessMetrics"></div>
 
         <section class="pay-now-card" id="changePayNowCard" hidden>
-          <h4>Pay your invoice</h4>
+          <h4 id="changePayNowTitle">Pay your invoice</h4>
           <p class="muted" id="changePayNowLede">
             Salesforce Billing posted an invoice for this change. Pay securely with Salesforce Payments.
           </p>
           <p class="status" id="changePayNowStatus" role="status"></p>
           <div class="quote-actions-secondary" id="changePayNowActions">
             <a class="button-link quote-cta" id="changePayNowBtn" href="#" target="_blank" rel="noopener" hidden>Pay now</a>
+            <button type="button" class="demo-btn demo-btn-secondary" id="changePayNowRetryBtn" hidden>Retry pay</button>
+            <a class="button-link secondary" id="changeOpenInvoiceBtn" href="#" target="_blank" rel="noopener" hidden>Open invoice in Salesforce</a>
           </div>
-          <p class="muted invoice-pay-hint" id="changePayNowHint" hidden>
-            If the pay page errors while you’re logged into Salesforce, open
-            <strong>Pay now</strong> in a private / incognito window.
-          </p>
+          <p class="muted invoice-pay-hint" id="changePayNowHint" hidden></p>
         </section>
 
         <div class="success-links" id="changeSuccessLinks"></div>
@@ -250,6 +249,7 @@
     </div>
   </main>
 
+  <script src="/static/pay-now.js"></script>
   <script src="/static/account.js"></script>
 </body>
 </html>

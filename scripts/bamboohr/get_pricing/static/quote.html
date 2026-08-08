@@ -81,15 +81,17 @@
         <div class="success-metrics" id="successMetrics"></div>
 
         <section class="pay-now-card" id="payNowCard" hidden>
-          <h4>Pay your first invoice</h4>
+          <h4 id="payNowTitle">Pay your first invoice</h4>
           <p class="muted" id="payNowLede">
             Salesforce Billing posted an invoice for this order. Pay securely with Salesforce Payments.
           </p>
           <p class="status" id="payNowStatus" role="status"></p>
           <div class="quote-actions-secondary" id="payNowActions">
             <a class="button-link quote-cta" id="payNowBtn" href="#" target="_blank" rel="noopener" hidden>Pay now</a>
+            <button type="button" class="demo-btn demo-btn-secondary" id="payNowRetryBtn" hidden>Retry pay</button>
             <a class="button-link secondary" id="openInvoiceBtn" href="#" target="_blank" rel="noopener" hidden>Open invoice in Salesforce</a>
           </div>
+          <p class="muted invoice-pay-hint" id="payNowHint" hidden></p>
         </section>
 
         <section class="create-login-card" id="createLoginCard" hidden>
@@ -155,6 +157,7 @@
     </div>
   </footer>
 
+  <script src="/static/pay-now.js"></script>
   <script>
     (function () {
       const quoteId = "{{quoteId}}";
@@ -167,6 +170,24 @@
       const success = document.getElementById("orderSuccess");
       const actions = document.getElementById("quoteActions");
       if (!quoteId) return;
+
+      const payEls = {
+        card: document.getElementById("payNowCard"),
+        title: document.getElementById("payNowTitle"),
+        lede: document.getElementById("payNowLede"),
+        status: document.getElementById("payNowStatus"),
+        payBtn: document.getElementById("payNowBtn"),
+        retryBtn: document.getElementById("payNowRetryBtn"),
+        invoiceBtn: document.getElementById("openInvoiceBtn"),
+        hint: document.getElementById("payNowHint"),
+      };
+      if (window.BambooPayNow) {
+        BambooPayNow.bindRetry(payEls, {
+          onUpdated: (next) => {
+            payEls._payment = next;
+          },
+        });
+      }
 
       const runDocgen = async (triggerBtn) => {
         if (triggerBtn) triggerBtn.disabled = true;
@@ -357,54 +378,17 @@
           openAcctBtn.hidden = false;
         }
 
-        const payCard = document.getElementById("payNowCard");
-        const payBtn = document.getElementById("payNowBtn");
-        const invBtn = document.getElementById("openInvoiceBtn");
-        const payStatus = document.getElementById("payNowStatus");
-        const payLede = document.getElementById("payNowLede");
         const payment = data.payment || {};
-        if (payCard) {
-          const hasInvoice = !!(payment.invoiceId || links.invoice);
-          const hasPayUrl = !!(payment.paymentUrl || links.payNow);
-          if (hasInvoice || payment.blockedReason || hasPayUrl) {
-            payCard.hidden = false;
-            if (payLede && payment.invoiceNumber) {
-              const bal =
-                payment.invoiceBalance != null
-                  ? " · $" +
-                    Number(payment.invoiceBalance).toLocaleString(undefined, {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    }) +
-                    " due"
-                  : "";
-              payLede.textContent =
-                "Invoice " + payment.invoiceNumber + bal + ".";
-            }
-            if (payBtn) {
-              if (hasPayUrl) {
-                payBtn.href = payment.paymentUrl || links.payNow;
-                payBtn.hidden = false;
-              } else {
-                payBtn.hidden = true;
-              }
-            }
-            if (invBtn && (payment.invoiceUrl || links.invoice)) {
-              invBtn.href = payment.invoiceUrl || links.invoice;
-              invBtn.hidden = false;
-            }
-            if (payStatus) {
-              if (hasPayUrl) {
-                payStatus.textContent = "Ready — open Pay now to complete payment.";
-                payStatus.classList.remove("error");
-              } else if (payment.blockedReason) {
-                payStatus.textContent = payment.blockedReason;
-                payStatus.classList.add("error");
-              } else {
-                payStatus.textContent = "";
-              }
-            }
-          }
+        if (window.BambooPayNow) {
+          payEls._payment = payment;
+          BambooPayNow.render(payEls, payment, {
+            currency: "USD",
+            payUrl: payment.paymentUrl || links.payNow,
+            invoiceUrl: payment.invoiceUrl || links.invoice,
+            defaultTitle: "Pay your first invoice",
+            defaultLede:
+              "Salesforce Billing posted an invoice for this order. Pay securely with Salesforce Payments.",
+          });
         }
 
         const accountHref =

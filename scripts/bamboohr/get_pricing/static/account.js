@@ -52,54 +52,32 @@
       )
       .join("");
 
-    const payCard = document.getElementById("changePayNowCard");
-    const payBtn = document.getElementById("changePayNowBtn");
-    const payStatus = document.getElementById("changePayNowStatus");
-    const payLede = document.getElementById("changePayNowLede");
-    const payHint = document.getElementById("changePayNowHint");
+    const payEls = {
+      card: document.getElementById("changePayNowCard"),
+      title: document.getElementById("changePayNowTitle"),
+      lede: document.getElementById("changePayNowLede"),
+      status: document.getElementById("changePayNowStatus"),
+      payBtn: document.getElementById("changePayNowBtn"),
+      retryBtn: document.getElementById("changePayNowRetryBtn"),
+      invoiceBtn: document.getElementById("changeOpenInvoiceBtn"),
+      hint: document.getElementById("changePayNowHint"),
+    };
     const payment = data.payment || {};
-    if (payCard) {
-      const hasInvoice = !!(payment.invoiceId || payment.invoiceNumber);
-      const hasPayUrl = !!payment.paymentUrl;
-      if (hasInvoice || payment.blockedReason || hasPayUrl) {
-        payCard.hidden = false;
-        if (payLede && payment.invoiceNumber) {
-          const bal =
-            payment.invoiceBalance != null
-              ? ` · ${money(payment.invoiceBalance, state?.account?.currency || "USD")}`
-              : "";
-          payLede.textContent = `Invoice ${payment.invoiceNumber}${bal}.`;
-        }
-        if (payBtn) {
-          if (hasPayUrl) {
-            payBtn.href = payment.paymentUrl;
-            payBtn.hidden = false;
-          } else {
-            payBtn.hidden = true;
-          }
-        }
-        if (payHint) payHint.hidden = !hasPayUrl;
-        if (payStatus) {
-          if (hasPayUrl) {
-            payStatus.textContent =
-              "Ready — open Pay now to complete payment.";
-            payStatus.classList.remove("error");
-          } else if (
-            payment.invoiceBalance != null &&
-            Number(payment.invoiceBalance) <= 0
-          ) {
-            payStatus.textContent = "No amount due on this change.";
-            payStatus.classList.remove("error");
-          } else if (payment.blockedReason) {
-            payStatus.textContent = payment.blockedReason;
-            payStatus.classList.add("error");
-          } else {
-            payStatus.textContent = "";
-          }
-        }
-      } else {
-        payCard.hidden = true;
-      }
+    if (window.BambooPayNow) {
+      BambooPayNow.bindRetry(payEls, {
+        currency: state?.account?.currency || "USD",
+        onUpdated: (next) => {
+          payEls._payment = next;
+          data.payment = next;
+        },
+      });
+      payEls._payment = payment;
+      BambooPayNow.render(payEls, payment, {
+        currency: state?.account?.currency || "USD",
+        defaultTitle: "Pay your invoice",
+        defaultLede:
+          "Salesforce Billing posted an invoice for this change. Pay securely with Salesforce Payments.",
+      });
     }
 
     const transactions = Array.isArray(conf.transactions) ? conf.transactions : [];

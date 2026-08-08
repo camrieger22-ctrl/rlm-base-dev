@@ -7,7 +7,7 @@ creates invoices / Payment Links and shows branded CTAs.
 Related: [README.md](./README.md) · [HOSTED.md](./HOSTED.md) ·
 [EXPERIENCE_CLOUD.md](./EXPERIENCE_CLOUD.md)
 
-**Status:** Phases 1, 3, 4 shipped (checkout + Licenses invoices + amend Pay Now)  
+**Status:** Phases 1–4 shipped (checkout, Licenses invoices, amend Pay Now, shared card)  
 **Scope:** This BFF only — not Foundations product packaging.
 
 ---
@@ -78,18 +78,18 @@ session on the same domain often breaks the guest pay page.
 
 | Gap | Impact |
 |-----|--------|
-| Shared pay-now card not fully extracted | Quote + account use similar markup; further DRY optional (Phase 2) |
 | Payment email not sent | Link only in browser (Phase 5) |
 | Org guest-store fixes not automated | Scratch rebuilds can re-break Pay Now (Phase 0) |
 | Invoice balance may lag after authorize | UI may still show balance until apply settles |
 
-### Shipped (Phases 1, 3, 4)
+### Shipped (Phases 1–4)
 
 - `list_open_invoices` / `build_payment_prompt_for_invoice` (+ Active link reuse)
 - `GET /api/account-invoices`, `collect-payment` accepts `invoiceId`
 - `/account` **Invoices** section with **Pay** + refresh + incognito hint
 - Account console payload includes `invoices[]`
 - Amend / add-module activate returns `payment` + success **Pay now** card
+- Shared `static/pay-now.js` for quote + amend cards; buyer hides Lightning invoice link unless `?demo=1`; **Retry pay** via `collect-payment`
 
 ---
 
@@ -271,7 +271,8 @@ Phase 6 (docs / smoke)                  continuous
 |------|------|
 | `payments.py` | Invoice generate, PaymentLink create, readiness |
 | `checkout.py` | Post-activate `build_payment_prompt` |
-| `server.py` | `/api/checkout`, `/api/collect-payment`, `/api/payments-readiness` |
-| `static/quote.html` | Pay now success card |
-| `static/account.html` / `account.js` | Target for Phase 3 invoices UI |
-| `account_console.py` | Target for Phase 3–4 payload + amend pay |
+| `account_console.py` | Account invoices payload + amend `payment` |
+| `server.py` | `/api/checkout`, `/api/collect-payment`, `/api/account-invoices`, readiness |
+| `static/quote.html` | Pay now success card (via `pay-now.js`) |
+| `static/pay-now.js` | Shared Pay now render / Retry / demo invoice link |
+| `static/account.html` / `account.js` | Invoices list + amend Pay now card |
