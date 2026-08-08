@@ -1003,6 +1003,7 @@ class AccountChangeResult:
     error: str | None = None
     confirmation: dict[str, Any] | None = None
     account_name: str = ""
+    payment: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -1015,6 +1016,7 @@ class AccountChangeResult:
             "warnings": self.warnings,
             "error": self.error,
             "confirmation": self.confirmation,
+            "payment": self.payment,
             # Convenience aliases for qty-only clients
             "amendOrderId": (self.qty_amend or {}).get("amendOrderId")
             or (self.module_sale or {}).get("orderId"),
@@ -1614,6 +1616,41 @@ def place_account_changes(
         module_sale=module_payload,
         added_skus=add_skus,
     )
+
+    # Pay Now for activated orders (module sale first, then qty amend).
+    payment: dict[str, Any] | None = None
+    order_ids: list[str] = []
+    if module_payload and module_payload.get("ok") and module_payload.get("orderId"):
+        order_ids.append(str(module_payload["orderId"]))
+    if qty_payload and qty_payload.get("ok") and qty_payload.get("amendOrderId"):
+        oid = str(qty_payload["amendOrderId"])
+        if oid not in order_ids:
+            order_ids.append(oid)
+    if order_ids:
+        from payments import build_payment_prompt
+
+        for oid in order_ids:
+            try:
+                prompt = build_payment_prompt(
+                    session, oid, collect=True, poll_timeout=90
+                )
+                payment = prompt.as_dict()
+                if prompt.blocked_reason:
+                    warnings.append(f"Payment: {prompt.blocked_reason}")
+                warnings.extend(prompt.warnings or [])
+                if prompt.ready or (
+                    prompt.invoice_balance is not None and prompt.invoice_balance <= 0
+                ):
+                    break
+            except Exception as pay_exc:  # noqa: BLE001
+                warnings.append(f"Payment prompt failed: {pay_exc}")
+                if payment is None:
+                    payment = {
+                        "ready": False,
+                        "orderId": oid,
+                        "blockedReason": str(pay_exc),
+                    }
+
     return AccountChangeResult(
         ok=True,
         account_id=account_id,
@@ -1623,4 +1660,5 @@ def place_account_changes(
         added_skus=add_skus,
         warnings=warnings,
         confirmation=confirmation,
+        payment=payment,
     )

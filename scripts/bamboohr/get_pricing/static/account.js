@@ -52,6 +52,56 @@
       )
       .join("");
 
+    const payCard = document.getElementById("changePayNowCard");
+    const payBtn = document.getElementById("changePayNowBtn");
+    const payStatus = document.getElementById("changePayNowStatus");
+    const payLede = document.getElementById("changePayNowLede");
+    const payHint = document.getElementById("changePayNowHint");
+    const payment = data.payment || {};
+    if (payCard) {
+      const hasInvoice = !!(payment.invoiceId || payment.invoiceNumber);
+      const hasPayUrl = !!payment.paymentUrl;
+      if (hasInvoice || payment.blockedReason || hasPayUrl) {
+        payCard.hidden = false;
+        if (payLede && payment.invoiceNumber) {
+          const bal =
+            payment.invoiceBalance != null
+              ? ` · ${money(payment.invoiceBalance, state?.account?.currency || "USD")}`
+              : "";
+          payLede.textContent = `Invoice ${payment.invoiceNumber}${bal}.`;
+        }
+        if (payBtn) {
+          if (hasPayUrl) {
+            payBtn.href = payment.paymentUrl;
+            payBtn.hidden = false;
+          } else {
+            payBtn.hidden = true;
+          }
+        }
+        if (payHint) payHint.hidden = !hasPayUrl;
+        if (payStatus) {
+          if (hasPayUrl) {
+            payStatus.textContent =
+              "Ready — open Pay now to complete payment.";
+            payStatus.classList.remove("error");
+          } else if (
+            payment.invoiceBalance != null &&
+            Number(payment.invoiceBalance) <= 0
+          ) {
+            payStatus.textContent = "No amount due on this change.";
+            payStatus.classList.remove("error");
+          } else if (payment.blockedReason) {
+            payStatus.textContent = payment.blockedReason;
+            payStatus.classList.add("error");
+          } else {
+            payStatus.textContent = "";
+          }
+        }
+      } else {
+        payCard.hidden = true;
+      }
+    }
+
     const transactions = Array.isArray(conf.transactions) ? conf.transactions : [];
     const linkBlocks = [];
     if (transactions.length > 1) {
@@ -121,10 +171,16 @@
     changeSuccess.hidden = false;
     amendStatus.textContent = "";
     changeSuccess.scrollIntoView({ behavior: "smooth", block: "start" });
+    // Keep Invoices list in sync after a billable change.
+    if (state?.account?.id) {
+      refreshInvoices().catch(() => {});
+    }
   };
 
   const hideChangeSuccess = () => {
     if (changeSuccess) changeSuccess.hidden = true;
+    const payCard = document.getElementById("changePayNowCard");
+    if (payCard) payCard.hidden = true;
     if (accountGrid) accountGrid.hidden = false;
     if (orderSummaryCard) orderSummaryCard.hidden = false;
   };
