@@ -59,6 +59,7 @@
       status: document.getElementById("changePayNowStatus"),
       payBtn: document.getElementById("changePayNowBtn"),
       retryBtn: document.getElementById("changePayNowRetryBtn"),
+      emailBtn: document.getElementById("changePayNowEmailBtn"),
       invoiceBtn: document.getElementById("changeOpenInvoiceBtn"),
       hint: document.getElementById("changePayNowHint"),
     };
@@ -70,6 +71,9 @@
           payEls._payment = next;
           data.payment = next;
         },
+      });
+      BambooPayNow.bindEmail(payEls, {
+        accountId: state?.account?.id,
       });
       payEls._payment = payment;
       BambooPayNow.render(payEls, payment, {
@@ -953,6 +957,40 @@
     const startQty = data.subscription.currentQuantity || 50;
     setQty(startQty);
     savePin(data.account.id, data.account.name);
+    applyAccountFocus();
+  };
+
+  const applyAccountFocus = () => {
+    const banner = document.getElementById("accountFocusBanner");
+    const invoicesCard = document.getElementById("invoicesCard");
+    const params = new URLSearchParams(location.search);
+    const focus = (params.get("focus") || "").toLowerCase();
+    const paid = params.get("paid") === "1" || params.get("paid") === "true";
+    if (!focus && !paid) {
+      if (banner) banner.hidden = true;
+      return;
+    }
+    if (banner) {
+      banner.hidden = false;
+      banner.classList.remove("error");
+      if (paid) {
+        banner.textContent =
+          "Welcome back — if you just paid, refresh invoices. Balance may take a moment to update.";
+      } else if (focus === "invoices") {
+        banner.textContent = "Open invoices — pay remaining balances with Pay now.";
+      } else {
+        banner.textContent = "";
+        banner.hidden = true;
+      }
+    }
+    if ((focus === "invoices" || paid) && invoicesCard && !invoicesCard.hidden) {
+      invoicesCard.classList.add("account-focus-target");
+      invoicesCard.scrollIntoView({ behavior: "smooth", block: "start" });
+      window.setTimeout(() => invoicesCard.classList.remove("account-focus-target"), 2500);
+    }
+    if (paid || focus === "invoices") {
+      refreshInvoices().catch(() => {});
+    }
   };
 
   const loadConsole = async ({ accountId, company, ecToken } = {}) => {
@@ -976,10 +1014,14 @@
         ? "Opened via Experience Cloud sign-in."
         : "";
       // Drop one-time handoff token from the address bar after success.
+      // Keep focus=invoices / paid=1 so refresh still lands on invoices.
       if (ecToken && window.history?.replaceState) {
         const clean = new URL(window.location.href);
         clean.searchParams.delete("ecToken");
         clean.searchParams.set("accountId", data.account.id);
+        if (!clean.searchParams.get("focus")) {
+          clean.searchParams.set("focus", "invoices");
+        }
         window.history.replaceState({}, "", clean.pathname + clean.search);
       }
     } catch (err) {

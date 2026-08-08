@@ -41,6 +41,7 @@ from docgen import (  # noqa: E402
     generate_quote_pdf,
 )
 from quote_email import send_quote_email  # noqa: E402
+from payment_email import send_payment_email  # noqa: E402
 from service import (  # noqa: E402
     BuyerInfo,
     GetPricingRequest,
@@ -1048,19 +1049,111 @@ class Handler(BaseHTTPRequestHandler):
                     build_payment_prompt_for_invoice,
                 )
 
+                sess = _session()
                 if invoice_id:
-                    prompt = build_payment_prompt_for_invoice(_session(), invoice_id)
+                    prompt = build_payment_prompt_for_invoice(sess, invoice_id)
                 else:
                     prompt = build_payment_prompt(
-                        _session(),
+                        sess,
                         order_id,
                         collect=True,
                         poll_timeout=int(body.get("pollTimeout") or 90),
                     )
-                self._json(
-                    200 if prompt.invoice_id else 400,
-                    {"ok": bool(prompt.invoice_id or prompt.ready), **prompt.as_dict()},
+                payload = {
+                    "ok": bool(prompt.invoice_id or prompt.ready),
+                    **prompt.as_dict(),
+                }
+                want_email = bool(body.get("emailPayment")) or bool(
+                    str(body.get("toEmail") or "").strip()
                 )
+                if want_email and prompt.ready and prompt.payment_url:
+                    try:
+                        payload["paymentEmail"] = send_payment_email(
+                            sess,
+                            payment_url=prompt.payment_url,
+                            invoice_id=prompt.invoice_id,
+                            to_address=str(body.get("toEmail") or "").strip()
+                            or None,
+                            invoice_number=prompt.invoice_number,
+                            amount_due=prompt.invoice_balance,
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        payload["paymentEmail"] = {
+                            "ok": False,
+                            "error": str(exc)[:500],
+                        }
+                self._json(200 if prompt.invoice_id else 400, payload)
+            except Exception as exc:  # noqa: BLE001
+                self._json(400, {"ok": False, "error": str(exc)})
+            return
+
+        if path == "/api/payment-email":
+            payment_url = str(body.get("paymentUrl") or "").strip()
+            invoice_id = str(body.get("invoiceId") or "").strip()
+            order_id = str(body.get("orderId") or "").strip()
+            try:
+                sess = _session()
+                if not payment_url:
+                    from payments import (
+                        build_payment_prompt,
+                        build_payment_prompt_for_invoice,
+                    )
+
+                    if invoice_id:
+                        prompt = build_payment_prompt_for_invoice(sess, invoice_id)
+                    elif order_id:
+                        prompt = build_payment_prompt(
+                            sess, order_id, collect=True, poll_timeout=90
+                        )
+                    else:
+                        self._json(
+                            400,
+                            {
+                                "ok": False,
+                                "error": "paymentUrl or invoiceId/orderId is required",
+                            },
+                        )
+                        return
+                    if not prompt.payment_url:
+                        self._json(
+                            400,
+                            {
+                                "ok": False,
+                                "error": prompt.blocked_reason
+                                or "No paymentUrl available",
+                                **prompt.as_dict(),
+                            },
+                        )
+                        return
+                    payment_url = prompt.payment_url
+                    invoice_id = prompt.invoice_id or invoice_id
+                    result = send_payment_email(
+                        sess,
+                        payment_url=payment_url,
+                        invoice_id=invoice_id,
+                        to_address=str(body.get("toEmail") or "").strip() or None,
+                        invoice_number=prompt.invoice_number
+                        or str(body.get("invoiceNumber") or "").strip()
+                        or None,
+                        amount_due=prompt.invoice_balance,
+                        account_id=str(body.get("accountId") or "").strip() or None,
+                    )
+                else:
+                    result = send_payment_email(
+                        sess,
+                        payment_url=payment_url,
+                        invoice_id=invoice_id or None,
+                        account_id=str(body.get("accountId") or "").strip() or None,
+                        to_address=str(body.get("toEmail") or "").strip() or None,
+                        invoice_number=str(body.get("invoiceNumber") or "").strip()
+                        or None,
+                        amount_due=(
+                            float(body["amountDue"])
+                            if body.get("amountDue") not in (None, "")
+                            else None
+                        ),
+                    )
+                self._json(200 if result.get("ok") else 400, result)
             except Exception as exc:  # noqa: BLE001
                 self._json(400, {"ok": False, "error": str(exc)})
             return
@@ -1125,6 +1218,31 @@ class Handler(BaseHTTPRequestHandler):
                         "links": links,
                     }
                 )
+                want_email = bool(body.get("emailPayment")) or bool(
+                    str(body.get("toEmail") or "").strip()
+                )
+                if (
+                    want_email
+                    and payment.get("ready")
+                    and payment.get("paymentUrl")
+                ):
+                    try:
+                        payload["paymentEmail"] = send_payment_email(
+                            sess,
+                            payment_url=payment["paymentUrl"],
+                            invoice_id=payment.get("invoiceId"),
+                            account_id=account_id or None,
+                            to_address=str(body.get("toEmail") or "").strip()
+                            or cached.get("contactEmail")
+                            or None,
+                            invoice_number=payment.get("invoiceNumber"),
+                            amount_due=payment.get("invoiceBalance"),
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        payload["paymentEmail"] = {
+                            "ok": False,
+                            "error": str(exc)[:500],
+                        }
                 if cached is not None:
                     cached["checkout"] = payload
                 self._json(200 if result.ok else 400, payload)

@@ -89,6 +89,7 @@
           <div class="quote-actions-secondary" id="payNowActions">
             <a class="button-link quote-cta" id="payNowBtn" href="#" target="_blank" rel="noopener" hidden>Pay now</a>
             <button type="button" class="demo-btn demo-btn-secondary" id="payNowRetryBtn" hidden>Retry pay</button>
+            <button type="button" class="demo-btn demo-btn-secondary" id="payNowEmailBtn" hidden>Email pay link</button>
             <a class="button-link secondary" id="openInvoiceBtn" href="#" target="_blank" rel="noopener" hidden>Open invoice in Salesforce</a>
           </div>
           <p class="muted invoice-pay-hint" id="payNowHint" hidden></p>
@@ -178,6 +179,7 @@
         status: document.getElementById("payNowStatus"),
         payBtn: document.getElementById("payNowBtn"),
         retryBtn: document.getElementById("payNowRetryBtn"),
+        emailBtn: document.getElementById("payNowEmailBtn"),
         invoiceBtn: document.getElementById("openInvoiceBtn"),
         hint: document.getElementById("payNowHint"),
       };
@@ -187,6 +189,7 @@
             payEls._payment = next;
           },
         });
+        BambooPayNow.bindEmail(payEls, {});
       }
 
       const runDocgen = async (triggerBtn) => {

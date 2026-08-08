@@ -7,7 +7,7 @@ creates invoices / Payment Links and shows branded CTAs.
 Related: [README.md](./README.md) · [HOSTED.md](./HOSTED.md) ·
 [EXPERIENCE_CLOUD.md](./EXPERIENCE_CLOUD.md)
 
-**Status:** Phases 0–4 + 6 shipped (Phase 5 email/EC optional)  
+**Status:** Phases 0–6 shipped (Phase 5: Pay Now email + EC invoices focus)  
 **Scope:** This BFF only — not Foundations product packaging.
 
 ---
@@ -78,14 +78,17 @@ session on the same domain often breaks the guest pay page.
 
 | Gap | Impact |
 |-----|--------|
-| Payment email not sent | Link only in browser (Phase 5) |
 | Invoice balance may lag after authorize | UI may still show balance until apply settles |
+| PaymentLink has no return/redirect field | Buyer returns via email “View licenses” / EC deep-link (`paid=1`) — not auto-redirect from Pay Now |
 
-### Shipped (Phases 0–4, 6)
+### Shipped (Phases 0–6)
 
 - `bootstrap_paynow.py` — Guest Browsing + Pay Now Profile commerce Reads
 - Richer `GET /api/payments-readiness` → `readyForPayNow`, `checks`, `blocking`, guest probes
 - `paynow_smoke.py` — readiness + optional `--create-link`
+- `RLM_BambooPayNowEmail` + `POST /api/payment-email` (+ optional `emailPayment` on checkout/collect)
+- EC / create-login handoff → `/account?…&focus=invoices`; `/account?paid=1` return banner
+- PaymentLink describe: **no** Success/Return URL field — platform thank-you only
 
 - `list_open_invoices` / `build_payment_prompt_for_invoice` (+ Active link reuse)
 - `GET /api/account-invoices`, `collect-payment` accepts `invoiceId`
@@ -188,12 +191,23 @@ After amend activate, call the payment prompt and reuse the pay-now card on
 
 ---
 
-### Phase 5 — Notify & Experience Cloud (optional)
+### Phase 5 — Notify & Experience Cloud ✅
 
-- Email `paymentUrl` after checkout / collect  
-- EC handoff → `/account?focus=invoices`  
+- Email `paymentUrl` via `RLM_BambooPayNowEmail` (Actions API) after checkout/collect when `emailPayment` / `toEmail`, or **Email pay link** CTA  
+- EC handoff → `/account?ecToken=…&focus=invoices` (Apex + portal create-login)  
 - Do **not** host Pay Now inside the BambooHR EC site — deep-link only  
-- Investigate PaymentLink return/redirect → BFF `/account?paid=1` if supported  
+- PaymentLink has **no** return/redirect field (describe on `master-demo`) — use BFF `/account?paid=1&focus=invoices` from email “View licenses” when `BFF_PUBLIC_URL` is set  
+
+Deploy Apex before first email:
+
+```bash
+sf project deploy start \
+  --source-dir unpackaged/post_bamboohr/classes/RLM_BambooPayNowEmail.cls \
+  --source-dir unpackaged/post_bamboohr/classes/RLM_BambooPayNowEmailTest.cls \
+  --source-dir unpackaged/post_bamboohr/classes/RLM_BambooEcIdentity.cls \
+  --source-dir unpackaged/post_bamboohr/permissionsets/RLM_BambooHR.permissionset-meta.xml \
+  --target-org master-demo
+```
 
 ---
 
@@ -289,7 +303,9 @@ Phase 6 (docs / smoke)                  continuous
 |------|------|
 | `payments.py` | Invoice generate, PaymentLink create, readiness, bootstrap helpers |
 | `bootstrap_paynow.py` | CLI: Guest Browsing + guest ObjectPermissions |
+| `payment_email.py` | Actions API → `RLM_BambooPayNowEmail` |
 | `paynow_smoke.py` | Phase 6 smoke: readiness + optional link create |
+| `RLM_BambooPayNowEmail.cls` | Org email with Pay Now URL + optional licenses deep-link |
 | `checkout.py` | Post-activate `build_payment_prompt` |
 | `account_console.py` | Account invoices payload + amend `payment` |
 | `server.py` | `/api/checkout`, `/api/collect-payment`, `/api/account-invoices`, readiness |

@@ -135,7 +135,8 @@ Demo path (Northwind):
 1. Open https://trailsignup-b4759183862b2b.my.site.com/bamboohr/s/login/
 2. Sign in with the Northwind credentials (private artifact
    `.agents/artifacts/bamboohr-ec-demo-login.md`)
-3. Home → **Manage licenses & billing** → BFF `/account?ecToken=…`
+3. Home → **Manage licenses & billing** → BFF `/account?ecToken=…&focus=invoices`
+   (invoices panel is scrolled into view; Pay Now stays on `/paynow`, not inside EC)
 
 Re-seed after cleanup: place Get Pricing for Northwind (or reuse Account Id
 `001gL00001enzlyQAA`), then

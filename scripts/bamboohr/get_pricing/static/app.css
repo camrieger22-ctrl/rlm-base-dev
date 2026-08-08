@@ -2021,6 +2021,15 @@ body.quote-page {
   font-size: 0.85rem;
 }
 
+.account-focus-banner {
+  margin: 0.75rem 0 0;
+}
+
+.account-focus-target {
+  outline: 2px solid #73c991;
+  outline-offset: 4px;
+}
+
 .pay-now-card .demo-btn-secondary {
   align-self: center;
 }

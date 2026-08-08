@@ -116,6 +116,10 @@
       els.retryBtn.dataset.orderId = pay.orderId || "";
     }
 
+    if (els.emailBtn) {
+      els.emailBtn.hidden = !(hasPayUrl && !zeroDue);
+    }
+
     if (els.status) {
       els.status.classList.remove("error");
       if (hasPayUrl) {
@@ -178,6 +182,47 @@
   };
 
   /**
+   * POST /api/payment-email for the current payment prompt.
+   */
+  const emailPayLink = async (els, payment, opts = {}) => {
+    const pay = payment || {};
+    if (!pay.paymentUrl && !(pay.invoiceId || pay.orderId)) {
+      throw new Error("paymentUrl or invoiceId required to email");
+    }
+    if (els.status) {
+      els.status.textContent = "Sending pay link email…";
+      els.status.classList.remove("error");
+    }
+    if (els.emailBtn) els.emailBtn.disabled = true;
+    try {
+      const body = {};
+      if (pay.paymentUrl) body.paymentUrl = pay.paymentUrl;
+      if (pay.invoiceId) body.invoiceId = pay.invoiceId;
+      if (pay.orderId) body.orderId = pay.orderId;
+      if (pay.invoiceNumber) body.invoiceNumber = pay.invoiceNumber;
+      if (pay.invoiceBalance != null) body.amountDue = pay.invoiceBalance;
+      if (opts.accountId) body.accountId = opts.accountId;
+      if (opts.toEmail) body.toEmail = opts.toEmail;
+      const resp = await fetch("/api/payment-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.ok) {
+        throw new Error(data.error || data.message || "Email failed");
+      }
+      if (els.status) {
+        els.status.textContent =
+          data.message || `Email sent${data.toAddress ? " to " + data.toAddress : ""}.`;
+      }
+      return data;
+    } finally {
+      if (els.emailBtn) els.emailBtn.disabled = false;
+    }
+  };
+
+  /**
    * Wire Retry button once. Keeps latest payment on els._payment.
    */
   const bindRetry = (els, opts = {}) => {
@@ -197,12 +242,29 @@
     });
   };
 
+  const bindEmail = (els, opts = {}) => {
+    if (!els?.emailBtn || els.emailBtn.dataset.bound === "1") return;
+    els.emailBtn.dataset.bound = "1";
+    els.emailBtn.addEventListener("click", async () => {
+      try {
+        await emailPayLink(els, els._payment || {}, opts);
+      } catch (err) {
+        if (els.status) {
+          els.status.textContent = err.message || String(err);
+          els.status.classList.add("error");
+        }
+      }
+    });
+  };
+
   window.BambooPayNow = {
     money,
     isDemoMode,
     INCOGNITO_HINT,
     render,
     retryCollect,
+    emailPayLink,
     bindRetry,
+    bindEmail,
   };
 })();

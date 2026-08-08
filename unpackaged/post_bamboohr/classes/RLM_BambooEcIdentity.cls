@@ -110,10 +110,12 @@ public with sharing class RLM_BambooEcIdentity {
         handoff.accountId = String.valueOf(ctx.accountId);
         handoff.accountName = ctx.accountName;
         handoff.expiresInSeconds = HANDOFF_TTL_SECONDS;
+        // Deep-link Licenses to the invoices panel (Pay Now) — never host Pay Now in EC.
         handoff.bffAccountUrl =
             bffBase +
             '/account?ecToken=' +
-            EncodingUtil.urlEncode(token, 'UTF-8');
+            EncodingUtil.urlEncode(token, 'UTF-8') +
+            '&focus=invoices';
         return handoff;
     }
 

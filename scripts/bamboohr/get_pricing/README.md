@@ -62,9 +62,9 @@ Full JWT / Docker / Connected App steps: **HOSTED.md**.
 | POST | `/api/account-amend-preview` | `{ accountId, newQty?, addonSkus?, startDate? }` → draft Quotes + System reprice totals (no Activate) |
 | POST | `/api/account-amend` | `{ accountId, newQty?, addonSkus?, amendQuotes?, moduleQuoteId? }` → activate preview Quotes (or create if omitted) |
 | POST | `/api/get-pricing` | `{ headcount, country, planSku, addonSkus?, placeQuote? }` |
-| POST | `/api/checkout` | `{ quoteId, amendQty?, pollTimeout?, collectPayment? }` — after activate, invoices the order and attempts Salesforce Payments Pay Now (`payment` on response) |
-| GET | `/api/payments-readiness` | Pay Now readiness (`readyForPayNow`, guest probes, `blocking`) |
-| POST | `/api/collect-payment` | `{ orderId? \| invoiceId?, pollTimeout? }` — invoice + PaymentLink (order path generates; invoice path reuses/creates link) |
+| POST | `/api/collect-payment` | `{ orderId? \| invoiceId?, pollTimeout?, emailPayment?, toEmail? }` — invoice + PaymentLink; optional Pay Now email |
+| POST | `/api/payment-email` | `{ paymentUrl? \| invoiceId? \| orderId?, toEmail?, accountId? }` — email Pay Now link via Apex |
+| POST | `/api/checkout` | `{ quoteId, amendQty?, pollTimeout?, collectPayment?, emailPayment?, toEmail? }` — after activate, invoices the order and attempts Salesforce Payments Pay Now (`payment` on response; optional email) |
 | POST | `/api/docgen-pdf` | `{ quoteId, templateName?, title?, timeout? }` → `downloadUrl` |
 | GET | `/api/docgen-pdf/<contentVersionId>` | PDF bytes (attachment) |
 | POST | `/api/quote-email` | `{ quoteId, toEmail?, attachPdf? }` → Salesforce sends quote email (+ DocGen PDF) |
