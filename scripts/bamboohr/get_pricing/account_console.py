@@ -16,6 +16,7 @@ from typing import Any
 from checkout import (
     amend_assets_quantity,
     apply_amend_volume_pricing,
+    asset_live_metrics,
     asset_quantity_at,
     checkout_quote,
     complete_amend_quote,
@@ -77,15 +78,17 @@ def resolve_account_id(
 
 
 def _asset_quantity(session: OrgSession, asset_id: str) -> float | None:
-    try:
-        return _current_asset_quantity(session, asset_id)
-    except RuntimeError:
-        rows = session.soql(
-            f"SELECT Quantity FROM Asset WHERE Id = '{asset_id}' LIMIT 1"
-        )
-        if rows and rows[0].get("Quantity") is not None:
-            return float(rows[0]["Quantity"])
-        return None
+    """Seats in effect today (CurrentQuantity / ASP) — not lifetime TotalQuantity."""
+    metrics = asset_live_metrics(session, asset_id)
+    qty = metrics.get("quantity")
+    return float(qty) if qty is not None else None
+
+
+def _asset_mrr(session: OrgSession, asset_id: str) -> float | None:
+    """Monthly recurring in effect today (CurrentMrr / ASP)."""
+    metrics = asset_live_metrics(session, asset_id)
+    mrr = metrics.get("mrr")
+    return float(mrr) if mrr is not None else None
 
 
 def load_account_console(
@@ -102,22 +105,33 @@ def load_account_console(
     country = "UK" if billing in ("GB", "UK") else ("CA" if billing == "CA" else "US")
 
     assets_raw = session.soql(
-        "SELECT Id, Name, Quantity, Status, LifecycleStartDate, LifecycleEndDate, "
+        "SELECT Id, Name, Quantity, CurrentQuantity, CurrentMrr, Status, "
+        "LifecycleStartDate, LifecycleEndDate, "
         "CreatedDate, Product2.Id, Product2.Name, Product2.StockKeepingUnit "
         f"FROM Asset WHERE AccountId = '{aid}' "
         "ORDER BY CreatedDate DESC LIMIT 50"
     )
     assets: list[dict[str, Any]] = []
+    recurring_monthly = 0.0
+    recurring_complete = True
     for row in assets_raw:
         product = row.get("Product2") or {}
         sku = product.get("StockKeepingUnit") or ""
-        qty = _asset_quantity(session, row["Id"])
+        live = asset_live_metrics(session, row["Id"])
+        qty = live.get("quantity")
+        mrr = live.get("mrr")
+        if mrr is not None:
+            recurring_monthly += float(mrr)
+        else:
+            recurring_complete = False
         assets.append(
             {
                 "id": row["Id"],
                 "name": row.get("Name") or product.get("Name") or sku,
                 "sku": sku,
                 "quantity": qty,
+                "mrr": mrr,
+                "mrrSource": live.get("source"),
                 "status": row.get("Status"),
                 "productName": product.get("Name"),
                 "lifecycleStartDate": row.get("LifecycleStartDate"),
@@ -213,7 +227,9 @@ def load_account_console(
             "currentQuantity": current_qty,
             "termStartDate": str(term_start)[:10] if term_start else None,
             "termEndDate": str(term_end)[:10] if term_end else None,
-            "recurringEstimate": None,  # filled client-side from catalog + qty
+            "recurringMonthly": round(recurring_monthly, 2) if assets else 0.0,
+            "recurringComplete": recurring_complete,
+            "recurringSource": "salesforceCurrentMrr",
         },
         "recentOrders": orders,
         "recentQuotes": quotes,
@@ -292,9 +308,9 @@ def list_headcount_assets(
         sku = ((row.get("Product2") or {}).get("StockKeepingUnit") or "").upper()
         if not _is_headcount_sku(sku):
             continue
-        try:
-            qty = _current_asset_quantity(session, row["Id"])
-        except RuntimeError:
+        live = asset_live_metrics(session, row["Id"])
+        qty = live.get("quantity")
+        if qty is None:
             continue
         out.append(
             {
@@ -303,7 +319,8 @@ def list_headcount_assets(
                 "name": row.get("Name")
                 or (row.get("Product2") or {}).get("Name")
                 or sku,
-                "quantity": qty,
+                "quantity": float(qty),
+                "mrr": live.get("mrr"),
             }
         )
     return out
@@ -326,16 +343,17 @@ def _resolve_headcount_assets(
             return [], "Asset not found"
         if rows[0].get("AccountId") != account_id:
             return [], "Asset does not belong to this Account"
-        try:
-            qty = _current_asset_quantity(session, primary)
-        except RuntimeError as exc:
-            return [], str(exc)
+        live = asset_live_metrics(session, primary)
+        qty = live.get("quantity")
+        if qty is None:
+            return [], f"Could not resolve current quantity for asset {primary}"
         headcount_assets = [
             {
                 "id": primary,
                 "sku": ((rows[0].get("Product2") or {}).get("StockKeepingUnit") or ""),
                 "name": primary,
-                "quantity": qty,
+                "quantity": float(qty),
+                "mrr": live.get("mrr"),
             }
         ]
     if not headcount_assets:
@@ -1041,12 +1059,9 @@ def _owned_assets_detail(
         sku = ((row.get("Product2") or {}).get("StockKeepingUnit") or "").upper()
         if not sku:
             continue
-        qty: float | None
+        live = asset_live_metrics(session, row["Id"])
         if _is_headcount_sku(sku):
-            try:
-                qty = _current_asset_quantity(session, row["Id"])
-            except RuntimeError:
-                qty = None
+            qty = live.get("quantity")
         else:
             qty = 1.0
         out.append(
@@ -1056,7 +1071,8 @@ def _owned_assets_detail(
                 "name": row.get("Name")
                 or (row.get("Product2") or {}).get("Name")
                 or sku,
-                "quantity": qty,
+                "quantity": float(qty) if qty is not None else None,
+                "mrr": live.get("mrr"),
                 "isFlat": not _is_headcount_sku(sku),
             }
         )
@@ -1171,11 +1187,32 @@ def preview_account_changes(
             "warnings": warnings,
         }
 
-    # --- Recurring today (live PBE + Volume PAT, absolute headcount) ---
+    # --- Recurring today: Salesforce CurrentMrr / ASP (not catalog re-price) ---
     before_lines: list[dict[str, Any]] = []
     for a in owned_assets:
         if a.get("quantity") is None and not a["isFlat"]:
             continue
+        mrr = a.get("mrr")
+        if mrr is not None:
+            hc = 1 if a["isFlat"] else int(a.get("quantity") or current_qty or 0)
+            before_lines.append(
+                {
+                    "sku": a["sku"],
+                    "name": a["name"],
+                    "qty": hc,
+                    "netPepm": (
+                        round(float(mrr) / hc, 6) if hc and not a["isFlat"] else None
+                    ),
+                    "listPepm": None,
+                    "monthly": round(float(mrr), 2),
+                    "isFlat": bool(a["isFlat"]),
+                    "isPepm": not bool(a["isFlat"]),
+                    "isNew": False,
+                    "source": "salesforceCurrentMrr",
+                }
+            )
+            continue
+        # Fallback only when org has no CurrentMrr/ASP.Mrr yet
         hc = 1 if a["isFlat"] else int(current_qty)
         line = _line_monthly_from_schedule(
             session,

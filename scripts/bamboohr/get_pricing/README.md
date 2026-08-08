@@ -81,6 +81,16 @@ Pay Now weave-in plan / phases: **[PAYNOW.md](./PAYNOW.md)**.
 `./scripts/bamboohr/get_pricing/run_tunnel.sh` (syncs Custom Label). Stable host:
 HOSTED.md Path C (`publish_bff.py --named`).
 
+**Licenses recurring totals** come from Salesforce ``Asset.CurrentMrr`` /
+``CurrentQuantity`` (ASP fallback) — not a local catalog re-price. Amend
+“after” amounts still use Revenue Cloud System reprice preview.
+
+```bash
+# Spot-check an Account (Rick Worldwide example)
+curl -sS 'http://127.0.0.1:8765/api/account-console?company=Rick%20Worldwide' \
+  | python -c 'import sys,json; d=json.load(sys.stdin); print(d["subscription"]["currentQuantity"], d["subscription"]["recurringMonthly"])'
+```
+
 **Pay Now org bootstrap** (Guest Browsing + guest profile Reads; UI public-APIs toggle stays manual — see PAYNOW.md):
 
 ```bash

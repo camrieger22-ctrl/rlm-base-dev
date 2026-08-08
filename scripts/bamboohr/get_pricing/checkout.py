@@ -549,11 +549,24 @@ def asset_quantity_at(
     ``amendmentStartDate``, not lifetime TotalQuantity. Using the wrong basis
     makes decreases look like over-reductions ("less than zero").
     """
+    period = asset_state_period_at(session, asset_id, as_of=as_of)
+    if period is not None and period.get("quantity") is not None:
+        return float(period["quantity"])
+    # No ASP for that day — fall back to latest TotalQuantity.
+    return _current_asset_quantity(session, asset_id)
+
+
+def asset_state_period_at(
+    session: OrgSession,
+    asset_id: str,
+    *,
+    as_of: datetime | None = None,
+) -> dict[str, Any] | None:
+    """AssetStatePeriod covering ``as_of`` → ``{quantity, mrr, start, end}``."""
     when = as_of or datetime.now(timezone.utc)
-    # Compare as date strings; ASP datetimes are org/GMT ISO.
     day = when.strftime("%Y-%m-%d")
     periods = session.soql(
-        "SELECT Quantity, StartDate, EndDate FROM AssetStatePeriod "
+        "SELECT Quantity, Mrr, StartDate, EndDate FROM AssetStatePeriod "
         f"WHERE AssetId = '{asset_id}' ORDER BY StartDate ASC LIMIT 200"
     )
     for period in periods:
@@ -561,10 +574,71 @@ def asset_quantity_at(
         end = str(period.get("EndDate") or "9999-12-31")[:10]
         if start and start <= day <= end:
             qty = period.get("Quantity")
-            if qty is not None:
-                return float(qty)
-    # No ASP for that day — fall back to latest TotalQuantity.
-    return _current_asset_quantity(session, asset_id)
+            mrr = period.get("Mrr")
+            return {
+                "quantity": float(qty) if qty is not None else None,
+                "mrr": float(mrr) if mrr is not None else None,
+                "start": start,
+                "end": end,
+            }
+    return None
+
+
+def asset_live_metrics(
+    session: OrgSession,
+    asset_id: str,
+    *,
+    as_of: datetime | None = None,
+) -> dict[str, Any]:
+    """Seat count + MRR for Licenses UI — prefer Asset current fields, else ASP.
+
+    Do **not** use AssetAction.TotalQuantity here: that is the latest lifetime
+    total and drifts ahead of "today" when future quantity periods exist.
+    """
+    rows = session.soql(
+        "SELECT Id, CurrentQuantity, CurrentMrr FROM Asset "
+        f"WHERE Id = '{asset_id}' LIMIT 1"
+    )
+    qty: float | None = None
+    mrr: float | None = None
+    source = "none"
+    if rows:
+        if rows[0].get("CurrentQuantity") is not None:
+            qty = float(rows[0]["CurrentQuantity"])
+            source = "assetCurrentQuantity"
+        if rows[0].get("CurrentMrr") is not None:
+            mrr = float(rows[0]["CurrentMrr"])
+            if source == "none":
+                source = "assetCurrentMrr"
+            elif source == "assetCurrentQuantity":
+                source = "assetCurrent"
+
+    period = asset_state_period_at(session, asset_id, as_of=as_of)
+    if period:
+        if qty is None and period.get("quantity") is not None:
+            qty = float(period["quantity"])
+            source = "assetStatePeriod"
+        if mrr is None and period.get("mrr") is not None:
+            mrr = float(period["mrr"])
+            source = (
+                "assetStatePeriod"
+                if source in ("none", "assetCurrentQuantity")
+                else source
+            )
+
+    if qty is None:
+        try:
+            qty = _current_asset_quantity(session, asset_id)
+            if source == "none":
+                source = "assetActionTotalQuantity"
+        except RuntimeError:
+            qty = None
+
+    return {
+        "quantity": qty,
+        "mrr": mrr,
+        "source": source,
+    }
 
 
 def latest_asp_start(session: OrgSession, asset_id: str) -> datetime | None:

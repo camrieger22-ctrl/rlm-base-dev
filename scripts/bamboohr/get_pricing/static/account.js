@@ -461,6 +461,64 @@
     return { lines, total: Math.round(total * 100) / 100 };
   };
 
+  /** Recurring today from Salesforce Asset.CurrentMrr (server-provided). */
+  const sfRecurringToday = () => {
+    const assets = state?.subscription?.assets || [];
+    const primaryId = state?.subscription?.primaryAssetId;
+    const lines = [];
+    let total = 0;
+    let complete = true;
+    for (const a of assets) {
+      if (a.mrr == null || a.mrr === "") {
+        complete = false;
+        continue;
+      }
+      const monthly = Math.round(Number(a.mrr) * 100) / 100;
+      const qty = Number(a.quantity);
+      const info = listForSku(a.sku) || {};
+      const flat =
+        info.kind === "flat" || String(a.sku || "").toUpperCase().includes("FLAT");
+      lines.push({
+        id: a.id,
+        name: a.name || a.productName || info.name || a.sku,
+        sku: a.sku,
+        qty: flat ? 1 : Number.isFinite(qty) ? qty : state?.subscription?.currentQuantity,
+        listPepm: info.listPepm,
+        netPepm:
+          !flat && Number.isFinite(qty) && qty > 0
+            ? Math.round((monthly / qty) * 1000000) / 1000000
+            : null,
+        flatMonthly: flat ? monthly : null,
+        isFlat: flat,
+        monthly,
+        isPrimary: a.id === primaryId,
+        isNew: false,
+        isPepm: !flat,
+        source: "salesforceCurrentMrr",
+      });
+      total += monthly;
+    }
+    const serverTotal = state?.subscription?.recurringMonthly;
+    if (serverTotal != null && Number.isFinite(Number(serverTotal))) {
+      total = Math.round(Number(serverTotal) * 100) / 100;
+    } else {
+      total = Math.round(total * 100) / 100;
+    }
+    if (!lines.length && state?.subscription?.recurringComplete === false) {
+      // No MRR on assets yet — fall back to catalog estimate at current seats.
+      return {
+        ...subscriptionTotals(Number(state?.subscription?.currentQuantity) || 1),
+        source: "catalogEstimate",
+      };
+    }
+    return {
+      lines,
+      total,
+      complete,
+      source: state?.subscription?.recurringSource || "salesforceCurrentMrr",
+    };
+  };
+
   const readQty = () => {
     const raw = (qtyInput?.value || "").trim();
     if (raw === "") return null;
@@ -677,8 +735,8 @@
       if (src && data.pricingSource === "revenueCloud") {
         const warn = (data.warnings || []).filter(Boolean).slice(0, 2).join(" ");
         src.textContent = warn
-          ? `Priced in Revenue Cloud. ${warn}`
-          : "Priced in Revenue Cloud.";
+          ? `Today from Salesforce CurrentMrr · after priced in Revenue Cloud. ${warn}`
+          : "Today from Salesforce CurrentMrr · after priced in Revenue Cloud.";
       }
       if (amendStatus && !amendStatus.classList.contains("error")) {
         amendStatus.textContent = "";
@@ -724,8 +782,15 @@
         : "Term end unavailable — proration uses a 365-day estimate.";
     }
 
-    const before = subscriptionTotals(currentQty, { includeSelectedAddons: false });
-    const after = subscriptionTotals(newQty, { includeSelectedAddons: true });
+    const before = sfRecurringToday();
+    // "After" provisional estimate only — RC preview replaces this when ready.
+    const after =
+      delta === 0 && selectedAddons.size === 0
+        ? before
+        : (() => {
+            const est = subscriptionTotals(newQty, { includeSelectedAddons: true });
+            return est.lines.length ? est : before;
+          })();
     const hasChange = delta !== 0 || selectedAddons.size > 0;
 
     document.getElementById("subRecurring").textContent = money(before.total, cur);
@@ -775,7 +840,8 @@
       pricedPreview = null;
       const src = document.getElementById("pricingSourceNote");
       if (src) {
-        src.textContent = "Change seats or select a module to price in Revenue Cloud.";
+        src.textContent =
+          "Recurring today from Salesforce (Asset CurrentMrr). Change seats or select a module to price in Revenue Cloud.";
       }
     }
 
@@ -865,8 +931,7 @@
     }
 
     const subLines = document.getElementById("subLines");
-    const curQty = Number(data.subscription.currentQuantity) || 0;
-    const snap = subscriptionTotals(curQty);
+    const snap = sfRecurringToday();
     subLines.innerHTML = snap.lines
       .map(
         (l) => `<li>
@@ -878,6 +943,12 @@
         </li>`
       )
       .join("") || "<li class='muted'>No assets on this Account yet.</li>";
+    const subRecurring = document.getElementById("subRecurring");
+    if (subRecurring) {
+      subRecurring.textContent = snap.lines.length
+        ? `${money(snap.total, data.account.currency)} / mo`
+        : "—";
+    }
 
     const orders = document.getElementById("orderList");
     orders.innerHTML = (data.recentOrders || [])
