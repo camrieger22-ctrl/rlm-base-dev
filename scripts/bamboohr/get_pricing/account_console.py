@@ -165,6 +165,13 @@ def load_account_console(
     catalog = hydrate_catalog(session, country)
     base = (session._instance or "").rstrip("/")
 
+    try:
+        from payments import list_open_invoices
+
+        invoices = list_open_invoices(session, aid)
+    except Exception:  # noqa: BLE001
+        invoices = []
+
     plan_skus = set(CATALOG_PLAN_SKUS) | {CORE_FLAT_SKU}
     primary = next(
         (
@@ -210,6 +217,7 @@ def load_account_console(
         },
         "recentOrders": orders,
         "recentQuotes": quotes,
+        "invoices": invoices,
         "catalog": catalog,
         "volumeBands": [
             {"lo": 25, "hi": 75, "rate": 0.05},

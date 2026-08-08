@@ -7,7 +7,7 @@ creates invoices / Payment Links and shows branded CTAs.
 Related: [README.md](./README.md) · [HOSTED.md](./HOSTED.md) ·
 [EXPERIENCE_CLOUD.md](./EXPERIENCE_CLOUD.md)
 
-**Status:** Implementation plan (checkout Pay Now proven on `master-demo`)  
+**Status:** Phase 1 + Phase 3 shipped (checkout Pay Now + Licenses invoices)  
 **Scope:** This BFF only — not Foundations product packaging.
 
 ---
@@ -78,12 +78,18 @@ session on the same domain often breaks the guest pay page.
 
 | Gap | Impact |
 |-----|--------|
-| `/account` has no invoices / Pay CTA | Returning buyers can’t pay from Licenses |
-| Amend success doesn’t surface `payment` | Seat/module changes don’t prompt to pay |
-| No shared Pay Now UI helper | Quote card logic not reused on account |
-| Payment email not sent | Link only in browser |
-| Org guest-store fixes not automated | Scratch rebuilds can re-break Pay Now |
+| Amend success doesn’t surface `payment` | Seat/module changes don’t prompt to pay (Phase 4) |
+| Shared pay-now card not fully extracted | Quote + account use similar patterns; further DRY optional (Phase 2) |
+| Payment email not sent | Link only in browser (Phase 5) |
+| Org guest-store fixes not automated | Scratch rebuilds can re-break Pay Now (Phase 0) |
 | Invoice balance may lag after authorize | UI may still show balance until apply settles |
+
+### Shipped (Phase 1 + 3)
+
+- `list_open_invoices` / `build_payment_prompt_for_invoice` (+ Active link reuse)
+- `GET /api/account-invoices`, `collect-payment` accepts `invoiceId`
+- `/account` **Invoices** section with **Pay** + refresh + incognito hint
+- Account console payload includes `invoices[]`
 
 ---
 

@@ -563,6 +563,39 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 self._json(503, {"ok": False, "error": str(exc)})
             return
+        if path == "/api/account-invoices":
+            try:
+                qs = parse_qs(urlparse(self.path).query)
+                account_id = (qs.get("accountId") or [None])[0]
+                company = (qs.get("company") or [None])[0]
+                ec_token = (qs.get("ecToken") or [None])[0]
+                if ec_token:
+                    claims = verify_ec_token(ec_token)
+                    account_id = claims["accountId"]
+                    company = None
+                from account_console import resolve_account_id
+                from payments import list_open_invoices
+
+                acct = resolve_account_id(
+                    _session(), account_id=account_id, company=company
+                )
+                invoices = list_open_invoices(_session(), acct["Id"])
+                self._json(
+                    200,
+                    {
+                        "ok": True,
+                        "accountId": acct["Id"],
+                        "accountName": acct.get("Name"),
+                        "invoices": invoices,
+                    },
+                )
+            except EcHandoffError as exc:
+                self._json(401, {"ok": False, "error": str(exc)})
+            except ValueError as exc:
+                self._json(400, {"ok": False, "error": str(exc)})
+            except Exception as exc:  # noqa: BLE001
+                self._json(503, {"ok": False, "error": str(exc)})
+            return
         if path in ("/", "/index.html"):
             self._send(
                 200,
@@ -990,21 +1023,31 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/collect-payment":
             order_id = str(body.get("orderId") or "").strip()
-            if not order_id:
-                self._json(400, {"ok": False, "error": "orderId is required"})
+            invoice_id = str(body.get("invoiceId") or "").strip()
+            if not order_id and not invoice_id:
+                self._json(
+                    400,
+                    {"ok": False, "error": "orderId or invoiceId is required"},
+                )
                 return
             try:
-                from payments import build_payment_prompt
-
-                prompt = build_payment_prompt(
-                    _session(),
-                    order_id,
-                    collect=True,
-                    poll_timeout=int(body.get("pollTimeout") or 90),
+                from payments import (
+                    build_payment_prompt,
+                    build_payment_prompt_for_invoice,
                 )
+
+                if invoice_id:
+                    prompt = build_payment_prompt_for_invoice(_session(), invoice_id)
+                else:
+                    prompt = build_payment_prompt(
+                        _session(),
+                        order_id,
+                        collect=True,
+                        poll_timeout=int(body.get("pollTimeout") or 90),
+                    )
                 self._json(
                     200 if prompt.invoice_id else 400,
-                    {"ok": bool(prompt.invoice_id), **prompt.as_dict()},
+                    {"ok": bool(prompt.invoice_id or prompt.ready), **prompt.as_dict()},
                 )
             except Exception as exc:  # noqa: BLE001
                 self._json(400, {"ok": False, "error": str(exc)})

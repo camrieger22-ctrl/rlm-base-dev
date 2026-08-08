@@ -28,7 +28,7 @@ from service import API, OrgSession
 @dataclass
 class PaymentPrompt:
     ready: bool
-    order_id: str
+    order_id: str = ""
     invoice_id: str | None = None
     invoice_number: str | None = None
     invoice_balance: float | None = None
@@ -41,7 +41,7 @@ class PaymentPrompt:
     def as_dict(self) -> dict[str, Any]:
         return {
             "ready": self.ready,
-            "orderId": self.order_id,
+            "orderId": self.order_id or None,
             "invoiceId": self.invoice_id,
             "invoiceNumber": self.invoice_number,
             "invoiceBalance": self.invoice_balance,
@@ -211,14 +211,51 @@ def _default_payment_method_set_id(session: OrgSession) -> str | None:
     return rows[0]["Id"] if rows else None
 
 
+def _find_active_payment_link(
+    session: OrgSession,
+    *,
+    account_id: str,
+    amount: float,
+    title_hint: str | None = None,
+) -> dict[str, Any] | None:
+    """Reuse an Active SingleUse link for the same account + amount when present."""
+    amt = round(float(amount), 2)
+    rows = session.soql(
+        "SELECT Id, PaymentLinkNumber, PaymentUrl, Status, Amount, Title "
+        "FROM PaymentLink "
+        f"WHERE AccountId = '{account_id}' AND Status = 'Active' "
+        f"AND Amount = {amt} "
+        "ORDER BY CreatedDate DESC LIMIT 10"
+    )
+    if not rows:
+        return None
+    if title_hint:
+        hint = title_hint[:40]
+        for row in rows:
+            if hint and hint in (row.get("Title") or ""):
+                return row
+    return rows[0]
+
+
 def _create_payment_link(
     session: OrgSession,
     *,
     account_id: str,
     amount: float,
     title: str,
+    reuse_active: bool = True,
 ) -> dict[str, Any]:
     """Create a PredefinedAmount Pay Now link; raises with Setup guidance on failure."""
+    if reuse_active:
+        existing = _find_active_payment_link(
+            session,
+            account_id=account_id,
+            amount=amount,
+            title_hint=title,
+        )
+        if existing and existing.get("PaymentUrl"):
+            return existing
+
     expiry = (datetime.now(timezone.utc) + timedelta(days=7)).strftime(
         "%Y-%m-%dT%H:%M:%S.000Z"
     )
@@ -248,6 +285,150 @@ def _create_payment_link(
     if not rows:
         raise RuntimeError(f"PaymentLink {link_id} created but not readable")
     return rows[0]
+
+
+def list_open_invoices(
+    session: OrgSession,
+    account_id: str,
+    *,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    """Posted invoices with remaining balance for an Account (buyer Licenses UI)."""
+    if not account_id:
+        return []
+    lim = max(1, min(int(limit), 50))
+    rows = session.soql(
+        "SELECT Id, InvoiceNumber, DocumentNumber, Status, Balance, "
+        "TotalAmountWithTax, BillingAccountId, ReferenceEntityId, CreatedDate "
+        f"FROM Invoice WHERE BillingAccountId = '{account_id}' "
+        "AND Status = 'Posted' AND Balance > 0 "
+        f"ORDER BY CreatedDate DESC LIMIT {lim}"
+    )
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        inv_id = row["Id"]
+        number = row.get("InvoiceNumber") or row.get("DocumentNumber") or inv_id
+        balance = float(row.get("Balance") or 0)
+        active = _find_active_payment_link(
+            session,
+            account_id=account_id,
+            amount=balance,
+            title_hint=f"Pay invoice {number}",
+        )
+        out.append(
+            {
+                "id": inv_id,
+                "invoiceNumber": number,
+                "documentNumber": row.get("DocumentNumber"),
+                "status": row.get("Status"),
+                "balance": balance,
+                "totalAmountWithTax": row.get("TotalAmountWithTax"),
+                "referenceEntityId": row.get("ReferenceEntityId"),
+                "createdDate": row.get("CreatedDate"),
+                "invoiceUrl": _lex_url(session, "Invoice", inv_id),
+                "paymentLinkId": (active or {}).get("Id"),
+                "paymentUrl": (active or {}).get("PaymentUrl"),
+            }
+        )
+    return out
+
+
+def build_payment_prompt_for_invoice(
+    session: OrgSession,
+    invoice_id: str,
+) -> PaymentPrompt:
+    """Create/reuse a Pay Now link for an existing Posted invoice."""
+    warnings: list[str] = []
+    inv_id = (invoice_id or "").strip()
+    if not inv_id:
+        return PaymentPrompt(
+            ready=False,
+            blocked_reason="invoiceId is required",
+        )
+
+    rows = session.soql(
+        "SELECT Id, InvoiceNumber, DocumentNumber, Status, Balance, "
+        "BillingAccountId, ReferenceEntityId "
+        f"FROM Invoice WHERE Id = '{inv_id}' LIMIT 1"
+    )
+    if not rows:
+        return PaymentPrompt(
+            ready=False,
+            blocked_reason=f"Invoice {inv_id} not found",
+        )
+    invoice = rows[0]
+    account_id = invoice.get("BillingAccountId") or ""
+    number = invoice.get("InvoiceNumber") or invoice.get("DocumentNumber") or inv_id
+    balance = float(invoice.get("Balance") or 0)
+    ref = invoice.get("ReferenceEntityId") or ""
+    order_id = ref if str(ref).startswith("801") else ""
+
+    prompt = PaymentPrompt(
+        ready=False,
+        order_id=order_id,
+        invoice_id=inv_id,
+        invoice_number=number,
+        invoice_balance=balance,
+        invoice_url=_lex_url(session, "Invoice", inv_id),
+        warnings=warnings,
+    )
+
+    if (invoice.get("Status") or "") != "Posted":
+        prompt.blocked_reason = (
+            f"Invoice status is {invoice.get('Status')!r} — only Posted invoices "
+            "can be collected via Pay Now"
+        )
+        return prompt
+    if balance <= 0:
+        prompt.blocked_reason = "Invoice balance is zero — nothing to collect"
+        return prompt
+    if not account_id:
+        prompt.blocked_reason = "Invoice has no BillingAccountId"
+        return prompt
+
+    readiness = payments_readiness(session)
+    if not readiness["paymentsWebhookLive"]:
+        warnings.append("Payments Webhook Experience Cloud site is not Live")
+        prompt.warnings = warnings
+    if readiness["merchantAccountCount"] == 0:
+        prompt.blocked_reason = (
+            "No MerchantAccount in this org. Complete Salesforce Payments "
+            "guided setup (Stripe/Adyen), set the Pay Now site URL, then retry."
+        )
+        return prompt
+
+    try:
+        link = _create_payment_link(
+            session,
+            account_id=account_id,
+            amount=balance,
+            title=f"Pay invoice {number}",
+        )
+    except Exception as exc:  # noqa: BLE001
+        msg = str(exc)
+        if "Pay Now site URL" in msg:
+            prompt.blocked_reason = (
+                "Enter the Pay Now site URL in Payments setup, then retry. "
+                f"({msg[:300]})"
+            )
+        elif "Payment Method Set" in msg:
+            prompt.blocked_reason = (
+                "Payment Method Set missing — finish merchant setup in "
+                f"Salesforce Payments. ({msg[:300]})"
+            )
+        else:
+            prompt.blocked_reason = f"PaymentLink create failed: {msg[:500]}"
+        return prompt
+
+    url = link.get("PaymentUrl")
+    prompt.payment_link_id = link.get("Id")
+    prompt.payment_url = url
+    prompt.ready = bool(url)
+    if not url:
+        prompt.blocked_reason = (
+            "PaymentLink created but PaymentUrl is empty — check Pay Now site URL"
+        )
+    return prompt
 
 
 def build_payment_prompt(

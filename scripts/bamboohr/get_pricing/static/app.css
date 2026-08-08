@@ -1998,6 +1998,34 @@ body.quote-page {
   justify-content: center;
 }
 
+.invoice-list .invoice-row {
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.invoice-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.invoice-pay-btn {
+  padding: 0.4rem 0.9rem;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.invoice-pay-hint {
+  margin: 0.75rem 0 0;
+  font-size: 0.85rem;
+}
+
+#invoicesCard .panel-head {
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
 .quote-cta {
   width: 100%;
   border: 0;

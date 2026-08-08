@@ -156,6 +156,117 @@
         })
       : "—";
 
+  const setInvoiceStatus = (msg, isError = false) => {
+    const el = document.getElementById("invoiceStatus");
+    if (!el) return;
+    el.textContent = msg || "";
+    el.classList.toggle("error", !!isError && !!msg);
+  };
+
+  const renderInvoices = (invoices, currency = "USD") => {
+    const card = document.getElementById("invoicesCard");
+    const list = document.getElementById("invoiceList");
+    const hint = document.getElementById("invoicePayHint");
+    if (!card || !list) return;
+    const rows = Array.isArray(invoices) ? invoices : [];
+    if (!rows.length) {
+      card.hidden = true;
+      list.innerHTML = "";
+      if (hint) hint.hidden = true;
+      return;
+    }
+    card.hidden = false;
+    if (hint) hint.hidden = false;
+    list.innerHTML = rows
+      .map((inv) => {
+        const when = (inv.createdDate || "").slice(0, 10);
+        const bal = money(inv.balance, currency);
+        const ready = !!inv.paymentUrl;
+        return `<li class="invoice-row" data-invoice-id="${inv.id}">
+          <div>
+            <strong>${inv.invoiceNumber || inv.id}</strong>
+            <span>${when} · balance ${bal}</span>
+          </div>
+          <div class="invoice-row-actions">
+            <span class="activity-badge">${inv.status || "Posted"}</span>
+            <button type="button" class="demo-btn demo-btn-primary invoice-pay-btn"
+              data-invoice-id="${inv.id}"
+              data-payment-url="${ready ? inv.paymentUrl : ""}">
+              Pay
+            </button>
+          </div>
+        </li>`;
+      })
+      .join("");
+    list.querySelectorAll(".invoice-pay-btn").forEach((btn) => {
+      btn.addEventListener("click", () => payInvoice(btn));
+    });
+  };
+
+  const refreshInvoices = async () => {
+    if (!state?.account?.id) return;
+    setInvoiceStatus("Refreshing invoices…");
+    try {
+      const params = new URLSearchParams({ accountId: state.account.id });
+      const resp = await fetch(`/api/account-invoices?${params}`);
+      const data = await resp.json();
+      if (!resp.ok || !data.ok) throw new Error(data.error || "Refresh failed");
+      state.invoices = data.invoices || [];
+      renderInvoices(state.invoices, state.account.currency || "USD");
+      setInvoiceStatus(
+        state.invoices.length
+          ? `${state.invoices.length} open invoice(s).`
+          : "No open balances."
+      );
+    } catch (err) {
+      setInvoiceStatus(err.message || String(err), true);
+    }
+  };
+
+  const payInvoice = async (btn) => {
+    const invoiceId = btn?.dataset?.invoiceId;
+    if (!invoiceId) return;
+    const existingUrl = (btn.dataset.paymentUrl || "").trim();
+    if (existingUrl) {
+      window.open(existingUrl, "_blank", "noopener");
+      setInvoiceStatus(
+        "Opened Pay Now — use a private window if you’re logged into Salesforce."
+      );
+      return;
+    }
+    btn.disabled = true;
+    setInvoiceStatus("Creating Pay Now link…");
+    try {
+      const resp = await fetch("/api/collect-payment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ invoiceId }),
+      });
+      const data = await resp.json();
+      if (!resp.ok || !(data.paymentUrl || data.ready)) {
+        throw new Error(
+          data.blockedReason || data.error || "Could not create payment link"
+        );
+      }
+      if (state?.invoices) {
+        const row = state.invoices.find((i) => i.id === invoiceId);
+        if (row) {
+          row.paymentUrl = data.paymentUrl;
+          row.paymentLinkId = data.paymentLinkId;
+        }
+        renderInvoices(state.invoices, state.account?.currency || "USD");
+      }
+      window.open(data.paymentUrl, "_blank", "noopener");
+      setInvoiceStatus(
+        "Opened Pay Now — use a private window if you’re logged into Salesforce."
+      );
+    } catch (err) {
+      setInvoiceStatus(err.message || String(err), true);
+    } finally {
+      btn.disabled = false;
+    }
+  };
+
   const daysBetween = (start, end) => {
     if (!start || !end) return 0;
     const ms = end.getTime() - start.getTime();
@@ -744,6 +855,8 @@
       })
       .join("") || "<li class='muted'>No orders yet.</li>";
 
+    renderInvoices(data.invoices || [], data.account?.currency || "USD");
+
     const ownedSkus = new Set(
       (data.subscription.assets || []).map((a) => a.sku).filter(Boolean)
     );
@@ -845,6 +958,10 @@
     const accountId = accountIdInput.value.trim();
     const company = companyInput.value.trim();
     loadConsole(accountId ? { accountId } : { company });
+  });
+
+  document.getElementById("refreshInvoicesBtn")?.addEventListener("click", () => {
+    refreshInvoices();
   });
 
   qtyInput?.addEventListener("input", onQtyTyped);

@@ -156,6 +156,23 @@
             <h2>Connected to Revenue Cloud</h2>
             <p>Assets, Orders, and amends sync to Salesforce — this page is the branded shell.</p>
           </section>
+          <section class="card-panel" id="invoicesCard" hidden>
+            <div class="panel-head">
+              <div>
+                <h2>Invoices</h2>
+                <p class="muted">Open balances from Salesforce Billing — pay with Salesforce Payments.</p>
+              </div>
+              <button type="button" class="demo-btn demo-btn-secondary" id="refreshInvoicesBtn">
+                Refresh
+              </button>
+            </div>
+            <ul class="activity-list invoice-list" id="invoiceList"></ul>
+            <p class="muted invoice-pay-hint" id="invoicePayHint" hidden>
+              If the pay page errors while you’re logged into Salesforce, open
+              <strong>Pay</strong> in a private / incognito window.
+            </p>
+            <p class="status" id="invoiceStatus" role="status"></p>
+          </section>
           <section class="card-panel">
             <h2>Recent activity</h2>
             <ul class="activity-list" id="orderList"></ul>

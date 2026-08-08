@@ -55,7 +55,8 @@ Full JWT / Docker / Connected App steps: **HOSTED.md**.
 |--------|------|------|
 | GET | `/api/health` | — |
 | GET | `/api/catalog?country=US\|CA\|UK` | Curated SKUs → org PBE list PEPM / names / availability |
-| GET | `/api/account-console?accountId=\|company=\|ecToken=` | Licenses & billing (demo pin or EC HMAC handoff) |
+| GET | `/api/account-console?accountId=\|company=\|ecToken=` | Licenses & billing (demo pin or EC HMAC handoff); includes open `invoices` |
+| GET | `/api/account-invoices?accountId=\|company=\|ecToken=` | Posted invoices with balance &gt; 0 (+ Active Pay Now URL when present) |
 | GET | `/api/ec-handoff?token=` | Verify EC handoff → `{ accountId, contactId, exp }` |
 | POST | `/api/create-login` | `{ accountId, contactId?, email, password }` → community User + `ecToken` handoff |
 | POST | `/api/account-amend-preview` | `{ accountId, newQty?, addonSkus?, startDate? }` → draft Quotes + System reprice totals (no Activate) |
@@ -63,14 +64,18 @@ Full JWT / Docker / Connected App steps: **HOSTED.md**.
 | POST | `/api/get-pricing` | `{ headcount, country, planSku, addonSkus?, placeQuote? }` |
 | POST | `/api/checkout` | `{ quoteId, amendQty?, pollTimeout?, collectPayment? }` — after activate, invoices the order and attempts Salesforce Payments Pay Now (`payment` on response) |
 | GET | `/api/payments-readiness` | Merchant / webhook probe for Pay Now |
-| POST | `/api/collect-payment` | `{ orderId, pollTimeout? }` — invoice + PaymentLink for an existing Order |
+| POST | `/api/collect-payment` | `{ orderId? \| invoiceId?, pollTimeout? }` — invoice + PaymentLink (order path generates; invoice path reuses/creates link) |
 | POST | `/api/docgen-pdf` | `{ quoteId, templateName?, title?, timeout? }` → `downloadUrl` |
 | GET | `/api/docgen-pdf/<contentVersionId>` | PDF bytes (attachment) |
 | POST | `/api/quote-email` | `{ quoteId, toEmail?, attachPdf? }` → Salesforce sends quote email (+ DocGen PDF) |
 
-**Licenses & billing UI:** `/account` — subscription, recent orders, qty amend preview/place.
+**Licenses & billing UI:** `/account` — subscription, open invoices (Pay Now),
+recent orders, qty amend preview/place.
 Demo pin via Account Id / company name; buyer path via Experience Cloud login →
-signed `ecToken` (see `EXPERIENCE_CLOUD.md`).
+signed `ecToken` (see `EXPERIENCE_CLOUD.md`). Open **Pay** in a private window
+if you’re also logged into Salesforce (guest Pay Now + admin cookies conflict).
+
+Pay Now weave-in plan / phases: **[PAYNOW.md](./PAYNOW.md)**.
 
 **Public / EC URL:** keep BFF running, then
 `./scripts/bamboohr/get_pricing/run_tunnel.sh` (syncs Custom Label). Stable host:
