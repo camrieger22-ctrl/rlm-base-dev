@@ -63,7 +63,7 @@ Full JWT / Docker / Connected App steps: **HOSTED.md**.
 | POST | `/api/account-amend` | `{ accountId, newQty?, addonSkus?, amendQuotes?, moduleQuoteId? }` → activate preview Quotes (or create if omitted) |
 | POST | `/api/get-pricing` | `{ headcount, country, planSku, addonSkus?, placeQuote? }` |
 | POST | `/api/checkout` | `{ quoteId, amendQty?, pollTimeout?, collectPayment? }` — after activate, invoices the order and attempts Salesforce Payments Pay Now (`payment` on response) |
-| GET | `/api/payments-readiness` | Merchant / webhook probe for Pay Now |
+| GET | `/api/payments-readiness` | Pay Now readiness (`readyForPayNow`, guest probes, `blocking`) |
 | POST | `/api/collect-payment` | `{ orderId? \| invoiceId?, pollTimeout? }` — invoice + PaymentLink (order path generates; invoice path reuses/creates link) |
 | POST | `/api/docgen-pdf` | `{ quoteId, templateName?, title?, timeout? }` → `downloadUrl` |
 | GET | `/api/docgen-pdf/<contentVersionId>` | PDF bytes (attachment) |
@@ -80,6 +80,13 @@ Pay Now weave-in plan / phases: **[PAYNOW.md](./PAYNOW.md)**.
 **Public / EC URL:** keep BFF running, then
 `./scripts/bamboohr/get_pricing/run_tunnel.sh` (syncs Custom Label). Stable host:
 HOSTED.md Path C (`publish_bff.py --named`).
+
+**Pay Now org bootstrap** (Guest Browsing + guest profile Reads; UI public-APIs toggle stays manual — see PAYNOW.md):
+
+```bash
+~/.local/pipx/venvs/cumulusci/bin/python \
+  scripts/bamboohr/get_pricing/bootstrap_paynow.py --org master-demo --execute --check
+```
 
 **Demo cleanup** (Quotes / Orders / Assets — not catalog pricing):
 

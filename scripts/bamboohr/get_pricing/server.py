@@ -499,21 +499,33 @@ class Handler(BaseHTTPRequestHandler):
                 from payments import payments_readiness
 
                 ready = payments_readiness(_session())
+                ready_ok = bool(ready.get("readyForPayNow"))
+                steps = ready.get("manualSteps") or []
+                if ready_ok:
+                    hint = "readyForPayNow — guest Pay Now path looks healthy."
+                elif steps:
+                    hint = steps[0]
+                elif ready.get("merchantAccountCount", 0) == 0:
+                    hint = (
+                        "Complete Salesforce Payments merchant setup + Pay Now "
+                        "site URL before checkout can return paymentUrl."
+                    )
+                else:
+                    hint = (
+                        "Merchant present but guest/store checks failed — "
+                        "see blocking / run bootstrap_paynow.py."
+                    )
                 self._json(
                     200,
                     {
                         "ok": True,
                         **ready,
-                        "payNowLikely": (
-                            ready["merchantAccountCount"] > 0
-                            and ready["paymentsWebhookLive"]
+                        "payNowLikely": ready_ok
+                        or (
+                            ready.get("merchantAccountCount", 0) > 0
+                            and ready.get("paymentsWebhookLive")
                         ),
-                        "hint": (
-                            "Complete Salesforce Payments merchant setup + Pay Now "
-                            "site URL before checkout can return paymentUrl."
-                            if ready["merchantAccountCount"] == 0
-                            else "Merchant present — checkout can attempt PaymentLink."
-                        ),
+                        "hint": hint,
                     },
                 )
             except Exception as exc:  # noqa: BLE001

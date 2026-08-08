@@ -7,7 +7,7 @@ creates invoices / Payment Links and shows branded CTAs.
 Related: [README.md](./README.md) · [HOSTED.md](./HOSTED.md) ·
 [EXPERIENCE_CLOUD.md](./EXPERIENCE_CLOUD.md)
 
-**Status:** Phases 1–4 shipped (checkout, Licenses invoices, amend Pay Now, shared card)  
+**Status:** Phases 0–4 shipped (org bootstrap + readiness, checkout, Licenses invoices, amend Pay Now, shared card)  
 **Scope:** This BFF only — not Foundations product packaging.
 
 ---
@@ -79,10 +79,12 @@ session on the same domain often breaks the guest pay page.
 | Gap | Impact |
 |-----|--------|
 | Payment email not sent | Link only in browser (Phase 5) |
-| Org guest-store fixes not automated | Scratch rebuilds can re-break Pay Now (Phase 0) |
 | Invoice balance may lag after authorize | UI may still show balance until apply settles |
 
-### Shipped (Phases 1–4)
+### Shipped (Phases 0–4)
+
+- `bootstrap_paynow.py` — Guest Browsing + Pay Now Profile commerce Reads
+- Richer `GET /api/payments-readiness` → `readyForPayNow`, `checks`, `blocking`, guest probes
 
 - `list_open_invoices` / `build_payment_prompt_for_invoice` (+ Active link reuse)
 - `GET /api/account-invoices`, `collect-payment` accepts `invoiceId`
@@ -95,27 +97,36 @@ session on the same domain often breaks the guest pay page.
 
 ## Phased delivery
 
-### Phase 0 — Org bootstrap
+### Phase 0 — Org bootstrap ✅
 
 **Outcome:** Rebuild orgs get a working guest Pay Now path without tribal knowledge.
 
-| # | Work | Notes |
-|---|------|-------|
-| 0.1 | Setup checklist (below) | Merchant, site URL, guest APIs, Guest Browsing, method set |
-| 0.2 | Automate Data/Metadata-safe steps | Script: `OptionsGuestBrowsingEnabled`; guest profile object Reads |
-| 0.3 | Document UI-only steps | “Allow guest users to access public APIs” if not Metadata-writable |
-| 0.4 | Richer readiness | Extend `/api/payments-readiness` to probe guest `payment-link-configs` + `session-context` |
+| # | Work | Status |
+|---|------|--------|
+| 0.1 | Setup checklist (below) | Done |
+| 0.2 | `bootstrap_paynow.py` | Done — Guest Browsing + guest ObjectPermissions Reads |
+| 0.3 | UI-only steps documented | Done — guest public APIs stay manual |
+| 0.4 | Richer readiness | Done — `readyForPayNow` + guest `session-context` / `payment-link-configs` |
 
 **Exit:** readiness returns `readyForPayNow: true` (or concrete failing checks).
+
+```bash
+# Dry-run, then apply + readiness
+~/.local/pipx/venvs/cumulusci/bin/python \
+  scripts/bamboohr/get_pricing/bootstrap_paynow.py --org master-demo
+~/.local/pipx/venvs/cumulusci/bin/python \
+  scripts/bamboohr/get_pricing/bootstrap_paynow.py --org master-demo \
+  --execute --check
+```
 
 #### Setup checklist (manual / SE)
 
 1. Salesforce Payments → Stripe merchant (Test) → Complete / payments Enabled  
 2. Create / publish **Pay Now** Experience site; set **Pay Now site URL** in Payments setup  
 3. Payment Method Set with **Card** on the merchant  
-4. Site **Administration → Preferences** → allow guest users to access public APIs  
-5. Enable **Guest Browsing** on the Pay Now WebStore  
-6. Guest profile: Read on WebStore (and related commerce objects as needed)
+4. Site **Administration → Preferences** → allow guest users to access public APIs (**UI-only** — not flipped by bootstrap)  
+5. Enable **Guest Browsing** on the Pay Now WebStore → `bootstrap_paynow.py --execute`  
+6. Guest profile: Read on WebStore (+ catalog / category / product / …) → same script  
 
 Prefer a **runtime guest API probe** over trusting `Site.OptionsAllowGuestPaymentsApi`
 in SOQL (that field can lag or only reflect one Site record).
@@ -139,8 +150,8 @@ in SOQL (that field can lag or only reflect one Site record).
 | Method | Path | Notes |
 |--------|------|--------|
 | GET | `/api/account-invoices?accountId=` | Open invoices (+ optional Active URLs) |
-| POST | `/api/collect-payment` | Accept `invoiceId` **or** `orderId` (today: order only) |
-| GET | `/api/payments-readiness` | Phase 0.4 probes |
+| POST | `/api/collect-payment` | Accept `invoiceId` **or** `orderId` |
+| GET | `/api/payments-readiness` | `readyForPayNow`, `checks`, `blocking`, guest probes |
 
 ---
 
@@ -250,7 +261,7 @@ Phase 6 (docs / smoke)                  continuous
 | Guest public API toggle not automatable | Checklist + readiness fails loudly |
 | Cart/session 400s on Pay Now page | Observed; checkout can still complete — don’t block on cart-items |
 | Duplicate PaymentLinks | Reuse Active links (Phase 1.4) |
-| Scratch org drift | Phase 0 bootstrap script |
+| Scratch / Trail org rebuild drift | `bootstrap_paynow.py` + readiness `blocking` |
 
 ---
 
@@ -269,7 +280,8 @@ Phase 6 (docs / smoke)                  continuous
 
 | File | Role |
 |------|------|
-| `payments.py` | Invoice generate, PaymentLink create, readiness |
+| `payments.py` | Invoice generate, PaymentLink create, readiness, bootstrap helpers |
+| `bootstrap_paynow.py` | CLI: Guest Browsing + guest ObjectPermissions |
 | `checkout.py` | Post-activate `build_payment_prompt` |
 | `account_console.py` | Account invoices payload + amend `payment` |
 | `server.py` | `/api/checkout`, `/api/collect-payment`, `/api/account-invoices`, readiness |
