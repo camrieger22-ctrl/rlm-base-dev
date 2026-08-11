@@ -8,11 +8,26 @@ import urllib.parse
 import urllib.request
 import uuid
 from dataclasses import dataclass, field
+import calendar
 from datetime import date, timedelta
 from typing import Any
 
 API = "v67.0"
 CATALOG_NAME = "BambooHR"
+
+# Buyer-selectable subscription terms on Get Pricing (calendar months).
+ALLOWED_TERM_MONTHS = (12, 24, 36)
+DEFAULT_TERM_MONTHS = 12
+
+
+def add_calendar_months(day: date, months: int) -> date:
+    """Add whole calendar months, clamping day-of-month (e.g. Jan 31 → Feb 28)."""
+    if months < 0:
+        raise ValueError("months must be >= 0")
+    year = day.year + (day.month - 1 + months) // 12
+    month = (day.month - 1 + months) % 12 + 1
+    last = calendar.monthrange(year, month)[1]
+    return date(year, month, min(day.day, last))
 
 COUNTRY_ACCOUNT = {
     "US": "Acme",
@@ -280,6 +295,30 @@ PATH_B_BUNDLE_SAVE = 0.15  # ManualDiscount on Payroll+Benefits when Path B
 # Phase 2 B2 — convert-later free trial (all plans + add-ons trialed with plan).
 TRIAL_DAYS = 30
 
+
+def resolve_subscription_window(
+    *,
+    start_date: date | None = None,
+    term_months: int | None = None,
+    free_trial: bool = False,
+) -> tuple[date, date, int]:
+    """Return (start, end, term_months) for Quote lines / Pricing API windows.
+
+    Free trial still uses a TRIAL_DAYS end date; term_months is retained for
+    convert-later paid quotes.
+    """
+    start = start_date or date.today()
+    months = int(term_months or DEFAULT_TERM_MONTHS)
+    if months not in ALLOWED_TERM_MONTHS:
+        raise ValueError(
+            f"termMonths must be one of {', '.join(str(m) for m in ALLOWED_TERM_MONTHS)}"
+        )
+    if free_trial:
+        end = start + timedelta(days=TRIAL_DAYS)
+    else:
+        end = add_calendar_months(start, months)
+    return start, end, months
+
 # Demo volume ladder (bh-pricing PAT) — keep in sync with RLM_BambooVolumeTiers.
 VOLUME_BANDS = (
     (25, 75, 0.05),
@@ -481,6 +520,9 @@ class GetPricingRequest:
     account_id: str | None = None
     # Sticky Draft from /api/get-pricing-preview — promote when config matches.
     preview_quote_id: str | None = None
+    # Buyer-selected commercial term (defaults: start=today, 12 months).
+    start_date: date | None = None
+    term_months: int = DEFAULT_TERM_MONTHS
 
 
 @dataclass
@@ -517,6 +559,10 @@ class GetPricingResult:
     contact_email: str = ""
     account_created: bool = False
     contact_created: bool = False
+    start_date: str | None = None
+    end_date: str | None = None
+    term_months: int = DEFAULT_TERM_MONTHS
+    term_total: float | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -543,6 +589,10 @@ class GetPricingResult:
             "netPepm": self.net_pepm,
             "monthlyTotal": self.monthly_total,
             "annualTotal": self.annual_total,
+            "startDate": self.start_date,
+            "endDate": self.end_date,
+            "termMonths": self.term_months,
+            "termTotal": self.term_total,
             "discoveredSkus": self.discovered_skus,
             "addonSkus": self.addon_skus,
             "lineItems": self.line_items,
@@ -975,6 +1025,14 @@ def get_pricing(session: OrgSession, req: GetPricingRequest) -> GetPricingResult
     if req.headcount < 1 or req.headcount > 100000:
         raise ValueError("headcount must be between 1 and 100000")
 
+    start_day, end_day, term_months = resolve_subscription_window(
+        start_date=req.start_date,
+        term_months=req.term_months,
+        free_trial=bool(req.free_trial),
+    )
+    start_iso = start_day.isoformat()
+    end_iso = end_day.isoformat()
+
     addon_skus = normalize_addons(req.addon_skus)
     if country in NON_US_COUNTRIES:
         label = "Canada" if country == "CA" else "United Kingdom"
@@ -1167,6 +1225,10 @@ def get_pricing(session: OrgSession, req: GetPricingRequest) -> GetPricingResult
                     net_pepm=net_pepm,
                     monthly_total=monthly,
                     annual_total=round(monthly * 12, 2),
+                    start_date=start_iso,
+                    end_date=end_iso,
+                    term_months=term_months,
+                    term_total=round(monthly * term_months, 2),
                     discovered_skus=sorted(set(discovered)),
                     addon_skus=addon_skus,
                     line_items=line_items,
@@ -1207,14 +1269,11 @@ def get_pricing(session: OrgSession, req: GetPricingRequest) -> GetPricingResult
                 )[:120],
                 "AccountId": acct["Id"],
                 "StageName": "Prospecting",
-                "CloseDate": "2026-12-31",
+                "CloseDate": (start_day + timedelta(days=30)).isoformat(),
                 "Pricebook2Id": pb["Id"],
                 "CurrencyIsoCode": currency,
             },
         )
-        today = date.today().isoformat()
-        term_days = TRIAL_DAYS if free_trial else 365
-        end = (date.today() + timedelta(days=term_days)).isoformat()
         quote_name = (
             f"Get Pricing — {PLAN_LABELS[plan_sku]}"
             + (f" + {len(addon_skus)} add-on(s)" if addon_skus else "")
@@ -1251,8 +1310,8 @@ def get_pricing(session: OrgSession, req: GetPricingRequest) -> GetPricingResult
                         "Product2Id": pbe["Product2Id"],
                         "PricebookEntryId": pbe["Id"],
                         "Quantity": str(line_qty),
-                        "StartDate": today,
-                        "EndDate": end,
+                        "StartDate": start_iso,
+                        "EndDate": end_iso,
                         "PeriodBoundary": "Anniversary",
                         "BillingFrequency": "Monthly",
                     },
@@ -1462,6 +1521,10 @@ def get_pricing(session: OrgSession, req: GetPricingRequest) -> GetPricingResult
         net_pepm=net_pepm,
         monthly_total=monthly,
         annual_total=round(monthly * 12, 2),
+        start_date=start_iso,
+        end_date=end_iso,
+        term_months=term_months,
+        term_total=round(monthly * term_months, 2),
         discovered_skus=sorted(set(discovered)),
         addon_skus=addon_skus,
         line_items=line_items,

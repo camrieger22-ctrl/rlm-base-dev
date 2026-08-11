@@ -10,15 +10,20 @@
 
   let state = null;
   const selectedAddons = new Set();
-  /** Last successful RC preview — Generate quote caches this for the summary page. */
+  /** Last Pricing API estimate — enables Generate quote when fresh. */
+  let pricedEstimate = null;
+  /** Full Quote preview from Generate quote (has dueToday + quote ids). */
   let pricedPreview = null;
-  /** Sticky Draft Quote ids from the last RC preview (survive keystroke invalidation). */
-  let stickyAmendQuotes = [];
-  let stickyModuleQuoteId = null;
-  let previewTimer = null;
-  let previewSeq = 0;
-  let previewInFlight = false;
-  let previewNeedsRerun = false;
+  /**
+   * Sticky Draft Quote ids from the open self-serve change.
+   * Generate quote always prefers these so Edit change → regenerate
+   * retargets the same Revenue Cloud Quote(s) instead of creating extras.
+   */
+  let stickyAmendDrafts = null;
+  let estimateTimer = null;
+  let estimateSeq = 0;
+  let estimateInFlight = false;
+  let estimateNeedsRerun = false;
   let pricingBusy = false;
   const changeSuccess = document.getElementById("changeSuccess");
   const accountGrid = document.getElementById("accountGrid");
@@ -26,7 +31,66 @@
   const generateAmendQuoteBtn = document.getElementById("generateAmendQuoteBtn");
   const amendRailCard = document.getElementById("amendRailCard");
 
+  const STICKY_KEY = "bhAmendSticky";
+
+  const readStickyAmend = () => {
+    try {
+      const raw = sessionStorage.getItem(STICKY_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : null;
+    } catch (_) {
+      return null;
+    }
+  };
+
+  const writeStickyAmend = (payload) => {
+    stickyAmendDrafts = payload;
+    try {
+      if (!payload) sessionStorage.removeItem(STICKY_KEY);
+      else sessionStorage.setItem(STICKY_KEY, JSON.stringify(payload));
+    } catch (_) {
+      /* ignore quota */
+    }
+  };
+
+  const clearStickyAmend = () => writeStickyAmend(null);
+
+  const stickyFromPreview = (preview, accountId) => {
+    if (!preview || !accountId) return null;
+    const amendQuotes = (preview.amendQuotes || [])
+      .filter((q) => q && q.quoteId)
+      .map((q) => ({
+        quoteId: q.quoteId,
+        assetIds: Array.isArray(q.assetIds) ? q.assetIds : [],
+      }));
+    const moduleQuoteId = preview.moduleQuoteId || null;
+    if (!amendQuotes.length && !moduleQuoteId) return null;
+    return {
+      accountId,
+      amendQuotes,
+      moduleQuoteId,
+      newQty: preview.newQty ?? null,
+      addonSkus: Array.isArray(preview.addonSkus)
+        ? preview.addonSkus
+        : [],
+      startDate: preview.amendStartDate || preview.startDate || null,
+      updatedAt: new Date().toISOString(),
+    };
+  };
+
+  const activeStickyForAccount = () => {
+    const sid = state?.account?.id;
+    if (!sid) return null;
+    const s = stickyAmendDrafts || readStickyAmend();
+    if (!s || s.accountId !== sid) return null;
+    if (!(s.amendQuotes || []).length && !s.moduleQuoteId) return null;
+    return s;
+  };
   const showChangeSuccess = (data) => {
+    // Place order activated the Draft — clear sticky so the next change starts fresh.
+    clearStickyAmend();
+    pricedPreview = null;
     const conf = data.confirmation || {};
     const titleEl = document.getElementById("changeSuccessTitle");
     const ledeEl = document.getElementById("changeSuccessLede");
@@ -267,24 +331,24 @@
     };
   };
 
-  const previewIsFresh = (ctx = amendChangeCtx()) => {
-    if (!ctx || !pricedPreview?.ok) return false;
-    const previewAddonSkus = new Set(
-      (pricedPreview.lines || [])
+  const estimateIsFresh = (ctx = amendChangeCtx()) => {
+    if (!ctx || !pricedEstimate?.ok) return false;
+    const estimateAddonSkus = new Set(
+      (pricedEstimate.lines || [])
         .filter((l) => l.isNew)
         .map((l) => String(l.sku || ""))
     );
     const addonsMatch =
-      ctx.addons.length === previewAddonSkus.size &&
-      ctx.addons.every((s) => previewAddonSkus.has(s));
-    const previewStart = String(
-      pricedPreview.amendStartDate || pricedPreview.startDate || ""
+      ctx.addons.length === estimateAddonSkus.size &&
+      ctx.addons.every((s) => estimateAddonSkus.has(s));
+    const estimateStart = String(
+      pricedEstimate.amendStartDate || pricedEstimate.startDate || ""
     ).slice(0, 10);
     const startMatch =
-      !previewStart || previewStart === String(ctx.startIso || "").slice(0, 10);
+      !estimateStart || estimateStart === String(ctx.startIso || "").slice(0, 10);
     return (
-      pricedPreview.accountId === state.account.id &&
-      Number(pricedPreview.newQty) === Number(ctx.newQty) &&
+      pricedEstimate.accountId === state.account.id &&
+      Number(pricedEstimate.newQty) === Number(ctx.newQty) &&
       addonsMatch &&
       startMatch
     );
@@ -293,17 +357,24 @@
   const syncAmendActions = () => {
     const ctx = amendChangeCtx();
     const hasChange = !!(ctx && ctx.hasChange && ctx.qtyValid);
-    const fresh = previewIsFresh(ctx);
+    const fresh = estimateIsFresh(ctx);
+    const sticky = activeStickyForAccount();
     if (generateAmendQuoteBtn) {
       generateAmendQuoteBtn.disabled = !hasChange || pricingBusy || !fresh;
       generateAmendQuoteBtn.classList.toggle("busy", pricingBusy);
       generateAmendQuoteBtn.textContent = pricingBusy
-        ? "Pricing…"
+        ? sticky
+          ? "Updating quote…"
+          : "Pricing…"
         : !hasChange
-          ? "Generate quote"
+          ? sticky
+            ? "Update quote"
+            : "Generate quote"
           : !fresh
             ? "Waiting for pricing…"
-            : "Generate quote";
+            : sticky
+              ? "Update quote"
+              : "Generate quote";
     }
     amendRailCard?.classList.toggle("is-pricing", !!pricingBusy);
   };
@@ -764,6 +835,7 @@
     provisional = false,
     awaitingPrice = false,
     quoteNumbers,
+    sourceNote,
   }) => {
     const annualAfter = Math.round(monthlyAfter * 12 * 100) / 100;
     const pepmLines = (lines || []).filter((l) => l.isPepm && l.qty);
@@ -804,7 +876,7 @@
       railTotal.textContent =
         dueToday != null && Number.isFinite(dueToday)
           ? money(dueToday, cur)
-          : money(monthlyAfter, cur);
+          : "—";
     }
     if (railLines && Array.isArray(lines)) {
       railLines.innerHTML = lines
@@ -822,21 +894,21 @@
         .join("");
     }
     if (srcNote) {
-      const qn = (quoteNumbers || []).filter(Boolean).join(", ");
       if (provisional || awaitingPrice || pricingBusy) {
-        srcNote.textContent = "Pricing in Revenue Cloud…";
-      } else if (qn) {
-        srcNote.textContent = `Priced in Revenue Cloud (System reprice) · ${qn}`;
+        srcNote.textContent = "Pricing with Salesforce Pricing API…";
+      } else if (sourceNote) {
+        srcNote.textContent = sourceNote;
       } else {
         srcNote.textContent =
-          "Change seats or modules — Revenue Cloud updates this sticky quote.";
+          "Change seats or modules — Pricing API updates Your plan.";
       }
     }
     void daysLeft;
     void termEnd;
+    void quoteNumbers;
   };
 
-  const fetchRcPreview = async (
+  const fetchPricingEstimate = async (
     { newQty, currentQty, startIso, daysLeft, termEnd },
     { manual = false } = {}
   ) => {
@@ -845,60 +917,39 @@
     const addons = [...selectedAddons];
     if (!qtyChanged && !addons.length) return;
 
-    // Coalesce: never queue multiple Salesforce previews behind the account lock.
-    if (previewInFlight) {
-      previewNeedsRerun = true;
+    if (estimateInFlight) {
+      estimateNeedsRerun = true;
       return;
     }
-    previewInFlight = true;
-    previewNeedsRerun = false;
+    estimateInFlight = true;
+    estimateNeedsRerun = false;
 
-    const seq = ++previewSeq;
+    const seq = ++estimateSeq;
     pricingBusy = true;
     syncAmendActions();
     const src = document.getElementById("pricingSourceNote");
-    if (src) {
-      src.textContent = manual
-        ? "Generating quote in Revenue Cloud (System reprice)…"
-        : "Pricing in Revenue Cloud…";
-    }
-    if (manual) {
-      amendStatus.textContent =
-        "Generating quote in Revenue Cloud (Opportunity + Quote, System reprice)…";
-      amendStatus.classList.remove("error");
-    }
+    if (src) src.textContent = "Pricing with Salesforce Pricing API…";
     const cur = state.account.currency || "USD";
 
     try {
       const body = {
         accountId: state.account.id,
-        assetId: state.subscription.primaryAssetId || undefined,
         addonSkus: addons,
         startDate: startIso,
       };
       if (qtyChanged) body.newQty = newQty;
-      if (stickyAmendQuotes.length) body.amendQuotes = stickyAmendQuotes;
-      if (stickyModuleQuoteId) body.moduleQuoteId = stickyModuleQuoteId;
-      const resp = await fetch("/api/account-amend-preview", {
+      const resp = await fetch("/api/account-amend-estimate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
       const data = await resp.json();
-      if (seq !== previewSeq) return; // stale
+      if (seq !== estimateSeq) return;
       if (!resp.ok || !data.ok) {
-        throw new Error(data.error || "Preview failed");
+        throw new Error(data.error || "Estimate failed");
       }
-      pricedPreview = data;
-      stickyAmendQuotes = (data.amendQuotes || [])
-        .filter((q) => q && q.quoteId)
-        .map((q) => ({
-          quoteId: q.quoteId,
-          assetIds: q.assetIds || [],
-          opportunityId: q.opportunityId,
-        }));
-      stickyModuleQuoteId = data.moduleQuoteId || null;
-      // Server may bump start onto the latest ASP so decreases validate.
+      pricedEstimate = data;
+      pricedPreview = null;
       const startEl = document.getElementById("startDateInput");
       if (data.amendStartDate && startEl) {
         const bumped = String(data.amendStartDate).slice(0, 10);
@@ -918,64 +969,49 @@
         isNew: !!l.isNew,
         source: l.source,
       }));
-      const quoteNumbers = [
-        ...(data.amendQuotes || []).map((q) => q.quoteNumber || q.quoteId),
-        data.moduleQuote?.quoteNumber || data.moduleQuoteId,
-      ];
+      const srcLabel =
+        data.pricingSource === "localFallback"
+          ? "Today from CurrentMrr · after = local schedule (Pricing API unavailable)"
+          : "Today from CurrentMrr · after priced with Salesforce Pricing API";
       renderOrderMath({
         currency: data.currency || cur,
         monthlyToday: data.monthly?.today ?? 0,
         monthlyAfter: data.monthly?.after ?? 0,
         lines,
-        dueToday: data.dueToday,
+        dueToday: null,
         daysLeft,
         termEnd,
         provisional: false,
-        quoteNumbers,
+        sourceNote: srcLabel,
       });
-      if (src && data.pricingSource === "revenueCloud") {
-        const stickyNote = data.sticky ? " · sticky Quote reused" : "";
-        const warn = (data.warnings || []).filter(Boolean).slice(0, 2).join(" ");
-        src.textContent = warn
-          ? `Today from Salesforce CurrentMrr · after priced in Revenue Cloud${stickyNote}. ${warn}`
-          : `Today from Salesforce CurrentMrr · after priced in Revenue Cloud${stickyNote}.`;
-      }
-      if (manual) {
-        const qn = quoteNumbers.filter(Boolean).join(", ");
-        amendStatus.textContent = qn
-          ? `Quote ready — ${qn}. Generate quote to open the amend summary.`
-          : "Quote ready. Generate quote to open the amend summary.";
-        amendStatus.classList.remove("error");
-      } else if (amendStatus && !amendStatus.classList.contains("error")) {
-        const qn = quoteNumbers.filter(Boolean).join(", ");
-        amendStatus.textContent = qn
-          ? `Live quote ${qn} — Generate quote when ready.`
-          : "Live quote updated — Generate quote when ready.";
+      if (amendStatus && !amendStatus.classList.contains("error")) {
+        amendStatus.textContent =
+          "Estimate ready — Generate quote for charged today + Place order.";
       }
     } catch (err) {
-      if (seq !== previewSeq) return;
-      pricedPreview = null;
+      if (seq !== estimateSeq) return;
+      pricedEstimate = null;
       if (src) {
-        src.textContent = `RC preview unavailable — showing estimate. ${
+        src.textContent = `Pricing API unavailable — showing local estimate. ${
           err.message || ""
         }`;
       }
       if (manual) {
         amendStatus.textContent =
-          err.message || "Could not price this change in Revenue Cloud.";
+          err.message || "Could not price this change.";
         amendStatus.classList.add("error");
       }
     } finally {
-      previewInFlight = false;
-      if (seq === previewSeq) {
+      estimateInFlight = false;
+      if (seq === estimateSeq) {
         pricingBusy = false;
         syncAmendActions();
       }
-      if (previewNeedsRerun) {
-        previewNeedsRerun = false;
+      if (estimateNeedsRerun) {
+        estimateNeedsRerun = false;
         const ctx = amendChangeCtx();
         if (ctx?.hasChange && ctx.qtyValid) {
-          fetchRcPreview(
+          fetchPricingEstimate(
             {
               newQty: ctx.newQty,
               currentQty: ctx.baselineQty,
@@ -990,13 +1026,12 @@
     }
   };
 
-  const scheduleRcPreview = () => {
-    if (previewTimer) clearTimeout(previewTimer);
-    // Match Get Pricing: debounce + single-flight — RC System reprice is ~4–8s.
-    previewTimer = setTimeout(() => {
+  const schedulePricingEstimate = () => {
+    if (estimateTimer) clearTimeout(estimateTimer);
+    estimateTimer = setTimeout(() => {
       const ctx = amendChangeCtx();
       if (!ctx?.hasChange || !ctx.qtyValid) return;
-      fetchRcPreview(
+      fetchPricingEstimate(
         {
           newQty: ctx.newQty,
           currentQty: ctx.baselineQty,
@@ -1006,7 +1041,7 @@
         },
         { manual: false }
       );
-    }, 900);
+    }, 350);
   };
 
   const syncPreview = () => {
@@ -1076,7 +1111,7 @@
       }
     }
 
-    // Local estimate immediately; live RC sticky preview replaces shortly.
+    // Local estimate immediately; Pricing API replaces shortly (no Quote).
     renderOrderMath({
       currency: cur,
       monthlyToday: before.total,
@@ -1091,11 +1126,12 @@
 
     if (orderSummaryCard) orderSummaryCard.hidden = false;
 
-    if (previewTimer) {
-      clearTimeout(previewTimer);
-      previewTimer = null;
+    if (estimateTimer) {
+      clearTimeout(estimateTimer);
+      estimateTimer = null;
     }
-    // Invalidate freshness until the next RC response — keep sticky Quote ids.
+    // Invalidate until the next Pricing API estimate returns.
+    pricedEstimate = null;
     pricedPreview = null;
     syncAmendActions();
     const src = document.getElementById("pricingSourceNote");
@@ -1107,14 +1143,12 @@
       if (amendStatus && !amendStatus.classList.contains("error")) {
         amendStatus.textContent = "";
       }
-      stickyAmendQuotes = [];
-      stickyModuleQuoteId = null;
     } else {
       if (src) {
         src.textContent =
-          "Local estimate — Revenue Cloud is updating your sticky quote…";
+          "Local estimate — pricing with Salesforce Pricing API…";
       }
-      scheduleRcPreview();
+      schedulePricingEstimate();
     }
 
     const band = activeBand(newQty);
@@ -1306,6 +1340,79 @@
     setQty(startQty);
     savePin(data.account.id, data.account.name);
     applyAccountFocus();
+    restoreStickyAmendEditor(data);
+  };
+
+  const restoreStickyAmendEditor = (data) => {
+    stickyAmendDrafts = readStickyAmend();
+    const sticky = stickyAmendDrafts;
+    const accountId = data?.account?.id;
+    if (!sticky || !accountId || sticky.accountId !== accountId) {
+      if (sticky && sticky.accountId !== accountId) clearStickyAmend();
+      syncAmendActions();
+      return;
+    }
+    const params = new URLSearchParams(location.search);
+    const editing = params.get("edit") === "1";
+    // Always keep sticky Quote ids for Update quote; restore seats/modules when
+    // returning from amend summary Edit change.
+    if (editing || sticky.newQty != null || (sticky.addonSkus || []).length) {
+      if (sticky.startDate) {
+        const startInput = document.getElementById("startDateInput");
+        if (startInput) {
+          const day = String(sticky.startDate).slice(0, 10);
+          if (day) startInput.value = day;
+        }
+      }
+      if (sticky.newQty != null && Number(sticky.newQty) >= 1) {
+        setQty(Number(sticky.newQty));
+      }
+      const ownedSkus = new Set(
+        (data.subscription?.assets || [])
+          .map((a) => a.sku)
+          .filter(Boolean)
+      );
+      selectedAddons.clear();
+      for (const sku of sticky.addonSkus || []) {
+        if (sku && !ownedSkus.has(sku)) selectedAddons.add(sku);
+      }
+      // Re-paint module cards to match selection without a full console redraw.
+      document.querySelectorAll("#moduleGrid .module-card").forEach((card) => {
+        const sku = card.dataset.sku;
+        if (card.disabled) return;
+        const on = selectedAddons.has(sku);
+        card.classList.toggle("selected", on);
+        card.setAttribute("aria-pressed", on ? "true" : "false");
+        const note = card.querySelector(".mod-note");
+        if (note) {
+          note.textContent = on
+            ? "Selected · will add on Place order"
+            : "Click to add";
+        }
+      });
+      const available = (data.catalog?.addons || []).filter(
+        (a) => a.available && !ownedSkus.has(a.sku)
+      );
+      const modCount = document.getElementById("moduleCount");
+      if (modCount) {
+        modCount.textContent = `${available.length} available · ${ownedSkus.size} owned · ${selectedAddons.size} selected`;
+      }
+      if (editing) {
+        amendStatus.textContent =
+          "Editing your open Draft Quote — change seats/modules, then Update quote.";
+        amendStatus.classList.remove("error");
+        // Drop ?edit=1 so refresh doesn't re-toast.
+        params.delete("edit");
+        const qs = params.toString();
+        history.replaceState(
+          {},
+          "",
+          `${location.pathname}${qs ? `?${qs}` : ""}`
+        );
+      }
+      syncPreview();
+    }
+    syncAmendActions();
   };
 
   const applyAccountFocus = () => {
@@ -1453,30 +1560,93 @@
       amendStatus.classList.remove("error");
       return;
     }
-    if (!previewIsFresh(ctx) || !pricedPreview?.ok) {
-      amendStatus.textContent = "Wait for live pricing to finish, then generate quote.";
+    if (!estimateIsFresh(ctx) || !pricedEstimate?.ok) {
+      amendStatus.textContent =
+        "Wait for Pricing API estimate to finish, then generate quote.";
       amendStatus.classList.remove("error");
       return;
     }
-    amendStatus.textContent = "Opening amend summary…";
+    const sticky = activeStickyForAccount();
+    amendStatus.textContent = sticky
+      ? "Updating your Draft Quote in Revenue Cloud (same Quote, System reprice)…"
+      : "Generating quote in Revenue Cloud (Opportunity + Quote, System reprice)…";
     amendStatus.classList.remove("error");
+    pricingBusy = true;
+    syncAmendActions();
     try {
+      const body = {
+        accountId: state.account.id,
+        assetId: state.subscription.primaryAssetId || undefined,
+        addonSkus: ctx.addons,
+        startDate: ctx.startIso,
+      };
+      if (ctx.qtyChanged) body.newQty = ctx.newQty;
+      // Prefer the open self-serve Draft Quote(s) — retarget instead of create.
+      if (sticky?.amendQuotes?.length) body.amendQuotes = sticky.amendQuotes;
+      if (sticky?.moduleQuoteId) body.moduleQuoteId = sticky.moduleQuoteId;
+      const resp = await fetch("/api/account-amend-preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const preview = await resp.json();
+      if (!resp.ok || !preview.ok) {
+        throw new Error(preview.error || "Could not create amend quote");
+      }
+      pricedPreview = preview;
+      writeStickyAmend(stickyFromPreview(preview, state.account.id));
+      try {
+        document.dispatchEvent(new CustomEvent("bh-agent-context-refresh"));
+      } catch (_) {
+        /* ignore */
+      }
+      // Paint due-today from the real Quote before navigating.
+      const lines = (preview.lines || []).map((l) => ({
+        name: l.name,
+        sku: l.sku,
+        qty: l.qty,
+        netPepm: l.netPepm,
+        flatMonthly: l.isFlat ? l.monthly : null,
+        monthly: l.monthly,
+        isFlat: !!l.isFlat,
+        isPepm: !!l.isPepm,
+        isNew: !!l.isNew,
+        source: l.source,
+      }));
+      renderOrderMath({
+        currency: preview.currency || state.account.currency || "USD",
+        monthlyToday: preview.monthly?.today ?? 0,
+        monthlyAfter: preview.monthly?.after ?? 0,
+        lines,
+        dueToday: preview.dueToday,
+        daysLeft: ctx.daysLeft,
+        termEnd: ctx.termEnd,
+        provisional: false,
+        sourceNote: sticky
+          ? "Updated sticky Draft Quote in Revenue Cloud — opening summary…"
+          : "Quoted in Revenue Cloud (System reprice) — opening summary…",
+      });
       const summary = {
-        ...pricedPreview,
+        ...preview,
         assetId: state.subscription?.primaryAssetId || null,
         country: state.account?.billingCountry || state.account?.country || "US",
       };
-      const resp = await fetch("/api/account-amend-cache", {
+      const cacheResp = await fetch("/api/account-amend-cache", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ summary }),
       });
-      const data = await resp.json();
-      if (!resp.ok || !data.ok) throw new Error(data.error || "Could not cache summary");
+      const data = await cacheResp.json();
+      if (!cacheResp.ok || !data.ok) {
+        throw new Error(data.error || "Could not cache summary");
+      }
       window.location.href = data.amendQuoteUrl || `/amend-quote/${data.id}`;
     } catch (err) {
       amendStatus.textContent = err.message || String(err);
       amendStatus.classList.add("error");
+    } finally {
+      pricingBusy = false;
+      syncAmendActions();
     }
   });
 

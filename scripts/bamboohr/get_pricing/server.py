@@ -26,12 +26,39 @@ STATIC = HERE / "static"
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
+
+def _load_dotenv(path: Path) -> None:
+    """Load KEY=VALUE from .env into os.environ (do not override existing)."""
+    if not path.is_file():
+        return
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError:
+        return
+    for line in raw.splitlines():
+        s = line.strip()
+        if not s or s.startswith("#") or "=" not in s:
+            continue
+        key, _, val = s.partition("=")
+        key = key.strip()
+        if not key or key in os.environ:
+            continue
+        val = val.strip()
+        if len(val) >= 2 and val[0] == val[-1] and val[0] in "\"'":
+            val = val[1:-1]
+        os.environ[key] = val
+
+
+_load_dotenv(HERE / ".env")
+
 from account_console import (  # noqa: E402
+    estimate_account_amend,
     load_account_console,
     place_account_changes,
     preview_account_changes,
     preview_qty_delta,
 )
+from amend_summary import attach_amend_summary_view  # noqa: E402
 from ec_handoff import EcHandoffError, verify_ec_token  # noqa: E402
 from checkout import checkout_quote  # noqa: E402
 from portal_login import create_buyer_login  # noqa: E402
@@ -42,15 +69,31 @@ from docgen import (  # noqa: E402
 )
 from quote_email import send_quote_email  # noqa: E402
 from payment_email import send_payment_email  # noqa: E402
+from pricing_api import estimate_get_pricing  # noqa: E402
 from pricing_preview import preview_get_pricing  # noqa: E402
 from service import (  # noqa: E402
     BuyerInfo,
+    DEFAULT_TERM_MONTHS,
     GetPricingRequest,
     OrgSession,
     get_pricing,
     hydrate_catalog,
     quote_related_ids,
 )
+from datetime import date as _date  # noqa: E402
+
+
+def _parse_start_date(raw: object) -> _date | None:
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    return _date.fromisoformat(text[:10])
+
+
+def _parse_term_months(raw: object) -> int:
+    if raw is None or raw == "":
+        return DEFAULT_TERM_MONTHS
+    return int(raw)
 
 # In-memory quote summaries for /quote/{id} branded page (demo only).
 QUOTE_CACHE: dict[str, dict] = {}
@@ -60,6 +103,51 @@ ORG_ALIAS = "master-demo"
 SESSION: OrgSession | None = None
 CORS_ORIGIN = ""  # empty = omit CORS headers; "*" or origin for hosted demos
 DOCGEN_TEMPLATE = os.environ.get("DOCGEN_TEMPLATE_NAME") or DEFAULT_TEMPLATE
+
+
+def _agent_config_payload() -> dict:
+    """Public Messaging / Agentforce embed config (no secrets).
+
+    AGENT_CHAT_ENABLED=1 + deployment fields → load Salesforce MIAW.
+    AGENT_CHAT_PREVIEW=1 → Phase 1 launcher shell until Messaging is ready.
+    """
+    enabled = os.environ.get("AGENT_CHAT_ENABLED", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+    preview = os.environ.get("AGENT_CHAT_PREVIEW", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+    # Default preview on for local demos so the launcher is visible before Phase 0.
+    if not enabled and "AGENT_CHAT_PREVIEW" not in os.environ:
+        preview = True
+    return {
+        "ok": True,
+        "enabled": enabled,
+        "preview": preview and not enabled,
+        "orgId": os.environ.get("AGENT_CHAT_ORG_ID", "").strip() or None,
+        "deploymentName": (
+            os.environ.get("AGENT_CHAT_DEPLOYMENT_NAME", "").strip() or None
+        ),
+        "messagingUrl": (
+            os.environ.get("AGENT_CHAT_MESSAGING_URL", "").strip() or None
+        ),
+        "scrtUrl": os.environ.get("AGENT_CHAT_SCRT_URL", "").strip() or None,
+        "language": os.environ.get("AGENT_CHAT_LANGUAGE", "en_US").strip()
+        or "en_US",
+        "orgLabel": ORG_ALIAS,
+        "placeOrderViaChat": False,
+        "notes": [
+            "Guest chat may estimate; Quote create needs company + work email.",
+            "Place order stays on the summary CTA (MVP).",
+            "Use a named Cloudflare tunnel for Messaging allow-lists.",
+        ],
+    }
 
 
 def _session() -> OrgSession:
@@ -467,6 +555,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 sess = _session()
                 base = (sess._instance or "").rstrip("/")
+                agent = _agent_config_payload()
                 self._json(
                     200,
                     {
@@ -475,6 +564,10 @@ class Handler(BaseHTTPRequestHandler):
                         "authMode": sess.auth_mode,
                         "org": sess.alias,
                         "instanceUrl": base,
+                        "agentChat": {
+                            "enabled": agent.get("enabled"),
+                            "preview": agent.get("preview"),
+                        },
                         "links": {
                             "home": f"{base}/lightning/page/home" if base else "",
                             "accounts": (
@@ -487,6 +580,9 @@ class Handler(BaseHTTPRequestHandler):
                 )
             except Exception as exc:  # noqa: BLE001
                 self._json(503, {"ok": False, "error": str(exc)})
+            return
+        if path == "/api/agent-config":
+            self._json(200, _agent_config_payload())
             return
         if path == "/api/catalog":
             try:
@@ -627,6 +723,12 @@ class Handler(BaseHTTPRequestHandler):
                     },
                 )
                 return
+            if summary.get("ok") and not (
+                isinstance(summary.get("amendSummaryView"), dict)
+                and summary["amendSummaryView"].get("ok")
+            ):
+                summary = attach_amend_summary_view(summary)
+                AMEND_CACHE[cache_id] = summary
             self._json(200, {"ok": True, "id": cache_id, "summary": summary})
             return
         if path in ("/", "/index.html"):
@@ -738,6 +840,20 @@ class Handler(BaseHTTPRequestHandler):
                     '<button type="button" id="convertTrialBtn" class="secondary">'
                     "Convert to paid pricing</button>"
                 )
+            start_iso = str(data.get("startDate") or "")[:10]
+            end_iso = str(data.get("endDate") or "")[:10]
+            term_months = int(data.get("termMonths") or DEFAULT_TERM_MONTHS)
+            if data.get("freeTrial"):
+                days = int(data.get("trialDays") or 30)
+                subscription_meta = (
+                    f"Starts {start_iso or '—'} · {days}-day free trial"
+                    + (f" · ends {end_iso}" if end_iso else "")
+                )
+            else:
+                subscription_meta = (
+                    f"Starts {start_iso or '—'} · {term_months}-month term"
+                    + (f" · ends {end_iso}" if end_iso else "")
+                )
             for key, val in {
                 "{{planName}}": data["planName"],
                 "{{headcount}}": str(data["headcount"]),
@@ -748,6 +864,7 @@ class Handler(BaseHTTPRequestHandler):
                 "{{netPepm}}": f"{data['netPepm']:.2f}",
                 "{{monthlyTotal}}": f"{data['monthlyTotal']:,.2f}",
                 "{{annualTotal}}": f"{data['annualTotal']:,.2f}",
+                "{{subscriptionMeta}}": subscription_meta,
                 "{{quoteId}}": data["quoteId"] or "",
                 "{{accountName}}": data["accountName"],
                 "{{lineItems}}": line_html,
@@ -773,7 +890,32 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400, {"ok": False, "error": "Invalid JSON"})
             return
 
+        if path == "/api/get-pricing-estimate":
+            # Phase 1 rail: Salesforce Pricing API only — no Opp/Quote.
+            try:
+                raw_addons = body.get("addonSkus") or body.get("addons") or []
+                if isinstance(raw_addons, str):
+                    raw_addons = [s.strip() for s in raw_addons.split(",") if s.strip()]
+                result = estimate_get_pricing(
+                    _session(),
+                    headcount=int(body.get("headcount") or 0),
+                    country=str(body.get("country") or "US"),
+                    plan_sku=str(body.get("planSku") or "BAMBOO-PRO"),
+                    addon_skus=list(raw_addons),
+                    free_trial=bool(
+                        body.get("freeTrial") or body.get("free_trial")
+                    ),
+                    start_date=_parse_start_date(body.get("startDate")),
+                    term_months=_parse_term_months(body.get("termMonths")),
+                )
+                self._json(200 if result.get("ok") else 400, result)
+            except Exception as exc:  # noqa: BLE001
+                self._json(400, {"ok": False, "error": str(exc)})
+            return
+
         if path == "/api/get-pricing-preview":
+            # Kept for rollback / Licenses-adjacent experiments — Get Pricing UI
+            # uses /api/get-pricing-estimate (Pricing API) instead.
             try:
                 raw_addons = body.get("addonSkus") or body.get("addons") or []
                 if isinstance(raw_addons, str):
@@ -842,6 +984,8 @@ class Handler(BaseHTTPRequestHandler):
                         body.get("previewQuoteId") or body.get("quoteId") or ""
                     )
                     or None,
+                    start_date=_parse_start_date(body.get("startDate")),
+                    term_months=_parse_term_months(body.get("termMonths")),
                 )
                 result = get_pricing(_session(), req)
                 payload = result.as_dict()
@@ -887,6 +1031,8 @@ class Handler(BaseHTTPRequestHandler):
                             "lastName": " ".join(name_parts[1:]),
                         }
                     ),
+                    start_date=_parse_start_date(cached.get("startDate")),
+                    term_months=_parse_term_months(cached.get("termMonths")),
                 )
                 result = get_pricing(_session(), req)
                 payload = result.as_dict()
@@ -1042,7 +1188,53 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(400, {"ok": False, "error": str(exc)})
             return
 
+        if path == "/api/account-amend-estimate":
+            # Phase 2 rail: Pricing API after PEPM — no Opp/Quote / due-today.
+            account_id = str(body.get("accountId") or "").strip()
+            raw_addons = body.get("addonSkus") or body.get("addons") or []
+            if not isinstance(raw_addons, list):
+                raw_addons = []
+            addon_skus = [str(s).strip() for s in raw_addons if str(s).strip()]
+            new_qty: int | None
+            if body.get("newQty") in (None, ""):
+                new_qty = None
+            else:
+                try:
+                    new_qty = int(body.get("newQty"))
+                except (TypeError, ValueError):
+                    self._json(400, {"ok": False, "error": "newQty must be an integer"})
+                    return
+            if not account_id:
+                self._json(400, {"ok": False, "error": "accountId is required"})
+                return
+            start_date = None
+            start_raw = str(body.get("startDate") or "").strip()
+            if start_raw:
+                try:
+                    from datetime import date as _date
+
+                    start_date = _date.fromisoformat(start_raw[:10])
+                except ValueError:
+                    self._json(
+                        400,
+                        {"ok": False, "error": "startDate must be YYYY-MM-DD"},
+                    )
+                    return
+            try:
+                result = estimate_account_amend(
+                    _session(),
+                    account_id=account_id,
+                    new_qty=new_qty,
+                    addon_skus=addon_skus,
+                    start_date=start_date,
+                )
+                self._json(200 if result.get("ok") else 400, result)
+            except Exception as exc:  # noqa: BLE001
+                self._json(400, {"ok": False, "error": str(exc)})
+            return
+
         if path == "/api/account-amend-preview":
+            # Generate quote — sticky Draft Quotes + System reprice (due today).
             account_id = str(body.get("accountId") or "").strip()
             asset_id = str(body.get("assetId") or "").strip() or None
             raw_addons = body.get("addonSkus") or body.get("addons") or []
@@ -1113,13 +1305,24 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(summary, dict) or not summary.get("accountId"):
                 self._json(400, {"ok": False, "error": "summary with accountId is required"})
                 return
+            # Phase A: ensure amendSummaryView is present (new-way cache).
+            if summary.get("ok") and not (
+                isinstance(summary.get("amendSummaryView"), dict)
+                and summary["amendSummaryView"].get("ok")
+            ):
+                summary = attach_amend_summary_view(summary)
             cache_id = ""
-            for q in summary.get("amendQuotes") or []:
+            view = summary.get("amendSummaryView") or {}
+            for q in summary.get("amendQuotes") or view.get("amendQuotes") or []:
                 if isinstance(q, dict) and q.get("quoteId"):
                     cache_id = str(q["quoteId"])
                     break
             if not cache_id:
-                cache_id = str(summary.get("moduleQuoteId") or "").strip()
+                cache_id = str(
+                    summary.get("moduleQuoteId")
+                    or view.get("moduleQuoteId")
+                    or ""
+                ).strip()
             if not cache_id:
                 cache_id = f"amend-{summary['accountId']}"
             AMEND_CACHE[cache_id] = dict(summary)
@@ -1130,6 +1333,11 @@ class Handler(BaseHTTPRequestHandler):
                     "ok": True,
                     "id": cache_id,
                     "amendQuoteUrl": f"/amend-quote/{cache_id}",
+                    "hasAmendSummaryView": bool(
+                        (AMEND_CACHE[cache_id].get("amendSummaryView") or {}).get(
+                            "ok"
+                        )
+                    ),
                 },
             )
             return
@@ -1447,15 +1655,33 @@ def main() -> int:
         default=os.environ.get("BFF_CORS_ORIGIN") or "",
         help='Optional CORS Allow-Origin (e.g. "*" for demos)',
     )
+    parser.add_argument(
+        "--ssl-cert",
+        default=os.environ.get("BFF_SSL_CERT") or "",
+        help="PEM cert path for HTTPS (pair with --ssl-key)",
+    )
+    parser.add_argument(
+        "--ssl-key",
+        default=os.environ.get("BFF_SSL_KEY") or "",
+        help="PEM private key path for HTTPS",
+    )
     args = parser.parse_args()
     ORG_ALIAS = args.org
     CORS_ORIGIN = args.cors_origin
     SESSION = None
+    scheme = "https" if (args.ssl_cert and args.ssl_key) else "http"
     print(f"BambooHR Get Pricing BFF → org={args.org}")
-    print(f"Listening on http://{args.host}:{args.port}/")
+    print(f"Listening on {scheme}://{args.host}:{args.port}/")
     sess = _session()
     print(f"Auth ready: mode={sess.auth_mode} label={sess.alias}")
-    ThreadingHTTPServer((args.host, args.port), Handler).serve_forever()
+    httpd = ThreadingHTTPServer((args.host, args.port), Handler)
+    if args.ssl_cert and args.ssl_key:
+        import ssl
+
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(args.ssl_cert, args.ssl_key)
+        httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
+    httpd.serve_forever()
     return 0
 
 

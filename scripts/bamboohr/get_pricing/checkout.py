@@ -11,7 +11,102 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from service import API, CORE_FLAT_SKU, OrgSession, volume_rate
+from service import (
+    API,
+    CATALOG_PLAN_SKUS,
+    CORE_FLAT_SKU,
+    OrgSession,
+    PATH_B_BUNDLE_SAVE,
+    US_ONLY_ADDONS,
+    volume_rate,
+)
+
+# Path B a la carte — same plan set as RLM_BambooPathBBundleSave.cls
+_PATH_B_PLAN_SKUS = frozenset({*CATALOG_PLAN_SKUS, CORE_FLAT_SKU})
+_PATH_B_REQUIRED_ADDONS = frozenset({"BAMBOO-ADD-PAYROLL", "BAMBOO-ADD-BENEFITS"})
+
+
+def path_b_skus_eligible(skus: set[str] | list[str] | tuple[str, ...]) -> bool:
+    """True when stack is a la carte plan + Payroll + Benefits (no Workforce package)."""
+    upper = {str(s or "").upper() for s in skus if s}
+    if not upper:
+        return False
+    has_plan = bool(upper & _PATH_B_PLAN_SKUS)
+    has_package = any(s.startswith("BAMBOO-PKG-") for s in upper)
+    return has_plan and not has_package and _PATH_B_REQUIRED_ADDONS <= upper
+
+
+def account_owned_skus(session: OrgSession, account_id: str) -> set[str]:
+    """Asset SKUs on the Account (for Path B eligibility beyond Quote lines)."""
+    aid = (account_id or "").replace("'", "\\'")
+    if not aid:
+        return set()
+    rows = session.soql(
+        "SELECT Product2.StockKeepingUnit FROM Asset "
+        f"WHERE AccountId = '{aid}' "
+        "AND Product2.StockKeepingUnit != null "
+        "LIMIT 200"
+    )
+    return {
+        ((r.get("Product2") or {}).get("StockKeepingUnit") or "").upper()
+        for r in rows
+        if (r.get("Product2") or {}).get("StockKeepingUnit")
+    }
+
+
+def resolve_path_b_for_quote(
+    session: OrgSession,
+    quote_id: str,
+    *,
+    account_id: str | None = None,
+    extra_skus: list[str] | None = None,
+) -> bool:
+    """Path B if Quote lines ∪ Account assets ∪ extras form an eligible stack.
+
+    Amend Quotes often lack the full SKU set on one Draft; module add-on Quotes
+    may only carry Payroll/Benefits. Account Assets supply the rest.
+    """
+    qid = (quote_id or "").replace("'", "\\'")
+    skus: set[str] = set()
+    acct = (account_id or "").strip() or None
+    if qid:
+        qrows = session.soql(
+            "SELECT QuoteAccountId, AccountId FROM Quote "
+            f"WHERE Id = '{qid}' LIMIT 1"
+        )
+        if qrows and not acct:
+            acct = qrows[0].get("QuoteAccountId") or qrows[0].get("AccountId")
+        lines = session.soql(
+            "SELECT Product2.StockKeepingUnit FROM QuoteLineItem "
+            f"WHERE QuoteId = '{qid}'"
+        )
+        for line in lines:
+            sku = ((line.get("Product2") or {}).get("StockKeepingUnit") or "").upper()
+            if sku:
+                skus.add(sku)
+    if acct:
+        skus |= account_owned_skus(session, acct)
+    for s in extra_skus or []:
+        if s:
+            skus.add(str(s).upper())
+    return path_b_skus_eligible(skus)
+
+
+def expected_amend_net_pepm(
+    list_pepm: float,
+    *,
+    sku: str,
+    volume_percent: float,
+    path_b: bool,
+) -> float:
+    """List → Path B Bundle & Save (Payroll/Benefits) → volume tier."""
+    price = float(list_pepm)
+    sku_u = (sku or "").upper()
+    if path_b and sku_u in US_ONLY_ADDONS:
+        price *= 1.0 - PATH_B_BUNDLE_SAVE
+    if volume_percent:
+        price *= 1.0 - float(volume_percent) / 100.0
+    return round(price, 2)
 
 
 @dataclass
@@ -274,6 +369,9 @@ def apply_amend_volume_pricing(
     quote_id: str,
     *,
     volume_headcount: int,
+    path_b: bool | None = None,
+    account_id: str | None = None,
+    extra_skus: list[str] | None = None,
 ) -> None:
     """Stamp post-amend headcount and System-reprice for Volume on amends.
 
@@ -283,15 +381,22 @@ def apply_amend_volume_pricing(
     ``RLM_Amend_Volume_Qty__c`` is set — BFF stamps that field to the
     absolute post-amend headcount, then System-reprices.
 
-    If Net still misses the schedule tier (overlay not applied / context
-    missing), falls back to Force + QLI ``Discount`` so demos stay correct.
+    Path B Bundle & Save is skipped by the pricing procedure on
+    ``LastTransaction`` lines, and module Quotes may omit the plan SKU so
+    Apex clears the Quote flag. This helper resolves Path B from Account
+    Assets ∪ Quote lines, stamps the flag, and verifies **Bundle → volume**
+    nets (Force + combined ``Discount`` fallback when System misses the stack).
     """
     from service import _system_reprice_quote  # local package
 
     qcur = session.soql(
-        f"SELECT CurrencyIsoCode FROM Quote WHERE Id = '{quote_id}'"
+        f"SELECT CurrencyIsoCode, QuoteAccountId, AccountId "
+        f"FROM Quote WHERE Id = '{quote_id}'"
     )
     currency = (qcur[0].get("CurrencyIsoCode") if qcur else None) or "USD"
+    acct = account_id or (
+        (qcur[0].get("QuoteAccountId") or qcur[0].get("AccountId")) if qcur else None
+    )
 
     lines = session.soql(
         "SELECT Id, Quantity, UnitPrice, NetUnitPrice, Discount, Product2Id, "
@@ -316,19 +421,40 @@ def apply_amend_volume_pricing(
     if not pepm_lines:
         return
 
-    # REST stamp (Place Skip often strips custom fields on amend Quotes).
-    try:
-        session.patch(
-            "Quote",
+    if path_b is None:
+        path_b = resolve_path_b_for_quote(
+            session,
             quote_id,
-            {"RLM_Bamboo_Amend_Volume__c": True},
+            account_id=acct,
+            extra_skus=extra_skus,
         )
+
+    # REST stamp (Place Skip often strips custom fields on amend Quotes).
+    quote_stamp: dict[str, Any] = {"RLM_Bamboo_Amend_Volume__c": True}
+    if path_b:
+        quote_stamp["RLM_Bamboo_PathB_BundleSave__c"] = True
+    try:
+        session.patch("Quote", quote_id, quote_stamp)
     except Exception as exc:  # noqa: BLE001
-        raise RuntimeError(
-            f"Could not stamp Quote.RLM_Bamboo_Amend_Volume__c on {quote_id}: "
-            f"{exc}. Deploy unpackaged/post_bamboohr and apply "
-            "apply_context_bamboohr_amend_volume."
-        ) from exc
+        if "RLM_Bamboo_PathB_BundleSave__c" in quote_stamp:
+            try:
+                session.patch(
+                    "Quote",
+                    quote_id,
+                    {"RLM_Bamboo_Amend_Volume__c": True},
+                )
+            except Exception as exc2:  # noqa: BLE001
+                raise RuntimeError(
+                    f"Could not stamp Quote.RLM_Bamboo_Amend_Volume__c on {quote_id}: "
+                    f"{exc2}. Deploy unpackaged/post_bamboohr and apply "
+                    "apply_context_bamboohr_amend_volume."
+                ) from exc2
+        else:
+            raise RuntimeError(
+                f"Could not stamp Quote.RLM_Bamboo_Amend_Volume__c on {quote_id}: "
+                f"{exc}. Deploy unpackaged/post_bamboohr and apply "
+                "apply_context_bamboohr_amend_volume."
+            ) from exc
     for line in pepm_lines:
         try:
             session.patch(
@@ -343,9 +469,21 @@ def apply_amend_volume_pricing(
                 "apply_context_bamboohr_amend_volume."
             ) from exc
 
+    # Re-stamp Path B after QLI DML — Apex syncs from Quote lines only and may
+    # clear the flag on module Quotes that omit the plan SKU.
+    if path_b:
+        try:
+            session.patch(
+                "Quote",
+                quote_id,
+                {"RLM_Bamboo_PathB_BundleSave__c": True},
+            )
+        except Exception:
+            pass
+
     _system_reprice_quote(session, quote_id)
 
-    # Verify Volume landed; Discount fallback if overlay missing.
+    # Verify Bundle→volume (or volume-only) landed; Discount fallback if not.
     lines_after = session.soql(
         "SELECT Id, Quantity, NetUnitPrice, Discount, Product2Id, "
         "ProductSellingModelId, Product2.StockKeepingUnit, "
@@ -360,7 +498,9 @@ def apply_amend_volume_pricing(
                     "method": "PATCH",
                     "type": "Quote",
                     "id": quote_id,
-                }
+                },
+                "RLM_Bamboo_Amend_Volume__c": True,
+                "RLM_Bamboo_PathB_BundleSave__c": bool(path_b),
             },
         }
     ]
@@ -379,7 +519,15 @@ def apply_amend_volume_pricing(
             currency=currency,
             headcount=headcount,
         )
-        expected_net = round(list_p * (1.0 - vol_pct / 100.0), 2)
+        expected_net = expected_amend_net_pepm(
+            list_p,
+            sku=sku,
+            volume_percent=vol_pct,
+            path_b=bool(path_b),
+        )
+        # Combined % off list so Force Discount reproduces Bundle → volume.
+        factor = expected_net / list_p if list_p else 1.0
+        discount_pct = round(max(0.0, (1.0 - factor) * 100.0), 4)
         net = float(line.get("NetUnitPrice") or line.get("UnitPrice") or 0)
         if abs(net - expected_net) < 0.02:
             continue
@@ -394,7 +542,7 @@ def apply_amend_volume_pricing(
                     },
                     "Quantity": str(int(float(line.get("Quantity") or 1))),
                     "UnitPrice": list_p,
-                    "Discount": vol_pct,
+                    "Discount": discount_pct,
                     "RLM_Amend_Volume_Qty__c": headcount,
                 },
             }
@@ -909,7 +1057,9 @@ def find_sticky_amend_mutable(
             "SELECT Id, Name, Status, Description, OpportunityId, QuoteNumber "
             f"FROM Quote WHERE Id = '{_soql_escape_local(preferred)}' LIMIT 1"
         )
-        if rows and _matches(rows[0]):
+        if rows and (rows[0].get("Status") or "") == "Draft":
+            # Buyer's open self-serve Draft — always prefer retargeting this
+            # Quote (same record) over creating another amend Draft.
             return rows[0]
 
     rows = session.soql(

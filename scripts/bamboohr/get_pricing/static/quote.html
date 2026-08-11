@@ -9,6 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/app.css" />
+  <link rel="stylesheet" href="/static/agent-chat.css" />
 </head>
 <body class="quote-page">
   <header class="site-header">
@@ -30,11 +31,12 @@
         <div>
           <p class="quote-kicker">Selected plan</p>
           <h2 class="quote-plan">{{planName}}</h2>
+          <p class="muted" id="subscriptionMeta">{{subscriptionMeta}}</p>
         </div>
         <div class="quote-total-block">
           <p class="quote-total-label">Total today <span>(monthly)</span></p>
           <p class="quote-total"><span class="sym">$</span>{{monthlyTotal}}</p>
-          <p class="quote-total-sub">${{annualTotal}} / year</p>
+          <p class="quote-total-sub">${{annualTotal}} / year (monthly × 12)</p>
         </div>
       </header>
 
@@ -518,5 +520,6 @@
       });
     })();
   </script>
+  <script src="/static/agent-chat.js"></script>
 </body>
 </html>

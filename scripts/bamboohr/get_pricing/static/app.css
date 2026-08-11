@@ -2830,6 +2830,35 @@ body.quote-page {
   font-weight: 700;
 }
 
+.term-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 1.5rem;
+  align-items: flex-end;
+}
+
+.term-controls .start-date-field {
+  margin-top: 0;
+}
+
+.term-months-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.term-months-field select {
+  font: inherit;
+  font-weight: 600;
+  padding: 0.55rem 0.7rem;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 12px;
+  min-width: 10rem;
+  background: #fff;
+}
+
 .start-date-field input[type="date"] {
   font: inherit;
   font-weight: 600;
@@ -3191,9 +3220,182 @@ body.quote-page {
 .amend-pay-note {
   margin: 0.55rem 0 0;
   font-size: 0.88rem;
-  max-width: 28rem;
-  margin-left: auto;
-  margin-right: auto;
+  max-width: 36rem;
+}
+
+.amend-quote-parts {
+  margin: 1rem 0 0;
+  padding: 0.85rem 1rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fbfef9;
+}
+.amend-parts-kicker {
+  margin: 0 0 0.4rem;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #6b7280;
+}
+.amend-quote-parts ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.amend-quote-parts li {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.35rem 0;
+  font-size: 0.92rem;
+}
+.amend-quote-parts li + li {
+  border-top: 1px solid #eef1ee;
+}
+
+.amend-charge-lines {
+  margin-top: 1.25rem;
+}
+
+/* Contract impact — second story after Place order */
+.amend-contract-impact {
+  margin: 0.5rem 0 0;
+  padding: 1.5rem 1.35rem 1.35rem;
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, #f4fbf0 0%, #eef8e8 42%, #f7faf5 100%);
+  border: 2px solid rgba(45, 121, 25, 0.28);
+  box-shadow: 0 10px 28px rgba(45, 121, 25, 0.08);
+}
+.amend-contract-impact-head {
+  margin: 0 0 1.15rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid rgba(45, 121, 25, 0.16);
+}
+.amend-contract-kicker {
+  margin: 0 0 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--bilbao, #2d7919);
+}
+.amend-contract-title {
+  margin: 0;
+  font-family: "DM Serif Display", Georgia, serif;
+  font-size: clamp(1.45rem, 2.6vw, 1.85rem);
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  color: #14261a;
+}
+.amend-contract-lede {
+  margin: 0.55rem 0 0;
+  max-width: 38rem;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: #3f4f44;
+}
+.amend-after-chip {
+  margin: 0;
+  padding: 1.15rem 1.25rem;
+  border-radius: 14px;
+  background: #fff;
+  border: 1px solid rgba(45, 121, 25, 0.22);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.8) inset;
+}
+.amend-after-label {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #4b5563;
+}
+.amend-after-mrr {
+  margin: 0.35rem 0 0;
+  font-size: clamp(1.85rem, 3.5vw, 2.35rem);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  color: var(--bilbao, #2d7919);
+}
+.amend-after-chip #afterYearly {
+  margin: 0.35rem 0 0;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.amend-monthly-block {
+  margin-top: 1.25rem;
+}
+.amend-contract-impact .amend-monthly-block h3 {
+  font-size: 1.05rem;
+}
+.amend-summary-card > .buyer-card {
+  margin-top: 1.75rem;
+}
+.amend-charge-lines .lines-waterfall tfoot th,
+.amend-charge-lines .lines-waterfall tfoot td {
+  border-top: 2px solid #e5e7eb;
+  padding-top: 0.85rem;
+  font-weight: 700;
+}
+
+.amend-mrr-table-wrap {
+  overflow-x: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+}
+.amend-mrr-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+.amend-mrr-table th,
+.amend-mrr-table td {
+  padding: 0.85rem 1rem;
+  text-align: left;
+  vertical-align: top;
+}
+.amend-mrr-table thead th {
+  background: #f8faf8;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #6b7280;
+}
+.amend-mrr-table tbody tr + tr td {
+  border-top: 1px solid #eef1ee;
+}
+.amend-mrr-table tbody tr.is-new {
+  background: #fbfef9;
+}
+.amend-mrr-table tfoot th,
+.amend-mrr-table tfoot td {
+  border-top: 2px solid #e5e7eb;
+  background: #fafafa;
+  font-weight: 700;
+}
+.amend-mrr-table .amend-yearly-foot th,
+.amend-mrr-table .amend-yearly-foot td {
+  font-weight: 500;
+  color: #6b7280;
+  background: #fff;
+}
+.amend-row-meta {
+  margin-top: 0.2rem;
+  font-size: 0.8rem;
+}
+.amend-compare-hint {
+  margin: 0.75rem 0 0;
+  font-size: 0.88rem;
+  max-width: 40rem;
+}
+.amend-pay-amount.is-credit {
+  color: #b45309;
 }
 
 .amend-compare {

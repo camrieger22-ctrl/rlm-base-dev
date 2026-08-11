@@ -49,30 +49,18 @@
   let billPeriod = "annual";
   let wasSmallBiz = false;
   let planBeforeSmallBiz = planSku.value;
-  /** Sticky Draft Quote id from /api/get-pricing-preview. */
-  let stickyQuoteId = null;
+  /** Clear legacy sticky-Quote session key from pre–Phase 1 previews. */
   try {
-    stickyQuoteId = sessionStorage.getItem("bhStickyQuoteId") || null;
+    sessionStorage.removeItem("bhStickyQuoteId");
   } catch (_) {
-    stickyQuoteId = null;
+    /* ignore */
   }
-  let stickyCfg = null;
-  let previewTimer = null;
-  let previewSeq = 0;
-  let previewInFlight = false;
-  let previewNeedsRerun = false;
+  let estimateTimer = null;
+  let estimateSeq = 0;
+  let estimateInFlight = false;
+  let estimateNeedsRerun = false;
   let pricingBusy = false;
   let lastRcPricing = null;
-
-  const persistStickyQuoteId = (qid) => {
-    stickyQuoteId = qid || null;
-    try {
-      if (qid) sessionStorage.setItem("bhStickyQuoteId", qid);
-      else sessionStorage.removeItem("bhStickyQuoteId");
-    } catch (_) {
-      /* ignore */
-    }
-  };
 
   const money = (n) =>
     n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -288,6 +276,34 @@
     syncEstimate();
   };
 
+  const readStartDate = () => {
+    const el = document.getElementById("startDateInput");
+    const v = el?.value;
+    if (v) return v;
+    return new Date().toISOString().slice(0, 10);
+  };
+
+  const readTermMonths = () => {
+    const el = document.getElementById("termMonths");
+    const n = Number(el?.value || 12);
+    return [12, 24, 36].includes(n) ? n : 12;
+  };
+
+  const updateTermHint = () => {
+    const hint = document.getElementById("termHint");
+    if (!hint) return;
+    const trial = !!document.getElementById("freeTrial")?.checked;
+    const start = readStartDate();
+    const months = readTermMonths();
+    const termEl = document.getElementById("termMonths");
+    if (termEl) termEl.disabled = trial;
+    if (trial) {
+      hint.textContent = `Starts ${start} · free trial ends 30 days later (term selection applies after convert).`;
+    } else {
+      hint.textContent = `Starts ${start} · ${months}-month term on Quote lines in Salesforce.`;
+    }
+  };
+
   const currentBuyer = () => {
     let buyer = {};
     try {
@@ -309,12 +325,6 @@
     return buyer;
   };
 
-  const cfgFingerprint = () => {
-    const addons = selectedAddons().slice().sort().join(",");
-    const trial = document.getElementById("freeTrial")?.checked ? "1" : "0";
-    return `${planSku.value}|${Number(headcount.value) || 0}|${country.value}|${addons}|trial=${trial}`;
-  };
-
   const setRailBusy = (busy, message) => {
     pricingBusy = busy;
     const rail = document.querySelector(".rail-card");
@@ -331,19 +341,26 @@
     flat,
     cur,
     sourceNote,
+    termMonths,
   }) => {
+    const months = Number(termMonths) || readTermMonths();
+    const termTotal = round2(monthly * months);
     const annual = round2(monthly * 12);
-    const total = billPeriod === "annual" ? annual : monthly;
+    const total = billPeriod === "annual" ? termTotal : monthly;
     document.getElementById("railPepm").textContent = money(pepmDisplay);
     document.getElementById("railPepmUnit").textContent = flat
       ? `effective / emp · ${cur} flat package`
       : `per employee / month · ${cur}`;
     document.getElementById("railBill").textContent =
-      billPeriod === "annual" ? "Billed annually" : "Billed monthly";
+      billPeriod === "annual"
+        ? `Billed · ${months}-month term`
+        : "Billed monthly";
     document.getElementById("railSubLabel").textContent =
-      billPeriod === "annual" ? "Subscription, per year" : "Subscription, per month";
+      billPeriod === "annual"
+        ? `Subscription, ${months} mo`
+        : "Subscription, per month";
     document.getElementById("railSub").textContent = `$${money(
-      billPeriod === "annual" ? annual : monthly
+      billPeriod === "annual" ? termTotal : monthly
     )}`;
     document.getElementById("railTotal").textContent = `$${money(total)}`;
     const railLines = document.getElementById("railLines");
@@ -362,50 +379,45 @@
     }
     const src = document.getElementById("railSource");
     if (src && sourceNote) src.textContent = sourceNote;
+    void annual;
   };
 
-  const scheduleRcPreview = () => {
-    if (previewTimer) clearTimeout(previewTimer);
-    // Longer debounce + single-flight below — RC System reprice is ~4–8s.
-    previewTimer = setTimeout(() => fetchRcPreview(), 700);
+  const schedulePricingEstimate = () => {
+    if (estimateTimer) clearTimeout(estimateTimer);
+    // Pricing API is ~1–2s — shorter debounce than sticky Quote System reprice.
+    estimateTimer = setTimeout(() => fetchPricingEstimate(), 350);
   };
 
-  const fetchRcPreview = async () => {
-    // Coalesce: never queue multiple Salesforce previews behind the account lock.
-    if (previewInFlight) {
-      previewNeedsRerun = true;
+  const fetchPricingEstimate = async () => {
+    if (estimateInFlight) {
+      estimateNeedsRerun = true;
       return;
     }
-    previewInFlight = true;
-    previewNeedsRerun = false;
-    const seq = ++previewSeq;
-    const cfg = cfgFingerprint();
-    setRailBusy(true, "Pricing in Revenue Cloud…");
+    estimateInFlight = true;
+    estimateNeedsRerun = false;
+    const seq = ++estimateSeq;
+    setRailBusy(true, "Pricing with Salesforce Pricing API…");
     try {
-      const buyer = currentBuyer();
       const body = {
         headcount: Number(headcount.value) || 1,
         country: country.value,
         planSku: planSku.value,
         addonSkus: selectedAddons(),
         freeTrial: !!document.getElementById("freeTrial")?.checked,
-        quoteId: stickyQuoteId || undefined,
+        startDate: readStartDate(),
+        termMonths: readTermMonths(),
       };
-      if (buyer.company && buyer.email) body.buyer = buyer;
-      const resp = await fetch("/api/get-pricing-preview", {
+      const resp = await fetch("/api/get-pricing-estimate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
       const data = await resp.json();
-      if (seq !== previewSeq) return;
+      if (seq !== estimateSeq) return;
       if (!resp.ok || !data.ok) {
-        throw new Error(data.error || "Preview failed");
+        throw new Error(data.error || "Estimate failed");
       }
-      stickyQuoteId = data.quoteId || stickyQuoteId;
-      stickyCfg = data.cfg || cfg;
       lastRcPricing = data;
-      persistStickyQuoteId(stickyQuoteId);
       const hc = Number(data.headcount) || Number(headcount.value) || 1;
       const cur = data.currency || currency();
       const flat = !!data.smallBizFlat;
@@ -434,30 +446,33 @@
       if (trial) {
         pepmDisplay = 0;
       }
-      const qn = data.quoteNumber ? ` · ${data.quoteNumber}` : "";
+      const srcLabel =
+        data.pricingSource === "localFallback"
+          ? "Local estimate (Pricing API unavailable)"
+          : "Priced with Salesforce Pricing API";
       paintRailFromLines({
         lines,
         monthly,
         pepmDisplay,
         flat,
         cur,
-        sourceNote: `Priced in Revenue Cloud (System reprice)${qn}`,
+        sourceNote: srcLabel,
+        termMonths: Number(data.termMonths) || readTermMonths(),
       });
     } catch (err) {
-      if (seq !== previewSeq) return;
+      if (seq !== estimateSeq) return;
       const src = document.getElementById("railSource");
       if (src) {
-        src.textContent = `RC preview unavailable — showing local estimate. ${
+        src.textContent = `Pricing API unavailable — showing local estimate. ${
           err.message || ""
         }`;
       }
     } finally {
-      previewInFlight = false;
-      if (previewNeedsRerun) {
-        previewNeedsRerun = false;
-        // One more pass with the latest cart — keep spinner until then.
-        fetchRcPreview();
-      } else if (seq === previewSeq) {
+      estimateInFlight = false;
+      if (estimateNeedsRerun) {
+        estimateNeedsRerun = false;
+        fetchPricingEstimate();
+      } else if (seq === estimateSeq) {
         setRailBusy(false);
       }
     }
@@ -560,17 +575,18 @@
       pepmDisplay = 0;
     }
 
-    // Local estimate immediately; Revenue Cloud preview replaces shortly.
-    stickyCfg = null;
+    // Local estimate immediately; Pricing API replaces shortly (no Quote).
     paintRailFromLines({
       lines,
       monthly,
       pepmDisplay,
       flat,
       cur,
-      sourceNote: "Local estimate — pricing in Revenue Cloud…",
+      sourceNote: "Local estimate — pricing with Salesforce…",
+      termMonths: readTermMonths(),
     });
-    scheduleRcPreview();
+    updateTermHint();
+    schedulePricingEstimate();
   };
 
   country.addEventListener("change", () => {
@@ -592,6 +608,14 @@
     el.addEventListener("change", syncEstimate);
   });
   document.getElementById("freeTrial")?.addEventListener("change", syncEstimate);
+  document.getElementById("startDateInput")?.addEventListener("change", syncEstimate);
+  document.getElementById("termMonths")?.addEventListener("change", syncEstimate);
+
+  const startEl = document.getElementById("startDateInput");
+  if (startEl && !startEl.value) {
+    startEl.value = new Date().toISOString().slice(0, 10);
+  }
+  updateTermHint();
 
   catalogBadge = document.getElementById("catalogSource");
   syncCountryAddons();
@@ -722,7 +746,6 @@
     status.classList.remove("error");
     saveHeroLead(lead);
     document.getElementById("plans")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    // Keep stickyQuoteId — server reuses/collapses by Account after lead resolve.
     syncEstimate();
   });
 
@@ -766,6 +789,7 @@
     status.textContent = "Creating Account / Contact / Quote in Revenue Cloud…";
     submit.disabled = true;
     try {
+      // Opp + Quote only here — rail used Pricing API (no sticky preview Quote).
       const body = {
         headcount: Number(headcount.value),
         country: country.value,
@@ -773,15 +797,10 @@
         addonSkus: selectedAddons(),
         placeQuote: true,
         freeTrial: !!document.getElementById("freeTrial")?.checked,
+        startDate: readStartDate(),
+        termMonths: readTermMonths(),
         buyer,
-        previewQuoteId: stickyQuoteId || undefined,
       };
-      // If sticky preview is still in-flight, wait for it once.
-      if (pricingBusy) {
-        status.textContent = "Waiting for Revenue Cloud price…";
-        await fetchRcPreview();
-        body.previewQuoteId = stickyQuoteId || undefined;
-      }
       const resp = await fetch("/api/get-pricing", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -791,8 +810,6 @@
       if (!resp.ok || !data.ok) {
         throw new Error(data.error || "Pricing request failed");
       }
-      stickyQuoteId = data.quoteId || stickyQuoteId;
-      persistStickyQuoteId(stickyQuoteId);
       if (data.quoteUrl) {
         window.location.href = data.quoteUrl;
         return;

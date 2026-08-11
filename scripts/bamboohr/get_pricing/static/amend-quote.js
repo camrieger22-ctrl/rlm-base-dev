@@ -1,4 +1,14 @@
 (() => {
+  const PATH_B_SKUS = new Set(["BAMBOO-ADD-PAYROLL", "BAMBOO-ADD-BENEFITS"]);
+  const PLAN_SKUS = new Set([
+    "BAMBOO-CORE",
+    "BAMBOO-PRO",
+    "BAMBOO-ELITE",
+    "BAMBOO-CORE-TRIAL",
+    "BAMBOO-PRO-TRIAL",
+    "BAMBOO-ELITE-TRIAL",
+  ]);
+
   const money = (n, cur = "USD") => {
     if (n == null || !Number.isFinite(Number(n))) return "—";
     try {
@@ -45,219 +55,533 @@
     }
   };
 
+  const formatPricedAt = (iso) => {
+    if (!iso) return "";
+    try {
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return String(iso);
+      return d.toLocaleString(undefined, {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      });
+    } catch (_) {
+      return String(iso);
+    }
+  };
+
+  /** Full cached preview (Place order needs quote ids / assetIds). */
   let summary = null;
+  /** Phase A view model (preferred for display). */
+  let view = null;
 
-  const render = (data) => {
+  const resolveView = (data) => {
+    const v = data?.amendSummaryView;
+    if (v && v.ok) return v;
+    return null;
+  };
+
+  const changeBitsFromView = (v) => {
+    const bits = [];
+    const delta = Number(v.seats?.delta || 0);
+    if (delta !== 0) {
+      bits.push(
+        `${delta > 0 ? "Adding" : "Removing"} ${Math.abs(delta)} employees`
+      );
+    }
+    const newMods = (v.products || []).filter((p) => p.isNew);
+    if (newMods.length) {
+      bits.push(`Adding ${newMods.map((p) => p.name || p.sku).join(" + ")}`);
+    }
+    if (!bits.length) bits.push("License change");
+    return bits;
+  };
+
+  const metricBubble = (label, value, { accent = false, hint = null } = {}) => {
+    const hintHtml = hint ? `<span class="q-hint">${esc(hint)}</span>` : "";
+    return `<div class="q-metric">
+      <span class="q-label">${esc(label)}</span>
+      <span class="q-value${accent ? " accent" : ""}">${esc(value)}</span>
+      ${hintHtml}
+    </div>`;
+  };
+
+  const logicArrow = () =>
+    `<span class="logic-arrow" aria-hidden="true">→</span>`;
+
+  const productLogicPanel = (p, cur, volPct) => {
+    const after = p.after || {};
+    const sku = String(p.sku || "").toUpperCase();
+    const kind = PLAN_SKUS.has(sku) ? "Plan" : "Add-on";
+    const listP = after.listPepm;
+    const afterBundle = after.afterBundlePepm;
+    const bundlePct = Number(after.bundleSavePercent || 0);
+    const vol =
+      after.volumePercent != null ? Number(after.volumePercent) : Number(volPct || 0);
+    const net = after.netPepm ?? after.pepm;
+    const badge =
+      bundlePct > 0
+        ? `<span class="line-badge">Bundle &amp; Save</span>`
+        : "";
+    const volLabel =
+      vol > 0 ? `−${Number.isInteger(vol) ? vol : vol}%` : "0%";
+
+    const bubbles = [metricBubble("List PEPM", money(listP, cur))];
+    if (bundlePct > 0) {
+      bubbles.push(logicArrow());
+      bubbles.push(
+        metricBubble("After Bundle", money(afterBundle, cur), {
+          hint: `−${Math.round(bundlePct)}% Bundle & Save`,
+        })
+      );
+    }
+    bubbles.push(logicArrow());
+    if (vol > 0) {
+      bubbles.push(
+        metricBubble("Volume", volLabel, {
+          hint: "Applied after Bundle when present",
+        })
+      );
+    } else {
+      bubbles.push(metricBubble("Volume", "0%", { hint: "Under volume band" }));
+    }
+    bubbles.push(logicArrow());
+    bubbles.push(metricBubble("Net PEPM", money(net, cur), { accent: true }));
+
+    return `<article class="price-logic${bundlePct > 0 ? " is-bundle" : ""}">
+      <header class="price-logic-head">
+        <p class="price-logic-kicker">${kind}</p>
+        <h3 class="price-logic-title">${esc(p.name || sku)}${badge}</h3>
+      </header>
+      <div class="logic-bubbles">${bubbles.join("")}</div>
+    </article>`;
+  };
+
+  const renderPricingLogic = (v, cur) => {
+    const host = document.getElementById("pricingLogic");
+    const products = (v.products || []).filter((p) => p.isPepm && !p.isFlat);
+    const volPct = Number(v.volumePercentAfter || 0);
+    if (!products.length) {
+      host.hidden = true;
+      host.innerHTML = "";
+      return;
+    }
+    const bySku = Object.fromEntries(
+      products.map((p) => [String(p.sku || "").toUpperCase(), p])
+    );
+    const panels = [];
+    const plan =
+      products.find((p) => PLAN_SKUS.has(String(p.sku || "").toUpperCase())) ||
+      products.find((p) => String(p.sku || "").toUpperCase().includes("ELITE")) ||
+      products[0];
+    if (plan) panels.push(productLogicPanel(plan, cur, volPct));
+    for (const sku of PATH_B_SKUS) {
+      if (bySku[sku] && bySku[sku] !== plan) {
+        panels.push(productLogicPanel(bySku[sku], cur, volPct));
+      }
+    }
+    for (const p of products) {
+      const sku = String(p.sku || "").toUpperCase();
+      if (p === plan || PATH_B_SKUS.has(sku)) continue;
+      panels.push(productLogicPanel(p, cur, volPct));
+    }
+    host.hidden = false;
+    host.innerHTML = `<p class="price-logic-lede">How each product gets to net PEPM</p>${panels.join(
+      ""
+    )}`;
+  };
+
+  const renderDiscountStack = (v) => {
+    const host = document.getElementById("discountStack");
+    const pathB = !!v.pathBBundleSave;
+    const vol = Number(v.volumePercentAfter || 0);
+    const hc = v.seats?.after ?? v.seats?.baselineOnStart ?? "—";
+    const step2Cls = pathB ? "is-on" : "is-off";
+    const step2Badge = pathB
+      ? `<span class="step-badge on">Applied on Payroll + Benefits</span>`
+      : `<span class="step-badge off">Not on this quote</span>`;
+    const step3Badge =
+      vol > 0
+        ? `<span class="step-badge on">−${vol}% at ${esc(hc)} employees</span>`
+        : `<span class="step-badge off">No volume band (under 25)</span>`;
+    const bundleCallout = pathB
+      ? `<p class="callout callout-save"><strong>Bundle &amp; Save: 15% off Payroll + Benefits.</strong> Because you have both add-ons with your plan, step ② cuts those list rates by 15% before volume discount is applied.</p>`
+      : "";
+    host.hidden = false;
+    host.innerHTML = `
+      <h3>How discounts apply</h3>
+      <p class="discount-stack-lede">Every line moves from list to net in this order:</p>
+      <ol class="discount-steps">
+        <li class="is-on">
+          <span class="step-num">1</span>
+          <div><strong>List PEPM</strong> — catalog rate before discounts.</div>
+        </li>
+        <li class="${step2Cls}">
+          <span class="step-num">2</span>
+          <div><strong>Bundle &amp; Save 15%</strong> — Payroll + Benefits only, when both are on the quote. ${step2Badge}</div>
+        </li>
+        <li class="is-on">
+          <span class="step-num">3</span>
+          <div><strong>Volume discount</strong> — headcount band on the post-bundle amount. ${step3Badge}</div>
+        </li>
+        <li class="is-result">
+          <span class="step-num">=</span>
+          <div><strong>Net PEPM</strong> — what you pay per employee × qty.</div>
+        </li>
+      </ol>
+      <p class="discount-stack-note">Plans, Time, and Global skip step ② (no Bundle &amp; Save) and go List → Volume → Net.</p>
+      ${bundleCallout}`;
+  };
+
+  const renderChargeLines = (v, due, cur, labels) => {
+    const chargeLines = v.dueForChange?.lines || [];
+    const chargeBlock = document.getElementById("chargeLinesBlock");
+    const chargeTable = document.getElementById("chargeLinesTable");
+    const chargeFoot = document.getElementById("chargeLinesFoot");
+    const chargeLede = document.getElementById("chargeLinesLede");
+    if (chargeLede && labels.chargeLinesLede) {
+      chargeLede.textContent = labels.chargeLinesLede;
+    }
+    if (!chargeLines.length) {
+      chargeBlock.hidden = true;
+      chargeTable.innerHTML = "";
+      chargeFoot.textContent = "";
+      return;
+    }
+    chargeBlock.hidden = false;
+    const rows = chargeLines
+      .map((li) => {
+        const listP = li.listPepm;
+        const bundlePct = Number(li.bundleSavePercent || 0);
+        const afterBundle = li.afterBundlePepm;
+        const volPct = Number(li.volumePercent || 0);
+        const net = li.netPepm;
+        const qty = li.quantity;
+        const bundleCell =
+          bundlePct > 0
+            ? `<td class="num"><span class="step-inner"><span class="now">${esc(
+                money(afterBundle, cur)
+              )}</span><span class="chip">−${Math.round(
+                bundlePct
+              )}%</span></span></td>`
+            : `<td class="num muted-cell">—</td>`;
+        const volumeCell =
+          volPct > 0
+            ? `<td class="num"><span class="step-inner"><span class="now">${esc(
+                money(net, cur)
+              )}</span><span class="chip">−${Math.round(
+                volPct
+              )}%</span></span></td>`
+            : `<td class="num">${esc(money(net, cur))}</td>`;
+        return `<tr class="${bundlePct > 0 ? "has-bundle" : ""}">
+          <td class="prod">${esc(li.name || li.sku)}</td>
+          <td class="num">${esc(qty)}</td>
+          <td class="num">${esc(money(listP, cur))}</td>
+          ${bundleCell}
+          ${volumeCell}
+          <td class="num amt">${esc(money(li.lineTotal, cur))}</td>
+        </tr>`;
+      })
+      .join("");
+    chargeTable.innerHTML = `<div class="lines-wrap"><table class="lines lines-waterfall">
+      <thead><tr>
+        <th>Product</th><th>Qty</th><th>List</th><th>Bundle</th><th>Volume</th><th>Charge</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot><tr>
+        <th colspan="5">Prorated charge total</th>
+        <td class="num amt"><strong>${esc(
+          money(v.dueForChange?.linesTotal ?? due, cur)
+        )}</strong></td>
+      </tr></tfoot>
+    </table></div>`;
+    chargeFoot.textContent =
+      "Qty is the seats (or modules) on this amend Quote — not your full after-headcount. Line charges sum to the prorated total above.";
+  };
+
+  const hidePreSuccessSections = () => {
+    const ids = [
+      "dueNote",
+      "quoteParts",
+      "afterChip",
+      "monthlyBlock",
+      "customerCard",
+      "drivers",
+      "pricingLogic",
+      "discountStack",
+      "chargeLinesBlock",
+      "quoteMeta",
+      "amendFootnote",
+    ];
+    ids.forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.hidden = true;
+    });
+    document.querySelector(".amend-card-head")?.setAttribute("hidden", "");
+  };
+
+  const renderFromView = (data, v) => {
     summary = data;
-    const cur = data.currency || "USD";
-    const monthly = data.monthly || {};
-    const annual = data.annual || {};
-    const accountId = data.accountId || "";
-
-    const qtyBefore = Number(data.baselineQty ?? data.currentQty ?? 0);
-    const qtyAfter = Number(data.newQty ?? qtyBefore);
-    const qtyDelta = qtyAfter - qtyBefore;
-    const mrrBefore = Number(monthly.today ?? 0);
-    const mrrAfter = Number(monthly.after ?? 0);
-    const mrrDiff = Number(monthly.difference ?? mrrAfter - mrrBefore);
-    const arrBefore = Number(annual.today ?? mrrBefore * 12);
-    const arrAfter = Number(annual.after ?? mrrAfter * 12);
-    const arrDiff = Number(annual.difference ?? arrAfter - arrBefore);
-    const due = data.dueToday;
+    view = v;
+    const cur = v.currency || data.currency || "USD";
+    const labels = v.labels || {};
+    const startLabel = formatStart(v.amendStartDate || data.amendStartDate);
+    const bits = changeBitsFromView(v);
+    const due = v.dueForChange?.amount ?? v.hero?.amount;
     const hasDue = due != null && Number.isFinite(Number(due));
-    const newMods = (data.lines || []).filter((l) => l.isNew);
-    const startLabel = formatStart(data.amendStartDate);
+    const isCredit = !!(v.hero?.isCredit || Number(due) < 0);
+    const seats = v.seats || {};
+    const volPct = Number(v.volumePercentAfter || 0);
 
     document.getElementById("amendCard").hidden = false;
+    document.getElementById("amendFootnote").hidden = false;
     document.getElementById("amendLede").textContent = [
-      data.accountName || "Account",
-      data.country || "",
+      v.accountName || data.accountName || "Account",
+      v.country || data.country || "",
       cur,
     ]
       .filter(Boolean)
       .join(" · ");
 
-    // --- 1. What you're paying ---
-    const payHero = document.getElementById("payHero");
-    const dueEl = document.getElementById("dueAmount");
-    const payPlain = document.getElementById("payPlain");
-    const dueNote = document.getElementById("dueNote");
+    // 1. Selected change + prorated charge
+    document.getElementById("changeTitle").textContent = bits[0];
+    document.getElementById("changeSub").textContent = [
+      bits.slice(1).join(" · "),
+      startLabel ? `Starts ${startLabel}` : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+
     const payKicker = document.getElementById("payKicker");
-
-    const changeBits = [];
-    if (qtyDelta !== 0) {
-      changeBits.push(
-        `${qtyDelta > 0 ? "Adding" : "Removing"} ${Math.abs(qtyDelta)} employees`
-      );
-    }
-    if (newMods.length) {
-      changeBits.push(
-        `Adding ${newMods.map((l) => l.name || l.sku).join(" + ")}`
-      );
-    }
-    if (!changeBits.length) changeBits.push("License change");
-
+    const dueEl = document.getElementById("dueAmount");
+    payKicker.textContent =
+      v.hero?.label ||
+      (isCredit
+        ? labels.proratedCredit || "Prorated credit for this change"
+        : labels.proratedCharge || "Prorated charge for this change");
     if (hasDue) {
-      payKicker.textContent =
-        Number(due) < 0
-          ? "Credit for this change"
-          : "What you’re paying for this change";
       dueEl.textContent = money(due, cur);
-      dueEl.classList.toggle("is-credit", Number(due) < 0);
-      payPlain.textContent = [
-        changeBits.join(" · "),
-        startLabel ? `Starts ${startLabel}` : "",
-      ]
-        .filter(Boolean)
-        .join(" · ");
-      dueNote.textContent =
-        Number(due) < 0
-          ? "Prorated credit from your Revenue Cloud quote for this change."
-          : "Prorated charge from your Revenue Cloud quote for this change only — not your full annual bill.";
+      dueEl.classList.toggle("is-credit", isCredit);
     } else {
-      payKicker.textContent = "This change";
-      dueEl.textContent = changeBits[0];
+      dueEl.textContent = "—";
       dueEl.classList.remove("is-credit");
-      payPlain.textContent = [
-        changeBits.slice(1).join(" · "),
-        startLabel ? `Starts ${startLabel}` : "",
-      ]
-        .filter(Boolean)
-        .join(" · ");
-      dueNote.textContent =
-        "Quote charge will appear after Revenue Cloud pricing finishes.";
+    }
+    document.getElementById("payPlain").textContent = hasDue
+      ? "From your Salesforce Quote total"
+      : "Quote charge pending";
+    document.getElementById("dueNote").textContent =
+      v.compareHint ||
+      (isCredit
+        ? "This is the prorated Quote credit for this change only — not your full annual bill and not monthly × 12."
+        : "This is the prorated Quote charge for this change only — not your full annual bill and not monthly × 12.");
+
+    const partsEl = document.getElementById("quoteParts");
+    const parts = v.dueForChange?.parts || v.quotes || [];
+    const showParts = !!(v.dueForChange?.showParts || v.hero?.showPerQuoteParts);
+    if (showParts && parts.length > 1) {
+      partsEl.hidden = false;
+      partsEl.innerHTML = `<p class="amend-parts-kicker">Includes</p><ul>${parts
+        .map(
+          (p) => `<li>
+            <span>${esc(p.kindLabel || p.kind || "Quote")}${
+            p.quoteNumber ? ` · ${esc(p.quoteNumber)}` : ""
+          }</span>
+            <strong>${esc(money(p.totalPrice, cur))}</strong>
+          </li>`
+        )
+        .join("")}</ul>`;
+    } else {
+      partsEl.hidden = true;
+      partsEl.innerHTML = "";
     }
 
-    // --- 2. Today → After comparison ---
-    const rows = [
-      {
-        label: "Employees",
-        before: String(qtyBefore),
-        change:
-          qtyDelta === 0
-            ? "—"
-            : `${qtyDelta > 0 ? "+" : "−"}${Math.abs(qtyDelta)}`,
-        after: String(qtyAfter),
-        changeClass: qtyDelta > 0 ? "is-up" : qtyDelta < 0 ? "is-down" : "",
-      },
-      {
-        label: "Monthly (MRR)",
-        before: money(mrrBefore, cur),
-        change: signedMoney(mrrDiff, cur),
-        after: money(mrrAfter, cur),
-        changeClass: mrrDiff > 0 ? "is-up" : mrrDiff < 0 ? "is-down" : "",
-      },
-      {
-        label: "Annual (ARR)",
-        before: money(arrBefore, cur),
-        change: signedMoney(arrDiff, cur),
-        after: money(arrAfter, cur),
-        changeClass: arrDiff > 0 ? "is-up" : arrDiff < 0 ? "is-down" : "",
-      },
-    ];
-    document.getElementById("compareTable").innerHTML = `
-      <div class="amend-compare-head">
-        <span></span>
-        <span>Today</span>
-        <span>This change</span>
-        <span>After</span>
-      </div>
-      ${rows
-        .map(
-          (r) => `<div class="amend-compare-row">
-          <span class="amend-compare-label">${esc(r.label)}</span>
-          <span class="amend-compare-before">${esc(r.before)}</span>
-          <span class="amend-compare-change ${r.changeClass}">${esc(r.change)}</span>
-          <span class="amend-compare-after">${esc(r.after)}</span>
-        </div>`
-        )
-        .join("")}`;
+    // 2. Contract impact — after Place order
+    const mrrAfter = v.totals?.mrr?.after;
+    const mrrToday = v.totals?.mrr?.today;
+    const mrrDelta = v.totals?.mrr?.delta;
+    const yearlyAfter = v.totals?.yearlyRunRate?.after;
+    document.getElementById("afterMrr").textContent = money(mrrAfter, cur);
+    document.getElementById("afterYearly").textContent =
+      yearlyAfter != null
+        ? `${money(yearlyAfter, cur)} / year (monthly × 12)`
+        : "";
+    const impactLede = document.getElementById("contractImpactLede");
+    if (impactLede) {
+      const deltaBit =
+        mrrDelta != null && Number.isFinite(Number(mrrDelta))
+          ? ` Monthly changes by ${signedMoney(mrrDelta, cur)}`
+          : "";
+      const todayBit =
+        mrrToday != null
+          ? ` Today you pay ${money(mrrToday, cur)}/mo.`
+          : "";
+      impactLede.textContent =
+        "Separate from the prorated charge above — this is what your monthly recurring looks like after the change lands." +
+        todayBit +
+        deltaBit;
+    }
 
-    // --- 3. Product cards (what the charge is for) ---
-    const todayBySku = {};
-    (data.linesToday || []).forEach((l) => {
-      if (l.sku) todayBySku[String(l.sku).toUpperCase()] = l;
-    });
-
-    const products = (data.lines || []).map((l) => {
-      const sku = String(l.sku || "").toUpperCase();
-      const before = todayBySku[sku];
-      const qtyB = before ? Number(before.qty || 0) : 0;
-      const qtyA = Number(l.qty || 0);
-      const moB = before ? Number(before.monthly || 0) : 0;
-      const moA = Number(l.monthly || 0);
-      const pepmB = before && before.netPepm != null ? Number(before.netPepm) : null;
-      const pepmA = l.netPepm != null ? Number(l.netPepm) : null;
-      const seatAdd = l.isNew ? qtyA : qtyA - qtyB;
-      const moDiff = moA - moB;
-      const pepmChanged =
-        pepmB != null && pepmA != null && Math.abs(pepmA - pepmB) > 0.009;
-      return { l, sku, qtyB, qtyA, seatAdd, moDiff, moA, pepmA, pepmChanged, pepmB };
-    });
-
-    // Prefer products that actually change; still show all if everything moves.
-    const changed = products.filter(
-      (p) => p.l.isNew || p.seatAdd !== 0 || Math.abs(p.moDiff) > 0.009
-    );
-    const list = changed.length ? changed : products;
-
-    document.getElementById("productsLede").textContent = hasDue
-      ? `These products drive the ${money(due, cur)} charge above.`
-      : "Seat and monthly impact by product.";
-
-    document.getElementById("productList").innerHTML = list
+    // 3. Monthly by product
+    const products = v.products || [];
+    const bodyRows = products
       .map((p) => {
-        const seatLine = p.l.isNew
-          ? `${p.qtyA} seats · new module`
-          : p.seatAdd === 0
-            ? `${p.qtyA} seats · no qty change`
-            : `${p.qtyB} → ${p.qtyA} seats (${p.seatAdd > 0 ? "+" : "−"}${Math.abs(
-                p.seatAdd
-              )})`;
-        const pepmLine =
-          p.pepmA == null
-            ? ""
-            : p.pepmChanged
-              ? `PEPM ${money(p.pepmB, cur)} → ${money(p.pepmA, cur)}`
-              : `PEPM ${money(p.pepmA, cur)}`;
-        return `<article class="amend-product-card${p.l.isNew ? " is-new" : ""}">
-          <div class="amend-product-main">
-            <h4>${esc(p.l.name || p.sku)}${
-              p.l.isNew ? ' <span class="line-badge">New</span>' : ""
-            }</h4>
-            <p class="amend-product-seats">${esc(seatLine)}</p>
-            ${pepmLine ? `<p class="muted amend-product-pepm">${esc(pepmLine)}</p>` : ""}
-          </div>
-          <div class="amend-product-impact">
-            <p class="amend-product-delta ${
-              p.moDiff > 0 ? "is-up" : p.moDiff < 0 ? "is-down" : ""
-            }">${esc(signedMoney(p.moDiff, cur))}</p>
-            <p class="muted">/ mo after</p>
-            <p class="amend-product-after">${esc(money(p.moA, cur))} / mo</p>
-          </div>
-        </article>`;
+        const qtyLine = p.isNew
+          ? `${p.after?.qty ?? "—"} seats · new`
+          : p.delta?.qty
+            ? `${p.today?.qty ?? "—"} → ${p.after?.qty ?? "—"} seats`
+            : `${p.after?.qty ?? p.today?.qty ?? "—"} seats`;
+        const dClass =
+          Number(p.delta?.mrr) > 0
+            ? "is-up"
+            : Number(p.delta?.mrr) < 0
+              ? "is-down"
+              : "";
+        return `<tr class="${p.isNew ? "is-new" : ""}">
+          <td>
+            <strong>${esc(p.name || p.sku)}${
+          p.isNew ? ' <span class="line-badge">New</span>' : ""
+        }</strong>
+            <div class="muted amend-row-meta">${esc(qtyLine)}</div>
+          </td>
+          <td>
+            <div>${esc(money(p.today?.mrr, cur))}</div>
+            <div class="muted amend-row-meta">yr ${esc(
+              money(p.today?.yearlyRunRate, cur)
+            )}</div>
+          </td>
+          <td class="${dClass}">
+            <div>${esc(signedMoney(p.delta?.mrr, cur))}</div>
+            <div class="muted amend-row-meta">yr ${esc(
+              signedMoney(p.delta?.yearlyRunRate, cur)
+            )}</div>
+          </td>
+          <td>
+            <div><strong>${esc(money(p.after?.mrr, cur))}</strong></div>
+            <div class="muted amend-row-meta">yr ${esc(
+              money(p.after?.yearlyRunRate, cur)
+            )}</div>
+          </td>
+        </tr>`;
       })
-      .join("") || `<p class="muted">No product changes on this quote.</p>`;
+      .join("");
 
-    const qids = [
-      ...(data.amendQuotes || []).map((q) => q.quoteNumber || q.quoteId),
-      data.moduleQuote?.quoteNumber || data.moduleQuoteId,
-    ].filter(Boolean);
-    document.getElementById("quoteIds").textContent = qids.join(", ") || "—";
-    document.getElementById("oppMeta").textContent = data.opportunityId
-      ? `Opportunity ${data.opportunityId}`
+    const t = v.totals || {};
+    const dTot =
+      Number(t.mrr?.delta) > 0
+        ? "is-up"
+        : Number(t.mrr?.delta) < 0
+          ? "is-down"
+          : "";
+    document.getElementById("mrrTableBody").innerHTML =
+      bodyRows ||
+      `<tr><td colspan="4" class="muted">No product lines on this summary.</td></tr>`;
+    document.getElementById("mrrTableFoot").innerHTML = `<tr>
+      <th>Total monthly</th>
+      <td>${esc(money(t.mrr?.today, cur))}</td>
+      <td class="${dTot}">${esc(signedMoney(t.mrr?.delta, cur))}</td>
+      <td><strong>${esc(money(t.mrr?.after, cur))}</strong></td>
+    </tr>
+    <tr class="amend-yearly-foot">
+      <th>Yearly (monthly × 12)</th>
+      <td>${esc(money(t.yearlyRunRate?.today, cur))}</td>
+      <td class="${dTot}">${esc(signedMoney(t.yearlyRunRate?.delta, cur))}</td>
+      <td>${esc(money(t.yearlyRunRate?.after, cur))}</td>
+    </tr>`;
+    document.getElementById("compareHint").textContent =
+      "Yearly figures are monthly × 12 for reference — not the prorated Quote charge.";
+
+    // 4. Pricing-summary twin from Customer → Place order
+    document.getElementById("customerKicker").innerHTML =
+      `Customer in Salesforce <span class="line-badge">Existing customer</span>`;
+    document.getElementById("customerName").textContent =
+      v.accountName || data.accountName || "—";
+    const contact = data.contactName || data.contactEmail;
+    const contactEl = document.getElementById("customerContact");
+    if (contact) {
+      contactEl.hidden = false;
+      contactEl.textContent = [
+        data.contactName || "Buyer",
+        data.contactEmail || "",
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    } else {
+      contactEl.hidden = true;
+      contactEl.textContent = "";
+    }
+    document.getElementById("customerMeta").innerHTML = v.accountId
+      ? `Account <code>${esc(v.accountId)}</code>`
       : "";
-    const warns = (data.warnings || []).filter(Boolean).slice(0, 3);
+
+    document.getElementById("drivers").innerHTML =
+      metricBubble("Headcount", String(seats.after ?? seats.baselineOnStart ?? "—")) +
+      metricBubble(
+        "Volume band",
+        volPct > 0 ? `${Math.round(volPct)}%` : "0%",
+        {
+          accent: volPct > 0,
+          hint: "Applies to every PEPM line after Bundle",
+        }
+      );
+
+    renderPricingLogic(v, cur);
+    renderDiscountStack(v);
+    renderChargeLines(v, due, cur, labels);
+
+    const qids = (v.quotes || parts || [])
+      .map((q) => q.quoteNumber || q.quoteId)
+      .filter(Boolean);
+    document.getElementById("quoteIds").textContent = qids.join(", ") || "—";
+    document.getElementById("oppMeta").textContent = v.opportunityId
+      ? `Opportunity ${v.opportunityId}`
+      : "";
+    document.getElementById("pricedAtMeta").textContent = v.pricedAt
+      ? `Priced ${formatPricedAt(v.pricedAt)} · Place order uses this snapshot`
+      : "";
+    const warns = (v.warnings || data.warnings || []).filter(Boolean).slice(0, 4);
     document.getElementById("warnings").innerHTML = warns.length
       ? `<ul>${warns.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>`
       : "";
 
+    const accountId = v.accountId || data.accountId || "";
     const back = `/account?accountId=${encodeURIComponent(accountId)}`;
+    const editHref = `${back}&edit=1`;
     document.getElementById("backToAccount").href = back;
-    document.getElementById("editChangeLink").href = back;
+    document.getElementById("editChangeLink").href = editHref;
     document.getElementById("backLicenses").href = back;
 
-    void payHero;
+    // Persist sticky Draft Quote ids so Licenses Update quote retargets the same records.
+    try {
+      const amendQuotes = (data.amendQuotes || v.amendQuotes || [])
+        .filter((q) => q && q.quoteId)
+        .map((q) => ({
+          quoteId: q.quoteId,
+          assetIds: Array.isArray(q.assetIds) ? q.assetIds : [],
+        }));
+      const moduleQuoteId =
+        data.moduleQuoteId || v.moduleQuoteId || null;
+      if (accountId && (amendQuotes.length || moduleQuoteId)) {
+        sessionStorage.setItem(
+          "bhAmendSticky",
+          JSON.stringify({
+            accountId,
+            amendQuotes,
+            moduleQuoteId,
+            newQty: v.seats?.after ?? data.newQty ?? null,
+            addonSkus: (v.products || data.lines || [])
+              .filter((p) => p.isNew)
+              .map((p) => p.sku)
+              .filter(Boolean),
+            startDate: v.amendStartDate || data.amendStartDate || null,
+            updatedAt: new Date().toISOString(),
+          })
+        );
+      }
+    } catch (_) {
+      /* ignore */
+    }
   };
 
   const placeOrder = async () => {
@@ -268,23 +592,35 @@
     status.textContent = "Placing in Revenue Cloud (Order + Activate)…";
     status.classList.remove("error");
     try {
+      const newSkus = (view?.products || summary.lines || [])
+        .filter((l) => l.isNew && (l.sku || l.after))
+        .map((l) => l.sku)
+        .filter(Boolean);
       const body = {
         accountId: summary.accountId,
         assetId: summary.assetId || undefined,
-        addonSkus: (summary.lines || [])
-          .filter((l) => l.isNew && l.sku)
-          .map((l) => l.sku),
-        startDate: summary.amendStartDate || undefined,
-        amendQuotes: (summary.amendQuotes || []).map((q) => ({
-          quoteId: q.quoteId,
-          assetIds: q.assetIds || [],
-          opportunityId: q.opportunityId || summary.opportunityId,
-        })),
-        moduleQuoteId: summary.moduleQuoteId || undefined,
+        addonSkus: newSkus,
+        startDate:
+          view?.amendStartDate || summary.amendStartDate || undefined,
+        amendQuotes: (summary.amendQuotes || view?.amendQuotes || []).map(
+          (q) => ({
+            quoteId: q.quoteId,
+            assetIds: q.assetIds || [],
+            opportunityId:
+              q.opportunityId ||
+              summary.opportunityId ||
+              view?.opportunityId,
+          })
+        ),
+        moduleQuoteId:
+          summary.moduleQuoteId || view?.moduleQuoteId || undefined,
       };
-      const baseline = Number(summary.baselineQty ?? summary.currentQty);
-      if (summary.newQty != null && Number(summary.newQty) !== baseline) {
-        body.newQty = summary.newQty;
+      const baseline = Number(
+        summary.baselineQty ?? view?.seats?.baselineOnStart ?? summary.currentQty
+      );
+      const newQty = summary.newQty ?? view?.seats?.after;
+      if (newQty != null && Number(newQty) !== baseline) {
+        body.newQty = Number(newQty);
       }
       const resp = await fetch("/api/account-amend", {
         method: "POST",
@@ -294,18 +630,24 @@
       const data = await resp.json();
       if (!resp.ok || !data.ok) throw new Error(data.error || "Change failed");
 
-      document.getElementById("amendCard").querySelector(".quote-actions").hidden =
-        true;
-      document.getElementById("payHero").hidden = true;
-      document.querySelector(".amend-impact").hidden = true;
-      document.querySelector(".amend-products").hidden = true;
+      try {
+        sessionStorage.removeItem("bhAmendSticky");
+      } catch (_) {
+        /* ignore */
+      }
+
+      const actions = document.getElementById("quoteActions");
+      if (actions) actions.hidden = true;
+      hidePreSuccessSections();
       status.textContent = "";
       const success = document.getElementById("orderSuccess");
       success.hidden = false;
       const conf = data.confirmation || {};
       document.getElementById("successTitle").textContent =
         conf.title ||
-        `Changes complete for ${summary.accountName || "your company"}`;
+        `Changes complete for ${
+          view?.accountName || summary.accountName || "your company"
+        }`;
       document.getElementById("successLede").textContent =
         conf.lede ||
         "Your change is activated in Salesforce Revenue Cloud — Opportunity, Quote, Order, and Assets are live.";
@@ -333,6 +675,7 @@
             )}" target="_blank" rel="noopener">Open ${esc(label)}</a>`
         )
         .join("");
+      success.scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (err) {
       status.textContent = err.message || String(err);
       status.classList.add("error");
@@ -360,10 +703,21 @@
           data.error || "Amend summary not found (session may have restarted)."
         );
       }
-      render(data.summary || data);
+      const payload = data.summary || data;
+      const v = resolveView(payload);
+      if (!v) {
+        throw new Error(
+          "This summary is missing amendSummaryView. Generate quote again from Licenses & billing."
+        );
+      }
+      renderFromView(payload, v);
     } catch (err) {
-      document.getElementById("loadError").hidden = false;
-      document.getElementById("loadError").textContent = err.message || String(err);
+      document.getElementById("amendCard").hidden = true;
+      document.getElementById("amendLede").textContent =
+        "Summary unavailable — generate quote again from Licenses.";
+      const errEl = document.getElementById("loadError");
+      errEl.hidden = false;
+      errEl.textContent = err.message || String(err);
     }
   };
 

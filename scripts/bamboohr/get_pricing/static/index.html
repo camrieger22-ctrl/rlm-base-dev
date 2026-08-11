@@ -9,6 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/app.css" />
+  <link rel="stylesheet" href="/static/agent-chat.css" />
 </head>
 <body class="config-page">
   <header class="site-header">
@@ -380,10 +381,35 @@
           <div class="band-grid" id="bandGrid"></div>
         </section>
 
-        <!-- 4 · Trial -->
+        <!-- 4 · Subscription term -->
+        <section class="cfg-section" id="term-section">
+          <div class="section-head">
+            <h2>4 · Subscription start &amp; term</h2>
+            <span class="count-pill">REQUIRED</span>
+          </div>
+          <div class="term-controls">
+            <label class="start-date-field">
+              <span>Start date</span>
+              <input type="date" id="startDateInput" name="startDate" required />
+            </label>
+            <label class="term-months-field">
+              <span>Subscription term</span>
+              <select id="termMonths" name="termMonths">
+                <option value="12" selected>12 months</option>
+                <option value="24">24 months</option>
+                <option value="36">36 months</option>
+              </select>
+            </label>
+          </div>
+          <p class="muted start-date-hint" id="termHint">
+            Quote line dates in Salesforce use this start and term. Free trial overrides the end date to 30 days.
+          </p>
+        </section>
+
+        <!-- 5 · Trial -->
         <section class="cfg-section" id="options">
           <div class="section-head">
-            <h2>4 · Free trial</h2>
+            <h2>5 · Free trial</h2>
             <span class="count-pill">OPTIONAL</span>
           </div>
           <label class="trial-card">
@@ -436,5 +462,6 @@
   </footer>
 
   <script src="/static/app.js"></script>
+  <script src="/static/agent-chat.js"></script>
 </body>
 </html>

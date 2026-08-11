@@ -7,8 +7,9 @@
   <link rel="icon" href="/static/brand/icon.png" type="image/png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/app.css" />
+  <link rel="stylesheet" href="/static/agent-chat.css" />
 </head>
 <body class="quote-page amend-quote-page">
   <header class="site-header">
@@ -32,43 +33,100 @@
   <main class="quote-shell">
     <article class="quote-card amend-summary-card" id="amendCard" hidden>
 
-      <!-- 1. What am I paying for this change? -->
-      <section class="amend-pay-hero" id="payHero">
-        <p class="amend-pay-kicker" id="payKicker">What you’re paying for this change</p>
-        <p class="amend-pay-amount" id="dueAmount">—</p>
-        <p class="amend-pay-plain" id="payPlain"></p>
-        <p class="muted amend-pay-note" id="dueNote"></p>
-      </section>
+      <!-- Selected change + prorated charge -->
+      <header class="quote-card-head amend-card-head">
+        <div>
+          <p class="quote-kicker">Selected change</p>
+          <h2 class="quote-plan" id="changeTitle">License change</h2>
+          <p class="muted" id="changeSub"></p>
+        </div>
+        <div class="quote-total-block amend-hero-total">
+          <p class="quote-total-label" id="payKicker">Prorated charge for this change</p>
+          <p class="quote-total amend-pay-amount" id="dueAmount"><span class="sym">$</span>—</p>
+          <p class="quote-total-sub" id="payPlain"></p>
+        </div>
+      </header>
+      <p class="muted amend-pay-note" id="dueNote"></p>
+      <div class="amend-quote-parts" id="quoteParts" hidden></div>
 
-      <!-- 2. How your subscription changes -->
-      <section class="amend-impact">
-        <h3 class="amend-section-title">How your subscription changes</h3>
-        <div class="amend-compare" id="compareTable"></div>
-      </section>
-
-      <!-- 3. Product breakdown -->
-      <section class="amend-products">
-        <h3 class="amend-section-title">What’s included in this change</h3>
-        <p class="lines-lede" id="productsLede">
-          Each product below shows seats added and the monthly impact.
+      <!-- Line items → Place order (moved above After monthly) -->
+      <section class="quote-lines-block amend-charge-lines" id="chargeLinesBlock" hidden>
+        <h3>Line items</h3>
+        <p class="lines-lede" id="chargeLinesLede">
+          List → Bundle &amp; Save (if eligible) → volume → charge for this change.
         </p>
-        <div id="productList"></div>
+        <div id="chargeLinesTable"></div>
+        <p class="muted" id="chargeLinesFoot"></p>
       </section>
 
-      <details class="amend-tech">
-        <summary>Salesforce details</summary>
-        <p class="quote-id">Quote(s) <code id="quoteIds">—</code></p>
+      <div class="quote-meta" id="quoteMeta">
+        <p class="quote-id">Salesforce Quote(s) <code id="quoteIds">—</code></p>
         <p class="muted" id="oppMeta"></p>
+        <p class="muted" id="pricedAtMeta"></p>
         <div class="warnings" id="warnings"></div>
-      </details>
+      </div>
 
-      <div class="quote-actions">
+      <div class="quote-actions" id="quoteActions">
         <button type="button" id="placeAmendBtn" class="quote-cta">Place order</button>
         <div class="quote-actions-secondary">
           <a class="button-link secondary" id="editChangeLink" href="/account">Edit change</a>
         </div>
       </div>
       <p class="status" id="placeStatus" role="status"></p>
+
+      <!-- Contract impact (after Place order — keep visually dominant) -->
+      <section class="amend-contract-impact" id="contractImpact" aria-labelledby="contractImpactTitle">
+        <header class="amend-contract-impact-head">
+          <p class="amend-contract-kicker">Ongoing subscription</p>
+          <h2 class="amend-contract-title" id="contractImpactTitle">
+            How this change affects your current contract
+          </h2>
+          <p class="amend-contract-lede" id="contractImpactLede">
+            Separate from the prorated charge above — this is what your monthly
+            recurring looks like after the change lands.
+          </p>
+        </header>
+
+        <div class="amend-after-chip" id="afterChip">
+          <p class="amend-after-label">After this change, monthly recurring</p>
+          <p class="amend-after-mrr" id="afterMrr">—</p>
+          <p class="muted" id="afterYearly"></p>
+        </div>
+
+        <div class="quote-lines-block amend-monthly-block" id="monthlyBlock">
+          <h3>Monthly by product</h3>
+          <p class="lines-lede" id="productsLede">
+            Today is live Current MRR. After is from your priced Quote. Yearly is monthly × 12 for reference only.
+          </p>
+          <div class="amend-mrr-table-wrap">
+            <table class="amend-mrr-table" id="mrrTable">
+              <thead>
+                <tr>
+                  <th>Product</th>
+                  <th>Today</th>
+                  <th>This change</th>
+                  <th>After</th>
+                </tr>
+              </thead>
+              <tbody id="mrrTableBody"></tbody>
+              <tfoot id="mrrTableFoot"></tfoot>
+            </table>
+          </div>
+          <p class="muted amend-compare-hint" id="compareHint"></p>
+        </div>
+      </section>
+
+      <!-- Pricing context (same as pricing summary) -->
+      <section class="buyer-card" id="customerCard">
+        <p class="buyer-kicker" id="customerKicker">Customer in Salesforce</p>
+        <h3 class="buyer-account" id="customerName">—</h3>
+        <p class="buyer-contact" id="customerContact" hidden></p>
+        <p class="buyer-ids" id="customerMeta"></p>
+      </section>
+
+      <div class="quote-metrics quote-context-metrics" id="drivers"></div>
+      <div class="price-logic-panels" id="pricingLogic" hidden></div>
+      <section class="discount-stack" id="discountStack" hidden aria-label="Discount order"></section>
 
       <section class="order-success" id="orderSuccess" hidden>
         <div class="order-success-badge" aria-hidden="true">✓</div>
@@ -85,10 +143,23 @@
       </section>
     </article>
 
+    <p class="quote-footnote" id="amendFootnote" hidden>
+      <strong>*Volume and non-profit discounts are available.</strong>
+      Powered by Salesforce Revenue Cloud.
+    </p>
+
     <p class="status error" id="loadError" hidden></p>
   </main>
 
+  <footer class="site-footer">
+    <div class="inner">
+      <span>Demo · BambooHR catalog · Revenue Cloud</span>
+      <a href="https://www.bamboohr.com/pricing/#compare-all-features" target="_blank" rel="noopener">Compare features on bamboohr.com</a>
+    </div>
+  </footer>
+
   <script src="/static/pay-now.js"></script>
   <script src="/static/amend-quote.js"></script>
+  <script src="/static/agent-chat.js"></script>
 </body>
 </html>

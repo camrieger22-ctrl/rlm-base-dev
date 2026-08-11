@@ -22,10 +22,12 @@ from checkout import (
     checkout_quote,
     complete_amend_quote,
     discard_stale_amend_drafts,
+    expected_amend_net_pepm,
     find_sticky_amend_draft,
     find_sticky_amend_mutable,
     find_sticky_module_draft,
     module_preview_cfg,
+    path_b_skus_eligible,
     reprice_quote_system,
     resolve_amend_start,
     resolve_volume_tier_percent,
@@ -50,6 +52,7 @@ from service import (
     volume_rate,
 )
 from subscription_timeline import list_account_periods
+from amend_summary import attach_amend_summary_view
 
 _ACCOUNT_LOCKS: dict[str, threading.Lock] = {}
 _ACCOUNT_LOCKS_GUARD = threading.Lock()
@@ -397,13 +400,24 @@ def _quote_pricing_snapshot(session: OrgSession, quote_id: str) -> dict[str, Any
     q = qrows[0]
     lines_raw = session.soql(
         "SELECT Id, Quantity, UnitPrice, NetUnitPrice, TotalPrice, Discount, "
-        "Product2.Name, Product2.StockKeepingUnit "
+        "Product2.Name, Product2.StockKeepingUnit, PricebookEntry.UnitPrice "
         f"FROM QuoteLineItem WHERE QuoteId = '{_soql_escape(quote_id)}'"
     )
     lines: list[dict[str, Any]] = []
     for row in lines_raw:
         product = row.get("Product2") or {}
         sku = (product.get("StockKeepingUnit") or "").upper()
+        list_p = float((row.get("PricebookEntry") or {}).get("UnitPrice") or 0)
+        disc = float(row.get("Discount") or 0)
+        raw_net = row.get("NetUnitPrice")
+        if raw_net is None:
+            raw_net = row.get("UnitPrice")
+        # Amend LastTransaction lines often leave Unit/Net null after Force
+        # Discount — reconstruct PEPM from list × (1 − Discount%).
+        if (raw_net is None or float(raw_net or 0) == 0) and list_p > 0 and disc > 0:
+            net = round(list_p * (1.0 - disc / 100.0), 2)
+        else:
+            net = float(raw_net or 0)
         lines.append(
             {
                 "id": row["Id"],
@@ -411,13 +425,10 @@ def _quote_pricing_snapshot(session: OrgSession, quote_id: str) -> dict[str, Any
                 "name": product.get("Name") or sku,
                 "quantity": float(row.get("Quantity") or 0),
                 "unitPrice": float(row.get("UnitPrice") or 0),
-                "netUnitPrice": float(
-                    row.get("NetUnitPrice")
-                    if row.get("NetUnitPrice") is not None
-                    else (row.get("UnitPrice") or 0)
-                ),
+                "listPepm": list_p or None,
+                "netUnitPrice": net,
                 "totalPrice": float(row.get("TotalPrice") or 0),
-                "discount": float(row.get("Discount") or 0),
+                "discount": disc,
                 "isFlat": (not _is_headcount_sku(sku)) if sku else False,
             }
         )
@@ -437,8 +448,12 @@ def _net_pepm_from_schedule(
     sku: str,
     currency: str,
     headcount: int,
+    path_b: bool = False,
 ) -> dict[str, Any] | None:
-    """List + net PEPM from Standard PBE and live Volume PAT (same as amend patch)."""
+    """List + net PEPM from Standard PBE and live Volume PAT (same as amend patch).
+
+    When ``path_b`` is true, Payroll/Benefits get Bundle & Save before volume.
+    """
     sku = (sku or "").upper()
     if not sku or not _is_headcount_sku(sku):
         return None
@@ -458,7 +473,12 @@ def _net_pepm_from_schedule(
         currency=currency,
         headcount=int(headcount),
     )
-    net = round(list_p * (1.0 - vol_pct / 100.0), 2)
+    net = expected_amend_net_pepm(
+        list_p,
+        sku=sku,
+        volume_percent=vol_pct,
+        path_b=bool(path_b),
+    )
     return {
         "sku": sku,
         "listPepm": list_p,
@@ -466,6 +486,7 @@ def _net_pepm_from_schedule(
         "volumePercent": vol_pct,
         "tierId": tier_id,
         "source": "priceAdjustmentTier",
+        "pathB": bool(path_b),
     }
 
 
@@ -618,6 +639,9 @@ def create_qty_amend_drafts(
     reused: list[dict[str, Any]] = []
     missing_groups: list[tuple[float, list[dict[str, Any]]]] = []
     keep_ids: list[str] = []
+    sole_preferred = ""
+    if len(preferred_drafts or []) == 1:
+        sole_preferred = str((preferred_drafts or [])[0].get("quoteId") or "").strip()
     for delta, group in by_delta.items():
         ids = [a["id"] for a in group]
         assets_key = "+".join(sorted(ids))
@@ -627,7 +651,9 @@ def create_qty_amend_drafts(
             asset_ids=ids,
             quantity_change=delta,
         )
-        preferred_qid = preferred_by_assets.get(assets_key)
+        preferred_qid = preferred_by_assets.get(assets_key) or (
+            sole_preferred if len(by_delta) == 1 else ""
+        )
         # 1) Exact cfg → snapshot only (no Salesforce reprice).
         sticky = find_sticky_amend_draft(
             session,
@@ -688,7 +714,10 @@ def create_qty_amend_drafts(
                         session, qid, quantity_by_sku=qty_by_sku
                     )
                 apply_amend_volume_pricing(
-                    session, qid, volume_headcount=int(new_qty)
+                    session,
+                    qid,
+                    volume_headcount=int(new_qty),
+                    account_id=account_id,
                 )
                 tag_amend_preview_quote(session, qid, cfg=cfg, kind="amend")
                 opp_id = mutable.get("OpportunityId")
@@ -806,7 +835,10 @@ def create_qty_amend_drafts(
             tag_amend_preview_quote(session, amend_quote, cfg=cfg, kind="amend")
             reprice_quote_system(session, amend_quote)
             apply_amend_volume_pricing(
-                session, amend_quote, volume_headcount=int(new_qty)
+                session,
+                amend_quote,
+                volume_headcount=int(new_qty),
+                account_id=account_id,
             )
             sync_quote_to_opportunity(session, amend_quote, opportunity_id)
             snapshot = _quote_pricing_snapshot(session, amend_quote)
@@ -1079,7 +1111,11 @@ def _place_addon_quote(
             tag_amend_preview_quote(session, qid, cfg=cfg, kind="module")
             reprice_quote_system(session, qid)
             apply_amend_volume_pricing(
-                session, qid, volume_headcount=int(quantity)
+                session,
+                qid,
+                volume_headcount=int(quantity),
+                account_id=account_id,
+                extra_skus=skus,
             )
             sync_quote_to_opportunity(session, qid, sticky.get("OpportunityId"))
             return qid
@@ -1188,7 +1224,13 @@ def _place_addon_quote(
     quote_id = placed["salesTransactionId"]
     tag_amend_preview_quote(session, quote_id, cfg=cfg, kind="module")
     _system_reprice_quote(session, quote_id)
-    apply_amend_volume_pricing(session, quote_id, volume_headcount=int(quantity))
+    apply_amend_volume_pricing(
+        session,
+        quote_id,
+        volume_headcount=int(quantity),
+        account_id=account_id,
+        extra_skus=skus,
+    )
     sync_quote_to_opportunity(session, quote_id, opp_id)
     return quote_id
 
@@ -1439,6 +1481,7 @@ def _line_monthly_from_schedule(
     headcount: int,
     currency: str,
     is_flat: bool,
+    path_b: bool = False,
 ) -> dict[str, Any] | None:
     if is_flat:
         flat = _flat_monthly(session, sku, currency)
@@ -1456,7 +1499,11 @@ def _line_monthly_from_schedule(
             "source": "pricebook",
         }
     priced = _net_pepm_from_schedule(
-        session, sku=sku, currency=currency, headcount=headcount
+        session,
+        sku=sku,
+        currency=currency,
+        headcount=headcount,
+        path_b=path_b,
     )
     if not priced:
         return None
@@ -1475,23 +1522,16 @@ def _line_monthly_from_schedule(
     }
 
 
-def preview_account_changes(
+def _amend_change_setup(
     session: OrgSession,
     *,
     account_id: str,
-    asset_id: str | None = None,
     new_qty: int | None = None,
     addon_skus: list[str] | None = None,
     start_date: date | None = None,
     current_qty: int | None = None,
-    preferred_amend_quotes: list[dict[str, Any]] | None = None,
-    preferred_module_quote_id: str | None = None,
 ) -> dict[str, Any]:
-    """Price change drafts in Revenue Cloud (no Activate).
-
-    Creates or reuses sticky amendment Quote(s) and/or an add-module Quote,
-    System-reprices (plus amend volume patch), and returns totals for the UI.
-    """
+    """Shared Account/qty/Path B/before-MRR setup for estimate + Quote preview."""
     warnings: list[str] = []
     addon_skus = [s.upper() for s in (addon_skus or []) if s]
     acct = resolve_account_id(session, account_id=account_id)
@@ -1518,7 +1558,6 @@ def preview_account_changes(
     elif current_qty is not None:
         today_qty = int(current_qty)
 
-    # Connect amend quantityChange is vs ASP on amendmentStartDate — not today.
     sample_ids = [a["id"] for a in headcount_assets]
     if sample_ids:
         amend_start = resolve_amend_start(session, sample_ids, amend_start)
@@ -1557,7 +1596,8 @@ def preview_account_changes(
             "warnings": warnings,
         }
 
-    # --- Recurring today: Salesforce CurrentMrr / ASP (not catalog re-price) ---
+    path_b = path_b_skus_eligible(owned_skus | set(add_skus))
+
     before_lines: list[dict[str, Any]] = []
     for a in owned_assets:
         if a.get("quantity") is None and not a["isFlat"]:
@@ -1582,7 +1622,6 @@ def preview_account_changes(
                 }
             )
             continue
-        # Fallback only when org has no CurrentMrr/ASP.Mrr yet
         hc = 1 if a["isFlat"] else int(today_qty or baseline_qty)
         line = _line_monthly_from_schedule(
             session,
@@ -1591,11 +1630,317 @@ def preview_account_changes(
             headcount=hc,
             currency=currency,
             is_flat=bool(a["isFlat"]),
+            path_b=path_b,
         )
         if line:
             line["isNew"] = False
             before_lines.append(line)
     monthly_before = round(sum(l["monthly"] for l in before_lines), 2)
+    amend_start_iso = (
+        amend_start.date().isoformat() if amend_start is not None else None
+    )
+    return {
+        "ok": True,
+        "warnings": warnings,
+        "acct": acct,
+        "account_id": account_id,
+        "currency": currency,
+        "country": country,
+        "owned_assets": owned_assets,
+        "headcount_assets": headcount_assets,
+        "today_qty": today_qty,
+        "baseline_qty": baseline_qty,
+        "target_qty": target_qty,
+        "qty_changing": qty_changing,
+        "add_skus": add_skus,
+        "path_b": path_b,
+        "before_lines": before_lines,
+        "monthly_before": monthly_before,
+        "amend_start": amend_start,
+        "amend_start_iso": amend_start_iso,
+    }
+
+
+def estimate_account_amend(
+    session: OrgSession,
+    *,
+    account_id: str,
+    new_qty: int | None = None,
+    addon_skus: list[str] | None = None,
+    start_date: date | None = None,
+    current_qty: int | None = None,
+) -> dict[str, Any]:
+    """Phase 2 rail: after PEPM/MRR via Pricing API — no Opportunity/Quote.
+
+    Today MRR still comes from Salesforce CurrentMrr. Charged-today (Quote
+    TotalPrice) is only available after Generate quote → preview_account_changes.
+    """
+    from pricing_api import headless_price_cart  # local import avoids cycles
+
+    setup = _amend_change_setup(
+        session,
+        account_id=account_id,
+        new_qty=new_qty,
+        addon_skus=addon_skus,
+        start_date=start_date,
+        current_qty=current_qty,
+    )
+    if not setup.get("ok"):
+        return setup
+
+    warnings: list[str] = list(setup["warnings"])
+    currency = setup["currency"]
+    owned_assets = setup["owned_assets"]
+    target_qty = int(setup["target_qty"])
+    add_skus = list(setup["add_skus"])
+    path_b = bool(setup["path_b"])
+    before_lines = setup["before_lines"]
+    monthly_before = float(setup["monthly_before"])
+    if path_b:
+        warnings.append(
+            "Path B Bundle & Save: 15% on Payroll + Benefits (a la carte with a plan)."
+        )
+
+    catalog_lines: list[dict[str, Any]] = []
+    for a in owned_assets:
+        if a["isFlat"] or not _is_headcount_sku(a["sku"]):
+            continue
+        try:
+            pbe = _pbe_for_sku(session, a["sku"], currency)
+        except Exception:
+            continue
+        catalog_lines.append(
+            {
+                "sku": a["sku"],
+                "id": f"synth_{a['sku']}_{uuid.uuid4().hex[:6]}",
+                "product2Id": pbe["Product2Id"],
+                "productSellingModelId": pbe["ProductSellingModelId"],
+                "list": float(pbe["UnitPrice"]),
+                "quantity": target_qty,
+            }
+        )
+    for sku in add_skus:
+        try:
+            pbe = _pbe_for_sku(session, sku, currency)
+        except Exception:
+            continue
+        catalog_lines.append(
+            {
+                "sku": sku,
+                "id": f"synth_{sku}_{uuid.uuid4().hex[:6]}",
+                "product2Id": pbe["Product2Id"],
+                "productSellingModelId": pbe["ProductSellingModelId"],
+                "list": float(pbe["UnitPrice"]),
+                "quantity": target_qty,
+            }
+        )
+
+    nets: dict[str, float] = {}
+    pricing_source = "pricingApi"
+    try:
+        if catalog_lines:
+            nets = headless_price_cart(
+                session,
+                currency=currency,
+                lines=catalog_lines,
+                quantity=target_qty,
+                path_b=path_b,
+            )
+    except Exception as exc:  # noqa: BLE001
+        warnings.append(f"Pricing API unavailable — local schedule estimate. ({exc})")
+        pricing_source = "localFallback"
+        nets = {}
+
+    after_lines: list[dict[str, Any]] = []
+    for a in owned_assets:
+        if a["isFlat"]:
+            line = _line_monthly_from_schedule(
+                session,
+                sku=a["sku"],
+                name=a["name"],
+                headcount=1,
+                currency=currency,
+                is_flat=True,
+                path_b=path_b,
+            )
+            if line:
+                line["isNew"] = False
+                after_lines.append(line)
+            continue
+        net = nets.get(a["sku"])
+        if net is None or net <= 0:
+            line = _line_monthly_from_schedule(
+                session,
+                sku=a["sku"],
+                name=a["name"],
+                headcount=target_qty,
+                currency=currency,
+                is_flat=False,
+                path_b=path_b,
+            )
+            if line:
+                line["isNew"] = False
+                after_lines.append(line)
+            continue
+        net = round(float(net), 2)
+        priced = _net_pepm_from_schedule(
+            session,
+            sku=a["sku"],
+            currency=currency,
+            headcount=target_qty,
+            path_b=path_b,
+        )
+        after_lines.append(
+            {
+                "sku": a["sku"],
+                "name": a["name"],
+                "qty": target_qty,
+                "netPepm": net,
+                "listPepm": (priced or {}).get("listPepm"),
+                "volumePercent": (priced or {}).get("volumePercent")
+                or round(volume_rate(target_qty) * 100, 1),
+                "monthly": round(net * target_qty, 2),
+                "isFlat": False,
+                "isPepm": True,
+                "isNew": False,
+                "source": "pricingApi",
+            }
+        )
+
+    for sku in add_skus:
+        net = nets.get(sku)
+        if net is None or net <= 0:
+            line = _line_monthly_from_schedule(
+                session,
+                sku=sku,
+                name=ADDON_LABELS.get(sku, sku),
+                headcount=target_qty,
+                currency=currency,
+                is_flat=False,
+                path_b=path_b,
+            )
+            if line:
+                line["isNew"] = True
+                after_lines.append(line)
+            continue
+        net = round(float(net), 2)
+        priced = _net_pepm_from_schedule(
+            session,
+            sku=sku,
+            currency=currency,
+            headcount=target_qty,
+            path_b=path_b,
+        )
+        after_lines.append(
+            {
+                "sku": sku,
+                "name": ADDON_LABELS.get(sku, sku),
+                "qty": target_qty,
+                "netPepm": net,
+                "listPepm": (priced or {}).get("listPepm"),
+                "volumePercent": (priced or {}).get("volumePercent")
+                or round(volume_rate(target_qty) * 100, 1),
+                "monthly": round(net * target_qty, 2),
+                "isFlat": False,
+                "isPepm": True,
+                "isNew": True,
+                "source": "pricingApi",
+            }
+        )
+
+    monthly_after = round(sum(l["monthly"] for l in after_lines), 2)
+    monthly_diff = round(monthly_after - monthly_before, 2)
+    annual_before = round(monthly_before * 12, 2)
+    annual_after = round(monthly_after * 12, 2)
+    annual_diff = round(annual_after - annual_before, 2)
+    acct = setup["acct"]
+    return {
+        "ok": True,
+        "accountId": setup["account_id"],
+        "accountName": acct.get("Name"),
+        "currency": currency,
+        "currentQty": int(setup["today_qty"]),
+        "baselineQty": int(setup["baseline_qty"]),
+        "quantityChange": (
+            int(target_qty) - int(setup["baseline_qty"])
+            if setup["qty_changing"]
+            else 0
+        ),
+        "newQty": target_qty,
+        "amendStartDate": setup["amend_start_iso"],
+        "opportunityId": None,
+        "pricingSource": pricing_source,
+        "pathBBundleSave": path_b,
+        "monthly": {
+            "today": monthly_before,
+            "after": monthly_after,
+            "difference": monthly_diff,
+        },
+        "annual": {
+            "today": annual_before,
+            "after": annual_after,
+            "difference": annual_diff,
+        },
+        # Quote TotalPrice only after Generate quote (System reprice drafts).
+        "dueToday": None,
+        "dueParts": [],
+        "lines": after_lines,
+        "linesToday": before_lines,
+        "amendQuotes": [],
+        "sticky": False,
+        "moduleQuoteId": None,
+        "moduleQuote": None,
+        "warnings": warnings,
+        "note": (
+            "After PEPM from Salesforce Pricing API (no Opportunity/Quote). "
+            "Today from CurrentMrr. Generate quote for charged-today TotalPrice."
+        ),
+    }
+
+
+def preview_account_changes(
+    session: OrgSession,
+    *,
+    account_id: str,
+    asset_id: str | None = None,
+    new_qty: int | None = None,
+    addon_skus: list[str] | None = None,
+    start_date: date | None = None,
+    current_qty: int | None = None,
+    preferred_amend_quotes: list[dict[str, Any]] | None = None,
+    preferred_module_quote_id: str | None = None,
+) -> dict[str, Any]:
+    """Price change drafts in Revenue Cloud (no Activate).
+
+    Creates or reuses sticky amendment Quote(s) and/or an add-module Quote,
+    System-reprices (plus amend volume patch), and returns totals for the UI.
+    """
+    setup = _amend_change_setup(
+        session,
+        account_id=account_id,
+        new_qty=new_qty,
+        addon_skus=addon_skus,
+        start_date=start_date,
+        current_qty=current_qty,
+    )
+    if not setup.get("ok"):
+        return setup
+
+    warnings: list[str] = list(setup["warnings"])
+    acct = setup["acct"]
+    currency = setup["currency"]
+    owned_assets = setup["owned_assets"]
+    headcount_assets = setup["headcount_assets"]
+    today_qty = int(setup["today_qty"])
+    baseline_qty = int(setup["baseline_qty"])
+    target_qty = int(setup["target_qty"])
+    qty_changing = bool(setup["qty_changing"])
+    add_skus = list(setup["add_skus"])
+    path_b = bool(setup["path_b"])
+    before_lines = setup["before_lines"]
+    monthly_before = float(setup["monthly_before"])
+    amend_start = setup["amend_start"]
+    amend_start_iso: str | None = setup["amend_start_iso"]
 
     # --- Draft qty amend quotes (RC) ---
     amend_drafts: list[dict[str, Any]] = []
@@ -1643,6 +1988,7 @@ def preview_account_changes(
                         "quoteNumber": snap.get("quoteNumber"),
                         "totalPrice": snap.get("totalPrice"),
                         "sticky": bool(d.get("sticky")),
+                        "lines": snap.get("lines") or [],
                     }
                 )
                 due_parts.append(
@@ -1651,15 +1997,17 @@ def preview_account_changes(
                         "quoteId": d.get("quoteId"),
                         "quoteNumber": snap.get("quoteNumber"),
                         "totalPrice": float(snap.get("totalPrice") or 0),
+                        "lines": snap.get("lines") or [],
                     }
                 )
                 for ql in snap.get("lines") or []:
                     sku = (ql.get("sku") or "").upper()
-                    # Amend delta lines often have NetUnitPrice=0 (LastTransaction);
-                    # skip so recurring-after falls back to the volume schedule.
+                    # Amend LastTransaction lines often omit NetUnitPrice; snapshot
+                    # reconstructs from list × Discount when Force fallback ran.
                     net = float(ql.get("netUnitPrice") or 0)
                     if sku and _is_headcount_sku(sku) and net > 0:
                         net_from_quote[sku] = net
+
 
         # --- Draft add-module quote (RC) ---
         if add_skus:
@@ -1681,6 +2029,7 @@ def preview_account_changes(
                         "quoteId": module_quote_id,
                         "quoteNumber": module_snapshot.get("quoteNumber"),
                         "totalPrice": float(module_snapshot.get("totalPrice") or 0),
+                        "lines": module_snapshot.get("lines") or [],
                     }
                 )
                 for ql in module_snapshot.get("lines") or []:
@@ -1707,14 +2056,24 @@ def preview_account_changes(
                 headcount=1,
                 currency=currency,
                 is_flat=True,
+                path_b=path_b,
             )
         elif a["sku"] in net_from_quote and net_from_quote[a["sku"]] > 0:
             net = net_from_quote[a["sku"]]
+            priced = _net_pepm_from_schedule(
+                session,
+                sku=a["sku"],
+                currency=currency,
+                headcount=target_qty,
+                path_b=path_b,
+            )
             line = {
                 "sku": a["sku"],
                 "name": a["name"],
                 "qty": target_qty,
                 "netPepm": net,
+                "listPepm": (priced or {}).get("listPepm"),
+                "volumePercent": (priced or {}).get("volumePercent"),
                 "monthly": round(net * target_qty, 2),
                 "isFlat": False,
                 "isPepm": True,
@@ -1729,6 +2088,7 @@ def preview_account_changes(
                 headcount=target_qty,
                 currency=currency,
                 is_flat=False,
+                path_b=path_b,
             )
             if line:
                 line["isNew"] = False
@@ -1738,12 +2098,21 @@ def preview_account_changes(
     for sku in add_skus:
         if sku in net_from_quote:
             net = net_from_quote[sku]
+            priced = _net_pepm_from_schedule(
+                session,
+                sku=sku,
+                currency=currency,
+                headcount=target_qty,
+                path_b=path_b,
+            )
             after_lines.append(
                 {
                     "sku": sku,
                     "name": ADDON_LABELS.get(sku, sku),
                     "qty": target_qty,
                     "netPepm": net,
+                    "listPepm": (priced or {}).get("listPepm"),
+                    "volumePercent": (priced or {}).get("volumePercent"),
                     "monthly": round(net * target_qty, 2),
                     "isFlat": False,
                     "isPepm": True,
@@ -1759,6 +2128,7 @@ def preview_account_changes(
                 headcount=target_qty,
                 currency=currency,
                 is_flat=False,
+                path_b=path_b,
             )
             if line:
                 line["isNew"] = True
@@ -1789,57 +2159,70 @@ def preview_account_changes(
             "opportunityId"
         )
 
-    return {
-        "ok": True,
-        "accountId": account_id,
-        "accountName": acct.get("Name"),
-        "currency": currency,
-        "currentQty": int(today_qty),
-        "baselineQty": int(baseline_qty),
-        "quantityChange": (
-            int(target_qty) - int(baseline_qty) if qty_changing else 0
-        ),
-        "newQty": target_qty,
-        "amendStartDate": amend_start_iso,
-        "opportunityId": opportunity_id,
-        "pricingSource": "revenueCloud",
-        "monthly": {
-            "today": monthly_before,
-            "after": monthly_after,
-            "difference": monthly_diff,
-        },
-        "annual": {
-            "today": annual_before,
-            "after": annual_after,
-            "difference": annual_diff,
-        },
-        "dueToday": due_today,
-        "dueParts": due_parts,
-        "lines": after_lines,
-        "linesToday": before_lines,
-        "amendQuotes": amend_drafts,
-        "sticky": bool(
-            qty_preview_sticky or any(d.get("sticky") for d in amend_drafts)
-        ),
-        "moduleQuoteId": module_quote_id,
-        "moduleQuote": (
-            {
-                "quoteId": module_quote_id,
-                "quoteNumber": (module_snapshot or {}).get("quoteNumber"),
-                "totalPrice": (module_snapshot or {}).get("totalPrice"),
-            }
-            if module_quote_id
-            else None
-        ),
-        "warnings": warnings,
-        "note": (
-            "Totals from Revenue Cloud amendment/add-on Quotes after System "
-            "reprice (amend volume aligned to live Price Adjustment Tiers). "
-            "Qty delta is vs seats in effect on amend start (AssetStatePeriod), "
-            "matching Connect amend / Managed Asset viewer. "
-            "Charged today is the Quote TotalPrice sum."
-        ),
-    }
+    return attach_amend_summary_view(
+        {
+            "ok": True,
+            "accountId": account_id,
+            "accountName": acct.get("Name"),
+            "currency": currency,
+            "country": (
+                "UK"
+                if (acct.get("BillingCountry") or "US").upper() in ("GB", "UK")
+                else (
+                    "CA"
+                    if (acct.get("BillingCountry") or "").upper() == "CA"
+                    else "US"
+                )
+            ),
+            "currentQty": int(today_qty),
+            "baselineQty": int(baseline_qty),
+            "quantityChange": (
+                int(target_qty) - int(baseline_qty) if qty_changing else 0
+            ),
+            "newQty": target_qty,
+            "amendStartDate": amend_start_iso,
+            "opportunityId": opportunity_id,
+            "pricingSource": "revenueCloud",
+            "pathBBundleSave": bool(path_b),
+            "monthly": {
+                "today": monthly_before,
+                "after": monthly_after,
+                "difference": monthly_diff,
+            },
+            "annual": {
+                "today": annual_before,
+                "after": annual_after,
+                "difference": annual_diff,
+            },
+            "dueToday": due_today,
+            "dueParts": due_parts,
+            "lines": after_lines,
+            "linesToday": before_lines,
+            "amendQuotes": amend_drafts,
+            "sticky": bool(
+                qty_preview_sticky or any(d.get("sticky") for d in amend_drafts)
+            ),
+            "moduleQuoteId": module_quote_id,
+            "moduleQuote": (
+                {
+                    "quoteId": module_quote_id,
+                    "quoteNumber": (module_snapshot or {}).get("quoteNumber"),
+                    "totalPrice": (module_snapshot or {}).get("totalPrice"),
+                }
+                if module_quote_id
+                else None
+            ),
+            "warnings": warnings,
+            "note": (
+                "Totals from Revenue Cloud amendment/add-on Quotes after System "
+                "reprice (amend volume aligned to live Price Adjustment Tiers). "
+                "Qty delta is vs seats in effect on amend start (AssetStatePeriod), "
+                "matching Connect amend / Managed Asset viewer. "
+                "Charged today is the Quote TotalPrice sum. "
+                "Customer UI should prefer amendSummaryView."
+            ),
+        }
+    )
 
 
 def place_account_changes(
