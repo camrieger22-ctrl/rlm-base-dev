@@ -72,28 +72,89 @@ from payment_email import send_payment_email  # noqa: E402
 from pricing_api import estimate_get_pricing  # noqa: E402
 from pricing_preview import preview_get_pricing  # noqa: E402
 from service import (  # noqa: E402
+    ALLOWED_TERM_MONTHS,
     BuyerInfo,
     DEFAULT_TERM_MONTHS,
     GetPricingRequest,
     OrgSession,
+    commit_qualify_identity,
     get_pricing,
+    handoff_qualify_to_sales,
     hydrate_catalog,
     quote_related_ids,
 )
-from datetime import date as _date  # noqa: E402
+from qualify_crm import (  # noqa: E402
+    DualMotionBlocked,
+    get_qualify_session,
+    list_qualify_sessions,
+    lookup_email,
+    mark_qualify_cadence_sent,
+    upsert_qualify_session,
+)
+
+# Micro self-serve (<25) is the default acquisition path. Set BAMBOO_MICRO_SELF_SERVE=0
+# or open the UI with ?fullCatalog=1 to restore Elite / add-ons / UK for SE demos.
+MICRO_SELF_SERVE = os.environ.get("BAMBOO_MICRO_SELF_SERVE", "1").strip() not in (
+    "0",
+    "false",
+    "False",
+    "no",
+)
+MICRO_MAX_HEADCOUNT = 24
+MICRO_PLANS = frozenset({"BAMBOO-CORE", "BAMBOO-PRO"})
+MICRO_COUNTRIES = frozenset({"US", "CA"})
+SALES_HANDOFF_URL = os.environ.get(
+    "BAMBOO_SALES_HANDOFF_URL",
+    "mailto:sales@example.com?subject=BambooHR%20self-serve%20handoff",
+)
 
 
-def _parse_start_date(raw: object) -> _date | None:
+def _assert_micro_cart(body: dict) -> None:
+    """Reject acquisition carts outside the workshop MVP scope."""
+    if not MICRO_SELF_SERVE:
+        return
+    # Opt-out per request for SE demos / Licenses tooling that posts freely.
+    if body.get("fullCatalog") or body.get("bypassMicro"):
+        return
+    hc = int(body.get("headcount") or 0)
+    country = str(body.get("country") or "").upper()
+    plan = str(body.get("planSku") or "")
+    addons = [str(a) for a in (body.get("addonSkus") or []) if a]
+    if hc > MICRO_MAX_HEADCOUNT:
+        raise ValueError(
+            f"Micro self-serve supports at most {MICRO_MAX_HEADCOUNT} employees "
+            "(talk to sales for larger teams)."
+        )
+    if country and country not in MICRO_COUNTRIES:
+        raise ValueError("Micro self-serve is US and Canada only.")
+    if plan and plan not in MICRO_PLANS:
+        raise ValueError("Micro self-serve quotes are Core or Pro only.")
+    if addons:
+        raise ValueError(
+            "Add-ons (including Payroll) are not on the unassisted micro path."
+        )
+    if body.get("freeTrial"):
+        raise ValueError("Micro self-serve bills immediately — free trial is off.")
+
+
+def _parse_start_date(raw: object):
+    from datetime import date as date_cls
+
     text = str(raw or "").strip()
     if not text:
         return None
-    return _date.fromisoformat(text[:10])
+    return date_cls.fromisoformat(text[:10])
 
 
 def _parse_term_months(raw: object) -> int:
     if raw is None or raw == "":
         return DEFAULT_TERM_MONTHS
-    return int(raw)
+    months = int(raw)
+    if months not in ALLOWED_TERM_MONTHS:
+        raise ValueError(
+            f"termMonths must be one of {', '.join(str(m) for m in ALLOWED_TERM_MONTHS)}"
+        )
+    return months
 
 # In-memory quote summaries for /quote/{id} branded page (demo only).
 QUOTE_CACHE: dict[str, dict] = {}
@@ -103,6 +164,42 @@ ORG_ALIAS = "master-demo"
 SESSION: OrgSession | None = None
 CORS_ORIGIN = ""  # empty = omit CORS headers; "*" or origin for hosted demos
 DOCGEN_TEMPLATE = os.environ.get("DOCGEN_TEMPLATE_NAME") or DEFAULT_TEMPLATE
+
+
+def _cache_amend_summary(summary: dict) -> dict:
+    """Store amend preview for /amend-quote/{id}; return cache metadata.
+
+    Called from POST /api/account-amend-cache and automatically after a
+    successful /api/account-amend-preview so Agentforce Apex only needs one
+    callout (avoids a second round-trip against the 120s Apex limit).
+    """
+    if summary.get("ok") and not (
+        isinstance(summary.get("amendSummaryView"), dict)
+        and summary["amendSummaryView"].get("ok")
+    ):
+        summary = attach_amend_summary_view(summary)
+    cache_id = ""
+    view = summary.get("amendSummaryView") or {}
+    for q in summary.get("amendQuotes") or view.get("amendQuotes") or []:
+        if isinstance(q, dict) and q.get("quoteId"):
+            cache_id = str(q["quoteId"])
+            break
+    if not cache_id:
+        cache_id = str(
+            summary.get("moduleQuoteId") or view.get("moduleQuoteId") or ""
+        ).strip()
+    if not cache_id:
+        cache_id = f"amend-{summary['accountId']}"
+    AMEND_CACHE[cache_id] = dict(summary)
+    AMEND_CACHE[cache_id]["ok"] = True
+    return {
+        "ok": True,
+        "id": cache_id,
+        "amendQuoteUrl": f"/amend-quote/{cache_id}",
+        "hasAmendSummaryView": bool(
+            (AMEND_CACHE[cache_id].get("amendSummaryView") or {}).get("ok")
+        ),
+    }
 
 
 def _agent_config_payload() -> dict:
@@ -568,13 +665,28 @@ class Handler(BaseHTTPRequestHandler):
                             "enabled": agent.get("enabled"),
                             "preview": agent.get("preview"),
                         },
+                        "microSelfServe": MICRO_SELF_SERVE,
+                        "salesHandoffUrl": SALES_HANDOFF_URL,
                         "links": {
                             "home": f"{base}/lightning/page/home" if base else "",
                             "accounts": (
                                 f"{base}/lightning/o/Account/home" if base else ""
                             ),
+                            "selfServeList": (
+                                f"{base}/lightning/o/Account/list"
+                                "?filterName=RLM_Bamboo_SelfServe_DoNotCall"
+                                if base
+                                else ""
+                            ),
+                            "selfServeContacts": (
+                                f"{base}/lightning/o/Contact/list"
+                                "?filterName=RLM_Bamboo_SelfServe_DoNotCall"
+                                if base
+                                else ""
+                            ),
                             "orders": f"{base}/lightning/o/Order/home" if base else "",
                             "assets": f"{base}/lightning/o/Asset/home" if base else "",
+                            "qualifyInbox": "/qualify-inbox",
                         },
                     },
                 )
@@ -584,11 +696,54 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/agent-config":
             self._json(200, _agent_config_payload())
             return
+        if path == "/api/qualify-sessions":
+            qs = parse_qs(urlparse(self.path).query)
+            incomplete = (qs.get("incomplete") or ["1"])[0] != "0"
+            sid = (qs.get("sessionId") or [""])[0].strip()
+            if sid:
+                rec = get_qualify_session(sid)
+                self._json(200 if rec else 404, {"ok": bool(rec), "session": rec})
+                return
+            self._json(
+                200,
+                {
+                    "ok": True,
+                    "sessions": list_qualify_sessions(incomplete_only=incomplete),
+                },
+            )
+            return
+        if path in ("/qualify-inbox", "/qualify-inbox.html"):
+            self._send(
+                200,
+                (STATIC / "qualify-inbox.html").read_bytes(),
+                "text/html; charset=utf-8",
+            )
+            return
         if path == "/api/catalog":
             try:
                 qs = parse_qs(urlparse(self.path).query)
                 country = (qs.get("country") or ["US"])[0]
-                self._json(200, hydrate_catalog(_session(), country))
+                full = (qs.get("fullCatalog") or ["0"])[0].strip().lower() in (
+                    "1",
+                    "true",
+                    "yes",
+                )
+                catalog = hydrate_catalog(_session(), country)
+                if MICRO_SELF_SERVE and not full:
+                    plans = [
+                        p
+                        for p in (catalog.get("plans") or [])
+                        if (p.get("sku") or "") in MICRO_PLANS
+                    ]
+                    catalog = {
+                        **catalog,
+                        "plans": plans,
+                        "microFiltered": True,
+                        "microPlans": sorted(MICRO_PLANS),
+                    }
+                else:
+                    catalog = {**catalog, "microFiltered": False}
+                self._json(200, catalog)
             except ValueError as exc:
                 self._json(400, {"ok": False, "error": str(exc)})
             except Exception as exc:  # noqa: BLE001
@@ -686,12 +841,17 @@ class Handler(BaseHTTPRequestHandler):
                     account_id = claims["accountId"]
                     company = None
                 from account_console import resolve_account_id
-                from payments import list_open_invoices
+                from payments import list_open_invoices, payment_received_signal
 
                 acct = resolve_account_id(
                     _session(), account_id=account_id, company=company
                 )
                 invoices = list_open_invoices(_session(), acct["Id"])
+                pay_sig = payment_received_signal(
+                    _session(),
+                    acct["Id"],
+                    open_invoice_count=len(invoices),
+                )
                 self._json(
                     200,
                     {
@@ -699,7 +859,35 @@ class Handler(BaseHTTPRequestHandler):
                         "accountId": acct["Id"],
                         "accountName": acct.get("Name"),
                         "invoices": invoices,
+                        **pay_sig,
                     },
+                )
+            except EcHandoffError as exc:
+                self._json(401, {"ok": False, "error": str(exc)})
+            except ValueError as exc:
+                self._json(400, {"ok": False, "error": str(exc)})
+            except Exception as exc:  # noqa: BLE001
+                self._json(503, {"ok": False, "error": str(exc)})
+            return
+        if path == "/api/activate":
+            try:
+                qs = parse_qs(urlparse(self.path).query)
+                account_id = (qs.get("accountId") or [None])[0]
+                company = (qs.get("company") or [None])[0]
+                ec_token = (qs.get("ecToken") or [None])[0]
+                if ec_token:
+                    claims = verify_ec_token(ec_token)
+                    account_id = claims["accountId"]
+                    company = None
+                from activate import build_activate_checklist
+
+                self._json(
+                    200,
+                    build_activate_checklist(
+                        _session(),
+                        account_id=account_id,
+                        company=company,
+                    ),
                 )
             except EcHandoffError as exc:
                 self._json(401, {"ok": False, "error": str(exc)})
@@ -732,9 +920,15 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, {"ok": True, "id": cache_id, "summary": summary})
             return
         if path in ("/", "/index.html"):
+            html = (STATIC / "index.html").read_text(encoding="utf-8")
+            html = html.replace(
+                "<body class=\"config-page\">",
+                f'<body class="config-page" data-sales-handoff-url="{SALES_HANDOFF_URL}">',
+                1,
+            )
             self._send(
                 200,
-                (STATIC / "index.html").read_bytes(),
+                html.encode("utf-8"),
                 "text/html; charset=utf-8",
             )
             return
@@ -776,6 +970,13 @@ class Handler(BaseHTTPRequestHandler):
                 "text/html; charset=utf-8",
             )
             return
+        if path in ("/activate", "/activate.html"):
+            self._send(
+                200,
+                (STATIC / "activate.html").read_bytes(),
+                "text/html; charset=utf-8",
+            )
+            return
         if path.startswith("/amend-quote/"):
             self._send(
                 200,
@@ -786,6 +987,20 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/quote/"):
             qid = path.split("/quote/", 1)[1].strip("/")
             data = QUOTE_CACHE.get(qid)
+            if not data:
+                try:
+                    from quote_page import load_quote_summary_from_org
+
+                    data = load_quote_summary_from_org(_session(), qid)
+                    if data:
+                        QUOTE_CACHE[qid] = data
+                except Exception as exc:  # noqa: BLE001
+                    self._send(
+                        503,
+                        f"Quote cache miss and org reload failed: {exc}".encode(),
+                        "text/plain",
+                    )
+                    return
             if not data:
                 self._send(404, b"Quote summary not in this server session", "text/plain")
                 return
@@ -890,9 +1105,93 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400, {"ok": False, "error": "Invalid JSON"})
             return
 
+        if path == "/api/qualify-session":
+            try:
+                rec = upsert_qualify_session(body if isinstance(body, dict) else {})
+                self._json(200, {"ok": True, "session": rec})
+            except Exception as exc:  # noqa: BLE001
+                self._json(400, {"ok": False, "error": str(exc)})
+            return
+
+        if path == "/api/qualify-cadence":
+            # Demo inbox: mark 1-day / 1-week abandoned-wizard follow-up as sent.
+            try:
+                sid = str(body.get("sessionId") or "").strip()
+                which = str(body.get("which") or body.get("cadence") or "").strip()
+                rec = mark_qualify_cadence_sent(
+                    sid, which, crm_session=_session()
+                )
+                if not rec:
+                    self._json(404, {"ok": False, "error": "Session not found"})
+                    return
+                self._json(200, {"ok": True, "session": rec})
+            except ValueError as exc:
+                self._json(400, {"ok": False, "error": str(exc)})
+            except Exception as exc:  # noqa: BLE001
+                self._json(400, {"ok": False, "error": str(exc)})
+            return
+
+        if path == "/api/qualify-lookup":
+            try:
+                email = str(body.get("email") or "").strip()
+                result = lookup_email(_session(), email)
+                code = 200 if result.get("ok") else 400
+                self._json(code, result)
+            except Exception as exc:  # noqa: BLE001
+                self._json(400, {"ok": False, "error": str(exc)})
+            return
+
+        if path == "/api/qualify-commit":
+            # Beat 5: Account/Contact must exist so we can mark sales don't touch
+            # (Jeff ~01:59) — before Get your quote.
+            try:
+                result = commit_qualify_identity(
+                    _session(),
+                    buyer=BuyerInfo.from_request(body if isinstance(body, dict) else {}),
+                    headcount=int(body.get("headcount") or 0),
+                    country=str(body.get("country") or "US"),
+                )
+                self._json(200 if result.get("ok") else 400, result)
+            except DualMotionBlocked as exc:
+                looked = exc.lookup or {}
+                self._json(
+                    409,
+                    {
+                        "ok": False,
+                        "error": str(exc),
+                        "status": looked.get("status"),
+                        "reason": looked.get("reason"),
+                        "signInUrl": looked.get("signInUrl"),
+                        "accountId": looked.get("accountId"),
+                    },
+                )
+            except Exception as exc:  # noqa: BLE001
+                self._json(400, {"ok": False, "error": str(exc)})
+            return
+
+        if path == "/api/qualify-handoff":
+            # Live bounce: still capture them for sales (N 219 ~00:39).
+            try:
+                result = handoff_qualify_to_sales(
+                    _session(),
+                    buyer=BuyerInfo.from_request(body if isinstance(body, dict) else {}),
+                    headcount=int(body.get("headcount") or 0) or None,
+                    country=str(body.get("country") or "US"),
+                    bounce_reason=str(body.get("bounceReason") or body.get("reason") or ""),
+                    bounce_type=str(body.get("bounceType") or ""),
+                )
+                code = 200 if result.get("ok") else 400
+                if result.get("status") == "existingCustomer":
+                    code = 409
+                self._json(code, result)
+            except Exception as exc:  # noqa: BLE001
+                self._json(400, {"ok": False, "error": str(exc)})
+            return
+
         if path == "/api/get-pricing-estimate":
             # Phase 1 rail: Salesforce Pricing API only — no Opp/Quote.
             try:
+                _assert_micro_cart(body)
                 raw_addons = body.get("addonSkus") or body.get("addons") or []
                 if isinstance(raw_addons, str):
                     raw_addons = [s.strip() for s in raw_addons.split(",") if s.strip()]
@@ -920,18 +1219,6 @@ class Handler(BaseHTTPRequestHandler):
                 raw_addons = body.get("addonSkus") or body.get("addons") or []
                 if isinstance(raw_addons, str):
                     raw_addons = [s.strip() for s in raw_addons.split(",") if s.strip()]
-                buyer_raw = (
-                    body.get("buyer")
-                    if isinstance(body.get("buyer"), dict)
-                    else {
-                        "company": body.get("company") or body.get("accountName"),
-                        "firstName": body.get("firstName"),
-                        "lastName": body.get("lastName"),
-                        "email": body.get("email"),
-                        "phone": body.get("phone"),
-                        "jobTitle": body.get("jobTitle"),
-                    }
-                )
                 result = preview_get_pricing(
                     _session(),
                     headcount=int(body.get("headcount") or 0),
@@ -943,7 +1230,9 @@ class Handler(BaseHTTPRequestHandler):
                     ),
                     quote_id=str(body.get("quoteId") or body.get("previewQuoteId") or "")
                     or None,
-                    buyer=BuyerInfo.from_mapping(buyer_raw),
+                    buyer=BuyerInfo.from_request(
+                        body if isinstance(body, dict) else {}
+                    ),
                     account_id=str(body.get("accountId") or "") or None,
                 )
                 if result.get("ok") and result.get("quoteId"):
@@ -959,17 +1248,10 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/get-pricing":
             try:
+                _assert_micro_cart(body)
                 raw_addons = body.get("addonSkus") or body.get("addons") or []
                 if isinstance(raw_addons, str):
                     raw_addons = [s.strip() for s in raw_addons.split(",") if s.strip()]
-                buyer_raw = body.get("buyer") if isinstance(body.get("buyer"), dict) else {
-                    "company": body.get("company") or body.get("accountName"),
-                    "firstName": body.get("firstName"),
-                    "lastName": body.get("lastName"),
-                    "email": body.get("email"),
-                    "phone": body.get("phone"),
-                    "jobTitle": body.get("jobTitle"),
-                }
                 req = GetPricingRequest(
                     headcount=int(body.get("headcount") or 0),
                     country=str(body.get("country") or "US"),
@@ -979,7 +1261,9 @@ class Handler(BaseHTTPRequestHandler):
                     free_trial=bool(
                         body.get("freeTrial") or body.get("free_trial")
                     ),
-                    buyer=BuyerInfo.from_mapping(buyer_raw),
+                    buyer=BuyerInfo.from_request(
+                        body if isinstance(body, dict) else {}
+                    ),
                     preview_quote_id=str(
                         body.get("previewQuoteId") or body.get("quoteId") or ""
                     )
@@ -993,6 +1277,19 @@ class Handler(BaseHTTPRequestHandler):
                     QUOTE_CACHE[result.quote_id] = payload
                     payload["quoteUrl"] = f"/quote/{result.quote_id}"
                 self._json(200, payload)
+            except DualMotionBlocked as exc:
+                looked = exc.lookup or {}
+                self._json(
+                    409,
+                    {
+                        "ok": False,
+                        "error": str(exc),
+                        "status": looked.get("status"),
+                        "reason": looked.get("reason"),
+                        "signInUrl": looked.get("signInUrl"),
+                        "accountId": looked.get("accountId"),
+                    },
+                )
             except Exception as exc:  # noqa: BLE001
                 self._json(400, {"ok": False, "error": str(exc)})
             return
@@ -1295,6 +1592,12 @@ class Handler(BaseHTTPRequestHandler):
                     preferred_amend_quotes=preferred_amends or None,
                     preferred_module_quote_id=preferred_module,
                 )
+                # Auto-cache so /amend-quote/{id} works without a second callout.
+                if result.get("ok") and result.get("accountId"):
+                    cached = _cache_amend_summary(result)
+                    result = dict(result)
+                    result["amendQuoteUrl"] = cached.get("amendQuoteUrl")
+                    result["amendCacheId"] = cached.get("id")
                 self._json(200 if result.get("ok") else 400, result)
             except Exception as exc:  # noqa: BLE001
                 self._json(400, {"ok": False, "error": str(exc)})
@@ -1305,41 +1608,7 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(summary, dict) or not summary.get("accountId"):
                 self._json(400, {"ok": False, "error": "summary with accountId is required"})
                 return
-            # Phase A: ensure amendSummaryView is present (new-way cache).
-            if summary.get("ok") and not (
-                isinstance(summary.get("amendSummaryView"), dict)
-                and summary["amendSummaryView"].get("ok")
-            ):
-                summary = attach_amend_summary_view(summary)
-            cache_id = ""
-            view = summary.get("amendSummaryView") or {}
-            for q in summary.get("amendQuotes") or view.get("amendQuotes") or []:
-                if isinstance(q, dict) and q.get("quoteId"):
-                    cache_id = str(q["quoteId"])
-                    break
-            if not cache_id:
-                cache_id = str(
-                    summary.get("moduleQuoteId")
-                    or view.get("moduleQuoteId")
-                    or ""
-                ).strip()
-            if not cache_id:
-                cache_id = f"amend-{summary['accountId']}"
-            AMEND_CACHE[cache_id] = dict(summary)
-            AMEND_CACHE[cache_id]["ok"] = True
-            self._json(
-                200,
-                {
-                    "ok": True,
-                    "id": cache_id,
-                    "amendQuoteUrl": f"/amend-quote/{cache_id}",
-                    "hasAmendSummaryView": bool(
-                        (AMEND_CACHE[cache_id].get("amendSummaryView") or {}).get(
-                            "ok"
-                        )
-                    ),
-                },
-            )
+            self._json(200, _cache_amend_summary(summary))
             return
 
         if path == "/api/account-preview":
@@ -1514,6 +1783,29 @@ class Handler(BaseHTTPRequestHandler):
                 asset_ids = payload.get("assetIds") or []
                 related = quote_related_ids(sess, quote_id)
                 opportunity_id = related.get("opportunityId") or ""
+                if not account_id:
+                    account_id = related.get("accountId") or ""
+                    if account_id:
+                        cached["accountId"] = account_id
+                if not contact_id and account_id:
+                    # Prefer cached contact; else first Contact on the Account.
+                    try:
+                        crow = sess.soql(
+                            "SELECT Id, Name, Email FROM Contact "
+                            f"WHERE AccountId = '{account_id}' "
+                            "ORDER BY CreatedDate DESC LIMIT 1"
+                        )
+                        if crow:
+                            contact_id = crow[0].get("Id") or ""
+                            cached.setdefault("contactId", contact_id)
+                            cached.setdefault(
+                                "contactName", crow[0].get("Name") or ""
+                            )
+                            cached.setdefault(
+                                "contactEmail", crow[0].get("Email") or ""
+                            )
+                    except Exception:  # noqa: BLE001
+                        pass
                 payment = payload.get("payment") or {}
 
                 def _lex(entity: str, rid: str) -> str:
@@ -1532,6 +1824,28 @@ class Handler(BaseHTTPRequestHandler):
                 if payment.get("paymentUrl"):
                     links["payNow"] = payment["paymentUrl"]
 
+                # Demo handoff so Licenses & billing auto-opens without Create login.
+                account_url = (
+                    f"/account?accountId={account_id}&focus=invoices"
+                    if account_id
+                    else "/account"
+                )
+                ec_token = None
+                if account_id and contact_id:
+                    try:
+                        from ec_handoff import mint_ec_token
+
+                        ec_token = mint_ec_token(account_id, contact_id)
+                        from urllib.parse import quote as _uq
+
+                        account_url = (
+                            f"/account?accountId={_uq(account_id, safe='')}"
+                            f"&ecToken={_uq(ec_token, safe='')}"
+                            f"&focus=invoices"
+                        )
+                    except Exception:  # noqa: BLE001
+                        ec_token = None
+
                 payload.update(
                     {
                         "instanceUrl": base,
@@ -1545,6 +1859,8 @@ class Handler(BaseHTTPRequestHandler):
                         "planName": cached.get("planName") or "",
                         "monthlyTotal": cached.get("monthlyTotal"),
                         "links": links,
+                        "ecToken": ec_token,
+                        "accountUrl": account_url,
                     }
                 )
                 want_email = bool(body.get("emailPayment")) or bool(

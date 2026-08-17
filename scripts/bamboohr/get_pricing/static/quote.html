@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/app.css" />
-  <link rel="stylesheet" href="/static/agent-chat.css" />
+  <link rel="stylesheet" href="/static/agent-chat.css?v=wizard21" />
 </head>
 <body class="quote-page">
   <header class="site-header">
@@ -40,13 +40,6 @@
         </div>
       </header>
 
-      {{buyerCard}}
-
-      {{pricingLogic}}
-
-      {{trialNote}}
-      {{discountStack}}
-
       <section class="quote-lines-block">
         <h3>Line items</h3>
         <p class="lines-lede">List → Bundle &amp; Save (if eligible) → volume → monthly.</p>
@@ -54,11 +47,6 @@
       </section>
 
       {{convertPreview}}
-
-      <div class="quote-meta">
-        <p class="quote-id">Salesforce Quote <code>{{quoteId}}</code></p>
-        <div class="warnings">{{warnings}}</div>
-      </div>
 
       <div class="quote-actions" id="quoteActions">
         <button type="button" id="checkoutBtn" class="quote-cta">Place order</button>
@@ -72,6 +60,18 @@
       </div>
 
       <p class="status" id="checkoutStatus" aria-live="polite"></p>
+
+      {{buyerCard}}
+
+      {{pricingLogic}}
+
+      {{trialNote}}
+      {{discountStack}}
+
+      <div class="quote-meta">
+        <p class="quote-id">Salesforce Quote <code>{{quoteId}}</code></p>
+        <div class="warnings">{{warnings}}</div>
+      </div>
 
       <section class="order-success" id="orderSuccess" hidden>
         <div class="order-success-badge" aria-hidden="true">✓</div>
@@ -383,39 +383,54 @@
           openAcctBtn.hidden = false;
         }
 
-        const payment = data.payment || {};
-        if (window.BambooPayNow) {
-          payEls._payment = payment;
-          BambooPayNow.render(payEls, payment, {
-            currency: "USD",
-            payUrl: payment.paymentUrl || links.payNow,
-            invoiceUrl: payment.invoiceUrl || links.invoice,
-            defaultTitle: "Pay your first invoice",
-            defaultLede:
-              "Salesforce Billing posted an invoice for this order. Pay securely with Salesforce Payments.",
-          });
-        }
-
+        // Pay-first-invoice stays hidden; restore Create login for Licenses handoff.
+        const accountId = data.accountId || "";
         const accountHref =
-          data.accountId
-            ? "/account?accountId=" + encodeURIComponent(data.accountId)
-            : "/account";
+          data.accountUrl ||
+          (accountId
+            ? "/account?accountId=" +
+              encodeURIComponent(accountId) +
+              (data.ecToken
+                ? "&ecToken=" + encodeURIComponent(data.ecToken)
+                : "") +
+              "&focus=invoices"
+            : "/account");
+        if (accountId) {
+          saveAccountPin(accountId, data.accountName || company);
+        }
         const licensesBtn = document.getElementById("openLicensesBtn");
-        if (licensesBtn && data.accountId) {
-          saveAccountPin(data.accountId, data.accountName || company);
+        if (licensesBtn) {
           licensesBtn.href = accountHref;
-          licensesBtn.hidden = false;
+          licensesBtn.hidden = !accountId;
+          licensesBtn.onclick = (ev) => {
+            if (!accountId) return;
+            ev.preventDefault();
+            saveAccountPin(accountId, data.accountName || company);
+            window.location.href = accountHref;
+          };
         }
         const skipLink = document.getElementById("skipLoginLink");
         if (skipLink) skipLink.href = accountHref;
 
         const loginCard = document.getElementById("createLoginCard");
         const emailInput = document.getElementById("loginEmail");
-        if (loginCard && data.accountId) {
+        if (loginCard && accountId) {
           loginCard.hidden = false;
           if (emailInput) {
             emailInput.value = data.contactEmail || emailInput.value || "";
           }
+        }
+        // Pay first invoice (Salesforce Payments Pay Now) — do not force-hide.
+        if (window.BambooPayNow) {
+          payEls._payment = data.payment || {};
+          BambooPayNow.render(payEls, payEls._payment, {
+            currency: data.currency || "USD",
+            payUrl: (data.links && data.links.payNow) || undefined,
+            invoiceUrl: (data.links && data.links.invoice) || undefined,
+            defaultTitle: "Pay your first invoice",
+            defaultLede:
+              "Salesforce Billing posted an invoice for this order. Pay securely with Salesforce Payments.",
+          });
         }
 
         if (out) out.textContent = JSON.stringify(data, null, 2);
@@ -468,19 +483,17 @@
           }
           saveAccountPin(data.accountId, data.accountName || lastCheckout.accountName || "");
           if (loginStatus) {
-            loginStatus.textContent = data.message || "Login ready — opening Licenses…";
+            loginStatus.textContent = data.message || "Login ready — opening activate…";
           }
-          // Always include accountId so Licenses opens even if ecToken handoff
-          // is misconfigured — no Experience Cloud password prompt required.
+          // Prefer /activate aha stub; fall back to Licenses with accountId.
           const aid = encodeURIComponent(data.accountId || lastCheckout.accountId);
           window.location.href =
             data.accountUrl ||
-            ("/account?accountId=" +
+            ("/activate?accountId=" +
               aid +
               (data.ecToken
                 ? "&ecToken=" + encodeURIComponent(data.ecToken)
-                : "") +
-              "&focus=invoices");
+                : ""));
         } catch (err) {
           if (loginStatus) {
             loginStatus.textContent = err.message || String(err);
@@ -520,6 +533,6 @@
       });
     })();
   </script>
-  <script src="/static/agent-chat.js"></script>
+  <script src="/static/agent-chat.js?v=wizard21"></script>
 </body>
 </html>

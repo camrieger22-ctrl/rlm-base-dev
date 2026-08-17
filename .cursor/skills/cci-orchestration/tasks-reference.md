@@ -3,7 +3,7 @@
 > **Auto-generated** by `scripts/ai/generate_cci_reference.py` from `cumulusci.yml`.  
 > Do not edit manually — re-run the script after changing `cumulusci.yml`.
 
-**299 tasks** across **10 groups**.
+**300 tasks** across **10 groups**.
 
 ---
 
@@ -1062,7 +1062,7 @@
 
 ## Revenue Lifecycle Management
 
-*189 task(s)*
+*190 task(s)*
 
 ### `activate_agents`
 
@@ -2104,6 +2104,18 @@
 **Options:**
 
 - `path`: `unpackaged/post_bamboohr`
+
+---
+
+### `deploy_post_bamboohr_messaging`
+
+**Description:** Deploy the BambooHR Messaging (MIAW) layer that carries self-serve wizard context to the Agentforce assistant: Route_to_BambooHR_Assistant Omni-Channel flow (stamps qualifyStep / bounceType / headcount / page onto MessagingSession), the BambooHR_Web MessagingChannel (10 pre-chat custom parameters mapped to the flow), and the BambooHR_Self_Service / BambooHR_Web EmbeddedServiceConfig (pre-chat form active) from unpackaged/post_bamboohr_messaging. NOT part of prepare_rlm_org — it depends on the published Agentforce agent, the BambooHR_Messaging_Fallback queue, and the ESW site, so run it manually after those exist. MessagingSession custom fields and the agent user's read access ship in deploy_post_bamboohr.
+
+**Class:** `cumulusci.tasks.salesforce.Deploy`
+
+**Options:**
+
+- `path`: `unpackaged/post_bamboohr_messaging`
 
 ---
 

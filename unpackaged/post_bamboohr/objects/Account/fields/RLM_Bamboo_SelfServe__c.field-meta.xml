@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>RLM_Bamboo_SelfServe__c</fullName>
+    <defaultValue>false</defaultValue>
+    <description>Workshop: suppress SDR / dual outreach. True when the Account entered via micro self-serve (never a Lead). List view: Self-serve — do not call.</description>
+    <externalId>false</externalId>
+    <label>BambooHR Self-Serve</label>
+    <trackHistory>false</trackHistory>
+    <type>Checkbox</type>
+</CustomField>

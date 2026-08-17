@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>RLM_Bamboo_DoNotCall__c</fullName>
+    <defaultValue>false</defaultValue>
+    <description>Workshop suppress (Jeff ~01:59): sales don’t touch while the buyer is on self-serve. Used because some demo orgs lack standard Contact.DoNotCall.</description>
+    <externalId>false</externalId>
+    <label>BambooHR Do Not Call</label>
+    <trackHistory>false</trackHistory>
+    <type>Checkbox</type>
+</CustomField>

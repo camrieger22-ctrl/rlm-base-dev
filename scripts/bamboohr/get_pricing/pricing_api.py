@@ -41,6 +41,35 @@ PATH_B_TARGETS = frozenset({"BAMBOO-ADD-PAYROLL", "BAMBOO-ADD-BENEFITS"})
 
 _ctx_lock = threading.Lock()
 _ctx_cache: dict[str, tuple[str, str]] = {}
+_pb_lock = threading.Lock()
+_pb_cache: dict[str, str] = {}
+_pbe_lock = threading.Lock()
+_pbe_cache: dict[tuple[str, str, str], dict] = {}
+
+
+def _standard_pricebook_id(session: OrgSession) -> str:
+    key = session.alias or "default"
+    with _pb_lock:
+        cached = _pb_cache.get(key)
+        if cached:
+            return cached
+    pb = session.soql("SELECT Id FROM Pricebook2 WHERE IsStandard = true LIMIT 1")[0]["Id"]
+    with _pb_lock:
+        _pb_cache[key] = pb
+    return pb
+
+
+def cached_pbe_for_sku(session: OrgSession, sku: str, currency: str = "USD") -> dict:
+    """PBE lookup with process-local cache (estimate fires this many times)."""
+    key = (session.alias or "default", sku.upper(), currency.upper())
+    with _pbe_lock:
+        hit = _pbe_cache.get(key)
+        if hit:
+            return hit
+    row = _pbe_for_sku(session, sku, currency)
+    with _pbe_lock:
+        _pbe_cache[key] = row
+    return row
 
 
 def _ctx_ids(session: OrgSession) -> tuple[str, str]:
@@ -129,7 +158,7 @@ def headless_price_cart(
     if not lines:
         return {}
     ctx_def_id, mapping_id = _ctx_ids(session)
-    pb = session.soql("SELECT Id FROM Pricebook2 WHERE IsStandard = true LIMIT 1")[0]["Id"]
+    pb = _standard_pricebook_id(session)
     start_day, end_day, _months = resolve_subscription_window(
         start_date=start_date,
         term_months=term_months,
@@ -299,6 +328,19 @@ def estimate_get_pricing(
     # Free trial: show $0 on the rail even if headless didn't zero lines.
     if free_trial:
         nets = {k: 0.0 for k in nets}
+
+    # Core flat SKU often returns $0 from Pricing API (qty-1 flat waterfalls).
+    # Prefer catalog flat list for the rail when headless nets are empty/zero.
+    if use_flat and not free_trial:
+        api_flat = float(nets.get(sell_plan_sku) or 0)
+        if api_flat < 0.01:
+            warnings.append(
+                f"Pricing API returned $0 for {sell_plan_sku}; "
+                f"using catalog flat {currency} {flat_list:.2f}/mo."
+            )
+            nets[sell_plan_sku] = flat_list
+            if pricing_source == "pricingApi":
+                pricing_source = "localFallback"
 
     vol = 0.0 if use_flat else volume_rate(headcount)
     vol_pct = round(vol * 100, 1)

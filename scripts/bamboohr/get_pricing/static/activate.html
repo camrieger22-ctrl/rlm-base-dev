@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Activate BambooHR</title>
+  <link rel="icon" href="/static/brand/icon.png" type="image/png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/app.css" />
+  <link rel="stylesheet" href="/static/agent-chat.css?v=wizard21" />
+</head>
+<body class="activate-page">
+  <header class="site-header">
+    <a class="logo-link" href="/" aria-label="BambooHR home">
+      <img class="logo-wordmark" src="/static/brand/wordmark-green.png" alt="bambooHR" />
+    </a>
+    <div class="header-right">
+      <nav class="site-nav">
+        <a href="/">Get Pricing</a>
+        <a href="/account">Licenses &amp; billing</a>
+      </nav>
+    </div>
+  </header>
+
+  <section class="activate-hero">
+    <p class="eyebrow">You're in</p>
+    <h1>Activate BambooHR</h1>
+    <p class="lede" id="activateLede">
+      A short checklist to go from paid → productive. Product deep-links come later —
+      this is the demo aha step.
+    </p>
+  </section>
+
+  <main class="activate-shell">
+    <article class="activate-card">
+      <p class="status" id="activateStatus" role="status">Loading your checklist…</p>
+      <div class="activate-progress" id="activateProgress" hidden>
+        <div class="activate-progress-bar" id="activateProgressBar"></div>
+      </div>
+      <ol class="activate-steps" id="activateSteps"></ol>
+      <div class="activate-actions">
+        <a class="button-link quote-cta" id="licensesCta" href="/account">Open Licenses &amp; billing</a>
+        <a class="button-link secondary" href="/">New estimate</a>
+      </div>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    <div class="inner">
+      <span>Demo · post-pay activate stub</span>
+      <a href="/account">Licenses &amp; billing</a>
+    </div>
+  </footer>
+
+  <script>
+    (function () {
+      const params = new URLSearchParams(location.search);
+      const status = document.getElementById("activateStatus");
+      const stepsEl = document.getElementById("activateSteps");
+      const lede = document.getElementById("activateLede");
+      const progress = document.getElementById("activateProgress");
+      const bar = document.getElementById("activateProgressBar");
+      const licensesCta = document.getElementById("licensesCta");
+
+      const qs = new URLSearchParams();
+      if (params.get("ecToken")) qs.set("ecToken", params.get("ecToken"));
+      else if (params.get("accountId")) qs.set("accountId", params.get("accountId"));
+      else if (params.get("company")) qs.set("company", params.get("company"));
+
+      const render = (data) => {
+        if (lede && data.message) lede.textContent = data.message;
+        if (licensesCta && data.licensesUrl) licensesCta.href = data.licensesUrl;
+        const steps = data.steps || [];
+        const done = (data.progress && data.progress.done) || 0;
+        const total = (data.progress && data.progress.total) || steps.length || 1;
+        if (progress && bar) {
+          progress.hidden = false;
+          bar.style.width = Math.round((done / total) * 100) + "%";
+        }
+        stepsEl.innerHTML = steps
+          .map((s) => {
+            const cls = s.done ? "is-done" : s.stub ? "is-stub" : "";
+            const mark = s.done ? "✓" : s.stub ? "·" : "○";
+            const link =
+              s.href && !s.done
+                ? '<a class="activate-step-link" href="' +
+                  s.href +
+                  '">' +
+                  (s.detail || "Open") +
+                  "</a>"
+                : '<span class="muted">' + (s.detail || "") + "</span>";
+            return (
+              '<li class="' +
+              cls +
+              '"><span class="activate-mark" aria-hidden="true">' +
+              mark +
+              "</span><div><strong>" +
+              (s.label || "") +
+              "</strong>" +
+              link +
+              "</div></li>"
+            );
+          })
+          .join("");
+        status.textContent =
+          done + " of " + total + " ready" + (data.stub ? " · demo stub" : "");
+      };
+
+      fetch("/api/activate?" + qs.toString())
+        .then((r) => r.json().then((d) => ({ ok: r.ok, d })))
+        .then(({ ok, d }) => {
+          if (!ok || !d.ok) throw new Error(d.error || "Could not load activate checklist");
+          render(d);
+        })
+        .catch((err) => {
+          status.textContent = err.message || String(err);
+          status.classList.add("error");
+          stepsEl.innerHTML =
+            "<li class='is-stub'><div><strong>Checklist unavailable</strong>" +
+            "<span class='muted'>Open Licenses &amp; billing to continue.</span></div></li>";
+        });
+    })();
+  </script>
+  <script src="/static/agent-chat.js?v=wizard21"></script>
+</body>
+</html>

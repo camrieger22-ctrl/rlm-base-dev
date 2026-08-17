@@ -8,7 +8,9 @@ Demo unlock 5a: resolve Account by Id or company name (no EC login yet).
 
 from __future__ import annotations
 
+import threading
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
@@ -34,7 +36,6 @@ from checkout import (
     tag_amend_preview_quote,
     _current_asset_quantity,
 )
-import threading
 from service import (
     ADDON_LABELS,
     ADDON_LIST_USD,
@@ -56,6 +57,31 @@ from amend_summary import attach_amend_summary_view
 
 _ACCOUNT_LOCKS: dict[str, threading.Lock] = {}
 _ACCOUNT_LOCKS_GUARD = threading.Lock()
+# Reuse before/after PEPM nets when only amend start date changes.
+_ESTIMATE_NETS_CACHE: dict[tuple, dict[str, Any]] = {}
+_ESTIMATE_NETS_GUARD = threading.Lock()
+_ESTIMATE_NETS_MAX = 32
+
+
+def _estimate_nets_cache_key(
+    *,
+    account_id: str,
+    baseline_qty: int,
+    target_qty: int,
+    add_skus: list[str],
+    currency: str,
+    path_b_before: bool,
+    path_b_after: bool,
+) -> tuple:
+    return (
+        account_id,
+        int(baseline_qty),
+        int(target_qty),
+        tuple(sorted(add_skus)),
+        currency,
+        bool(path_b_before),
+        bool(path_b_after),
+    )
 
 
 def _account_lock(account_id: str) -> threading.Lock:
@@ -205,11 +231,21 @@ def load_account_console(
 
     catalog = hydrate_catalog(session, country)
     try:
-        from payments import list_open_invoices
+        from payments import list_open_invoices, payment_received_signal
 
         invoices = list_open_invoices(session, aid)
+        pay_sig = payment_received_signal(
+            session, aid, open_invoice_count=len(invoices)
+        )
     except Exception:  # noqa: BLE001
         invoices = []
+        pay_sig = {
+            "paymentReceived": False,
+            "pendingBalanceApply": False,
+            "recentPayments": [],
+            "disabledPaymentLink": None,
+            "hint": None,
+        }
 
     plan_skus = set(CATALOG_PLAN_SKUS) | {CORE_FLAT_SKU}
     primary = next(
@@ -237,6 +273,18 @@ def load_account_console(
         except ValueError:
             term_end = None
 
+    earliest_amend: str | None = None
+    try:
+        headcount_ids = [
+            a["id"]
+            for a in assets
+            if a.get("id") and not a.get("isFlat") and a.get("quantity") is not None
+        ]
+        if headcount_ids:
+            earliest_amend = resolve_amend_start(session, headcount_ids, None).date().isoformat()
+    except Exception:
+        earliest_amend = None
+
     return {
         "ok": True,
         "account": {
@@ -252,6 +300,7 @@ def load_account_console(
             "currentQuantity": current_qty,
             "termStartDate": str(term_start)[:10] if term_start else None,
             "termEndDate": str(term_end)[:10] if term_end else None,
+            "earliestAmendStartDate": earliest_amend,
             "recurringMonthly": round(recurring_monthly, 2) if assets else 0.0,
             "recurringComplete": recurring_complete,
             "recurringSource": "salesforceCurrentMrr",
@@ -260,6 +309,10 @@ def load_account_console(
         "recentOrders": orders,
         "recentQuotes": quotes,
         "invoices": invoices,
+        "paymentReceived": pay_sig.get("paymentReceived"),
+        "pendingBalanceApply": pay_sig.get("pendingBalanceApply"),
+        "recentPayments": pay_sig.get("recentPayments") or [],
+        "paymentHint": pay_sig.get("hint"),
         "catalog": catalog,
         "volumeBands": [
             {"lo": 25, "hi": 75, "rate": 0.05},
@@ -506,12 +559,20 @@ def ensure_amend_opportunity(
     name: str,
     preferred_opp_id: str | None = None,
     name_prefix: str = "Licenses amend",
+    close_date: date | None = None,
 ) -> str:
     """Create or reuse a Prospecting Licenses Opportunity.
 
     Connect amend accepts ``opportunityId`` so the amendment Quote syncs to an
     Opp the same way Managed Asset viewer does when a sales Opp is selected.
+
+    ``close_date`` defaults to amend start when provided by callers; otherwise
+    today + 30 days (same convention as Get Pricing new-sale Opps). Never use a
+    hardcoded calendar year-end.
     """
+    close_iso = (close_date or (date.today() + timedelta(days=30))).isoformat()
+    patch_fields = {"Name": name[:120], "CloseDate": close_iso}
+
     if preferred_opp_id:
         rows = session.soql(
             "SELECT Id, StageName FROM Opportunity "
@@ -519,7 +580,7 @@ def ensure_amend_opportunity(
         )
         if rows and (rows[0].get("StageName") or "") == "Prospecting":
             try:
-                session.patch("Opportunity", preferred_opp_id, {"Name": name[:120]})
+                session.patch("Opportunity", preferred_opp_id, patch_fields)
             except Exception:
                 pass
             return preferred_opp_id
@@ -535,7 +596,7 @@ def ensure_amend_opportunity(
     if rows:
         opp_id = rows[0]["Id"]
         try:
-            session.patch("Opportunity", opp_id, {"Name": name[:120]})
+            session.patch("Opportunity", opp_id, patch_fields)
         except Exception:
             pass
         return opp_id
@@ -547,7 +608,7 @@ def ensure_amend_opportunity(
             "Name": name[:120],
             "AccountId": account_id,
             "StageName": "Prospecting",
-            "CloseDate": "2026-12-31",
+            "CloseDate": close_iso,
             "Pricebook2Id": pb["Id"],
             "CurrencyIsoCode": currency,
         },
@@ -805,6 +866,7 @@ def create_qty_amend_drafts(
             currency=currency,
             name=f"Licenses amend — {new_qty} seats",
             preferred_opp_id=opportunity_id,
+            close_date=eff_start.date(),
         )
         for delta, group in missing_groups:
             ids = [a["id"] for a in group]
@@ -1159,6 +1221,7 @@ def _place_addon_quote(
         currency=currency,
         name=f"Licenses add-on {'+'.join(skus)} ×{quantity}"[:120],
         name_prefix="Licenses add-on",
+        close_date=date.today() + timedelta(days=30),
     )
     today = date.today().isoformat()
     end = (date.today() + timedelta(days=365)).isoformat()
@@ -1443,8 +1506,11 @@ class AccountChangeResult:
 def _owned_assets_detail(
     session: OrgSession, account_id: str
 ) -> list[dict[str, Any]]:
+    # One query — avoid per-asset Current* + ASP round-trips (was ~2s×N on estimate).
     rows = session.soql(
-        "SELECT Id, Name, Product2.StockKeepingUnit, Product2.Name "
+        "SELECT Id, Name, CurrentQuantity, CurrentMrr, "
+        "LifecycleStartDate, LifecycleEndDate, "
+        "Product2.StockKeepingUnit, Product2.Name "
         f"FROM Asset WHERE AccountId = '{_soql_escape(account_id)}' "
         "ORDER BY CreatedDate ASC LIMIT 100"
     )
@@ -1453,11 +1519,17 @@ def _owned_assets_detail(
         sku = ((row.get("Product2") or {}).get("StockKeepingUnit") or "").upper()
         if not sku:
             continue
-        live = asset_live_metrics(session, row["Id"])
         if _is_headcount_sku(sku):
-            qty = live.get("quantity")
+            qty = row.get("CurrentQuantity")
+            if qty is None:
+                live = asset_live_metrics(session, row["Id"])
+                qty = live.get("quantity")
+                mrr = live.get("mrr")
+            else:
+                mrr = row.get("CurrentMrr")
         else:
             qty = 1.0
+            mrr = row.get("CurrentMrr")
         out.append(
             {
                 "id": row["Id"],
@@ -1466,7 +1538,9 @@ def _owned_assets_detail(
                 or (row.get("Product2") or {}).get("Name")
                 or sku,
                 "quantity": float(qty) if qty is not None else None,
-                "mrr": live.get("mrr"),
+                "mrr": float(mrr) if mrr is not None else None,
+                "lifecycleStartDate": row.get("LifecycleStartDate"),
+                "lifecycleEndDate": row.get("LifecycleEndDate"),
                 "isFlat": not _is_headcount_sku(sku),
             }
         )
@@ -1522,6 +1596,273 @@ def _line_monthly_from_schedule(
     }
 
 
+def _catalog_line_for_sku(
+    session: OrgSession, *, sku: str, currency: str, quantity: int
+) -> dict[str, Any] | None:
+    try:
+        from pricing_api import cached_pbe_for_sku
+
+        pbe = cached_pbe_for_sku(session, sku, currency)
+    except Exception:
+        return None
+    return {
+        "sku": sku,
+        "id": f"synth_{sku}_{uuid.uuid4().hex[:6]}",
+        "product2Id": pbe["Product2Id"],
+        "productSellingModelId": pbe["ProductSellingModelId"],
+        "list": float(pbe["UnitPrice"]),
+        "quantity": int(quantity),
+    }
+
+
+def _pepm_line_from_net(
+    session: OrgSession,
+    *,
+    sku: str,
+    name: str,
+    headcount: int,
+    currency: str,
+    path_b: bool,
+    net: float | None,
+    is_new: bool,
+    source: str,
+) -> dict[str, Any] | None:
+    """Build a PEPM monthly line from Pricing API net, with schedule fallback."""
+    if net is None or net <= 0:
+        line = _line_monthly_from_schedule(
+            session,
+            sku=sku,
+            name=name,
+            headcount=headcount,
+            currency=currency,
+            is_flat=False,
+            path_b=path_b,
+        )
+        if line:
+            line["isNew"] = is_new
+        return line
+    net = round(float(net), 2)
+    priced = _net_pepm_from_schedule(
+        session,
+        sku=sku,
+        currency=currency,
+        headcount=headcount,
+        path_b=path_b,
+    )
+    return {
+        "sku": sku,
+        "name": name,
+        "qty": headcount,
+        "netPepm": net,
+        "listPepm": (priced or {}).get("listPepm"),
+        "volumePercent": (priced or {}).get("volumePercent")
+        or round(volume_rate(headcount) * 100, 1),
+        "monthly": round(net * headcount, 2),
+        "isFlat": False,
+        "isPepm": True,
+        "isNew": is_new,
+        "source": source,
+    }
+
+
+def _price_owned_pepm_cart(
+    session: OrgSession,
+    *,
+    owned_assets: list[dict[str, Any]],
+    add_skus: list[str],
+    headcount: int,
+    currency: str,
+    path_b: bool,
+) -> tuple[dict[str, float], str, list[str]]:
+    """Headless-price PEPM SKUs at a seat count. Returns nets, source, warnings."""
+    from pricing_api import headless_price_cart
+
+    warnings: list[str] = []
+    catalog_lines: list[dict[str, Any]] = []
+    for a in owned_assets:
+        if a["isFlat"] or not _is_headcount_sku(a["sku"]):
+            continue
+        line = _catalog_line_for_sku(
+            session, sku=a["sku"], currency=currency, quantity=headcount
+        )
+        if line:
+            catalog_lines.append(line)
+    for sku in add_skus:
+        line = _catalog_line_for_sku(
+            session, sku=sku, currency=currency, quantity=headcount
+        )
+        if line:
+            catalog_lines.append(line)
+    if not catalog_lines:
+        return {}, "pricingApi", warnings
+    try:
+        nets = headless_price_cart(
+            session,
+            currency=currency,
+            lines=catalog_lines,
+            quantity=headcount,
+            path_b=path_b,
+        )
+        return nets, "pricingApi", warnings
+    except Exception as exc:  # noqa: BLE001
+        warnings.append(f"Pricing API unavailable — local schedule estimate. ({exc})")
+        return {}, "localFallback", warnings
+
+
+def _term_end_from_assets(owned_assets: list[dict[str, Any]]) -> date | None:
+    """Best lifecycle end date from owned plan/headcount assets."""
+    ends: list[date] = []
+    for a in owned_assets:
+        raw = a.get("lifecycleEndDate")
+        if not raw:
+            continue
+        try:
+            ends.append(date.fromisoformat(str(raw)[:10]))
+        except ValueError:
+            continue
+    return max(ends) if ends else None
+
+
+def _provisional_due_today(
+    *,
+    monthly_diff: float,
+    amend_start: datetime | None,
+    term_end: date | None,
+) -> tuple[float | None, int | None, bool]:
+    """Estimate charged-today from Pricing API monthly delta × remaining term.
+
+    Real Quote TotalPrice still comes from Generate quote (System reprice).
+    Uses average month length (365.25/12) so mid-term seat changes show a
+    sensible rail total before a Draft Quote exists.
+    """
+    months, days_left = _proration_months(amend_start=amend_start, term_end=term_end)
+    if months is None:
+        return None, days_left, False
+    due = round(float(monthly_diff) * months, 2)
+    return due, days_left, True
+
+
+def _proration_months(
+    *,
+    amend_start: datetime | None,
+    term_end: date | None,
+) -> tuple[float | None, int | None]:
+    """Remaining term as Salesforce-style calendar month fractions + day count.
+
+    Partial months use days_in_segment / days_in_month (inclusive dates), which
+    matches Revenue Cloud amend Quote TotalPrice far better than days÷(365.25/12).
+    """
+    if amend_start is None:
+        return None, None
+    start_d = amend_start.date()
+    end_d = term_end if term_end is not None else start_d + timedelta(days=365)
+    days_left = (end_d - start_d).days
+    if days_left < 0:
+        days_left = 0
+    if end_d < start_d:
+        return 0.0, days_left
+    months = 0.0
+    y, m = start_d.year, start_d.month
+    while True:
+        if m == 12:
+            next_y, next_m = y + 1, 1
+        else:
+            next_y, next_m = y, m + 1
+        month_start = date(y, m, 1)
+        month_end = date(next_y, next_m, 1) - timedelta(days=1)
+        seg_start = max(start_d, month_start)
+        seg_end = min(end_d, month_end)
+        if seg_start <= seg_end:
+            days_in_seg = (seg_end - seg_start).days + 1
+            months += days_in_seg / float(month_end.day)
+        if date(next_y, next_m, 1) > end_d:
+            break
+        y, m = next_y, next_m
+    return months, days_left
+
+
+def _change_lines_with_proration(
+    *,
+    before_lines: list[dict[str, Any]],
+    after_lines: list[dict[str, Any]],
+    baseline_qty: int,
+    target_qty: int,
+    months: float,
+) -> tuple[list[dict[str, Any]], float]:
+    """Delta lines for the Licenses rail: qty change + estimated prorated amount.
+
+    Matches amend Quote shape: charge/credit is **Δ seats × after PEPM × term
+    months**, not (after MRR − before MRR) × months. The MRR delta includes
+    volume-tier repricing of existing seats; Salesforce amend QLIs do not.
+    """
+    before_by = {str(l.get("sku") or ""): l for l in before_lines if l.get("sku")}
+    after_by = {str(l.get("sku") or ""): l for l in after_lines if l.get("sku")}
+    ordered: list[str] = []
+    for l in after_lines + before_lines:
+        sku = str(l.get("sku") or "")
+        if sku and sku not in ordered:
+            ordered.append(sku)
+
+    change_lines: list[dict[str, Any]] = []
+    due_total = 0.0
+    qty_delta = int(target_qty) - int(baseline_qty)
+    for sku in ordered:
+        before = before_by.get(sku)
+        after = after_by.get(sku)
+        if not after and not before:
+            continue
+        name = (after or before or {}).get("name") or sku
+        is_flat = bool((after or before or {}).get("isFlat"))
+        is_new = bool((after or {}).get("isNew")) or (before is None and after is not None)
+        monthly_before = float((before or {}).get("monthly") or 0)
+        monthly_after = float((after or {}).get("monthly") or 0)
+        monthly_diff = round(monthly_after - monthly_before, 2)
+        net_pepm = (after or before or {}).get("netPepm")
+        if is_flat:
+            line_qty_delta = 0 if not is_new else 1
+            qty_after = 1
+            qty_before = 0 if is_new else 1
+            # Flat add: full after monthly × remaining months.
+            charge_monthly = monthly_after if is_new else monthly_diff
+        elif is_new:
+            line_qty_delta = int((after or {}).get("qty") or target_qty)
+            qty_before = 0
+            qty_after = line_qty_delta
+            pepm = float(net_pepm or 0)
+            charge_monthly = round(pepm * line_qty_delta, 2)
+        else:
+            line_qty_delta = qty_delta
+            qty_before = int(baseline_qty)
+            qty_after = int(target_qty)
+            if line_qty_delta == 0 and abs(monthly_diff) < 0.005:
+                continue
+            pepm = float(net_pepm or 0)
+            # Amend Quote prices the seat delta at the *after* PEPM only.
+            charge_monthly = round(pepm * line_qty_delta, 2)
+        if abs(charge_monthly) < 0.005 and not is_new:
+            continue
+        prorated = round(charge_monthly * months, 2)
+        due_total += prorated
+        change_lines.append(
+            {
+                "sku": sku,
+                "name": name,
+                "qtyDelta": line_qty_delta,
+                "qtyBefore": qty_before,
+                "qtyAfter": qty_after,
+                "netPepm": net_pepm,
+                "monthlyDiff": monthly_diff,
+                "chargeMonthly": charge_monthly,
+                "prorated": prorated,
+                "isFlat": is_flat,
+                "isPepm": not is_flat,
+                "isNew": is_new,
+                "source": (after or before or {}).get("source"),
+            }
+        )
+    return change_lines, round(due_total, 2)
+
+
 def _amend_change_setup(
     session: OrgSession,
     *,
@@ -1538,9 +1879,10 @@ def _amend_change_setup(
     currency = acct.get("CurrencyIsoCode") or "USD"
     billing = (acct.get("BillingCountry") or "US").upper()
     country = "UK" if billing in ("GB", "UK") else ("CA" if billing == "CA" else "US")
+    requested_start: datetime | None = None
     amend_start: datetime | None = None
     if start_date is not None:
-        amend_start = datetime(
+        requested_start = datetime(
             start_date.year,
             start_date.month,
             start_date.day,
@@ -1549,6 +1891,7 @@ def _amend_change_setup(
             0,
             tzinfo=timezone.utc,
         )
+        amend_start = requested_start
 
     owned_assets = _owned_assets_detail(session, account_id)
     headcount_assets = [a for a in owned_assets if not a["isFlat"] and a.get("quantity")]
@@ -1559,8 +1902,19 @@ def _amend_change_setup(
         today_qty = int(current_qty)
 
     sample_ids = [a["id"] for a in headcount_assets]
+    earliest_start: datetime | None = None
     if sample_ids:
+        earliest_start = resolve_amend_start(session, sample_ids, None)
         amend_start = resolve_amend_start(session, sample_ids, amend_start)
+        if (
+            requested_start is not None
+            and amend_start is not None
+            and amend_start.date() > requested_start.date()
+        ):
+            warnings.append(
+                f"Change start moved to {amend_start.date().isoformat()} so the "
+                "amend lands on your latest quantity period (needed for decreases)."
+            )
     baseline_qty = today_qty
     if sample_ids and amend_start is not None:
         try:
@@ -1639,6 +1993,12 @@ def _amend_change_setup(
     amend_start_iso = (
         amend_start.date().isoformat() if amend_start is not None else None
     )
+    earliest_iso = (
+        earliest_start.date().isoformat() if earliest_start is not None else None
+    )
+    requested_iso = (
+        requested_start.date().isoformat() if requested_start is not None else None
+    )
     return {
         "ok": True,
         "warnings": warnings,
@@ -1658,6 +2018,11 @@ def _amend_change_setup(
         "monthly_before": monthly_before,
         "amend_start": amend_start,
         "amend_start_iso": amend_start_iso,
+        "earliest_amend_start_iso": earliest_iso,
+        "requested_amend_start_iso": requested_iso,
+        "amend_start_bumped": bool(
+            requested_iso and amend_start_iso and amend_start_iso > requested_iso
+        ),
     }
 
 
@@ -1670,13 +2035,12 @@ def estimate_account_amend(
     start_date: date | None = None,
     current_qty: int | None = None,
 ) -> dict[str, Any]:
-    """Phase 2 rail: after PEPM/MRR via Pricing API — no Opportunity/Quote.
+    """Phase 2 rail: Pricing API before/after → estimated prorated change lines.
 
-    Today MRR still comes from Salesforce CurrentMrr. Charged-today (Quote
-    TotalPrice) is only available after Generate quote → preview_account_changes.
+    Hero/lines are monthly delta × remaining term (avg month). Monthly/annual
+    run-rate stays in the payload for the amend summary after Generate quote.
+    Exact charged-today is Quote TotalPrice after System reprice.
     """
-    from pricing_api import headless_price_cart  # local import avoids cycles
-
     setup = _amend_change_setup(
         session,
         account_id=account_id,
@@ -1691,168 +2055,180 @@ def estimate_account_amend(
     warnings: list[str] = list(setup["warnings"])
     currency = setup["currency"]
     owned_assets = setup["owned_assets"]
+    baseline_qty = int(setup["baseline_qty"])
     target_qty = int(setup["target_qty"])
     add_skus = list(setup["add_skus"])
-    path_b = bool(setup["path_b"])
-    before_lines = setup["before_lines"]
-    monthly_before = float(setup["monthly_before"])
-    if path_b:
+    owned_skus = {a["sku"] for a in owned_assets}
+    path_b_before = path_b_skus_eligible(owned_skus)
+    path_b_after = path_b_skus_eligible(owned_skus | set(add_skus))
+    if path_b_after:
         warnings.append(
             "Path B Bundle & Save: 15% on Payroll + Benefits (a la carte with a plan)."
         )
 
-    catalog_lines: list[dict[str, Any]] = []
-    for a in owned_assets:
-        if a["isFlat"] or not _is_headcount_sku(a["sku"]):
-            continue
-        try:
-            pbe = _pbe_for_sku(session, a["sku"], currency)
-        except Exception:
-            continue
-        catalog_lines.append(
-            {
-                "sku": a["sku"],
-                "id": f"synth_{a['sku']}_{uuid.uuid4().hex[:6]}",
-                "product2Id": pbe["Product2Id"],
-                "productSellingModelId": pbe["ProductSellingModelId"],
-                "list": float(pbe["UnitPrice"]),
-                "quantity": target_qty,
-            }
-        )
-    for sku in add_skus:
-        try:
-            pbe = _pbe_for_sku(session, sku, currency)
-        except Exception:
-            continue
-        catalog_lines.append(
-            {
-                "sku": sku,
-                "id": f"synth_{sku}_{uuid.uuid4().hex[:6]}",
-                "product2Id": pbe["Product2Id"],
-                "productSellingModelId": pbe["ProductSellingModelId"],
-                "list": float(pbe["UnitPrice"]),
-                "quantity": target_qty,
-            }
-        )
+    before_nets: dict[str, float] = {}
+    after_nets: dict[str, float] = {}
+    before_source = "pricingApi"
+    after_source = "pricingApi"
+    before_warns: list[str] = []
+    after_warns: list[str] = []
+    cache_key = _estimate_nets_cache_key(
+        account_id=setup["account_id"],
+        baseline_qty=baseline_qty,
+        target_qty=target_qty,
+        add_skus=add_skus,
+        currency=currency,
+        path_b_before=path_b_before,
+        path_b_after=path_b_after,
+    )
+    cached_nets: dict[str, Any] | None = None
+    with _ESTIMATE_NETS_GUARD:
+        hit = _ESTIMATE_NETS_CACHE.get(cache_key)
+        if hit:
+            cached_nets = hit
 
-    nets: dict[str, float] = {}
-    pricing_source = "pricingApi"
-    try:
-        if catalog_lines:
-            nets = headless_price_cart(
+    if cached_nets:
+        before_nets = dict(cached_nets.get("before_nets") or {})
+        after_nets = dict(cached_nets.get("after_nets") or {})
+        before_source = str(cached_nets.get("before_source") or "pricingApi")
+        after_source = str(cached_nets.get("after_source") or "pricingApi")
+    else:
+        # Dual headless Pricing API is the slow path (~3–8s each). Run in parallel.
+        def _price_before():
+            return _price_owned_pepm_cart(
                 session,
+                owned_assets=owned_assets,
+                add_skus=[],
+                headcount=baseline_qty,
                 currency=currency,
-                lines=catalog_lines,
-                quantity=target_qty,
-                path_b=path_b,
+                path_b=path_b_before,
             )
-    except Exception as exc:  # noqa: BLE001
-        warnings.append(f"Pricing API unavailable — local schedule estimate. ({exc})")
-        pricing_source = "localFallback"
-        nets = {}
 
+        def _price_after():
+            return _price_owned_pepm_cart(
+                session,
+                owned_assets=owned_assets,
+                add_skus=add_skus,
+                headcount=target_qty,
+                currency=currency,
+                path_b=path_b_after,
+            )
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            fut_before = pool.submit(_price_before)
+            fut_after = pool.submit(_price_after)
+            before_nets, before_source, before_warns = fut_before.result()
+            after_nets, after_source, after_warns = fut_after.result()
+        warnings.extend(before_warns)
+        warnings.extend(after_warns)
+        if before_source == "pricingApi" and after_source == "pricingApi":
+            with _ESTIMATE_NETS_GUARD:
+                if len(_ESTIMATE_NETS_CACHE) >= _ESTIMATE_NETS_MAX:
+                    _ESTIMATE_NETS_CACHE.pop(next(iter(_ESTIMATE_NETS_CACHE)))
+                _ESTIMATE_NETS_CACHE[cache_key] = {
+                    "before_nets": dict(before_nets),
+                    "after_nets": dict(after_nets),
+                    "before_source": before_source,
+                    "after_source": after_source,
+                }
+
+    pricing_source = (
+        "pricingApi"
+        if before_source == "pricingApi" and after_source == "pricingApi"
+        else "localFallback"
+    )
+
+    before_lines: list[dict[str, Any]] = []
     after_lines: list[dict[str, Any]] = []
     for a in owned_assets:
         if a["isFlat"]:
-            line = _line_monthly_from_schedule(
+            flat_line = _line_monthly_from_schedule(
                 session,
                 sku=a["sku"],
                 name=a["name"],
                 headcount=1,
                 currency=currency,
                 is_flat=True,
-                path_b=path_b,
+                path_b=path_b_after,
             )
-            if line:
-                line["isNew"] = False
-                after_lines.append(line)
+            if flat_line:
+                flat_line["isNew"] = False
+                before_lines.append(dict(flat_line))
+                after_lines.append(dict(flat_line))
             continue
-        net = nets.get(a["sku"])
-        if net is None or net <= 0:
-            line = _line_monthly_from_schedule(
-                session,
-                sku=a["sku"],
-                name=a["name"],
-                headcount=target_qty,
-                currency=currency,
-                is_flat=False,
-                path_b=path_b,
-            )
-            if line:
-                line["isNew"] = False
-                after_lines.append(line)
+        if not _is_headcount_sku(a["sku"]):
             continue
-        net = round(float(net), 2)
-        priced = _net_pepm_from_schedule(
+        bl = _pepm_line_from_net(
             session,
             sku=a["sku"],
+            name=a["name"],
+            headcount=baseline_qty,
             currency=currency,
+            path_b=path_b_before,
+            net=before_nets.get(a["sku"]),
+            is_new=False,
+            source=before_source,
+        )
+        if bl:
+            before_lines.append(bl)
+        al = _pepm_line_from_net(
+            session,
+            sku=a["sku"],
+            name=a["name"],
             headcount=target_qty,
-            path_b=path_b,
+            currency=currency,
+            path_b=path_b_after,
+            net=after_nets.get(a["sku"]),
+            is_new=False,
+            source=after_source,
         )
-        after_lines.append(
-            {
-                "sku": a["sku"],
-                "name": a["name"],
-                "qty": target_qty,
-                "netPepm": net,
-                "listPepm": (priced or {}).get("listPepm"),
-                "volumePercent": (priced or {}).get("volumePercent")
-                or round(volume_rate(target_qty) * 100, 1),
-                "monthly": round(net * target_qty, 2),
-                "isFlat": False,
-                "isPepm": True,
-                "isNew": False,
-                "source": "pricingApi",
-            }
-        )
+        if al:
+            after_lines.append(al)
 
     for sku in add_skus:
-        net = nets.get(sku)
-        if net is None or net <= 0:
-            line = _line_monthly_from_schedule(
-                session,
-                sku=sku,
-                name=ADDON_LABELS.get(sku, sku),
-                headcount=target_qty,
-                currency=currency,
-                is_flat=False,
-                path_b=path_b,
-            )
-            if line:
-                line["isNew"] = True
-                after_lines.append(line)
-            continue
-        net = round(float(net), 2)
-        priced = _net_pepm_from_schedule(
+        al = _pepm_line_from_net(
             session,
             sku=sku,
-            currency=currency,
+            name=ADDON_LABELS.get(sku, sku),
             headcount=target_qty,
-            path_b=path_b,
+            currency=currency,
+            path_b=path_b_after,
+            net=after_nets.get(sku),
+            is_new=True,
+            source=after_source,
         )
-        after_lines.append(
-            {
-                "sku": sku,
-                "name": ADDON_LABELS.get(sku, sku),
-                "qty": target_qty,
-                "netPepm": net,
-                "listPepm": (priced or {}).get("listPepm"),
-                "volumePercent": (priced or {}).get("volumePercent")
-                or round(volume_rate(target_qty) * 100, 1),
-                "monthly": round(net * target_qty, 2),
-                "isFlat": False,
-                "isPepm": True,
-                "isNew": True,
-                "source": "pricingApi",
-            }
-        )
+        if al:
+            after_lines.append(al)
 
+    # If Pricing API failed entirely, fall back to setup CurrentMrr before lines.
+    if pricing_source == "localFallback" and not before_nets:
+        before_lines = list(setup["before_lines"])
+        for line in before_lines:
+            line.setdefault("isNew", False)
+
+    monthly_before = round(sum(l["monthly"] for l in before_lines), 2)
     monthly_after = round(sum(l["monthly"] for l in after_lines), 2)
     monthly_diff = round(monthly_after - monthly_before, 2)
     annual_before = round(monthly_before * 12, 2)
     annual_after = round(monthly_after * 12, 2)
     annual_diff = round(annual_after - annual_before, 2)
+    term_end = _term_end_from_assets(setup["owned_assets"])
+    months, days_remaining = _proration_months(
+        amend_start=setup.get("amend_start"),
+        term_end=term_end,
+    )
+    change_lines: list[dict[str, Any]] = []
+    due_today: float | None = None
+    due_provisional = False
+    if months is not None:
+        change_lines, due_today = _change_lines_with_proration(
+            before_lines=before_lines,
+            after_lines=after_lines,
+            baseline_qty=int(setup["baseline_qty"]),
+            target_qty=int(target_qty),
+            months=months,
+        )
+        due_provisional = True
     acct = setup["acct"]
     return {
         "ok": True,
@@ -1868,9 +2244,14 @@ def estimate_account_amend(
         ),
         "newQty": target_qty,
         "amendStartDate": setup["amend_start_iso"],
+        "earliestAmendStartDate": setup.get("earliest_amend_start_iso"),
+        "requestedAmendStartDate": setup.get("requested_amend_start_iso"),
+        "amendStartBumped": bool(setup.get("amend_start_bumped")),
+        "termEndDate": term_end.isoformat() if term_end else None,
+        "daysRemaining": days_remaining,
         "opportunityId": None,
         "pricingSource": pricing_source,
-        "pathBBundleSave": path_b,
+        "pathBBundleSave": path_b_after,
         "monthly": {
             "today": monthly_before,
             "after": monthly_after,
@@ -1881,10 +2262,13 @@ def estimate_account_amend(
             "after": annual_after,
             "difference": annual_diff,
         },
-        # Quote TotalPrice only after Generate quote (System reprice drafts).
-        "dueToday": None,
+        # Rail shows Pricing API–based prorated estimate; Generate quote →
+        # System reprice replaces with Salesforce Quote TotalPrice on summary.
+        "dueToday": due_today,
+        "dueTodayProvisional": due_provisional,
         "dueParts": [],
-        "lines": after_lines,
+        "lines": change_lines,
+        "linesAfter": after_lines,
         "linesToday": before_lines,
         "amendQuotes": [],
         "sticky": False,
@@ -1892,10 +2276,12 @@ def estimate_account_amend(
         "moduleQuote": None,
         "warnings": warnings,
         "note": (
-            "After PEPM from Salesforce Pricing API (no Opportunity/Quote). "
-            "Today from CurrentMrr. Generate quote for charged-today TotalPrice."
+            "Est. prorated from Salesforce Pricing API monthly delta × remaining term. "
+            "Generate quote for the precise prorated charge (Quote TotalPrice). "
+            "Monthly/annual run-rate is on the amend summary."
         ),
     }
+
 
 
 def preview_account_changes(
@@ -1941,6 +2327,55 @@ def preview_account_changes(
     monthly_before = float(setup["monthly_before"])
     amend_start = setup["amend_start"]
     amend_start_iso: str | None = setup["amend_start_iso"]
+
+    # Align "before" with Pricing API (same waterfall as estimate) so impact
+    # is not CurrentMrr vs Quote NetUnitPrice.
+    owned_skus = {a["sku"] for a in owned_assets}
+    path_b_before = path_b_skus_eligible(owned_skus)
+    before_nets, before_src, before_warns = _price_owned_pepm_cart(
+        session,
+        owned_assets=owned_assets,
+        add_skus=[],
+        headcount=baseline_qty,
+        currency=currency,
+        path_b=path_b_before,
+    )
+    warnings.extend(before_warns)
+    if before_src == "pricingApi" and before_nets:
+        priced_before: list[dict[str, Any]] = []
+        for a in owned_assets:
+            if a["isFlat"]:
+                flat_line = _line_monthly_from_schedule(
+                    session,
+                    sku=a["sku"],
+                    name=a["name"],
+                    headcount=1,
+                    currency=currency,
+                    is_flat=True,
+                    path_b=path_b,
+                )
+                if flat_line:
+                    flat_line["isNew"] = False
+                    priced_before.append(flat_line)
+                continue
+            if not _is_headcount_sku(a["sku"]):
+                continue
+            bl = _pepm_line_from_net(
+                session,
+                sku=a["sku"],
+                name=a["name"],
+                headcount=baseline_qty,
+                currency=currency,
+                path_b=path_b_before,
+                net=before_nets.get(a["sku"]),
+                is_new=False,
+                source="pricingApi",
+            )
+            if bl:
+                priced_before.append(bl)
+        if priced_before:
+            before_lines = priced_before
+            monthly_before = round(sum(l["monthly"] for l in before_lines), 2)
 
     # --- Draft qty amend quotes (RC) ---
     amend_drafts: list[dict[str, Any]] = []
@@ -2181,6 +2616,9 @@ def preview_account_changes(
             ),
             "newQty": target_qty,
             "amendStartDate": amend_start_iso,
+            "earliestAmendStartDate": setup.get("earliest_amend_start_iso"),
+            "requestedAmendStartDate": setup.get("requested_amend_start_iso"),
+            "amendStartBumped": bool(setup.get("amend_start_bumped")),
             "opportunityId": opportunity_id,
             "pricingSource": "revenueCloud",
             "pathBBundleSave": bool(path_b),

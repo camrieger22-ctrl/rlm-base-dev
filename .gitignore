@@ -178,3 +178,4 @@ force-app/main/default/aiEvaluationDefinitions/
 # BambooHR Get Pricing JWT secrets (never commit)
 scripts/bamboohr/get_pricing/.secrets/
 scripts/bamboohr/get_pricing/.env
+scripts/bamboohr/get_pricing/.qualify_sessions.json

@@ -341,15 +341,36 @@ def create_buyer_login(
         except Exception:
             pass
 
-    token = mint_ec_token(
-        account_id,
-        contact_id,
-        ttl_seconds=ttl_seconds,
-    )
+    # Soft-fail handoff mint — login is still usable via ?accountId= (demo pin).
+    token: str | None = None
+    handoff_warning: str | None = None
+    try:
+        token = mint_ec_token(
+            account_id,
+            contact_id,
+            ttl_seconds=ttl_seconds,
+        )
+    except Exception as exc:  # noqa: BLE001
+        handoff_warning = str(exc)
+
     account_name = ""
     acct = contact.get("Account") or {}
     if isinstance(acct, dict):
         account_name = acct.get("Name") or ""
+
+    account_url = f"/activate?accountId={quote(account_id, safe='')}"
+    if token:
+        account_url = (
+            f"/activate?accountId={quote(account_id, safe='')}"
+            f"&ecToken={quote(token, safe='')}"
+        )
+    licenses_url = f"/account?accountId={quote(account_id, safe='')}&focus=invoices"
+    if token:
+        licenses_url = (
+            f"/account?accountId={quote(account_id, safe='')}"
+            f"&ecToken={quote(token, safe='')}"
+            f"&focus=invoices"
+        )
 
     return {
         "ok": True,
@@ -361,13 +382,11 @@ def create_buyer_login(
         "accountName": account_name,
         "contactId": contact_id,
         "ecToken": token,
-        "accountUrl": (
-            f"/account?accountId={quote(account_id, safe='')}"
-            f"&ecToken={quote(token, safe='')}"
-            f"&focus=invoices"
-        ),
+        "accountUrl": account_url,
+        "licensesUrl": licenses_url,
         "loginUrl": login_url(),
         "siteHome": site_home(),
+        "warnings": [handoff_warning] if handoff_warning else [],
         "message": (
             "Login created. You can open Licenses & billing now, and sign in later "
             f"at the BambooHR site with {username_final}."

@@ -20,7 +20,35 @@
         <apexClass>RLM_BambooVolumeTiers</apexClass>
         <enabled>true</enabled>
     </classAccesses>
-    <description>BambooHR demo volume-tier coach fields, US-only category qualification criteria, nonprofit Account flag, Path B Bundle &amp; Save eligibility, convert-later free trial, EC licenses handoff, Pay Now email, and LWC Apex access.</description>
+    <classAccesses>
+        <apexClass>RLM_BambooAgentBffClient</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <classAccesses>
+        <apexClass>RLM_BambooAgentEstimateGetPricing</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <classAccesses>
+        <apexClass>RLM_BambooAgentCreateGetPricingQuote</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <classAccesses>
+        <apexClass>RLM_BambooAgentGetLicensesSummary</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <classAccesses>
+        <apexClass>RLM_BambooAgentEstimateAmend</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <classAccesses>
+        <apexClass>RLM_BambooAgentGenerateAmendQuote</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <classAccesses>
+        <apexClass>RLM_BambooAgentGetPageContext</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <description>BambooHR demo: volume tiers, Path B, free trial, EC handoff, Pay Now, Agentforce BFF actions, and micro self-serve CRM (SelfServe / do-not-call).</description>
     <fieldPermissions>
         <editable>true</editable>
         <field>Account.RLM_Is_Nonprofit__c</field>
@@ -49,6 +77,26 @@
     <fieldPermissions>
         <editable>true</editable>
         <field>Quote.RLM_Bamboo_Amend_Volume__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>MessagingSession.RLM_Bamboo_QualifyStep__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>MessagingSession.RLM_Bamboo_BounceType__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>MessagingSession.RLM_Bamboo_Headcount__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>MessagingSession.RLM_Bamboo_Page__c</field>
         <readable>true</readable>
     </fieldPermissions>
     <fieldPermissions>
@@ -118,11 +166,64 @@
     </fieldPermissions>
     <fieldPermissions>
         <editable>true</editable>
-        <field>QuoteLineItem.RLM_Volume_Tier_Next__c</field>
+        <field>Account.RLM_Bamboo_SelfServe__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>Account.RLM_Bamboo_PrimaryNeeds__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>Account.RLM_Bamboo_EmployeeCountAtSignup__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>Account.RLM_Bamboo_Campaign__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>Account.RLM_Bamboo_SalesHandoff__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>Account.RLM_Bamboo_HandoffReason__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>Contact.RLM_Bamboo_DecisionMaker__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>Contact.RLM_Bamboo_DoNotCall__c</field>
         <readable>true</readable>
     </fieldPermissions>
     <hasActivationRequired>false</hasActivationRequired>
     <label>RLM BambooHR</label>
+    <objectPermissions>
+        <allowCreate>false</allowCreate>
+        <allowDelete>false</allowDelete>
+        <allowEdit>false</allowEdit>
+        <allowRead>true</allowRead>
+        <modifyAllRecords>false</modifyAllRecords>
+        <object>MessagingEndUser</object>
+        <viewAllRecords>false</viewAllRecords>
+    </objectPermissions>
+    <objectPermissions>
+        <allowCreate>false</allowCreate>
+        <allowDelete>false</allowDelete>
+        <allowEdit>false</allowEdit>
+        <allowRead>true</allowRead>
+        <modifyAllRecords>false</modifyAllRecords>
+        <object>MessagingSession</object>
+        <viewAllRecords>false</viewAllRecords>
+    </objectPermissions>
     <tabSettings>
         <tab>RLM_Bamboo_Get_Pricing</tab>
         <visibility>Visible</visibility>

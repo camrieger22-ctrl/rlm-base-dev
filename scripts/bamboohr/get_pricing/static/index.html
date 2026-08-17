@@ -8,8 +8,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/app.css" />
-  <link rel="stylesheet" href="/static/agent-chat.css" />
+  <link rel="stylesheet" href="/static/app.css?v=wizard21" />
+  <link rel="stylesheet" href="/static/agent-chat.css?v=wizard21" />
 </head>
 <body class="config-page">
   <header class="site-header">
@@ -31,144 +31,319 @@
     </div>
   </header>
 
-  <div class="promo-strip" role="note">
+  <div class="promo-strip" role="note" id="promoStrip">
     <span class="promo-icon" aria-hidden="true"></span>
     <p>
-      <strong>Demo offer:</strong> Configure Core, Pro, or Elite with live Revenue Cloud pricing —
-      volume bands and Bundle &amp; Save apply automatically.
+      <strong>Self-serve for teams under 25:</strong> Qualify in a minute, pick
+      Core or Pro, and pay with live Revenue Cloud pricing — no sales call required.
     </p>
   </div>
 
-  <aside class="demo-playbook" aria-label="SE demo playbook">
-    <div class="demo-playbook-inner">
-      <div class="demo-playbook-copy">
-        <p class="demo-playbook-kicker">SE demo tip</p>
-        <h2>Run it side-by-side with Salesforce</h2>
-        <ol class="demo-steps">
-          <li><strong>Load demo customer</strong> — pre-fills <em>Northwind Robotics</em> (easy to find in the org).</li>
-          <li><strong>Open Salesforce</strong> in a second window (Accounts list).</li>
-          <li>Quote → place order here, then click through Account → Order → Assets over there.</li>
-        </ol>
-      </div>
-      <div class="demo-playbook-actions">
-        <button type="button" class="demo-btn demo-btn-primary" id="loadDemoCustomer">
-          Load demo customer
-        </button>
-        <a class="demo-btn demo-btn-secondary" id="openSalesforce" href="#" target="_blank" rel="noopener">
-          Open Salesforce
-        </a>
-        <a class="demo-btn demo-btn-ghost" id="openSfAccounts" href="#" target="_blank" rel="noopener" hidden>
-          Accounts
-        </a>
-      </div>
-    </div>
-  </aside>
-
-  <section class="pricing-hero" aria-label="Get BambooHR plans and pricing">
+  <section class="pricing-hero" aria-label="Qualify for BambooHR self-service">
     <div class="pricing-hero-inner">
       <div class="pricing-hero-copy">
-        <h1>Get BambooHR<sup>®</sup></h1>
-        <p class="pricing-hero-sub">Plans and Pricing</p>
+        <p class="pricing-eyebrow">Micro segment · US &amp; Canada</p>
+        <h1>Start BambooHR<sup>®</sup> on your own</h1>
+        <p class="pricing-hero-sub">Self-service for teams with fewer than 25 employees</p>
         <ul class="hero-bullets">
           <li>
-            <strong>Comprehensive.</strong>
-            Take care of everything HR, payroll, and benefits in one platform.
+            <strong>Answer a few questions.</strong>
+            Headcount, where you’re based, and what you need HR to do.
           </li>
           <li>
-            <strong>Flexible.</strong>
-            Find the perfect fit with multiple plan options and add-ons.
+            <strong>Stay on self-serve — or talk to a person.</strong>
+            Payroll, Elite, 25+, or outside US/Canada go to sales.
           </li>
           <li>
-            <strong>One low monthly payment.</strong>
-            Pay per employee, per month. Automatic volume discounts.
+            <strong>Then create your account</strong>
+            and pay with live Revenue Cloud pricing. We select Core or Pro from your needs.
           </li>
         </ul>
       </div>
 
-      <aside class="get-pricing-card">
-        <h2>Get Pricing</h2>
+      <aside class="get-pricing-card qualify-wizard" id="qualifyCard">
+        <ol class="qw-progress" aria-label="Qualification steps">
+          <li class="qw-progress-item is-active" data-qw-progress="1">
+            <span class="qw-progress-num">1</span>
+            <span class="qw-progress-label">Size</span>
+          </li>
+          <li class="qw-progress-item" data-qw-progress="2">
+            <span class="qw-progress-num">2</span>
+            <span class="qw-progress-label">Geo</span>
+          </li>
+          <li class="qw-progress-item" data-qw-progress="3">
+            <span class="qw-progress-num">3</span>
+            <span class="qw-progress-label">Needs</span>
+          </li>
+          <li class="qw-progress-item" data-qw-progress="4">
+            <span class="qw-progress-num">4</span>
+            <span class="qw-progress-label">Role</span>
+          </li>
+          <li class="qw-progress-item" data-qw-progress="5">
+            <span class="qw-progress-num">5</span>
+            <span class="qw-progress-label">Account</span>
+          </li>
+        </ol>
         <form id="hero-lead-form" novalidate>
-          <div class="hero-fields hero-fields--2">
-            <label>
-              <span class="sr-only">First name</span>
-              <input name="firstName" type="text" placeholder="First Name" autocomplete="given-name" />
+          <input type="hidden" id="heroCountry" name="heroCountry" value="US" />
+
+          <section class="qw-step" data-step="1" id="qwStep1">
+            <h2 id="qwHeading1" tabindex="-1">How many employees?</h2>
+            <p class="qw-lead">Self-serve is for teams under 25. Enter your exact count.</p>
+            <div class="qw-hc-exact">
+              <div class="hc-controls">
+                <button type="button" class="hc-step" id="qwHcMinus" aria-label="Decrease employee count">−</button>
+                <input id="heroHeadcount" name="heroHeadcount" type="number" min="1" max="9999" value="15" inputmode="numeric" aria-label="Employee count" />
+                <button type="button" class="hc-step" id="qwHcPlus" aria-label="Increase employee count">+</button>
+              </div>
+              <p class="qw-hc-or">or</p>
+              <button type="button" class="qw-sales-cta" id="qwHcSales">
+                <span class="qw-tile-value">25 or more</span>
+                <span class="qw-tile-hint qw-micro-hint">Talk to a person</span>
+              </button>
+            </div>
+            <p class="qw-error" id="qwSizeError" hidden></p>
+            <button type="button" class="hero-submit" data-qw-next="2">Continue</button>
+          </section>
+
+          <section class="qw-step" data-step="2" id="qwStep2" hidden>
+            <h2 id="qwHeading2" tabindex="-1">Where is your company based?</h2>
+            <p class="qw-lead">Self-serve is US and Canada. Anywhere else talks to a person.</p>
+            <fieldset class="qw-fieldset">
+              <legend class="sr-only">Country</legend>
+              <div class="qw-tiles qw-tiles-geo" role="radiogroup" aria-label="Country">
+                <label class="qw-tile">
+                  <input type="radio" name="ctryBand" value="US" checked />
+                  <span class="qw-tile-face">
+                    <span class="qw-tile-value">United States</span>
+                    <span class="qw-tile-hint">USD</span>
+                  </span>
+                </label>
+                <label class="qw-tile">
+                  <input type="radio" name="ctryBand" value="CA" />
+                  <span class="qw-tile-face">
+                    <span class="qw-tile-value">Canada</span>
+                    <span class="qw-tile-hint">CAD</span>
+                  </span>
+                </label>
+                <label class="qw-tile">
+                  <input type="radio" name="ctryBand" value="UK" />
+                  <span class="qw-tile-face">
+                    <span class="qw-tile-value">Somewhere else</span>
+                    <span class="qw-tile-hint qw-micro-hint">Talk to a person</span>
+                  </span>
+                </label>
+              </div>
+            </fieldset>
+            <div class="qw-actions">
+              <button type="button" class="qw-back" data-qw-goto="1">Back</button>
+              <button type="button" class="hero-submit" data-qw-next="3">Continue</button>
+            </div>
+          </section>
+
+          <section class="qw-step" data-step="3" id="qwStep3" hidden>
+            <h2 id="qwHeading3" tabindex="-1">What do you need HR to do?</h2>
+            <p class="qw-lead">We’ll select Core or Pro from what you pick. Payroll or Elite talks to a person.</p>
+
+            <fieldset class="qw-fieldset">
+              <legend>Primary needs <span class="muted">(pick any)</span></legend>
+              <div class="qw-tiles qw-tiles-needs">
+                <label class="qw-tile qw-tile--need">
+                  <input type="checkbox" name="need" value="records" />
+                  <span class="qw-tile-face">
+                    <span class="qw-tile-value">Employee records</span>
+                    <span class="qw-tile-hint">Selects Core</span>
+                  </span>
+                </label>
+                <label class="qw-tile qw-tile--need">
+                  <input type="checkbox" name="need" value="hiring" />
+                  <span class="qw-tile-face">
+                    <span class="qw-tile-value">Hiring</span>
+                    <span class="qw-tile-hint">Selects Core</span>
+                  </span>
+                </label>
+                <label class="qw-tile qw-tile--need">
+                  <input type="checkbox" name="need" value="onboarding" />
+                  <span class="qw-tile-face">
+                    <span class="qw-tile-value">Onboarding</span>
+                    <span class="qw-tile-hint">Selects Core</span>
+                  </span>
+                </label>
+                <label class="qw-tile qw-tile--need">
+                  <input type="checkbox" name="need" value="timeoff" />
+                  <span class="qw-tile-face">
+                    <span class="qw-tile-value">Time off</span>
+                    <span class="qw-tile-hint">Selects Core</span>
+                  </span>
+                </label>
+                <label class="qw-tile qw-tile--need">
+                  <input type="checkbox" name="need" value="timetracking" />
+                  <span class="qw-tile-face">
+                    <span class="qw-tile-value">Time tracking</span>
+                    <span class="qw-tile-hint">Selects Core</span>
+                  </span>
+                </label>
+                <label class="qw-tile qw-tile--need">
+                  <input type="checkbox" name="need" value="performance" />
+                  <span class="qw-tile-face">
+                    <span class="qw-tile-value">Performance</span>
+                    <span class="qw-tile-hint">Selects Pro</span>
+                  </span>
+                </label>
+              </div>
+            </fieldset>
+
+            <fieldset class="qw-fieldset">
+              <legend>Need a specialist? <span class="muted">(optional)</span></legend>
+              <div class="qw-tiles qw-tiles-pay">
+                <label class="qw-tile qw-tile--sales">
+                  <input type="checkbox" name="need" value="payroll" />
+                  <span class="qw-tile-face">
+                    <span class="qw-tile-value">Payroll</span>
+                    <span class="qw-tile-hint qw-micro-hint">Talk to a person</span>
+                  </span>
+                </label>
+                <label class="qw-tile qw-tile--sales">
+                  <input type="checkbox" name="need" value="elite" />
+                  <span class="qw-tile-face">
+                    <span class="qw-tile-value">Elite</span>
+                    <span class="qw-tile-hint qw-micro-hint">Comp &amp; benchmarks</span>
+                  </span>
+                </label>
+              </div>
+            </fieldset>
+
+            <p class="qw-recommend" id="qwRecommend" aria-live="polite">We’ll select <strong>Core</strong>.</p>
+
+            <div class="qw-actions">
+              <button type="button" class="qw-back" data-qw-goto="2">Back</button>
+              <button type="button" class="hero-submit" data-qw-next="4">Continue</button>
+            </div>
+          </section>
+
+          <section class="qw-step" data-step="4" id="qwStep4" hidden>
+            <h2 id="qwHeading4" tabindex="-1">What’s your role in this decision?</h2>
+            <p class="qw-lead">Researchers stay on self-serve. We’ll just remember how you’re involved.</p>
+            <fieldset class="qw-fieldset">
+              <legend class="sr-only">Buying role</legend>
+              <div class="qw-tiles qw-tiles-role" role="radiogroup" aria-label="Buying role">
+                <label class="qw-tile">
+                  <input type="radio" name="dmRole" value="own" checked />
+                  <span class="qw-tile-face">
+                    <span class="qw-tile-value">I own it</span>
+                    <span class="qw-tile-hint">Buying decision</span>
+                  </span>
+                </label>
+                <label class="qw-tile">
+                  <input type="radio" name="dmRole" value="influence" />
+                  <span class="qw-tile-face">
+                    <span class="qw-tile-value">I influence it</span>
+                    <span class="qw-tile-hint">Not the final call</span>
+                  </span>
+                </label>
+                <label class="qw-tile">
+                  <input type="radio" name="dmRole" value="research" />
+                  <span class="qw-tile-face">
+                    <span class="qw-tile-value">I’m researching</span>
+                    <span class="qw-tile-hint">Stay on self-serve</span>
+                  </span>
+                </label>
+              </div>
+            </fieldset>
+            <p class="qw-error" id="qwRoleError" hidden></p>
+            <div class="qw-actions">
+              <button type="button" class="qw-back" data-qw-goto="3">Back</button>
+              <button type="button" class="hero-submit" data-qw-next="5">Continue</button>
+            </div>
+          </section>
+
+          <section class="qw-step" data-step="5" id="qwStep5" hidden>
+            <h2 id="qwHeading5" tabindex="-1">Create your account</h2>
+            <p class="qw-lead">You’ve answered the questions. Stay on self-serve — we’ll match your work email to a Contact (never a Lead).</p>
+            <div class="qw-field-row">
+              <label class="qw-field">
+                <span>First name</span>
+                <input name="firstName" type="text" autocomplete="given-name" />
+              </label>
+              <label class="qw-field">
+                <span>Last name</span>
+                <input name="lastName" type="text" autocomplete="family-name" />
+              </label>
+            </div>
+            <label class="qw-field">
+              <span>Work email</span>
+              <input name="email" type="email" autocomplete="email" required />
             </label>
-            <label>
-              <span class="sr-only">Last name</span>
-              <input name="lastName" type="text" placeholder="Last Name" autocomplete="family-name" />
+            <label class="qw-field">
+              <span>Company name</span>
+              <input name="company" type="text" autocomplete="organization" required />
             </label>
-          </div>
-            <label>
-              <span class="sr-only">Work email</span>
-              <input name="email" type="email" placeholder="Work Email *" autocomplete="email" required />
-            </label>
-          <div class="hero-fields hero-fields--2">
-            <label>
-              <span class="sr-only">Job title</span>
-              <input name="jobTitle" type="text" placeholder="Job Title" autocomplete="organization-title" />
-            </label>
-            <label>
-              <span class="sr-only">Company name</span>
-              <input name="company" type="text" placeholder="Company Name *" autocomplete="organization" required />
-            </label>
-          </div>
-          <div class="hero-fields hero-fields--2">
-            <label>
-              <span class="sr-only">Phone number</span>
-              <input name="phone" type="tel" placeholder="Phone Number" autocomplete="tel" />
-            </label>
-            <label>
-              <span class="sr-only">Employee count</span>
-              <select name="heroHeadcount" id="heroHeadcount" aria-label="Employee count">
-                <option value="10">1–24 employees</option>
-                <option value="50" selected>25–75 employees</option>
-                <option value="100">76–150 employees</option>
-                <option value="250">151–300 employees</option>
-                <option value="400">301–500 employees</option>
-                <option value="600">501+ employees</option>
-              </select>
-            </label>
-          </div>
-          <label>
-            <span class="sr-only">Country</span>
-            <select name="heroCountry" id="heroCountry" aria-label="Country">
-              <option value="US" selected>United States</option>
-              <option value="CA">Canada</option>
-              <option value="UK">United Kingdom</option>
-            </select>
-          </label>
-          <p class="hero-legal">
-            By submitting, you agree this is a Revenue Cloud demo experience.
-            We’ll use your details only to personalize this quote session.
-          </p>
-          <button type="submit" class="hero-submit">See plans &amp; pricing</button>
+            <p class="qw-error" id="qwIdentityError" hidden></p>
+            <div class="qw-actions">
+              <button type="button" class="qw-back" data-qw-goto="4">Back</button>
+              <button type="submit" class="hero-submit">See what we recommend</button>
+            </div>
+            <p class="hero-legal">
+              Revenue Cloud demo — micro self-serve is under 25 employees, Core/Pro, US &amp; Canada.
+            </p>
+          </section>
         </form>
+      </aside>
+
+      <aside class="get-pricing-card sales-handoff" id="salesHandoff" hidden>
+        <h2 id="salesHandoffTitle">Let’s connect you with sales</h2>
+        <p id="salesHandoffReason" class="sales-handoff-reason"></p>
+        <p class="muted" id="salesHandoffMuted">
+          Self-serve today is limited to teams under 25 in the US or Canada choosing
+          Core or Pro. Larger teams, other countries, Elite, and Payroll stay on an
+          assisted path.
+        </p>
+        <p class="sales-handoff-brief" id="salesHandoffBrief" hidden></p>
+        <div id="salesHandoffCapture">
+          <label class="qw-field" id="handoffEmailWrap">
+            <span>Work email</span>
+            <input id="handoffEmail" type="email" autocomplete="email" />
+          </label>
+          <label class="qw-field" id="handoffCompanyWrap">
+            <span>Company</span>
+            <input id="handoffCompany" type="text" autocomplete="organization" />
+          </label>
+          <button type="button" class="hero-submit" id="salesHandoffCaptureBtn">
+            Connect me with a person
+          </button>
+          <p class="qw-error" id="handoffCaptureError" hidden></p>
+          <p class="muted" id="handoffCaptureStatus" hidden></p>
+        </div>
+        <a class="hero-submit sales-handoff-cta" id="salesHandoffCta" href="#plans">Talk to sales</a>
+        <button type="button" class="linkish" id="salesHandoffBack">← Change my answers</button>
       </aside>
     </div>
   </section>
 
   <form id="pricing-form" novalidate>
-    <input type="hidden" id="planSku" name="planSku" value="BAMBOO-PRO" />
+    <input type="hidden" id="planSku" name="planSku" value="BAMBOO-CORE" />
 
-    <!-- Plans header sits above the rail so Your plan lines up with Core / Pro / Elite -->
+    <!-- Plans header — micro defaults to Core/Pro + monthly display -->
     <div class="plans-lead">
       <div class="section-head">
-        <h2>1 · Choose your core plan</h2>
+        <h2>1 · Choose Core or Pro</h2>
         <div class="bill-toggle" role="group" aria-label="Billing period">
-          <button type="button" class="bill-opt" data-bill="annual" aria-pressed="true">Billed annually</button>
-          <button type="button" class="bill-opt" data-bill="monthly" aria-pressed="false">Billed monthly</button>
+          <button type="button" class="bill-opt" data-bill="monthly" aria-pressed="true">Billed monthly</button>
+          <button type="button" class="bill-opt" data-bill="annual" aria-pressed="false">Billed annually</button>
         </div>
       </div>
-      <p class="section-center-title">Plans and pricing for every organization</p>
+      <p class="section-center-title">Self-serve plans for teams under 25</p>
+      <p class="qualify-recap" id="qualifyRecap" hidden></p>
+      <p class="qualify-switch-hint" id="qualifySwitchHint" hidden>Both plans stay available — click the other card to switch.</p>
     </div>
 
   <div class="config-layout">
     <main class="config-main">
         <!-- 1 · Plans -->
         <section class="cfg-section cfg-section--plans" id="plans">
-          <div class="plan-grid" role="radiogroup" aria-label="Plan">
+          <div class="plan-grid plan-grid--micro" role="radiogroup" aria-label="Plan">
             <button type="button" class="plan-card" data-plan="BAMBOO-CORE" data-list="10" aria-checked="false">
-              <div class="plan-banner plan-banner--spacer" aria-hidden="true"></div>
+              <div class="plan-banner plan-banner--spacer" data-plan-banner aria-hidden="true"></div>
               <div class="plan-hero">
                 <div class="plan-hero-main">
                   <p class="plan-name">Core</p>
@@ -179,7 +354,7 @@
                 <span class="select-cta foot-label">Get Quote</span>
                 <div class="plan-hero-aside">
                   <p class="blurb">Foundational HR automation and insights to move your business forward</p>
-                  <p class="price-meta flat-note">$250/mo flat for ≤25 employees</p>
+                  <p class="price-meta">&nbsp;</p>
                 </div>
               </div>
               <div class="plan-includes">
@@ -199,7 +374,7 @@
             </button>
 
             <button type="button" class="plan-card plan-card--popular" data-plan="BAMBOO-PRO" data-list="17" aria-checked="true">
-              <div class="plan-banner">Most popular</div>
+              <div class="plan-banner" data-plan-banner>Most popular</div>
               <div class="plan-hero">
                 <div class="plan-hero-main">
                   <p class="plan-name">Pro</p>
@@ -225,7 +400,7 @@
               </div>
             </button>
 
-            <button type="button" class="plan-card" data-plan="BAMBOO-ELITE" data-list="25" aria-checked="false">
+            <button type="button" class="plan-card micro-only-hide" data-plan="BAMBOO-ELITE" data-list="25" aria-checked="false" hidden>
               <div class="plan-banner plan-banner--spacer" aria-hidden="true"></div>
               <div class="plan-hero">
                 <div class="plan-hero-main">
@@ -253,15 +428,12 @@
               </div>
             </button>
           </div>
-          <p class="plans-footnote">*Volume and non-profit discounts are available</p>
+          <p class="plans-footnote">*Volume discounts apply via Revenue Cloud. Elite and add-ons are sales-assisted on this self-serve path.</p>
           <p class="plans-footnote catalog-source" id="catalogSource">Loading list prices from Salesforce…</p>
-          <p class="hint" id="flatHint" hidden>
-            ≤25 employees on Core uses flat SKU <code>BAMBOO-CORE-FLAT-SM</code> at qty 1 (not PEPM × headcount).
-          </p>
         </section>
 
         <!-- 2 · Add-ons -->
-        <section class="cfg-section" id="modules">
+        <section class="cfg-section micro-only-hide" id="modules" hidden>
           <div class="section-head section-head--stack">
             <h2>2 · Add-on solutions</h2>
             <span class="count-pill" id="addonCount">0 OF 4 ON</span>
@@ -361,30 +533,30 @@
         <!-- 3 · Headcount -->
         <section class="cfg-section" id="headcount-section">
           <div class="section-head">
-            <h2>3 · How many employees?</h2>
+            <h2>2 · How many employees?</h2>
             <span class="count-pill" id="volumePill">0% VOLUME BAND</span>
           </div>
           <div class="hc-controls">
             <button type="button" class="hc-step" id="hcMinus" aria-label="Decrease">−</button>
-            <input id="headcount" name="headcount" type="number" min="1" max="100000" value="50" required />
+            <input id="headcount" name="headcount" type="number" min="1" max="24" value="15" required />
             <button type="button" class="hc-step" id="hcPlus" aria-label="Increase">+</button>
           </div>
-          <input id="hcRange" type="range" min="1" max="600" value="50" aria-label="Headcount slider" />
+          <input id="hcRange" type="range" min="1" max="24" value="15" aria-label="Headcount slider" />
           <div class="hc-presets" id="hcPresets">
+            <button type="button" data-hc="5">5</button>
             <button type="button" data-hc="10">10</button>
-            <button type="button" data-hc="25">25</button>
-            <button type="button" data-hc="50" class="on">50</button>
-            <button type="button" data-hc="100">100</button>
-            <button type="button" data-hc="250">250</button>
-            <button type="button" data-hc="500">500</button>
+            <button type="button" data-hc="15" class="on">15</button>
+            <button type="button" data-hc="20">20</button>
+            <button type="button" data-hc="24">24</button>
           </div>
           <div class="band-grid" id="bandGrid"></div>
+          <p class="muted micro-hc-hint">Self-serve max is 24 employees. Need more? We&apos;ll route you to sales at qualify.</p>
         </section>
 
         <!-- 4 · Subscription term -->
         <section class="cfg-section" id="term-section">
           <div class="section-head">
-            <h2>4 · Subscription start &amp; term</h2>
+            <h2>3 · Subscription start</h2>
             <span class="count-pill">REQUIRED</span>
           </div>
           <div class="term-controls">
@@ -395,19 +567,20 @@
             <label class="term-months-field">
               <span>Subscription term</span>
               <select id="termMonths" name="termMonths">
-                <option value="12" selected>12 months</option>
+                <option value="1" selected>Month-to-month</option>
+                <option value="12">12 months</option>
                 <option value="24">24 months</option>
                 <option value="36">36 months</option>
               </select>
             </label>
           </div>
           <p class="muted start-date-hint" id="termHint">
-            Quote line dates in Salesforce use this start and term. Free trial overrides the end date to 30 days.
+            Default is month-to-month (PEPM, Term Monthly PSM). Choose 12 / 24 / 36 for a committed term — same PEPM, Quote EndDate matches the window.
           </p>
         </section>
 
-        <!-- 5 · Trial -->
-        <section class="cfg-section" id="options">
+        <!-- Trial hidden in micro — bill immediately -->
+        <section class="cfg-section micro-only-hide" id="options" hidden>
           <div class="section-head">
             <h2>5 · Free trial</h2>
             <span class="count-pill">OPTIONAL</span>
@@ -429,14 +602,14 @@
       <div class="rail-card">
         <div class="rail-head">
           <h2>Your plan</h2>
-          <span class="rail-bill" id="railBill">Billed annually</span>
+          <span class="rail-bill" id="railBill">Billed monthly</span>
         </div>
         <p class="rail-pepm"><strong id="railPepm">0.00</strong></p>
         <p class="rail-pepm-unit" id="railPepmUnit">per employee / month</p>
         <ul class="rail-lines" id="railLines"></ul>
         <div class="rail-totals">
           <div class="rail-row muted">
-            <span id="railSubLabel">Subscription, per year</span>
+            <span id="railSubLabel">Subscription, per month</span>
             <span id="railSub">$0</span>
           </div>
           <div class="rail-row total">
@@ -444,9 +617,30 @@
             <span id="railTotal">$0</span>
           </div>
         </div>
+        <div class="rail-buyer" id="railBuyer">
+          <p class="rail-buyer-label">Quote this for</p>
+          <label>
+            <span class="sr-only">Company name</span>
+            <input id="buyerCompany" name="buyerCompany" type="text" placeholder="Company name *" autocomplete="organization" />
+          </label>
+          <label>
+            <span class="sr-only">Work email</span>
+            <input id="buyerEmail" name="buyerEmail" type="email" placeholder="Work email *" autocomplete="email" />
+          </label>
+          <div class="rail-buyer-names">
+            <label>
+              <span class="sr-only">First name</span>
+              <input id="buyerFirst" name="buyerFirst" type="text" placeholder="First name" autocomplete="given-name" />
+            </label>
+            <label>
+              <span class="sr-only">Last name</span>
+              <input id="buyerLast" name="buyerLast" type="text" placeholder="Last name" autocomplete="family-name" />
+            </label>
+          </div>
+        </div>
         <button type="submit" id="submit" class="rail-cta">Get your quote</button>
         <p class="rail-source muted" id="railSource">
-          Change plan or seats — Revenue Cloud System-reprices one sticky Quote.
+          Edit company or email here. Change plan or seats on the page — prices update live.
         </p>
         <p class="rail-foot">Live pricing via Revenue Cloud · BambooHR demo catalog</p>
       </div>
@@ -456,12 +650,13 @@
 
   <footer class="site-footer">
     <div class="inner">
-      <span>Demo · BambooHR catalog · Revenue Cloud</span>
+      <span>Demo · Micro self-serve (&lt;25) · Revenue Cloud</span>
+      <a href="/qualify-inbox">Incomplete signups (demo)</a>
       <a href="https://www.bamboohr.com/pricing/#compare-all-features" target="_blank" rel="noopener">Compare features on bamboohr.com</a>
     </div>
   </footer>
 
-  <script src="/static/app.js"></script>
-  <script src="/static/agent-chat.js"></script>
+  <script src="/static/app.js?v=wizard21"></script>
+  <script src="/static/agent-chat.js?v=wizard21"></script>
 </body>
 </html>

@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
-"""Update Custom Label RLM_Bamboo_Get_Pricing_Bff_Url in a Salesforce org.
+"""Update Custom Label + Remote Site for BambooHR Get Pricing BFF URL.
+
+Sets:
+  - Custom Label RLM_Bamboo_Get_Pricing_Bff_Url
+  - Remote Site Setting BambooHR_Get_Pricing_BFF (Agentforce Apex callouts)
 
 Usage:
   ~/.local/pipx/venvs/cumulusci/bin/python \\
     scripts/bamboohr/set_get_pricing_bff_url.py --org master-demo \\
     --url https://calculation-magnitude-informed-outreach.trycloudflare.com
+
+Agentforce actions cannot call 127.0.0.1 — use a public HTTPS URL.
 """
 
 from __future__ import annotations
@@ -17,6 +23,7 @@ import urllib.parse
 import urllib.request
 
 LABEL_NAME = "RLM_Bamboo_Get_Pricing_Bff_Url"
+REMOTE_SITE_NAME = "BambooHR_Get_Pricing_BFF"
 API = "v67.0"
 
 
@@ -29,6 +36,12 @@ def main() -> int:
     url = args.url.strip().rstrip("/")
     if not url:
         raise SystemExit("--url is required")
+    if url.startswith("http://127.") or url.startswith("http://localhost"):
+        print(
+            "Warning: Salesforce Apex callouts cannot reach localhost. "
+            "EC shell / DocGen may still use this URL; Agentforce Phase 2 needs public HTTPS.",
+            file=sys.stderr,
+        )
 
     from cumulusci.cli.runtime import CliRuntime
 
@@ -59,6 +72,7 @@ def main() -> int:
         except urllib.error.HTTPError as exc:
             return exc.code, exc.read().decode("utf-8", errors="replace")
 
+    # --- Custom Label ---
     q = (
         "SELECT Id, Name, Value FROM ExternalString "
         f"WHERE Name = '{LABEL_NAME}' LIMIT 1"
@@ -84,9 +98,72 @@ def main() -> int:
         {"Value": url},
     )
     if code not in (200, 204):
-        print(f"PATCH failed HTTP {code}: {resp}", file=sys.stderr)
+        print(f"Label PATCH failed HTTP {code}: {resp}", file=sys.stderr)
         return 1
     print(f"Updated {LABEL_NAME} → {url}")
+
+    # --- Remote Site Setting (callout allow-list) ---
+    rq = (
+        "SELECT Id, SiteName, EndpointUrl, IsActive FROM RemoteProxy "
+        f"WHERE SiteName = '{REMOTE_SITE_NAME}' LIMIT 1"
+    )
+    code, payload = http(
+        f"/services/data/{API}/tooling/query?q={urllib.parse.quote(rq)}"
+    )
+    if code != 200 or not isinstance(payload, dict):
+        print(
+            f"RemoteProxy query failed HTTP {code}: {payload} "
+            "(label updated; fix Remote Site manually if needed)",
+            file=sys.stderr,
+        )
+        return 0
+
+    rrows = payload.get("records") or []
+    if rrows:
+        rid = rrows[0]["Id"]
+        code, resp = http(
+            f"/services/data/{API}/tooling/sobjects/RemoteProxy/{rid}",
+            "PATCH",
+            {
+                "Metadata": {
+                    "disableProtocolSecurity": False,
+                    "isActive": True,
+                    "url": url,
+                    "description": (
+                        "BambooHR Get Pricing BFF for Agentforce callouts"
+                    ),
+                }
+            },
+        )
+        if code not in (200, 204):
+            print(f"Remote Site PATCH failed HTTP {code}: {resp}", file=sys.stderr)
+            return 1
+        print(f"Updated Remote Site {REMOTE_SITE_NAME} → {url}")
+    else:
+        code, resp = http(
+            f"/services/data/{API}/tooling/sobjects/RemoteProxy",
+            "POST",
+            {
+                "FullName": REMOTE_SITE_NAME,
+                "Metadata": {
+                    "disableProtocolSecurity": False,
+                    "isActive": True,
+                    "url": url,
+                    "description": (
+                        "BambooHR Get Pricing BFF for Agentforce callouts"
+                    ),
+                },
+            },
+        )
+        if code not in (200, 201):
+            print(
+                f"Remote Site create failed HTTP {code}: {resp}\n"
+                f"Deploy unpackaged/post_bamboohr/remoteSiteSettings, then re-run.",
+                file=sys.stderr,
+            )
+            return 1
+        print(f"Created Remote Site {REMOTE_SITE_NAME} → {url}")
+
     return 0
 
 

@@ -8,9 +8,9 @@ Asserts:
 3. US Pro + Payroll + Benefits → Path B flag + add-on nets ≈ list × 0.85 × volume
    (single 15% on ListPrice; must not be list × 0.85² from Instant/System compound)
 4. CA + Payroll requested → US-only add-ons stripped from quote
-5. US Core @ 25 → small-biz flat SKU $250 qty 1 (Phase 2 Approach B)
+5. US Core @ 25 → BAMBOO-CORE list PEPM × headcount (no flat SKU)
 6. US Pro + Payroll + Benefits @ 50 + free trial → $0 monthly, flag, 30-day term
-7. CA Core @ 25 → CAD flat $337.50 (B5)
+7. CA Core @ 25 → CAD Core list PEPM (no flat SKU)
 8. UK Pro @ 50 → GBP net ≈ 13.43 × 0.95 (B5)
 
 Usage:
@@ -27,12 +27,9 @@ HERE = Path(__file__).resolve().parent / "get_pricing"
 sys.path.insert(0, str(HERE))
 
 from service import (  # noqa: E402
-    CORE_FLAT_PRICE,
-    CORE_FLAT_SKU,
     TRIAL_DAYS,
     GetPricingRequest,
     OrgSession,
-    core_flat_price,
     expected_net,
     get_pricing,
 )
@@ -61,7 +58,7 @@ def main() -> int:
         raise AssertionError("Discovery missing BAMBOO-PRO")
     print(f"  PASS net={us.net_pepm} quote={us.quote_id} monthly={us.monthly_total}")
 
-    print("\n== 2) CA Core @ 10 (disqual warning + CAD small-biz flat) ==")
+    print("\n== 2) CA Core @ 10 (disqual warning + CAD Core list PEPM) ==")
     ca = get_pricing(
         session,
         GetPricingRequest(
@@ -70,19 +67,20 @@ def main() -> int:
     )
     if not any("Canada" in w or "disqual" in w.lower() for w in ca.warnings):
         raise AssertionError(f"Expected CA disqual warning, got {ca.warnings}")
-    if not ca.small_biz_flat or ca.sell_plan_sku != CORE_FLAT_SKU:
+    if ca.small_biz_flat or ca.sell_plan_sku != "BAMBOO-CORE":
         raise AssertionError(
-            f"Expected Core flat SKU, got flat={ca.small_biz_flat} sell={ca.sell_plan_sku}"
+            f"Expected Core PEPM (no flat), got flat={ca.small_biz_flat} "
+            f"sell={ca.sell_plan_sku}"
         )
-    expect_ca_flat = core_flat_price("CAD")
+    expect_ca = expected_net("BAMBOO-CORE", 10, "CAD")
     if ca.currency != "CAD":
         raise AssertionError(f"CA quote currency expected CAD, got {ca.currency}")
-    if abs(ca.net_pepm - expect_ca_flat) > 0.08:
+    if abs(ca.net_pepm - expect_ca) > 0.08:
         raise AssertionError(
-            f"CA Core@10 flat expected ~{expect_ca_flat}, got {ca.net_pepm}"
+            f"CA Core@10 PEPM expected ~{expect_ca}, got {ca.net_pepm}"
         )
     print(
-        f"  PASS warning + CAD flat net={ca.net_pepm} currency={ca.currency} "
+        f"  PASS warning + CAD Core net={ca.net_pepm} currency={ca.currency} "
         f"quote={ca.quote_id}"
     )
 
@@ -154,31 +152,34 @@ def main() -> int:
         raise AssertionError("Time line missing on CA quote")
     print(f"  PASS stripped addons={ca_add.addon_skus} quote={ca_add.quote_id}")
 
-    print("\n== 5) US Core @ 25 (small-biz flat $250 qty 1) ==")
-    flat = get_pricing(
+    print("\n== 5) US Core @ 25 (list PEPM × headcount, no flat SKU) ==")
+    core25 = get_pricing(
         session,
         GetPricingRequest(
             headcount=25, country="US", plan_sku="BAMBOO-CORE", place_quote=True
         ),
     )
-    if not flat.small_biz_flat or flat.sell_plan_sku != CORE_FLAT_SKU:
+    if core25.small_biz_flat or core25.sell_plan_sku != "BAMBOO-CORE":
         raise AssertionError(
-            f"Expected flat path, got flat={flat.small_biz_flat} sell={flat.sell_plan_sku}"
+            f"Expected Core PEPM (no flat), got flat={core25.small_biz_flat} "
+            f"sell={core25.sell_plan_sku}"
         )
-    by_sku = {li["sku"]: li for li in flat.line_items}
-    if CORE_FLAT_SKU not in by_sku:
-        raise AssertionError(f"Missing flat line: {flat.line_items}")
-    if by_sku[CORE_FLAT_SKU]["quantity"] != 1:
-        raise AssertionError(f"Flat qty expected 1, got {by_sku[CORE_FLAT_SKU]}")
-    if abs(flat.net_pepm - CORE_FLAT_PRICE) > 0.08:
-        raise AssertionError(f"Flat net expected {CORE_FLAT_PRICE}, got {flat.net_pepm}")
-    if abs(flat.monthly_total - CORE_FLAT_PRICE) > 0.08:
+    by_sku = {li["sku"]: li for li in core25.line_items}
+    if "BAMBOO-CORE" not in by_sku:
+        raise AssertionError(f"Missing Core line: {core25.line_items}")
+    if by_sku["BAMBOO-CORE"]["quantity"] != 25:
         raise AssertionError(
-            f"Flat-only monthly expected {CORE_FLAT_PRICE}, got {flat.monthly_total}"
+            f"Core qty expected 25, got {by_sku['BAMBOO-CORE']['quantity']}"
         )
-    if flat.volume_percent != 0:
-        raise AssertionError(f"Flat path should show 0% volume, got {flat.volume_percent}")
-    print(f"  PASS flat quote={flat.quote_id} monthly={flat.monthly_total}")
+    expect_core = expected_net("BAMBOO-CORE", 25)
+    if abs(core25.net_pepm - expect_core) > 0.08:
+        raise AssertionError(f"Core net expected {expect_core}, got {core25.net_pepm}")
+    expect_monthly = round(expect_core * 25, 2)
+    if abs(core25.monthly_total - expect_monthly) > 0.08:
+        raise AssertionError(
+            f"Core monthly expected {expect_monthly}, got {core25.monthly_total}"
+        )
+    print(f"  PASS Core PEPM quote={core25.quote_id} monthly={core25.monthly_total}")
 
     print("\n== 6) US Pro + Payroll + Benefits @ 50 (30-day free trial) ==")
     trial = get_pricing(
@@ -238,25 +239,30 @@ def main() -> int:
         f"paidEstimate={trial.paid_monthly_estimate} endDelta={delta}d"
     )
 
-    print("\n== 7) CA Core @ 25 (CAD flat) ==")
-    ca_flat = get_pricing(
+    print("\n== 7) CA Core @ 25 (CAD Core list PEPM) ==")
+    ca_core = get_pricing(
         session,
         GetPricingRequest(
             headcount=25, country="CA", plan_sku="BAMBOO-CORE", place_quote=True
         ),
     )
-    expect_cad_flat = core_flat_price("CAD")
-    if ca_flat.currency != "CAD":
-        raise AssertionError(f"Expected CAD, got {ca_flat.currency}")
-    if abs(ca_flat.net_pepm - expect_cad_flat) > 0.08:
+    expect_cad = expected_net("BAMBOO-CORE", 25, "CAD")
+    if ca_core.currency != "CAD":
+        raise AssertionError(f"Expected CAD, got {ca_core.currency}")
+    if ca_core.small_biz_flat or ca_core.sell_plan_sku != "BAMBOO-CORE":
         raise AssertionError(
-            f"CAD flat expected ~{expect_cad_flat}, got {ca_flat.net_pepm}"
+            f"Expected Core PEPM (no flat), got flat={ca_core.small_biz_flat} "
+            f"sell={ca_core.sell_plan_sku}"
         )
-    if ca_flat.account_name != "Prestige Worldwide":
-        raise AssertionError(f"Expected Prestige, got {ca_flat.account_name}")
+    if abs(ca_core.net_pepm - expect_cad) > 0.08:
+        raise AssertionError(
+            f"CAD Core PEPM expected ~{expect_cad}, got {ca_core.net_pepm}"
+        )
+    if ca_core.account_name != "Prestige Worldwide":
+        raise AssertionError(f"Expected Prestige, got {ca_core.account_name}")
     print(
-        f"  PASS CAD flat quote={ca_flat.quote_id} net={ca_flat.net_pepm} "
-        f"currency={ca_flat.currency}"
+        f"  PASS CAD Core quote={ca_core.quote_id} net={ca_core.net_pepm} "
+        f"currency={ca_core.currency}"
     )
 
     print("\n== 8) UK Pro @ 50 (GBP + volume) ==")

@@ -8,23 +8,51 @@ Pay Now (checkout + Licenses weave-in plan).
 
 ## Flow
 
-1. User enters **company + work email** (Get Pricing hero), **headcount**,
-   **country**, **plan**, optional **add-ons**, plus **start date** and
-   **subscription term** (12 / 24 / 36 months; default 12).
+**Default path = micro self-serve (&lt;25)** per BambooHR workshop MVP:
+
+0. **Qualify** (workshop 5-beat wizard): exact employee count → US/CA → needs
+   (Payroll/Elite bounce live) → decision-maker role → **create account**
+   (first / last / work email / company). Needs auto-select Core or Pro.
+   At work email the BFF **looks up Contact** (never a Lead). Open sales Quote
+   → “Sales is already working this.” Assets on the Account → “You already have
+   BambooHR — sign in.” Otherwise stay on self-serve. Incomplete wizards persist
+   server-side (`/qualify-inbox`) with **1-day / 1-week abandoned cadence**
+   (demo mailto + mark-sent). Optional `?utm_campaign=` stamps journey #0.
+   Agent chat reads `qualifyStep` / bounce context to walk the five beats.
+1. User continues to **Core or Pro** only (Elite / add-ons hidden). Headcount 1–24.
+   **Standard list PEPM** × headcount (no `BAMBOO-CORE-FLAT-SM` package).
+   Month-to-month PEPM by default (`termMonths=1`); buyers can also pick a
+   **12 / 24 / 36**-month commitment. Same Term Monthly PBEs; Quote line
+   StartDate/EndDate span the selected window (`ALLOWED_TERM_MONTHS`).
 2. Configurator changes call **`/api/get-pricing-estimate`**: Salesforce
    **Pricing API** (headless) prices the cart with synthetic Quote/QLI ids —
    **no Opportunity or Quote** is created while configuring. Local math paints
    the rail instantly; the API replaces it (~1–2s). Falls back to local
    Bundle→volume math if Pricing API is unavailable.
-3. BFF **creates Account + Contact** in Salesforce when the buyer clicks
-   **Get your quote** (or reuses Contact email / Account name).
+3. BFF **matches/updates Contact** at **Create your account** (beat 5), not only
+   at Get your quote — so the record exists to mark *sales don’t touch*. Dual-motion
+   / existing-customer emails return **409** and never place a competing Quote.
+   Wizard bounces (Payroll / ≥25 / geo) still **capture the prospect for sales**.
 4. **Get your quote** calls **`/api/get-pricing`**: places Opportunity + Quote
-   with buyer-selected **StartDate / EndDate** on Quote lines (calendar months
-   for paid; 30-day end for free trial) and System reprice. Optional
-   `previewQuoteId` still promotes a sticky Draft if present (rollback /
-   legacy); the Get Pricing UI no longer creates sticky previews.
-5. Browser shows a branded summary (customer card + start/term + list→bundle→volume table).
-6. **P3:** “Place order” → order → activate → assets; optional `amendQty`.
+   named `SelfServe - …` with buyer-selected **StartDate / EndDate** on Quote
+   lines and System reprice.
+5. Browser shows a branded summary → **Place order** → Pay Now → Create login.
+
+SE escape hatch: open `/?fullCatalog=1` (or `BAMBOO_MICRO_SELF_SERVE=0`) to restore
+Elite / add-ons / UK / free trial. Optional `BAMBOO_SALES_HANDOFF_URL` for the
+Talk to sales CTA.
+
+### Why these CRM steps exist (Aug 12 workshop PDFs)
+
+These are not extra product ideas. They close gaps the room named:
+
+| What we added | Why (transcript / notes) |
+|---------------|--------------------------|
+| **Stamp Account/Contact at beat 5** (`POST /api/qualify-commit`) before Get your quote | Jeff ~01:59: *it has to exist so we can mark it “sales don’t touch.”* N 219 ~00:39: create-account is the moment they **stayed on self-serve**. Drop-off after recommend must still appear on **Self-serve — do not call**. |
+| **Capture wizard bounces into sales** (`POST /api/qualify-handoff` + Task) | N 219 ~00:39: a 24-person company that needs Payroll is *qualified to talk to a person*, not discarded. SDRs stop collecting data and take **complex** leads. The panel asks for work email/company if missing so we don’t lose them. |
+| **Suppress Flow** (`RLM_Bamboo_SelfServe_Contact_Gate` + Account stamp) | Jeff ~01:59 / quick notes: update the record **and suppress** standard sales outreach so they are not called while they self-serve. Demo proof: SelfServe Contact → Do Not Call, **no** `SDR: qualify inbound` Task; a normal inbound Contact still gets one. |
+
+Never insert a Lead. Dual-motion (open AE Quote) still blocks a competing self-serve Quote.
 
 > Term selection is commercial hygiene: it does **not** make monthly × 12 equal
 > a prorated amend Quote total on Licenses.
@@ -37,7 +65,15 @@ Pay Now (checkout + Licenses weave-in plan).
 
 ## Run (local)
 
-Use the **CumulusCI pipx Python** (plain `python` usually lacks `cumulusci`):
+Preferred (uses CumulusCI pipx Python + PyJWT):
+
+```bash
+# from repo root
+./scripts/bamboohr/get_pricing/run_server.sh master-demo
+# HOST=0.0.0.0 PORT=8765 ./scripts/bamboohr/get_pricing/run_server.sh master-demo
+```
+
+Or call the CCI Python directly:
 
 ```bash
 # from repo root — note the space in --port 8765
@@ -65,18 +101,28 @@ Full JWT / Docker / Connected App steps: **HOSTED.md**.
 | Method | Path | Body |
 |--------|------|------|
 | GET | `/api/health` | — |
+| GET | `/api/qualify-sessions?incomplete=1` | Abandoned wizard sessions (demo inbox). `?sessionId=` returns one. |
+| GET | `/qualify-inbox` | Abandoned sessions + cadence stage (waiting / 1-day due / 1-week due) + resume / mailto / mark-sent |
+| POST | `/api/qualify-cadence` | Demo inbox: `{ sessionId, which: day1\|week1 }` marks follow-up sent |
 | GET | `/api/agent-config` | Agentforce / Messaging embed flags (`enabled`, `preview`, deployment ids) — no secrets |
 | GET | `/api/catalog?country=US\|CA\|UK` | Curated SKUs → org PBE list PEPM / names / availability |
 | GET | `/api/account-console?accountId=\|company=\|ecToken=` | Licenses & billing (demo pin or EC HMAC handoff); includes open `invoices` |
-| GET | `/api/account-invoices?accountId=\|company=\|ecToken=` | Posted invoices with balance &gt; 0 (+ Active Pay Now URL when present) |
+| GET | `/api/account-invoices?accountId=\|company=\|ecToken=` | Posted invoices with balance &gt; 0 (+ Active Pay Now URL when present). Also `paymentReceived` / `pendingBalanceApply` when Payment Processed or PaymentLink Disabled (Balance lag). |
+| GET | `/api/activate?accountId=\|company=\|ecToken=` | Post-pay aha checklist stub (paid / assets / login + product stubs) |
+| GET | `/activate` | Branded activate checklist UI |
+| GET | `/api/catalog?country=&fullCatalog=` | Hydrated plans/add-ons. Micro mode (default) returns **Core/Pro only**; `fullCatalog=1` for full catalog. |
 | GET | `/api/ec-handoff?token=` | Verify EC handoff → `{ accountId, contactId, exp }` |
 | POST | `/api/create-login` | `{ accountId, contactId?, email, password }` → community User + `ecToken` handoff |
-| POST | `/api/account-amend-estimate` | Pricing API after PEPM/MRR (no Opp/Quote). `{ accountId, newQty?, addonSkus?, startDate? }` — `dueToday` is null until Generate quote |
+| POST | `/api/account-amend-estimate` | Pricing API before/after → est. prorated change lines (`dueToday` provisional). `{ accountId, newQty?, addonSkus?, startDate? }` — exact charge after Generate quote |
 | POST | `/api/account-amend-preview` | Generate / **update** quote: sticky Draft Quotes + System reprice (no Activate). Pass prior `amendQuotes` / `moduleQuoteId` to retarget the same Draft(s); other stale Draft amend Quotes for the Account are discarded. Returns `dueToday` from Quote TotalPrice |
 | POST | `/api/account-amend` | `{ accountId, newQty?, addonSkus?, amendQuotes?, moduleQuoteId? }` → activate preview Quotes → Order (native createOrderFromQuote) |
+| POST | `/api/qualify-session` | Persist wizard progress (size/geo/needs/role/email/UTM). `{ sessionId?, step, headcount, country, needs, dmRole, email, company, utm }` |
+| POST | `/api/qualify-lookup` | `{ email }` → `{ status: selfServe\|salesWorking\|existingCustomer }` — Contact lookup, never a Lead |
+| POST | `/api/qualify-commit` | Beat 5: match/update Account+Contact and stamp SelfServe **before** Quote. `{ buyer?, headcount, country, needs?, dmRole?, utm? }` — top-level discovery fields merge into `buyer` |
+| POST | `/api/qualify-handoff` | Wizard bounce: upsert Contact (not SelfServe), stamp Account `SalesHandoff` + HC/needs, reuse open “Qualified to talk…” Task (or create). Re-entry → `salesWorking`. `{ buyer, bounceReason, bounceType }` · `alreadyWorking` when prior sales path |
 | POST | `/api/get-pricing-estimate` | Pricing API rail estimate (no Opp/Quote). `{ headcount, country, planSku, addonSkus?, freeTrial?, startDate?, termMonths? }` |
 | POST | `/api/get-pricing-preview` | (Legacy / rollback) Sticky Draft Quote + System reprice. Pass `quoteId` to reuse. |
-| POST | `/api/get-pricing` | `{ headcount, country, planSku, addonSkus?, placeQuote?, previewQuoteId?, startDate?, termMonths? }` — places Opp+Quote (or promotes sticky preview if provided). `termMonths` ∈ {12,24,36}; defaults start=today, term=12 |
+| POST | `/api/get-pricing` | `{ headcount, country, planSku, addonSkus?, placeQuote?, previewQuoteId?, startDate?, termMonths?, buyer? }` — places Opp+Quote (or promotes sticky preview if provided). `buyer` includes `email`, `needs`, `dmRole`, `sessionId`, `utm`. Dual-motion / existing customer → **409**. `termMonths` ∈ {1,12,24,36}; defaults start=today, term=**1** (month-to-month) |
 | POST | `/api/collect-payment` | `{ orderId? \| invoiceId?, pollTimeout?, emailPayment?, toEmail? }` — invoice + PaymentLink; optional Pay Now email |
 | POST | `/api/payment-email` | `{ paymentUrl? \| invoiceId? \| orderId?, toEmail?, accountId? }` — email Pay Now link via Apex |
 | POST | `/api/checkout` | `{ quoteId, amendQty?, pollTimeout?, collectPayment?, emailPayment?, toEmail? }` — after activate, invoices the order and attempts Salesforce Payments Pay Now (`payment` on response; optional email) |
@@ -96,11 +142,11 @@ Pay Now weave-in plan / phases: **[PAYNOW.md](./PAYNOW.md)**.
 `./scripts/bamboohr/get_pricing/run_tunnel.sh` (syncs Custom Label). Stable host:
 HOSTED.md Path C (`publish_bff.py --named`).
 
-**Licenses recurring totals** come from Salesforce ``Asset.CurrentMrr`` /
-``CurrentQuantity`` (ASP fallback) — not a local catalog re-price. Amend
-“after” PEPM uses the **Pricing API** (`/api/account-amend-estimate`) while
-configuring; **Generate quote** creates Draft Quotes + System reprice for
-charged-today (`dueToday`) before Place order.
+**Licenses rail** shows an **estimated prorated charge** from the Pricing API
+(monthly delta × remaining term) with per-line seat deltas. ``Asset.CurrentMrr``
+still drives “today” on the account. **Generate quote** creates Draft Quotes +
+System reprice; the amend summary shows the exact Quote TotalPrice plus monthly /
+annual run-rate compare.
 
 **Amend summary:** ``POST /api/account-amend-preview`` attaches
 ``amendSummaryView``. The ``/amend-quote/{id}`` page renders that view
@@ -129,6 +175,24 @@ Context (`page`, `accountId`, sticky Draft ids, …) is published as
 create needs company + email; **Place order stays on the summary CTA**; actions
 call the BFF (Phase 2). Plan:
 `.agents/artifacts/bamboohr-bff-agentforce-implementation-plan.md`.
+
+### Agentforce → BFF actions (Phase 2)
+
+Apex Invocables (`RLM_BambooAgent*`) call these BFF routes with
+`callout=true`. Base URL = Custom Label `RLM_Bamboo_Get_Pricing_Bff_Url` +
+Remote Site `BambooHR_Get_Pricing_BFF` (both updated by
+`scripts/bamboohr/set_get_pricing_bff_url.py`). **Public HTTPS required** —
+Apex cannot reach `127.0.0.1`.
+
+| Action | BFF |
+|--------|-----|
+| Estimate Get Pricing | `POST /api/get-pricing-estimate` |
+| Create Get Pricing Quote | `POST /api/get-pricing` |
+| Get Licenses Summary | `GET /api/account-console` |
+| Estimate Amend | `POST /api/account-amend-estimate` |
+| Generate Or Update Amend Quote | `POST /api/account-amend-preview` + cache |
+
+Checklist: `.agents/artifacts/bamboohr-agentforce-phase2-checklist.md`.
 
 ```bash
 # Spot-check an Account (Rick Worldwide example)

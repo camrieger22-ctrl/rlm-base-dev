@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>RLM_Bamboo_SalesHandoff__c</fullName>
+    <defaultValue>false</defaultValue>
+    <description>Workshop dual-motion (Fadi / N 219): Account handed to sales from a wizard bounce (Payroll / ≥25 / geo / Elite). Lookup treats this like an open AE Quote — no competing SelfServe Quote.</description>
+    <externalId>false</externalId>
+    <label>BambooHR Sales Handoff</label>
+    <trackHistory>false</trackHistory>
+    <type>Checkbox</type>
+</CustomField>

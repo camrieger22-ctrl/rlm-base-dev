@@ -40,13 +40,14 @@
     return m ? decodeURIComponent(m[1]) : null;
   };
 
-  const collectContext = () => {
+    const collectContext = () => {
     const params = new URLSearchParams(location.search);
     const sticky = readJson(sessionStorage, STICKY_KEY);
     const hero = readJson(sessionStorage, HERO_KEY);
     const pin =
       readJson(sessionStorage, PIN_KEY) || readJson(localStorage, PIN_KEY);
     const page = detectPage();
+    const q = window.BH_QUALIFY_CONTEXT || {};
     const ctx = {
       page,
       accountId:
@@ -60,11 +61,29 @@
       amendQuotes: sticky?.amendQuotes || [],
       moduleQuoteId: sticky?.moduleQuoteId || null,
       ecToken: params.get("ecToken") || null,
-      country: document.getElementById("country")?.value || "US",
+      country:
+        document.getElementById("heroCountry")?.value ||
+        document.getElementById("country")?.value ||
+        "US",
       currency: null,
       company: hero?.company || pin?.company || null,
       email: hero?.email || null,
       bffOrigin: location.origin,
+      // Slice 2b — Agent walks the five beats from live wizard state.
+      qualifyStep:
+        q.qualifyStep ||
+        Number(document.body?.dataset?.qualifyStep || 0) ||
+        null,
+      bounceType: q.bounceType || document.body?.dataset?.bounceType || null,
+      bounceReason:
+        q.bounceReason || document.body?.dataset?.bounceReason || null,
+      salesHandoffVisible: !document.getElementById("salesHandoff")?.hidden,
+      qualifySessionId:
+        q.sessionId || sessionStorage.getItem("bhQualifySessionId") || null,
+      headcount:
+        q.headcount ||
+        Number(document.getElementById("heroHeadcount")?.value || 0) ||
+        null,
     };
     return ctx;
   };
@@ -88,6 +107,12 @@
     ensure("ecToken", ctx.ecToken);
     ensure("company", ctx.company);
     ensure("email", ctx.email);
+    ensure("qualifyStep", ctx.qualifyStep);
+    ensure("bounceType", ctx.bounceType);
+    ensure("bounceReason", ctx.bounceReason);
+    ensure("salesHandoffVisible", ctx.salesHandoffVisible ? "1" : "");
+    ensure("qualifySessionId", ctx.qualifySessionId);
+    ensure("headcount", ctx.headcount);
     ensure(
       "amendQuotes",
       ctx.amendQuotes?.length ? JSON.stringify(ctx.amendQuotes) : ""
@@ -131,9 +156,9 @@
           Pricing API; quotes still require company + work email.
         </p>
         <ul class="bh-agent-hints">
-          <li>“Price Pro + Payroll for 100 US employees”</li>
+          <li>“Where am I in the signup?” <span>(5-beat wizard)</span></li>
+          <li>“Why do I need to talk to sales?” <span>(bounce)</span></li>
           <li>“Create a quote for my company” <span>(needs email)</span></li>
-          <li>“Change seats to 260” <span>(Licenses sticky Draft)</span></li>
         </ul>
         <p class="bh-agent-meta muted" id="bhAgentMeta"></p>
         <p class="bh-agent-footnote muted">
@@ -154,6 +179,8 @@
       if (meta) {
         meta.textContent = [
           `page=${ctx.page}`,
+          ctx.qualifyStep ? `qualifyStep=${ctx.qualifyStep}` : null,
+          ctx.bounceType ? `bounce=${ctx.bounceType}` : null,
           ctx.accountId ? `account=${ctx.accountId}` : null,
           ctx.quoteId ? `quote=${ctx.quoteId}` : null,
           ctx.amendQuotes?.length
@@ -187,20 +214,42 @@
   };
 
   const showMiawIssue = (message) => {
+    // Console only — never paint a fixed “Chat did not load” banner on the
+    // buyer page (distracting for demos when Messaging/CORS isn’t ready).
     console.error("[bh-agent]", message);
-    if (document.getElementById("bhAgentMiawIssue")) return;
-    const el = document.createElement("div");
-    el.id = "bhAgentMiawIssue";
-    el.setAttribute("role", "status");
-    el.style.cssText =
-      "position:fixed;right:16px;bottom:16px;z-index:2147483000;max-width:320px;" +
-      "padding:12px 14px;background:#1b1b1b;color:#fff;font:13px/1.4 system-ui,sans-serif;" +
-      "border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.25)";
-    el.innerHTML =
-      "<strong style=\"display:block;margin-bottom:6px\">Chat did not load</strong>" +
-      "<span></span>";
-    el.querySelector("span").textContent = message;
-    document.body.appendChild(el);
+  };
+
+  const pushMiawHiddenFields = (ctx) => {
+    // Best-effort: MIAW custom attributes for Help-with-page (5-beat + bounce).
+    // Field API names must exist on the Embedded Service deployment / Messaging
+    // prechat form when configured in Setup — unknown names are usually ignored.
+    const api = window.embeddedservice_bootstrap?.prechatAPI;
+    if (!api) return;
+    const str = (v) => (v == null || v === "" ? "" : String(v));
+    const fields = {
+      page: str(ctx.page),
+      AccountId: str(ctx.accountId),
+      QuoteId: str(ctx.quoteId),
+      BffOrigin: str(ctx.bffOrigin),
+      qualifyStep: str(ctx.qualifyStep),
+      bounceType: str(ctx.bounceType),
+      bounceReason: str(ctx.bounceReason),
+      salesHandoffVisible: ctx.salesHandoffVisible ? "1" : "0",
+      qualifySessionId: str(ctx.qualifySessionId),
+      headcount: str(ctx.headcount),
+    };
+    // MIAW takes an object keyed by channel parameter name; legacy Embedded Chat
+    // takes an array of {name, value}.
+    if (typeof api.setHiddenPrechatFields === "function") {
+      console.info("[bh-agent] prechat fields →", JSON.stringify(fields));
+      api.setHiddenPrechatFields(fields);
+      return;
+    }
+    if (typeof api.setHiddenFields === "function") {
+      api.setHiddenFields(
+        Object.entries(fields).map(([name, value]) => ({ name, value }))
+      );
+    }
   };
 
   const loadMiaw = (cfg) => {
@@ -219,27 +268,41 @@
       return;
     }
 
+    // Still consulted by the CORS-failure timeout below.
     let ready = false;
-    window.addEventListener("onEmbeddedMessagingReady", () => {
-      ready = true;
-      const issue = document.getElementById("bhAgentMiawIssue");
-      issue?.remove();
+    const refreshMiawContext = () => {
       const ctx = collectContext();
       publishContext(ctx);
       try {
-        // Best-effort: set visible prechat / hidden fields when API exists.
-        if (window.embeddedservice_bootstrap?.prechatAPI?.setHiddenFields) {
-          window.embeddedservice_bootstrap.prechatAPI.setHiddenFields([
-            { name: "page", value: ctx.page || "" },
-            { name: "AccountId", value: ctx.accountId || "" },
-            { name: "QuoteId", value: ctx.quoteId || "" },
-            { name: "BffOrigin", value: ctx.bffOrigin || "" },
-          ]);
-        }
+        pushMiawHiddenFields(ctx);
       } catch (err) {
         console.warn("[bh-agent] prechat context skipped", err);
       }
+    };
+
+    window.addEventListener("onEmbeddedMessagingReady", () => {
+      ready = true;
+      document.getElementById("bhAgentMiawIssue")?.remove();
+      // Push the buyer's current beat before the conversation starts, then hand
+      // off to the real widget and open it — the deferred bootstrap should still
+      // feel like the single click the buyer made.
+      refreshMiawContext();
+      document.getElementById("bhAgentLazyRoot")?.remove();
+      try {
+        window.embeddedservice_bootstrap?.utilAPI?.launchChat?.();
+      } catch (err) {
+        console.warn("[bh-agent] auto-open skipped", err);
+      }
     });
+    // Wizard step / bounce changes (app.js → bh-agent-context-refresh).
+    // Not gated on a ready flag: pushMiawHiddenFields no-ops until the prechat
+    // API exists, and dropping early beats meant the page-load defaults were the
+    // only values Salesforce ever saw.
+    document.addEventListener("bh-agent-context-refresh", refreshMiawContext);
+    // Last chance before the conversation begins — hidden pre-chat is only read
+    // at conversation start, so re-push the buyer's current beat as they open chat.
+    window.addEventListener("onEmbeddedMessagingButtonClicked", refreshMiawContext);
+    window.addEventListener("onEmbeddedMessagingWindowMaximized", refreshMiawContext);
 
     window.initBambooEmbeddedMessaging = function initBambooEmbeddedMessaging() {
       try {
@@ -250,41 +313,71 @@
       } catch (err) {
         console.error("[bh-agent] Messaging init failed", err);
         showMiawIssue(
-          "Messaging init failed. Check CORS for http://127.0.0.1:8765 and the browser console."
+          "Messaging init failed. Check CORS for this origin and the browser console."
         );
         mountPreviewShell({ ...cfg, preview: true });
       }
     };
 
-    const bootstrapSrc = messagingUrl.replace(/\/?$/, "/") + "assets/js/bootstrap.min.js";
-    const s = document.createElement("script");
-    s.type = "text/javascript";
-    s.src = bootstrapSrc;
-    s.onload = () => window.initBambooEmbeddedMessaging?.();
-    s.onerror = () => {
-      console.error("[bh-agent] failed to load Messaging bootstrap", bootstrapSrc);
-      showMiawIssue(
-        "Could not load Salesforce bootstrap.js (blocked or network). Allow-list this origin in CORS."
-      );
-      mountPreviewShell({ ...cfg, preview: true });
-    };
-    document.body.appendChild(s);
+    // Deferred bootstrap. init() starts the conversation immediately, and MIAW
+    // freezes hidden pre-chat at conversation start — so bootstrapping on page
+    // load stamps the wizard's HTML defaults (headcount 15, no qualifyStep) and
+    // burns a MessagingSession on every page view. Wait for the buyer to ask.
+    let bootstrapStarted = false;
+    const startMessaging = () => {
+      if (bootstrapStarted) return;
+      bootstrapStarted = true;
+      const fabLabel = document.querySelector("#bhAgentLazyFab .bh-agent-fab-label");
+      if (fabLabel) fabLabel.textContent = "Connecting…";
 
-    // SCRT/CORS failures often don't throw — surface after a short wait.
-    window.setTimeout(() => {
-      if (ready) return;
-      const hasSfLauncher = Boolean(
-        document.querySelector(
-          ".embeddedMessagingFrame, .embeddedServiceHelpButton, [class*='embeddedMessaging']"
-        )
-      );
-      if (!hasSfLauncher) {
-        const origin = location.origin;
+      const bootstrapSrc =
+        messagingUrl.replace(/\/?$/, "/") + "assets/js/bootstrap.min.js";
+      const s = document.createElement("script");
+      s.type = "text/javascript";
+      s.src = bootstrapSrc;
+      s.onload = () => window.initBambooEmbeddedMessaging?.();
+      s.onerror = () => {
+        console.error("[bh-agent] failed to load Messaging bootstrap", bootstrapSrc);
         showMiawIssue(
-          `Allow-list ${origin} in Setup → CORS and the ESW site Trusted Domains for Inline Frames, then hard-refresh. HTTPS origins only.`
+          "Could not load Salesforce bootstrap.js (blocked or network). Allow-list this origin in CORS."
         );
-      }
-    }, 8000);
+        document.getElementById("bhAgentLazyRoot")?.remove();
+        mountPreviewShell({ ...cfg, preview: true });
+      };
+      document.body.appendChild(s);
+
+      // SCRT/CORS failures often don't throw — surface after a short wait.
+      window.setTimeout(() => {
+        if (ready) return;
+        const hasSfLauncher = Boolean(
+          document.querySelector(
+            ".embeddedMessagingFrame, .embeddedServiceHelpButton, [class*='embeddedMessaging']"
+          )
+        );
+        if (!hasSfLauncher) {
+          showMiawIssue(
+            `Allow-list ${location.origin} in Setup → CORS and the ESW site Trusted Domains for Inline Frames, then hard-refresh. HTTPS origins only.`
+          );
+        }
+      }, 8000);
+    };
+
+    const mountLazyLauncher = () => {
+      if (document.getElementById("bhAgentLazyRoot")) return;
+      const root = document.createElement("div");
+      root.id = "bhAgentLazyRoot";
+      root.className = "bh-agent-preview";
+      root.innerHTML = `
+        <button type="button" class="bh-agent-fab" id="bhAgentLazyFab">
+          <span class="bh-agent-fab-label">Ask assistant</span>
+        </button>`;
+      document.body.appendChild(root);
+      document
+        .getElementById("bhAgentLazyFab")
+        ?.addEventListener("click", startMessaging);
+    };
+
+    mountLazyLauncher();
   };
 
   const boot = async () => {

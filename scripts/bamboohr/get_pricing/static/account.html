@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/app.css" />
-  <link rel="stylesheet" href="/static/agent-chat.css" />
+  <link rel="stylesheet" href="/static/agent-chat.css?v=wizard21" />
 </head>
 <body class="account-page">
   <header class="site-header">
@@ -41,8 +41,8 @@
       <h2>Continue as customer</h2>
       <p class="muted">
         Open with the <strong>company name</strong> from Get Pricing (demo pin), or your
-        Account Id. After checkout, “Create login” should land you here automatically.
-        Prepared sign-in story: <strong>Northwind Robotics</strong>.
+        Account Id. After Place order, use <strong>Create login</strong> on the
+        confirmation screen (or <strong>Skip for now</strong>) to land here automatically.
       </p>
       <div class="account-login-row">
         <label>
@@ -136,10 +136,16 @@
           <section class="card-panel">
             <h2>Expand your plan</h2>
             <p class="muted">
-              Enter the total seats you want. The add/remove count is vs seats already
-              scheduled for your start date (including upcoming changes), matching Revenue Cloud.
+              Pick when the change starts, then enter the total seats you want.
+              Add/remove count is vs seats already scheduled for that start date
+              (including upcoming changes), matching Revenue Cloud.
             </p>
             <div class="expand-block">
+              <label class="start-date-field">
+                <span>Change starts</span>
+                <input type="date" id="startDateInput" />
+              </label>
+              <p class="muted start-date-hint" id="termHint"></p>
               <div class="expand-label-row">
                 <span>Employees</span>
                 <strong id="qtyDeltaLabel">No change</strong>
@@ -152,11 +158,6 @@
                 <button type="button" class="hc-step" data-qty-delta="10">+10</button>
               </div>
               <input type="range" id="qtyRange" min="1" max="600" />
-              <label class="start-date-field">
-                <span>Change starts</span>
-                <input type="date" id="startDateInput" />
-              </label>
-              <p class="muted start-date-hint" id="termHint"></p>
             </div>
           </section>
 
@@ -216,23 +217,19 @@
         </aside>
       </div>
 
-      <aside class="account-plan-rail" id="orderSummaryCard" hidden aria-label="Your plan after this change">
+      <aside class="account-plan-rail" id="orderSummaryCard" hidden aria-label="Estimated prorated charge">
         <div class="rail-card" id="amendRailCard">
           <div class="rail-head">
-            <h2>Your plan</h2>
-            <span class="rail-bill" id="railBill">Billed annually</span>
+            <h2>This change</h2>
+            <span class="rail-bill" id="railBill">Est. prorated</span>
           </div>
           <p class="seat-change-badge" id="seatChangeBadge" hidden></p>
           <p class="rail-pepm"><strong id="railPepm">—</strong></p>
-          <p class="rail-pepm-unit" id="railPepmUnit">per employee / month</p>
+          <p class="rail-pepm-unit" id="railPepmUnit">until Generate quote for exact charge</p>
           <ul class="rail-lines" id="railLines"></ul>
           <div class="rail-totals">
-            <div class="rail-row muted">
-              <span id="railSubLabel">Subscription, per year</span>
-              <span id="railSub">—</span>
-            </div>
             <div class="rail-row total">
-              <span id="railTotalLabel">Total today</span>
+              <span id="railTotalLabel">Est. prorated total</span>
               <span id="railTotal">—</span>
             </div>
           </div>
@@ -240,7 +237,7 @@
             Generate quote
           </button>
           <p class="rail-source muted" id="pricingSourceNote">
-            One sticky Draft Quote per change — Edit change / Update quote retargets it (no duplicate Quotes).
+            Change seats or modules — Pricing API estimates the prorated charge.
           </p>
           <p class="status" id="amendStatus" role="status"></p>
           <p class="rail-foot">Live pricing via Revenue Cloud · BambooHR demo catalog</p>
@@ -251,6 +248,6 @@
 
   <script src="/static/pay-now.js"></script>
   <script src="/static/account.js"></script>
-  <script src="/static/agent-chat.js"></script>
+  <script src="/static/agent-chat.js?v=wizard21"></script>
 </body>
 </html>

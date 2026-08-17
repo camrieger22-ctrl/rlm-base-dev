@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<RemoteSiteSetting xmlns="http://soap.sforce.com/2006/04/metadata">
+    <disableProtocolSecurity>false</disableProtocolSecurity>
+    <isActive>true</isActive>
+    <url>https://bamboohr-get-pricing-bff.example.com</url>
+    <description>BambooHR Get Pricing BFF for Agentforce callouts. Update endpoint via scripts/bamboohr/set_get_pricing_bff_url.py when the public tunnel/host changes.</description>
+</RemoteSiteSetting>

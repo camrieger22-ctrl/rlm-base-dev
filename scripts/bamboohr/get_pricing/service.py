@@ -12,12 +12,32 @@ import calendar
 from datetime import date, timedelta
 from typing import Any
 
+from qualify_crm import (
+    DualMotionBlocked,
+    STATUS_EXISTING_CUSTOMER,
+    STATUS_SALES_WORKING,
+    STATUS_SELF_SERVE,
+    _safe_patch,
+    campaign_from_utm,
+    find_open_handoff_task,
+    format_handoff_brief,
+    lookup_email,
+    mark_qualify_complete,
+    self_serve_opportunity_name,
+    self_serve_quote_name,
+    stamp_sales_handoff,
+    stamp_self_serve,
+    update_existing_lead,
+)
+
 API = "v67.0"
 CATALOG_NAME = "BambooHR"
 
 # Buyer-selectable subscription terms on Get Pricing (calendar months).
-ALLOWED_TERM_MONTHS = (12, 24, 36)
-DEFAULT_TERM_MONTHS = 12
+# 1 = month-to-month; 12/24/36 = committed terms. All use Term Monthly PBEs (PEPM);
+# Quote line StartDate/EndDate span the selected window.
+ALLOWED_TERM_MONTHS = (1, 12, 24, 36)
+DEFAULT_TERM_MONTHS = 1
 
 
 def add_calendar_months(day: date, months: int) -> date:
@@ -109,7 +129,8 @@ PLAN_LABELS = {
     "BAMBOO-ELITE": "BambooHR Elite",
 }
 
-# Phase 2 Approach B — separate flat SKU for Core when headcount ≤ 25.
+# Legacy catalog SKU (still in PCM for SE / amend of old Assets). Micro self-serve
+# acquisition no longer sells it — Core/Pro use standard list PEPM × headcount.
 CORE_FLAT_SKU = "BAMBOO-CORE-FLAT-SM"
 CORE_FLAT_PRICE_USD = 250.0
 CORE_FLAT_PRICE = CORE_FLAT_PRICE_USD  # USD alias for smokes
@@ -137,7 +158,12 @@ NON_US_COUNTRIES = frozenset({"CA", "UK"})
 
 
 def uses_core_flat(plan_sku: str, headcount: int) -> bool:
-    return plan_sku == "BAMBOO-CORE" and headcount <= SMALL_BIZ_MAX_HEADCOUNT
+    """Former ≤25 Core → BAMBOO-CORE-FLAT-SM path.
+
+    Self-serve now models Core and Pro at **standard list PEPM** (workshop
+    acquisition). Keep the helper so call sites stay stable; always False.
+    """
+    return False
 
 
 def _fx(currency: str) -> float:
@@ -305,10 +331,11 @@ def resolve_subscription_window(
     """Return (start, end, term_months) for Quote lines / Pricing API windows.
 
     Free trial still uses a TRIAL_DAYS end date; term_months is retained for
-    convert-later paid quotes.
+    convert-later paid quotes. term_months=1 is month-to-month (Term Monthly PSM
+    window); 12/24/36 are committed terms with the same PEPM PBEs.
     """
     start = start_date or date.today()
-    months = int(term_months or DEFAULT_TERM_MONTHS)
+    months = int(term_months if term_months is not None else DEFAULT_TERM_MONTHS)
     if months not in ALLOWED_TERM_MONTHS:
         raise ValueError(
             f"termMonths must be one of {', '.join(str(m) for m in ALLOWED_TERM_MONTHS)}"
@@ -339,7 +366,14 @@ class OrgSession:
         self._token = creds.access_token
         self._instance = creds.instance_url
 
-    def _http(self, method: str, path: str, body: dict | None = None) -> Any:
+    def _http(
+        self,
+        method: str,
+        path: str,
+        body: dict | None = None,
+        *,
+        extra_headers: dict[str, str] | None = None,
+    ) -> Any:
         data = json.dumps(body).encode() if body is not None else None
         headers = {
             "Authorization": f"Bearer {self._token}",
@@ -347,6 +381,8 @@ class OrgSession:
         }
         if body is not None:
             headers["Content-Type"] = "application/json"
+        if extra_headers:
+            headers.update(extra_headers)
         req = urllib.request.Request(
             f"{self._instance}{path}", data=data, headers=headers, method=method
         )
@@ -363,7 +399,15 @@ class OrgSession:
         return self._http("GET", f"/services/data/{API}/query?q={q}").get("records") or []
 
     def create(self, sobject: str, fields: dict) -> str:
-        result = self._http("POST", f"/services/data/{API}/sobjects/{sobject}", fields)
+        # Demo orgs often have Standard_* Duplicate Rules with allowSave=true.
+        # Without the header, REST create returns DUPLICATES_DETECTED even for
+        # intentionally unique self-serve buyers (fuzzy name match).
+        result = self._http(
+            "POST",
+            f"/services/data/{API}/sobjects/{sobject}",
+            fields,
+            extra_headers={"Sforce-Duplicate-Rule-Header": "allowSave=true"},
+        )
         rid = result.get("id")
         if not rid:
             raise RuntimeError(f"Create {sobject} failed: {result}")
@@ -479,7 +523,7 @@ def normalize_addons(raw: list[str] | None) -> list[str]:
 
 @dataclass
 class BuyerInfo:
-    """Self-serve buyer from the Get Pricing hero form."""
+    """Self-serve buyer from the Get Pricing qualify wizard + rail."""
 
     company: str = ""
     first_name: str = ""
@@ -487,10 +531,19 @@ class BuyerInfo:
     email: str = ""
     phone: str = ""
     job_title: str = ""
+    needs: list[str] = field(default_factory=list)
+    dm_role: str = ""
+    campaign: str = ""
+    session_id: str = ""
 
     @classmethod
     def from_mapping(cls, raw: dict[str, Any] | None) -> "BuyerInfo":
         raw = raw or {}
+        needs = raw.get("needs") or []
+        if isinstance(needs, str):
+            needs = [s.strip() for s in needs.split(",") if s.strip()]
+        utm = raw.get("utm") if isinstance(raw.get("utm"), dict) else {}
+        campaign = str(raw.get("campaign") or campaign_from_utm(utm) or "").strip()
         return cls(
             company=str(raw.get("company") or raw.get("accountName") or "").strip(),
             first_name=str(raw.get("firstName") or raw.get("first_name") or "").strip(),
@@ -500,7 +553,45 @@ class BuyerInfo:
             job_title=str(
                 raw.get("jobTitle") or raw.get("job_title") or ""
             ).strip(),
+            needs=[str(n) for n in needs if n],
+            dm_role=str(raw.get("dmRole") or raw.get("decisionMakerRole") or "").strip(),
+            campaign=campaign,
+            session_id=str(raw.get("sessionId") or raw.get("qualifySessionId") or "").strip(),
         )
+
+    @classmethod
+    def from_request(cls, body: dict[str, Any] | None) -> "BuyerInfo":
+        """Merge top-level wizard fields into ``buyer`` (UI nests; API often doesn't)."""
+        body = body if isinstance(body, dict) else {}
+        buyer_raw = (
+            dict(body["buyer"]) if isinstance(body.get("buyer"), dict) else {}
+        )
+        for key in (
+            "needs",
+            "dmRole",
+            "decisionMakerRole",
+            "utm",
+            "campaign",
+            "sessionId",
+            "qualifySessionId",
+            "email",
+            "company",
+            "accountName",
+            "firstName",
+            "lastName",
+            "first_name",
+            "last_name",
+            "phone",
+            "jobTitle",
+            "job_title",
+        ):
+            if buyer_raw.get(key) in (None, "", []):
+                top = body.get(key)
+                if top not in (None, "", []):
+                    buyer_raw[key] = top
+        if not buyer_raw:
+            buyer_raw = dict(body)
+        return cls.from_mapping(buyer_raw)
 
     @property
     def has_new_customer(self) -> bool:
@@ -520,7 +611,7 @@ class GetPricingRequest:
     account_id: str | None = None
     # Sticky Draft from /api/get-pricing-preview — promote when config matches.
     preview_quote_id: str | None = None
-    # Buyer-selected commercial term (defaults: start=today, 12 months).
+    # Buyer-selected commercial term (defaults: start=today, month-to-month).
     start_date: date | None = None
     term_months: int = DEFAULT_TERM_MONTHS
 
@@ -645,15 +736,23 @@ def resolve_buyer_account(
     *,
     currency: str,
     account_id: str | None = None,
+    self_serve: bool = False,
+    contact_description: str | None = None,
 ) -> tuple[dict[str, Any], str | None, dict[str, Any]]:
     """Return (account, contact_id, meta) for quote placement.
 
-    New customer (company + email): create Account + Contact (or reuse Contact
-    email / Account name match). Otherwise use the seeded country demo Account.
+    Workshop: match Contact by email and **update** — never insert a Lead.
+    New Account/Contact only when there is no match.
+
+    ``self_serve=True`` stamps SelfServe on Account **insert** (before Contact
+    create) so ``RLM_Bamboo_SelfServe_Contact_Gate`` sees it and skips the
+    SDR Task. Jeff ~01:59: the record has to exist so we can mark sales
+    don't touch — that is beat 5, not Get your quote.
     """
     meta = {
         "accountCreated": False,
         "contactCreated": False,
+        "contactUpdated": False,
         "contactName": "",
         "contactEmail": "",
         "usedDemoAccount": False,
@@ -727,6 +826,18 @@ def resolve_buyer_account(
                 f"{c.get('FirstName') or ''} {c.get('LastName') or ''}".strip()
             )
             meta["contactEmail"] = c.get("Email") or buyer.email
+            patch_c: dict[str, Any] = {}
+            if buyer.first_name:
+                patch_c["FirstName"] = buyer.first_name[:40]
+            if buyer.last_name:
+                patch_c["LastName"] = buyer.last_name[:80]
+            meta["contactUpdated"] = True
+            if patch_c:
+                session.patch("Contact", contact_id, patch_c)
+                meta["contactName"] = (
+                    f"{buyer.first_name or c.get('FirstName') or ''} "
+                    f"{buyer.last_name or c.get('LastName') or ''}"
+                ).strip()
             # Keep shipping usable for checkout if account was incomplete.
             if not session.soql(
                 "SELECT ShippingCity FROM Account "
@@ -753,7 +864,16 @@ def resolve_buyer_account(
         # BillingCountry already in ship; ensure country code matches selector.
         acct_fields["BillingCountry"] = billing
         acct_fields["ShippingCountry"] = billing if country != "UK" else "GB"
-        acct_id = session.create("Account", acct_fields)
+        if self_serve:
+            # Stamp on insert so the Contact-gate Flow sees SelfServe=true
+            # and does not create an SDR Task (workshop suppress).
+            acct_fields["RLM_Bamboo_SelfServe__c"] = True
+            acct_fields["AccountSource"] = "SelfServe_Micro"
+        try:
+            acct_id = session.create("Account", acct_fields)
+        except Exception:
+            acct_fields.pop("RLM_Bamboo_SelfServe__c", None)
+            acct_id = session.create("Account", acct_fields)
         acct = {"Id": acct_id, "Name": buyer.company, "BillingCountry": billing}
         meta["accountCreated"] = True
 
@@ -770,11 +890,222 @@ def resolve_buyer_account(
         c_fields["Phone"] = buyer.phone[:40]
     if buyer.job_title:
         c_fields["Title"] = buyer.job_title[:128]
-    contact_id = session.create("Contact", c_fields)
+    if contact_description:
+        c_fields["Description"] = contact_description[:32000]
+    if self_serve:
+        c_fields["LeadSource"] = "SelfServe_Micro"
+        # Custom Do Not Call — standard Contact.DoNotCall is missing on some demo orgs.
+        c_fields["RLM_Bamboo_DoNotCall__c"] = True
+    try:
+        contact_id = session.create("Contact", c_fields)
+    except Exception:
+        c_fields.pop("RLM_Bamboo_DoNotCall__c", None)
+        contact_id = session.create("Contact", c_fields)
     meta["contactCreated"] = True
     meta["contactName"] = f"{first} {last}".strip()
     meta["contactEmail"] = buyer.email
     return acct, contact_id, meta
+
+
+def commit_qualify_identity(
+    session: OrgSession,
+    *,
+    buyer: BuyerInfo,
+    headcount: int,
+    country: str,
+) -> dict[str, Any]:
+    """Create/update Account+Contact at beat 5 — no Quote yet.
+
+    Rationale (Jeff Cullimore ~01:59, N 219 ~00:39): *it has to exist so we
+    can mark it sales don't touch.* Create-account is the moment they stayed
+    on self-serve, not Get your quote. Abandoned-after-recommend must still
+    appear on the do-not-call list.
+    """
+    if not buyer.has_new_customer:
+        return {
+            "ok": False,
+            "error": "Company and work email are required to create your account.",
+        }
+    country = (country or "US").upper().strip()
+    if country not in COUNTRY_ACCOUNT:
+        country = "US"
+    currency = COUNTRY_CURRENCY[country]
+    looked = lookup_email(session, buyer.email)
+    if looked.get("status") in (STATUS_SALES_WORKING, STATUS_EXISTING_CUSTOMER):
+        raise DualMotionBlocked(looked)
+    acct, contact_id, meta = resolve_buyer_account(
+        session,
+        country,
+        buyer,
+        currency=currency,
+        self_serve=True,
+    )
+    warnings: list[str] = []
+    if acct.get("Id"):
+        warnings.extend(
+            stamp_self_serve(
+                session,
+                account_id=acct["Id"],
+                contact_id=contact_id,
+                headcount=headcount,
+                needs=buyer.needs,
+                dm_role=buyer.dm_role,
+                campaign=buyer.campaign,
+            )
+        )
+    # Lead-only email match: update existing Lead — never insert / never convert.
+    lead_id, lead_warn = update_existing_lead(
+        session,
+        email=buyer.email,
+        company=buyer.company,
+        first_name=buyer.first_name,
+        last_name=buyer.last_name,
+        campaign=buyer.campaign,
+        description=(
+            "Self-serve qualify commit — buyer stayed on micro path. "
+            f"HC={headcount} needs={', '.join(buyer.needs or []) or '—'}."
+        ),
+        status="Working",
+    )
+    warnings.extend(lead_warn)
+    return {
+        "ok": True,
+        "status": STATUS_SELF_SERVE,
+        "reason": "Account created in Salesforce. Sales will not call — you're on self-serve.",
+        "accountId": acct.get("Id"),
+        "contactId": contact_id,
+        "accountCreated": bool(meta.get("accountCreated")),
+        "contactCreated": bool(meta.get("contactCreated")),
+        "contactUpdated": bool(meta.get("contactUpdated")),
+        "leadId": lead_id,
+        "warnings": warnings,
+    }
+
+
+def handoff_qualify_to_sales(
+    session: OrgSession,
+    *,
+    buyer: BuyerInfo,
+    headcount: int | None,
+    country: str,
+    bounce_reason: str,
+    bounce_type: str,
+) -> dict[str, Any]:
+    """Upsert Contact/Account for a wizard bounce — never SelfServe.
+
+    Rationale (N 219 ~00:39): Payroll / ≥25 / non-US-CA means *qualified to
+    talk to a person*, not discarded. SDRs take complex leads. Existing
+    customers still sign in; sales-working Accounts stay with the AE.
+    """
+    if not buyer.email or not buyer.company:
+        return {
+            "ok": False,
+            "needsEmail": True,
+            "error": "Work email and company let us connect you with a person.",
+        }
+    country_key = (country or "US").upper().strip()
+    if country_key not in COUNTRY_ACCOUNT:
+        country_key = "US"
+    currency = COUNTRY_CURRENCY[country_key]
+    looked = lookup_email(session, buyer.email)
+    if looked.get("status") == STATUS_EXISTING_CUSTOMER:
+        return {**looked, "handoff": False}
+    already_working = looked.get("status") == STATUS_SALES_WORKING
+    brief = format_handoff_brief(
+        bounce_reason=bounce_reason or "Qualified to talk to a person.",
+        bounce_type=bounce_type or "",
+        headcount=headcount,
+        country=country or country_key,
+        needs=buyer.needs,
+        dm_role=buyer.dm_role,
+        company=buyer.company,
+        email=buyer.email,
+    )
+    acct, contact_id, meta = resolve_buyer_account(
+        session,
+        country_key,
+        buyer,
+        currency=currency,
+        self_serve=False,
+        contact_description=brief,
+    )
+    warnings: list[str] = []
+    if acct.get("Id"):
+        # Durable dual-motion: bounced Accounts are sales-working even with
+        # no open Quote (Fadi Account-without-Quote + Payroll/size/geo gates).
+        warnings.extend(
+            stamp_sales_handoff(
+                session,
+                account_id=acct["Id"],
+                bounce_type=bounce_type,
+                headcount=headcount,
+                needs=buyer.needs,
+                contact_id=contact_id,
+                dm_role=buyer.dm_role,
+                campaign=buyer.campaign,
+            )
+        )
+    if contact_id and not meta.get("contactCreated"):
+        warnings.extend(
+            _safe_patch(session, "Contact", contact_id, {"Description": brief[:32000]})
+        )
+    lead_id, lead_warn = update_existing_lead(
+        session,
+        email=buyer.email,
+        company=buyer.company,
+        first_name=buyer.first_name,
+        last_name=buyer.last_name,
+        campaign=buyer.campaign,
+        description=brief,
+        status="Working",
+    )
+    warnings.extend(lead_warn)
+    task_id = None
+    if acct.get("Id"):
+        subject = f"Qualified to talk to a person ({bounce_type or 'handoff'})"[:80]
+        task_fields: dict[str, Any] = {
+            "Subject": subject,
+            "Description": brief,
+            "Status": "Not Started",
+            "Priority": "Normal",
+            "WhatId": acct["Id"],
+        }
+        if contact_id:
+            task_fields["WhoId"] = contact_id
+        existing = find_open_handoff_task(
+            session, contact_id=contact_id, account_id=acct["Id"]
+        )
+        try:
+            if existing:
+                # Refresh brief on the open Task — do not create a duplicate.
+                session.patch(
+                    "Task",
+                    existing,
+                    {
+                        "Subject": subject,
+                        "Description": brief,
+                        "Status": "Not Started",
+                    },
+                )
+                task_id = existing
+            else:
+                task_id = session.create("Task", task_fields)
+        except Exception as exc:  # noqa: BLE001
+            warnings.append(f"Sales Task skipped: {str(exc)[:240]}")
+    return {
+        "ok": True,
+        "handoff": True,
+        "status": STATUS_SALES_WORKING,
+        "alreadyWorking": already_working,
+        "accountId": acct.get("Id"),
+        "contactId": contact_id,
+        "leadId": lead_id,
+        "taskId": task_id,
+        "accountCreated": bool(meta.get("accountCreated")),
+        "contactCreated": bool(meta.get("contactCreated")),
+        "warnings": warnings,
+        "reason": bounce_reason or "Qualified to talk to a person.",
+    }
 
 
 def _pbe_for_sku(session: OrgSession, sku: str, currency: str = "USD") -> dict:
@@ -1082,13 +1413,32 @@ def get_pricing(session: OrgSession, req: GetPricingRequest) -> GetPricingResult
     catalog = session.soql(
         f"SELECT Id FROM ProductCatalog WHERE Name = '{CATALOG_NAME}' LIMIT 1"
     )[0]
+    buyer = req.buyer or BuyerInfo()
+    if buyer.email:
+        looked = lookup_email(session, buyer.email)
+        if looked.get("status") in (STATUS_SALES_WORKING, STATUS_EXISTING_CUSTOMER):
+            raise DualMotionBlocked(looked)
     acct, contact_id, buyer_meta = resolve_buyer_account(
         session,
         country,
         req.buyer,
         currency=currency,
         account_id=req.account_id,
+        self_serve=bool(buyer.has_new_customer),
     )
+    if buyer.has_new_customer and acct.get("Id"):
+        stamp_warn = stamp_self_serve(
+            session,
+            account_id=acct["Id"],
+            contact_id=contact_id,
+            headcount=req.headcount,
+            needs=buyer.needs,
+            dm_role=buyer.dm_role,
+            campaign=buyer.campaign,
+        )
+        warnings.extend(stamp_warn)
+        if buyer.session_id:
+            mark_qualify_complete(buyer.session_id)
     account_name = acct.get("Name") or COUNTRY_ACCOUNT[country]
     if buyer_meta.get("usedDemoAccount"):
         warnings.append(
@@ -1104,6 +1454,11 @@ def get_pricing(session: OrgSession, req: GetPricingRequest) -> GetPricingResult
         warnings.append(
             f"Created Contact {buyer_meta.get('contactName') or ''} "
             f"<{buyer_meta.get('contactEmail')}> on that Account."
+        )
+    elif buyer_meta.get("contactUpdated"):
+        warnings.append(
+            f"Updated existing Contact {buyer_meta.get('contactName') or ''} "
+            f"<{buyer_meta.get('contactEmail')}> — no Lead created."
         )
     pb = session.soql("SELECT Id FROM Pricebook2 WHERE IsStandard = true LIMIT 1")[0]
 
@@ -1263,9 +1618,18 @@ def get_pricing(session: OrgSession, req: GetPricingRequest) -> GetPricingResult
             "Opportunity",
             {
                 "Name": (
-                    f"Get Pricing{trial_tag} {plan_sku} "
-                    f"{'+'.join(addon_skus) if addon_skus else 'plan'} "
-                    f"{req.headcount} {country}"
+                    self_serve_opportunity_name(
+                        account_name,
+                        PLAN_LABELS[plan_sku],
+                        req.headcount,
+                        country,
+                    )
+                    if (req.buyer and req.buyer.has_new_customer)
+                    else (
+                        f"Get Pricing{trial_tag} {plan_sku} "
+                        f"{'+'.join(addon_skus) if addon_skus else 'plan'} "
+                        f"{req.headcount} {country}"
+                    )
                 )[:120],
                 "AccountId": acct["Id"],
                 "StageName": "Prospecting",
@@ -1275,8 +1639,12 @@ def get_pricing(session: OrgSession, req: GetPricingRequest) -> GetPricingResult
             },
         )
         quote_name = (
-            f"Get Pricing — {PLAN_LABELS[plan_sku]}"
-            + (f" + {len(addon_skus)} add-on(s)" if addon_skus else "")
+            self_serve_quote_name(PLAN_LABELS[plan_sku], len(addon_skus))
+            if (req.buyer and req.buyer.has_new_customer)
+            else (
+                f"Get Pricing — {PLAN_LABELS[plan_sku]}"
+                + (f" + {len(addon_skus)} add-on(s)" if addon_skus else "")
+            )
         )
         if free_trial:
             quote_name = f"{TRIAL_DAYS}-day trial — {PLAN_LABELS[plan_sku]}" + (

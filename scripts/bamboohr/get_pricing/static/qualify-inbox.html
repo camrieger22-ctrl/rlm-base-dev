@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Incomplete self-serve signups — demo</title>
+  <link rel="icon" href="/static/brand/icon.png" type="image/png" />
+  <link rel="stylesheet" href="/static/app.css?v=wizard21" />
+  <style>
+    .inbox { max-width: 64rem; margin: 2rem auto; padding: 0 1.25rem; }
+    .inbox h1 { font-family: "DM Serif Display", Georgia, serif; }
+    .inbox table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    .inbox th, .inbox td { text-align: left; padding: 0.55rem 0.4rem; border-bottom: 1px solid #e6e6e6; vertical-align: top; }
+    .inbox .muted { color: #6b6f76; }
+    .inbox .cadence-due { color: #0b6e4f; font-weight: 600; }
+    .inbox .actions { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+    .inbox .actions a, .inbox .actions button {
+      font: inherit; font-size: 0.8rem; padding: 0.25rem 0.45rem;
+      border: 1px solid #cfd4d8; background: #fff; border-radius: 4px; cursor: pointer;
+      text-decoration: none; color: inherit;
+    }
+    .inbox details { margin-top: 0.25rem; }
+    .inbox pre {
+      white-space: pre-wrap; font-size: 0.75rem; background: #f6f7f8;
+      padding: 0.5rem; border-radius: 4px; max-width: 28rem;
+    }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <a class="logo-link" href="/" aria-label="BambooHR home">
+      <img class="logo-wordmark" src="/static/brand/wordmark-green.png" alt="bambooHR" />
+    </a>
+    <nav class="site-nav"><a href="/">Back to Get Pricing</a></nav>
+  </header>
+  <main class="inbox">
+    <p class="muted">Workshop abandoned-wizard cadence: 1-day and 1-week “we didn’t lose you” follow-ups.</p>
+    <h1>Incomplete self-serve signups</h1>
+    <p>Server-side qualify sessions that never reached a Quote. Resume keeps them in self-serve. Cadence ages from <strong>createdAt</strong> (first abandon); mark-sent also logs a CRM Task.</p>
+    <table>
+      <thead>
+        <tr>
+          <th>Updated</th>
+          <th>Age</th>
+          <th>Cadence</th>
+          <th>Step</th>
+          <th>Size / geo</th>
+          <th>Needs</th>
+          <th>Email</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="rows">
+        <tr><td colspan="8" class="muted">Loading…</td></tr>
+      </tbody>
+    </table>
+  </main>
+  <script>
+    const origin = location.origin;
+    const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    }[c]));
+
+    const mailto = (session) => {
+      const em = session.cadenceEmail || {};
+      const to = encodeURIComponent(session.email || "prospect@example.com");
+      const sub = encodeURIComponent(em.subject || "Your BambooHR signup");
+      const body = encodeURIComponent((em.body || "").replaceAll("{origin}", origin));
+      return `mailto:${to}?subject=${sub}&body=${body}`;
+    };
+
+    const markSent = async (sessionId, which) => {
+      const r = await fetch("/api/qualify-cadence", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId, which }),
+      });
+      const data = await r.json();
+      if (!data.ok) throw new Error(data.error || "Could not mark cadence");
+      return data.session;
+    };
+
+    const render = (sessions) => {
+      const tb = document.getElementById("rows");
+      if (!sessions.length) {
+        tb.innerHTML = "<tr><td colspan='8' class='muted'>None — every session completed or none started.</td></tr>";
+        return;
+      }
+      tb.innerHTML = sessions.map((s) => {
+        const needs = (s.needs || []).join(", ") || "—";
+        const resume = "/?resume=" + encodeURIComponent(s.sessionId || "");
+        const due = s.cadenceStage === "day1_due" || s.cadenceStage === "week1_due";
+        const which = s.cadenceStage === "week1_due" ? "week1" : "day1";
+        const copy = s.cadenceEmail || {};
+        const bodyPreview = (copy.body || "").replaceAll("{origin}", origin);
+        return `<tr data-sid="${esc(s.sessionId)}">
+          <td>${esc((s.updatedAt || "").replace("T", " ").slice(0, 16))}</td>
+          <td>${esc(s.ageHours)}h</td>
+          <td class="${due ? "cadence-due" : "muted"}">${esc(s.cadenceLabel || s.cadenceStage)}</td>
+          <td>${esc(s.step || "—")}</td>
+          <td>${esc(s.headcount || "—")} / ${esc(s.country || "—")}</td>
+          <td>${esc(needs)}</td>
+          <td>${esc(s.email || "—")}</td>
+          <td>
+            <div class="actions">
+              <a href="${resume}">Resume</a>
+              ${due ? `<a href="${mailto(s)}">Open email</a>
+              <button type="button" data-mark="${which}">Mark ${which} sent</button>` : ""}
+            </div>
+            ${due ? `<details><summary class="muted">Copy preview</summary><pre>${esc(copy.subject)}\n\n${esc(bodyPreview)}</pre></details>` : ""}
+          </td>
+        </tr>`;
+      }).join("");
+
+      tb.querySelectorAll("[data-mark]").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const tr = btn.closest("tr");
+          const sid = tr?.dataset.sid;
+          const which = btn.dataset.mark;
+          btn.disabled = true;
+          try {
+            await markSent(sid, which);
+            await load();
+          } catch (err) {
+            btn.disabled = false;
+            alert(err.message || String(err));
+          }
+        });
+      });
+    };
+
+    const load = async () => {
+      const tb = document.getElementById("rows");
+      try {
+        const r = await fetch("/api/qualify-sessions?incomplete=1");
+        const data = await r.json();
+        render(data.sessions || []);
+      } catch (_) {
+        tb.innerHTML = "<tr><td colspan='8'>Could not load sessions.</td></tr>";
+      }
+    };
+    load();
+  </script>
+</body>
+</html>

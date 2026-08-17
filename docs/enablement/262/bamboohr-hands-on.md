@@ -444,7 +444,7 @@ Demo Canada and UK deals in **native currency** (CAD / GBP) with matching price 
 
 ### Design Time Configuration
 
-CurrencyType + multi-currency PBEs / PAS / PAT / BBA clones in `bh-pricing`. Renewal flow customization stamps `Opportunity.CurrencyIsoCode` from the Order (`RLM_CreateUpdateRenewalOpportunities`).
+CurrencyType + multi-currency PBEs / PAS / PAT / BBA clones in `bh-pricing`. Renewal flow stamps `Opportunity.CurrencyIsoCode` from the Order and sets OLI UnitPrice from source OrderItem/Quote line `TotalPrice` so Renewal Forecast Amount matches the original Quote (`RLM_CreateUpdateRenewalOpportunities`).
 
 ### Runtime walkthrough
 

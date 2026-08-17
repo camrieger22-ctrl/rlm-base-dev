@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>RLM_Bamboo_DecisionMaker__c</fullName>
+    <description>Workshop mandatory discovery: buying role. Researchers stay on self-serve (not a bounce).</description>
+    <externalId>false</externalId>
+    <label>BambooHR Decision Role</label>
+    <required>false</required>
+    <trackHistory>false</trackHistory>
+    <type>Picklist</type>
+    <valueSet>
+        <restricted>true</restricted>
+        <valueSetDefinition>
+            <sorted>false</sorted>
+            <value>
+                <fullName>own</fullName>
+                <default>false</default>
+                <label>Owns the buying decision</label>
+            </value>
+            <value>
+                <fullName>influence</fullName>
+                <default>false</default>
+                <label>Influences the decision</label>
+            </value>
+            <value>
+                <fullName>research</fullName>
+                <default>false</default>
+                <label>Researching</label>
+            </value>
+        </valueSetDefinition>
+    </valueSet>
+</CustomField>

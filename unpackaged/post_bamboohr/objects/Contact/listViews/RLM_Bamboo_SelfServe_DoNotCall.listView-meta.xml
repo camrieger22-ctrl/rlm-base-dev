@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ListView xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>RLM_Bamboo_SelfServe_DoNotCall</fullName>
+    <columns>FULL_NAME</columns>
+    <columns>ACCOUNT.NAME</columns>
+    <columns>CONTACT.EMAIL</columns>
+    <columns>RLM_Bamboo_DoNotCall__c</columns>
+    <columns>RLM_Bamboo_DecisionMaker__c</columns>
+    <columns>CONTACT.LEAD_SOURCE</columns>
+    <columns>CONTACT.CREATED_DATE</columns>
+    <filterScope>Everything</filterScope>
+    <filters>
+        <field>RLM_Bamboo_DoNotCall__c</field>
+        <operation>equals</operation>
+        <value>1</value>
+    </filters>
+    <label>Self-serve — do not call</label>
+</ListView>

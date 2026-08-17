@@ -1,14 +1,14 @@
 system:
-    instructions: "You help buyers on the BambooHR Get Pricing self-service site (BFF + Cloudflare). Never invent PEPM, Quote totals, MRR, or prorated charges — only use Pricing API / Quote actions when available (Phase 2); until then guide users through on-page flows. Never place an order in chat — direct buyers to Place order on the branded summary. For license amendments, reuse the sticky Draft Quote (same Quote Id on edit/update); do not create duplicates. Guests may estimate; Quote create needs company and work email. Keep answers short. Prefer page context (page, accountId) when present."
+    instructions: "You help buyers on the BambooHR micro self-service site (under 25 employees, US/CA, Core or Pro only). Never invent PEPM, Quote totals, MRR, or prorated charges — only use action outputs from BambooHR Estimate / Create Quote / Licenses / Amend actions. If the buyer needs Payroll, Elite, UK, or 25+ employees, steer them to talk to sales — do not create a self-serve Quote for those cases. After Create Quote or Generate Amend, always paste the full https quoteUrl / amendQuoteUrl on its own line exactly as returned — Messaging needs the bare https link to make it clickable. Never place an order in chat — direct buyers to Place order on the branded summary. For license amendments, always pass sticky amendQuotesJson and moduleQuoteId back into Generate Or Update Amend Quote so the same Draft Quote Id is reused. Guests may estimate; Quote create needs company and work email. Keep answers short. Prefer page context when present — including Messaging custom attributes / hidden fields: page, accountId, qualifyStep (1–5), bounceType, bounceReason, salesHandoffVisible, headcount."
     messages:
-        welcome: "Hi — I can help with PEPM estimates, Quotes, or license changes. What are you working on?"
+        welcome: "Hi — I can help with Core/Pro pricing for teams under 25, or license changes. What are you working on?"
         error: "Sorry, something went wrong on my side. Try again, or use the on-page Get Pricing / Licenses flow."
 
 config:
     developer_name: "BambooHR_Self_Service_Assistant"
     default_agent_user: "serviceagentagentforce072026133934230894@example.com"
     agent_label: "BambooHR Self-Service Assistant"
-    description: "Help buyers on the BambooHR Get Pricing self-service site: estimate PEPM from Salesforce Pricing API, create or update sticky Draft Quotes, explain prorated amend charges vs monthly recurring, and guide users to Place order on the branded summary. Never invent prices. Never place orders in chat — direct users to the summary CTA. For license changes, reuse the sticky Draft Quote instead of creating duplicates. Guest users may estimate; Quote create requires company and work email."
+    description: "Help buyers on the BambooHR Get Pricing self-service site: estimate PEPM from Salesforce Pricing API, create or update sticky Draft Quotes, explain prorated amend charges vs monthly recurring, and guide users to Place order on the branded summary. Never invent prices. Never place orders in chat — direct users to the summary CTA. For license changes, reuse the sticky Draft Quote instead of creating duplicates. Guest users may estimate; Quote create requires company and work email. #DisableURLRedaction#"
 
 variables:
     EndUserId: linked string
@@ -25,6 +25,28 @@ variables:
         description: "This variable may also be referred to as MessagingSession EndUserLanguage"
     VerifiedCustomerId: mutable string
           description: "This variable may also be referred to as VerifiedCustomerId"
+    activeAccountId: mutable string = ""
+        description: "Account Id for Licenses / amend flows. Prefer page context accountId when present."
+    stickyAmendQuotesJson: mutable string = ""
+        description: "JSON array of sticky amend Draft Quotes (quoteId + assetIds). Pass back on every Generate Or Update Amend Quote call."
+    stickyModuleQuoteId: mutable string = ""
+        description: "Sticky add-module Draft Quote Id from the last Generate Or Update Amend Quote."
+    lastQuoteUrl: mutable string = ""
+        description: "Last Get Pricing quote summary path (/quote/…)."
+    lastAmendQuoteUrl: mutable string = ""
+        description: "Last amend summary path (/amend-quote/…)."
+    qualifyStep: linked string
+        source: @MessagingSession.RLM_Bamboo_QualifyStep__c
+        description: "Self-serve wizard beat 1-5 when chat opened: 1 size, 2 geo, 3 needs, 4 decision-maker role, 5 create account. Empty if the buyer opened chat away from the wizard."
+    bounceType: linked string
+        source: @MessagingSession.RLM_Bamboo_BounceType__c
+        description: "Qualify gate that sent the buyer to sales — size, geo, payroll, or elite. Empty means the buyer is still on self-serve."
+    headcount: linked string
+        source: @MessagingSession.RLM_Bamboo_Headcount__c
+        description: "Employee count the buyer entered in the wizard. String, not a number — pre-chat delivers all values as text."
+    page: linked string
+        source: @MessagingSession.RLM_Bamboo_Page__c
+        description: "Surface the buyer was on when chat opened: get-pricing, quote, account, or activate."
 
 language:
     default_locale: "en_US"
@@ -105,41 +127,655 @@ subagent ambiguous_question:
 
 subagent get_a_price_or_quote:
     label: "Get a price or quote"
-    description: "Help new buyers choose plan/add-ons/headcount/term, run Pricing API estimates (no Quote), then create a Revenue Cloud Quote after collecting company and work email. Return the branded summary URL. Do not invent PEPM."
+    description: "Help new buyers choose plan/add-ons/headcount/term, run Pricing API estimates (no Quote), then create a Revenue Cloud Quote after collecting company and work email. Return the branded summary URL. Do not invent PEPM. #DisableURLRedaction#"
 
     reasoning:
         instructions: ->
             | Help a new buyer get a PEPM estimate and optionally a Quote.
-              Collect: plan (Core/Pro/Elite), add-ons, headcount, start date, term (12/24/36).
-              Prefer Pricing API estimate actions when available; never invent PEPM.
-              Guests may estimate. To create a Quote, collect company name and work email.
-              After Quote create, point them to the branded summary URL (quote.html).
+              Collect: plan (Core/Pro/Elite → BAMBOO-CORE / BAMBOO-PRO / BAMBOO-ELITE), add-ons as CSV SKUs, headcount, start date, term (12/24/36).
+              Call Estimate_Get_Pricing for PEPM — never invent numbers; speak the Summary output (use its PEPM and monthly).
+              Guests may estimate. To create a Quote, collect company name and work email, then call Create_Get_Pricing_Quote.
+              After Quote create: speak Summary PEPM/monthly, then paste the full https quoteUrl on its own line exactly as returned. Never omit the URL or paraphrase it away.
               Do not place the order — Place order is the summary CTA.
+              Map common add-on names: Payroll→BAMBOO-ADD-PAYROLL, Benefits→BAMBOO-ADD-BENEFITS, Time→BAMBOO-ADD-TIME.
+        actions:
+            Estimate_Get_Pricing: @actions.Estimate_Get_Pricing
+                with headcount=...
+                with country=...
+                with planSku=...
+                with addonSkusCsv=...
+                with freeTrial=...
+                with startDate=...
+                with termMonths=...
+            Create_Get_Pricing_Quote: @actions.Create_Get_Pricing_Quote
+                with headcount=...
+                with country=...
+                with planSku=...
+                with addonSkusCsv=...
+                with freeTrial=...
+                with startDate=...
+                with termMonths=...
+                with company=...
+                with email=...
+                with firstName=...
+                with lastName=...
+                set @variables.lastQuoteUrl = @outputs.quoteUrl
+                set @variables.activeAccountId = @outputs.accountId
+
+    actions:
+        Estimate_Get_Pricing:
+            description: "Estimate BambooHR PEPM and monthly total via Pricing API. Does not create a Quote. Use when the buyer asks for a price or estimate."
+            label: "Estimate Get Pricing"
+            require_user_confirmation: False
+            include_in_progress_indicator: True
+            progress_indicator_message: "Estimating PEPM…"
+            target: "apex://RLM_BambooAgentEstimateGetPricing"
+            inputs:
+                headcount: object
+                    description: "Employee / seat count (>= 1)."
+                    label: "Headcount"
+                    is_required: True
+                    is_user_input: True
+                    complex_data_type_name: "lightning__integerType"
+                country: string
+                    description: "US, CA, or UK. Default US."
+                    label: "Country"
+                    is_required: False
+                    is_user_input: True
+                planSku: string
+                    description: "BAMBOO-CORE, BAMBOO-PRO, or BAMBOO-ELITE."
+                    label: "Plan SKU"
+                    is_required: False
+                    is_user_input: True
+                addonSkusCsv: string
+                    description: "Comma-separated add-on SKUs."
+                    label: "Add-on SKUs CSV"
+                    is_required: False
+                    is_user_input: True
+                freeTrial: boolean
+                    description: "True for free trial estimate."
+                    label: "Free trial"
+                    is_required: False
+                    is_user_input: True
+                startDate: string
+                    description: "YYYY-MM-DD start date."
+                    label: "Start date"
+                    is_required: False
+                    is_user_input: True
+                termMonths: object
+                    description: "12, 24, or 36."
+                    label: "Term months"
+                    is_required: False
+                    is_user_input: True
+                    complex_data_type_name: "lightning__integerType"
+            outputs:
+                isSuccess: boolean
+                    description: "True when the estimate succeeded."
+                    label: "Is Success"
+                    is_displayable: False
+                    filter_from_agent: False
+                errorMessage: string
+                    description: "Error if failed."
+                    label: "Error Message"
+                    is_displayable: False
+                    filter_from_agent: False
+                summary: string
+                    description: "Speak this estimate to the buyer."
+                    label: "Summary"
+                    is_displayable: True
+                    filter_from_agent: False
+                currencyCode: string
+                    description: "Currency code."
+                    label: "Currency"
+                    is_displayable: False
+                    filter_from_agent: False
+                netPepm: number
+                    description: "Net PEPM."
+                    label: "Net PEPM"
+                    is_displayable: False
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__numberType"
+                monthlyTotal: number
+                    description: "Monthly total."
+                    label: "Monthly Total"
+                    is_displayable: False
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__numberType"
+                annualTotal: number
+                    description: "Annual total."
+                    label: "Annual Total"
+                    is_displayable: False
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__numberType"
+                volumePercent: number
+                    description: "Volume discount percent."
+                    label: "Volume Percent"
+                    is_displayable: False
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__numberType"
+                pricingSource: string
+                    description: "pricingApi or localFallback."
+                    label: "Pricing Source"
+                    is_displayable: False
+                    filter_from_agent: False
+                responseJson: string
+                    description: "Raw BFF JSON."
+                    label: "Response JSON"
+                    is_displayable: False
+                    filter_from_agent: True
+
+        Create_Get_Pricing_Quote:
+            description: "Create a Revenue Cloud Quote after collecting company and work email. Returns branded summary path. Do not place the order."
+            label: "Create Get Pricing Quote"
+            require_user_confirmation: False
+            include_in_progress_indicator: True
+            progress_indicator_message: "Creating your Quote…"
+            target: "apex://RLM_BambooAgentCreateGetPricingQuote"
+            inputs:
+                headcount: object
+                    description: "Seat count."
+                    label: "Headcount"
+                    is_required: True
+                    is_user_input: True
+                    complex_data_type_name: "lightning__integerType"
+                country: string
+                    description: "US, CA, or UK."
+                    label: "Country"
+                    is_required: False
+                    is_user_input: True
+                planSku: string
+                    description: "Plan SKU."
+                    label: "Plan SKU"
+                    is_required: False
+                    is_user_input: True
+                addonSkusCsv: string
+                    description: "Comma-separated add-on SKUs."
+                    label: "Add-on SKUs CSV"
+                    is_required: False
+                    is_user_input: True
+                freeTrial: boolean
+                    description: "Free trial Quote."
+                    label: "Free trial"
+                    is_required: False
+                    is_user_input: True
+                startDate: string
+                    description: "YYYY-MM-DD."
+                    label: "Start date"
+                    is_required: False
+                    is_user_input: True
+                termMonths: object
+                    description: "12, 24, or 36."
+                    label: "Term months"
+                    is_required: False
+                    is_user_input: True
+                    complex_data_type_name: "lightning__integerType"
+                company: string
+                    description: "Buyer company name."
+                    label: "Company"
+                    is_required: True
+                    is_user_input: True
+                email: string
+                    description: "Buyer work email."
+                    label: "Work email"
+                    is_required: True
+                    is_user_input: True
+                firstName: string
+                    description: "Buyer first name."
+                    label: "First name"
+                    is_required: False
+                    is_user_input: True
+                lastName: string
+                    description: "Buyer last name."
+                    label: "Last name"
+                    is_required: False
+                    is_user_input: True
+            outputs:
+                isSuccess: boolean
+                    description: "True when Quote created."
+                    label: "Is Success"
+                    is_displayable: False
+                    filter_from_agent: False
+                errorMessage: string
+                    description: "Error if failed."
+                    label: "Error Message"
+                    is_displayable: False
+                    filter_from_agent: False
+                summary: string
+                    description: "Confirmation for the buyer."
+                    label: "Summary"
+                    is_displayable: True
+                    filter_from_agent: False
+                quoteId: string
+                    description: "Salesforce Quote Id."
+                    label: "Quote Id"
+                    is_displayable: False
+                    filter_from_agent: False
+                quoteUrl: string
+                    description: "Relative branded summary path."
+                    label: "Quote URL"
+                    is_displayable: True
+                    filter_from_agent: False
+                accountId: string
+                    description: "Account Id created or reused."
+                    label: "Account Id"
+                    is_displayable: False
+                    filter_from_agent: False
+                currencyCode: string
+                    description: "Currency."
+                    label: "Currency"
+                    is_displayable: False
+                    filter_from_agent: False
+                netPepm: number
+                    description: "Net PEPM."
+                    label: "Net PEPM"
+                    is_displayable: False
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__numberType"
+                monthlyTotal: number
+                    description: "Monthly total."
+                    label: "Monthly Total"
+                    is_displayable: False
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__numberType"
+                responseJson: string
+                    description: "Raw BFF JSON."
+                    label: "Response JSON"
+                    is_displayable: False
+                    filter_from_agent: True
 
 subagent change_my_licenses:
     label: "Change my licenses"
-    description: "Help existing customers change seats or add modules. Estimate via Pricing API, then generate or update the sticky Draft amend Quote (same Quote Id on edit). Explain due-today as the prorated Quote charge, not ARR."
+    description: "Help existing customers change seats or add modules. Estimate via Pricing API, then generate or update the sticky Draft amend Quote (same Quote Id on edit). Explain due-today as the prorated amend Quote charge, not ARR. #DisableURLRedaction#"
 
     reasoning:
         instructions: ->
             | Help an existing customer change seats or add modules on Licenses.
-              Use account context when available (accountId). Prefer estimate, then generate
-              or update the sticky Draft amend Quote — same Quote Id on edit/update; never
-              create duplicate Draft amends.
+              Resolve accountId from context or Get_Licenses_Summary (company name / Account Id).
+              Prefer Estimate_Amend for After monthly MRR, then Generate_Or_Update_Amend_Quote for due-today.
+              CRITICAL: always pass stickyAmendQuotesJson and stickyModuleQuoteId into Generate_Or_Update_Amend_Quote on edits so the same Draft Quote Id is reused.
               Explain money carefully:
-                - Due today / Place order amount = prorated Quote charge for the change
-                - After / contract impact = new monthly recurring (not ARR)
+                - Due today = prorated Quote charge for the change
+                - After = new monthly recurring (not ARR)
               Direct Place order to the amend summary CTA; do not place orders in chat.
+        actions:
+            Get_Licenses_Summary: @actions.Get_Licenses_Summary
+                with accountId=...
+                with company=...
+                set @variables.activeAccountId = @outputs.accountId
+            Estimate_Amend: @actions.Estimate_Amend
+                with accountId=...
+                with newQty=...
+                with addonSkusCsv=...
+                with startDate=...
+            Generate_Or_Update_Amend_Quote: @actions.Generate_Or_Update_Amend_Quote
+                with accountId=...
+                with newQty=...
+                with addonSkusCsv=...
+                with startDate=...
+                with amendQuotesJson=@variables.stickyAmendQuotesJson
+                with moduleQuoteId=@variables.stickyModuleQuoteId
+                set @variables.stickyAmendQuotesJson = @outputs.amendQuotesJson
+                set @variables.stickyModuleQuoteId = @outputs.moduleQuoteId
+                set @variables.lastAmendQuoteUrl = @outputs.amendQuoteUrl
+                set @variables.activeAccountId = @outputs.accountId
+
+    actions:
+        Get_Licenses_Summary:
+            description: "Load Current MRR and seats for an Account via Licenses & billing."
+            label: "Get Licenses Summary"
+            require_user_confirmation: False
+            include_in_progress_indicator: True
+            progress_indicator_message: "Loading licenses…"
+            target: "apex://RLM_BambooAgentGetLicensesSummary"
+            inputs:
+                accountId: string
+                    description: "Salesforce Account Id when known."
+                    label: "Account Id"
+                    is_required: False
+                    is_user_input: True
+                company: string
+                    description: "Company / Account name when Id unknown."
+                    label: "Company"
+                    is_required: False
+                    is_user_input: True
+            outputs:
+                isSuccess: boolean
+                    description: "Success flag."
+                    label: "Is Success"
+                    is_displayable: False
+                    filter_from_agent: False
+                errorMessage: string
+                    description: "Error if failed."
+                    label: "Error Message"
+                    is_displayable: False
+                    filter_from_agent: False
+                summary: string
+                    description: "Licenses snapshot for the buyer."
+                    label: "Summary"
+                    is_displayable: True
+                    filter_from_agent: False
+                accountId: string
+                    description: "Resolved Account Id."
+                    label: "Account Id"
+                    is_displayable: False
+                    filter_from_agent: False
+                accountName: string
+                    description: "Account name."
+                    label: "Account Name"
+                    is_displayable: False
+                    filter_from_agent: False
+                currentQuantity: object
+                    description: "Current seats."
+                    label: "Current Quantity"
+                    is_displayable: False
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__integerType"
+                recurringMonthly: number
+                    description: "Current MRR."
+                    label: "Recurring Monthly"
+                    is_displayable: False
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__numberType"
+                currencyCode: string
+                    description: "Currency."
+                    label: "Currency"
+                    is_displayable: False
+                    filter_from_agent: False
+                responseJson: string
+                    description: "Raw BFF JSON."
+                    label: "Response JSON"
+                    is_displayable: False
+                    filter_from_agent: True
+
+        Estimate_Amend:
+            description: "Estimate After monthly MRR for a seat/module change (no Draft Quote). Due today needs Generate Or Update."
+            label: "Estimate Amend"
+            require_user_confirmation: False
+            include_in_progress_indicator: True
+            progress_indicator_message: "Estimating license change…"
+            target: "apex://RLM_BambooAgentEstimateAmend"
+            inputs:
+                accountId: string
+                    description: "Account Id."
+                    label: "Account Id"
+                    is_required: True
+                    is_user_input: True
+                newQty: object
+                    description: "Target seat count."
+                    label: "New quantity"
+                    is_required: False
+                    is_user_input: True
+                    complex_data_type_name: "lightning__integerType"
+                addonSkusCsv: string
+                    description: "Modules to add (CSV SKUs)."
+                    label: "Add-on SKUs CSV"
+                    is_required: False
+                    is_user_input: True
+                startDate: string
+                    description: "YYYY-MM-DD amend start."
+                    label: "Start date"
+                    is_required: False
+                    is_user_input: True
+            outputs:
+                isSuccess: boolean
+                    description: "Success flag."
+                    label: "Is Success"
+                    is_displayable: False
+                    filter_from_agent: False
+                errorMessage: string
+                    description: "Error if failed."
+                    label: "Error Message"
+                    is_displayable: False
+                    filter_from_agent: False
+                summary: string
+                    description: "Today vs After monthly."
+                    label: "Summary"
+                    is_displayable: True
+                    filter_from_agent: False
+                accountId: string
+                    description: "Account Id."
+                    label: "Account Id"
+                    is_displayable: False
+                    filter_from_agent: False
+                accountName: string
+                    description: "Account name."
+                    label: "Account Name"
+                    is_displayable: False
+                    filter_from_agent: False
+                currencyCode: string
+                    description: "Currency."
+                    label: "Currency"
+                    is_displayable: False
+                    filter_from_agent: False
+                monthlyToday: number
+                    description: "Current MRR."
+                    label: "Monthly Today"
+                    is_displayable: False
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__numberType"
+                monthlyAfter: number
+                    description: "After monthly MRR."
+                    label: "Monthly After"
+                    is_displayable: False
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__numberType"
+                monthlyDifference: number
+                    description: "Monthly delta."
+                    label: "Monthly Difference"
+                    is_displayable: False
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__numberType"
+                newQty: object
+                    description: "Target seats."
+                    label: "New Quantity"
+                    is_displayable: False
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__integerType"
+                responseJson: string
+                    description: "Raw BFF JSON."
+                    label: "Response JSON"
+                    is_displayable: False
+                    filter_from_agent: True
+
+        Generate_Or_Update_Amend_Quote:
+            description: "Create or update sticky Draft amend Quote(s). Always reuse amendQuotesJson and moduleQuoteId from prior calls. Returns due-today and amend summary URL."
+            label: "Generate Or Update Amend Quote"
+            require_user_confirmation: False
+            include_in_progress_indicator: True
+            progress_indicator_message: "Updating Draft amend Quote…"
+            target: "apex://RLM_BambooAgentGenerateAmendQuote"
+            inputs:
+                accountId: string
+                    description: "Account Id."
+                    label: "Account Id"
+                    is_required: True
+                    is_user_input: True
+                newQty: object
+                    description: "Target seats."
+                    label: "New quantity"
+                    is_required: False
+                    is_user_input: True
+                    complex_data_type_name: "lightning__integerType"
+                addonSkusCsv: string
+                    description: "Modules to add."
+                    label: "Add-on SKUs CSV"
+                    is_required: False
+                    is_user_input: True
+                startDate: string
+                    description: "YYYY-MM-DD."
+                    label: "Start date"
+                    is_required: False
+                    is_user_input: True
+                amendQuotesJson: string
+                    description: "Sticky amendQuotes JSON from prior response."
+                    label: "Sticky amendQuotes JSON"
+                    is_required: False
+                    is_user_input: False
+                moduleQuoteId: string
+                    description: "Sticky module Quote Id from prior response."
+                    label: "Sticky module Quote Id"
+                    is_required: False
+                    is_user_input: False
+            outputs:
+                isSuccess: boolean
+                    description: "Success flag."
+                    label: "Is Success"
+                    is_displayable: False
+                    filter_from_agent: False
+                errorMessage: string
+                    description: "Error if failed."
+                    label: "Error Message"
+                    is_displayable: False
+                    filter_from_agent: False
+                summary: string
+                    description: "Due-today + After + summary link."
+                    label: "Summary"
+                    is_displayable: True
+                    filter_from_agent: False
+                accountId: string
+                    description: "Account Id."
+                    label: "Account Id"
+                    is_displayable: False
+                    filter_from_agent: False
+                accountName: string
+                    description: "Account name."
+                    label: "Account Name"
+                    is_displayable: False
+                    filter_from_agent: False
+                currencyCode: string
+                    description: "Currency."
+                    label: "Currency"
+                    is_displayable: False
+                    filter_from_agent: False
+                dueToday: number
+                    description: "Prorated Quote charge due at Place order."
+                    label: "Due Today"
+                    is_displayable: False
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__numberType"
+                monthlyToday: number
+                    description: "Current MRR."
+                    label: "Monthly Today"
+                    is_displayable: False
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__numberType"
+                monthlyAfter: number
+                    description: "After monthly MRR."
+                    label: "Monthly After"
+                    is_displayable: False
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__numberType"
+                amendQuotesJson: string
+                    description: "Sticky Draft Quote JSON to reuse on next edit."
+                    label: "Sticky amendQuotes JSON"
+                    is_displayable: False
+                    filter_from_agent: False
+                moduleQuoteId: string
+                    description: "Sticky module Quote Id."
+                    label: "Sticky module Quote Id"
+                    is_displayable: False
+                    filter_from_agent: False
+                amendQuoteUrl: string
+                    description: "Relative amend summary path."
+                    label: "Amend Quote URL"
+                    is_displayable: True
+                    filter_from_agent: False
+                sticky: boolean
+                    description: "True when a prior Draft was reused."
+                    label: "Sticky reused"
+                    is_displayable: False
+                    filter_from_agent: False
+                responseJson: string
+                    description: "Raw BFF JSON."
+                    label: "Response JSON"
+                    is_displayable: False
+                    filter_from_agent: True
 
 subagent help_with_this_page:
     label: "Help with this page"
-    description: "Orient the buyer on Get Pricing, quote summary, Licenses, or amend summary. Clarify money stories (Today Current MRR, After quoted monthly, prorated charge). Steer Place order to the on-page CTA."
+    description: "Orient the buyer on the 5-beat qualify wizard, Get Pricing, quote summary, Licenses, or amend. Narrate current qualify beat and explain bounces from page context. Steer Place order to the on-page CTA. #DisableURLRedaction#"
 
     reasoning:
         instructions: ->
-            | Orient the buyer on the current page (get-pricing, quote summary, licenses,
-              amend summary) using page context when present.
+            | Orient the buyer on the current page using page context when present.
+              On get-pricing, walk the workshop 5-beat wizard when asked (“where am I?”,
+              “qualify me”, “what’s next?”):
+              1 size (employees) → 2 geo (US/CA) → 3 needs (Core/Pro; Payroll/Elite = sales)
+              → 4 decision-maker role → 5 create account (email/company).
+              ALWAYS call Get Page Context first for any orientation question
+              (“where am I?”, “what’s next?”, “qualify me”) before you answer. It reads
+              the beat, headcount, surface, and bounce the buyer left in the wizard.
+              When it returns hasContext true, state the beat from its summary — never
+              ask the buyer where they are. Only when hasContext is false may you ask
+              what they see on screen.
+              If a bounce is active, explain why they talk to a person (Payroll, Elite,
+              25+ employees, outside US/CA, or sales already working) — do not invent PEPM
+              and do not override UI gates.
               Clarify labels: Current MRR (today), After / quoted monthly, prorated charge
               due at Place order. Keep answers short. Steer actions to on-page buttons;
               Place order stays on the summary CTA.
+              For pricing numbers, hand off to Get a price or quote / Change my licenses topics.
+        actions:
+            Get_Page_Context: @actions.Get_Page_Context
+                with messagingSessionId=@variables.RoutableId
 
+    actions:
+        Get_Page_Context:
+            description: "Read the buyer's current self-serve wizard beat, employee count, surface, and sales bounce from the Messaging Session. Call before answering any orientation question."
+            label: "Get Page Context"
+            require_user_confirmation: False
+            include_in_progress_indicator: True
+            progress_indicator_message: "Checking where you are…"
+            target: "apex://RLM_BambooAgentGetPageContext"
+            inputs:
+                messagingSessionId: string
+                    description: "Messaging Session Id. Always pass the RoutableId variable."
+                    label: "Messaging Session Id"
+                    is_required: True
+                    is_user_input: False
+            outputs:
+                isSuccess: boolean
+                    description: "Success flag."
+                    label: "Is Success"
+                    is_displayable: False
+                    filter_from_agent: False
+                errorMessage: string
+                    description: "Error if the session could not be read."
+                    label: "Error Message"
+                    is_displayable: False
+                    filter_from_agent: False
+                summary: string
+                    description: "Page context in one sentence — state this beat to the buyer."
+                    label: "Summary"
+                    is_displayable: True
+                    filter_from_agent: False
+                hasContext: boolean
+                    description: "False when the buyer opened chat with no wizard context."
+                    label: "Has Context"
+                    is_displayable: False
+                    filter_from_agent: False
+                qualifyStep: string
+                    description: "Wizard beat 1-5, blank when unknown."
+                    label: "Qualify Step"
+                    is_displayable: False
+                    filter_from_agent: False
+                qualifyStepLabel: string
+                    description: "Plain-language name of the current beat."
+                    label: "Qualify Step Label"
+                    is_displayable: False
+                    filter_from_agent: False
+                bounceType: string
+                    description: "size, geo, payroll, elite, or blank."
+                    label: "Bounce Type"
+                    is_displayable: False
+                    filter_from_agent: False
+                headcount: string
+                    description: "Employee count the buyer entered."
+                    label: "Headcount"
+                    is_displayable: False
+                    filter_from_agent: False
+                page: string
+                    description: "get-pricing, quote, account, or activate."
+                    label: "Page"
+                    is_displayable: False
+                    filter_from_agent: False

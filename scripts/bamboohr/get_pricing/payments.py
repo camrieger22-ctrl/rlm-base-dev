@@ -789,6 +789,99 @@ def list_open_invoices(
     return out
 
 
+def list_recent_payments(
+    session: OrgSession,
+    account_id: str,
+    *,
+    limit: int = 5,
+) -> list[dict[str, Any]]:
+    """Recent Processed Payments for an Account (Pay Now apply can lag Invoice.Balance)."""
+    if not account_id:
+        return []
+    lim = max(1, min(int(limit), 20))
+    try:
+        rows = session.soql(
+            "SELECT Id, Amount, Status, CreatedDate "
+            f"FROM Payment WHERE AccountId = '{account_id}' "
+            "AND Status = 'Processed' "
+            f"ORDER BY CreatedDate DESC LIMIT {lim}"
+        )
+    except Exception:
+        return []
+    return [
+        {
+            "id": r["Id"],
+            "amount": float(r.get("Amount") or 0),
+            "status": r.get("Status"),
+            "createdDate": r.get("CreatedDate"),
+        }
+        for r in rows
+    ]
+
+
+def payment_received_signal(
+    session: OrgSession,
+    account_id: str,
+    *,
+    open_invoice_count: int | None = None,
+) -> dict[str, Any]:
+    """Buyer-facing paid signal independent of Invoice.Balance lag.
+
+    True when a Processed Payment exists, or the newest PaymentLink is Disabled
+    (Pay Now typically disables the link after a successful charge).
+    """
+    if not account_id:
+        return {
+            "paymentReceived": False,
+            "pendingBalanceApply": False,
+            "recentPayments": [],
+            "disabledPaymentLink": None,
+        }
+    recent = list_recent_payments(session, account_id, limit=3)
+    disabled: dict[str, Any] | None = None
+    try:
+        links = session.soql(
+            "SELECT Id, Status, Amount, CreatedDate FROM PaymentLink "
+            f"WHERE AccountId = '{account_id}' AND Status = 'Disabled' "
+            "ORDER BY CreatedDate DESC LIMIT 1"
+        )
+        if links:
+            disabled = {
+                "id": links[0]["Id"],
+                "amount": float(links[0].get("Amount") or 0),
+                "status": links[0].get("Status"),
+                "createdDate": links[0].get("CreatedDate"),
+            }
+    except Exception:
+        disabled = None
+
+    received = bool(recent) or bool(disabled)
+    if open_invoice_count is None:
+        try:
+            open_rows = session.soql(
+                "SELECT Id FROM Invoice "
+                f"WHERE BillingAccountId = '{account_id}' "
+                "AND Status = 'Posted' AND Balance > 0 LIMIT 1"
+            )
+            open_count = len(open_rows)
+        except Exception:
+            open_count = 0
+    else:
+        open_count = int(open_invoice_count)
+
+    return {
+        "paymentReceived": received,
+        "pendingBalanceApply": bool(received and open_count > 0),
+        "recentPayments": recent,
+        "disabledPaymentLink": disabled,
+        "hint": (
+            "Payment received — invoice balance may take a moment to update."
+            if received and open_count > 0
+            else ("Payment received." if received else None)
+        ),
+    }
+
+
 def build_payment_prompt_for_invoice(
     session: OrgSession,
     invoice_id: str,
