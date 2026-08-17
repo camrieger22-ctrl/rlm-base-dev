@@ -769,7 +769,7 @@
         </connector>
     </assignments>
     <assignments>
-        <description>Sets AverageAssetPriceAmount by using the AverageAssetPriceFormula formula.</description>
+        <description>Sets AverageAssetPriceAmount from QuoteAlignedUnitPriceFormula so OLI totals copy source Quote/OrderItem TotalPrice.</description>
         <name>SetAverageAssetPriceAmount</name>
         <label>Set Average Asset Price Amount</label>
         <locationX>0</locationX>
@@ -778,7 +778,7 @@
             <assignToReference>AverageAssetPriceAmount</assignToReference>
             <operator>Assign</operator>
             <value>
-                <elementReference>AverageAssetPriceFormula</elementReference>
+                <elementReference>QuoteAlignedUnitPriceFormula</elementReference>
             </value>
         </assignmentItems>
         <connector>
@@ -1471,20 +1471,34 @@
             <label>Yes</label>
         </rules>
     </decisions>
-    <description>Cloned from template runtime_revenue_arcflows__RenewalOpp. Customization 1: TotalPrice assignments removed from all OpportunityLineItem create/update nodes. Salesforce only allows setting UnitPrice OR TotalPrice on OLI, not both. The flow sets UnitPrice (weighted average) and Quantity; Salesforce auto-calculates TotalPrice. Customization 2: the template tested for an existing renewal opportunity only against the Opportunities collection built during the current run, so an asset first sold on a later order never saw the renewal opportunity an earlier order created and always spawned a duplicate. GetExistingRenewalOpportunities now reads open renewal opportunities on the account, and the two FilterExistingOpportunities processors both suppress the duplicate and attach the new product to the opportunity that already exists. Customization 3: multi-currency — stamp Opportunity.CurrencyIsoCode from the Order and match existing renewal opportunities by currency so GBP/CAD price book entries are not attached to a corporate-currency (USD) opportunity.</description>
+    <description>Cloned from template runtime_revenue_arcflows__RenewalOpp. Customization 1: TotalPrice assignments removed from all OpportunityLineItem create/update nodes. Salesforce only allows setting UnitPrice OR TotalPrice on OLI, not both. The flow sets UnitPrice and Quantity; Salesforce auto-calculates TotalPrice. Customization 2: the template tested for an existing renewal opportunity only against the Opportunities collection built during the current run, so an asset first sold on a later order never saw the renewal opportunity an earlier order created and always spawned a duplicate. GetExistingRenewalOpportunities now reads open renewal opportunities on the account, and the two FilterExistingOpportunities processors both suppress the duplicate and attach the new product to the opportunity that already exists. Customization 3: multi-currency — stamp Opportunity.CurrencyIsoCode from the Order and match existing renewal opportunities by currency so GBP/CAD price book entries are not attached to a corporate-currency (USD) opportunity. Customization 4: annualize OLI UnitPrice (monthly PEPM × 12) via AnnualizedAverageAssetPriceFormula so Opportunity.Amount matches annual Get Pricing / amend Quote totals — OLI has no Quote StartDate/EndDate term window, so without ×12 Amount stayed at monthly MRR.</description>
     <environments>Default</environments>
     <formulas>
-        <description>Calculates the price of assets in the loop by using their renewal price and quantity.</description>
+        <description>Calculates the price of assets in the loop by using their renewal price and quantity (monthly run-rate contribution).</description>
         <name>AssetsPriceFormula</name>
         <dataType>Number</dataType>
         <expression>{!IterateOverRenewalPriceDetails.netUnitPrice}*{!IterateOverRenewalPriceDetails.quantity}</expression>
         <scale>6</scale>
     </formulas>
     <formulas>
-        <description>Calculates the average price of an asset by using the asset quantity and total price for all the assets.</description>
+        <description>Monthly PEPM (weighted average). Prefer AnnualizedAverageAssetPriceFormula for OLI UnitPrice so Opportunity Amount matches annual new-sale / amend Opps.</description>
         <name>AverageAssetPriceFormula</name>
         <dataType>Number</dataType>
         <expression>{!TotalAssetPriceAmount}/{!TotalAssetQuantity}</expression>
+        <scale>6</scale>
+    </formulas>
+    <formulas>
+        <description>Annualized PEPM fallback when no matching OrderItem/Quote line TotalPrice is available.</description>
+        <name>AnnualizedAverageAssetPriceFormula</name>
+        <dataType>Number</dataType>
+        <expression>({!TotalAssetPriceAmount}/{!TotalAssetQuantity})*12</expression>
+        <scale>6</scale>
+    </formulas>
+    <formulas>
+        <description>Customization 5: UnitPrice so OLI TotalPrice = source OrderItem/Quote line TotalPrice (term-priced). Fallback: monthly PEPM × 12 when no OrderItem.</description>
+        <name>QuoteAlignedUnitPriceFormula</name>
+        <dataType>Number</dataType>
+        <expression>IF(AND({!TotalAssetQuantity}&gt;0, NOT(ISBLANK({!GetOrderItemForAsset.Id})), {!GetOrderItemForAsset.TotalPrice}&gt;0, NOT(CONTAINS(LOWER({!GetOrder.Name}), &quot;amendment&quot;))), {!GetOrderItemForAsset.TotalPrice}/{!TotalAssetQuantity}, ({!TotalAssetPriceAmount}/{!TotalAssetQuantity})*12)</expression>
         <scale>6</scale>
     </formulas>
     <formulas>
@@ -1642,7 +1656,7 @@
             <targetReference>AddAssetPriceToTotalAssetPriceAndQuantityToTotalAssetQuantity</targetReference>
         </nextValueConnector>
         <noMoreValuesConnector>
-            <targetReference>SetAverageAssetPriceAmount</targetReference>
+            <targetReference>GetOrderItemForAsset</targetReference>
         </noMoreValuesConnector>
     </loops>
     <processMetadataValues>
@@ -1768,6 +1782,35 @@
         </filters>
         <getFirstRecordOnly>false</getFirstRecordOnly>
         <object>Opportunity</object>
+        <storeOutputAutomatically>true</storeOutputAutomatically>
+    </recordLookups>
+    <recordLookups>
+        <description>Customization 5: OrderItem for the current asset product — TotalPrice matches the source Quote line term total.</description>
+        <name>GetOrderItemForAsset</name>
+        <label>Get Order Item for Asset</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <assignNullValuesIfNoRecordsFound>true</assignNullValuesIfNoRecordsFound>
+        <connector>
+            <targetReference>SetAverageAssetPriceAmount</targetReference>
+        </connector>
+        <filterLogic>and</filterLogic>
+        <filters>
+            <field>OrderId</field>
+            <operator>EqualTo</operator>
+            <value>
+                <elementReference>GetOrder.Id</elementReference>
+            </value>
+        </filters>
+        <filters>
+            <field>Product2Id</field>
+            <operator>EqualTo</operator>
+            <value>
+                <elementReference>IterateOverAssets.productId</elementReference>
+            </value>
+        </filters>
+        <getFirstRecordOnly>true</getFirstRecordOnly>
+        <object>OrderItem</object>
         <storeOutputAutomatically>true</storeOutputAutomatically>
     </recordLookups>
     <recordLookups>
