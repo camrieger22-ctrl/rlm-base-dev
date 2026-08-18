@@ -4,10 +4,12 @@ Demo unlock 5a: resolve Account by Id or company name (no EC login yet).
 - Qty true-up: OOTB Asset amend → order → activate
 - Add modules: OOTB Place Quote (addon lines only) → createOrderFromQuote → Activate
   (Asset amend API is quantity-only; new SKUs are a supplemental sale on the Account)
+- Core → Pro: OOTB Initiate Upgrade (one amendment Quote) → System reprice → Place order
 """
 
 from __future__ import annotations
 
+import re
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -21,7 +23,7 @@ from checkout import (
     apply_amend_volume_pricing,
     asset_live_metrics,
     asset_quantity_at,
-    checkout_quote,
+    checkout_quote_or_recover,
     complete_amend_quote,
     discard_stale_amend_drafts,
     expected_amend_net_pepm,
@@ -34,6 +36,7 @@ from checkout import (
     resolve_amend_start,
     resolve_volume_tier_percent,
     tag_amend_preview_quote,
+    upgrade_assets_to_quote,
     _current_asset_quantity,
 )
 from service import (
@@ -42,6 +45,8 @@ from service import (
     CATALOG_PLAN_SKUS,
     CORE_FLAT_SKU,
     NON_US_COUNTRIES,
+    PLAN_LABELS,
+    PLAN_LIST_USD,
     US_ONLY_ADDONS,
     OrgSession,
     _pbe_for_sku,
@@ -50,6 +55,8 @@ from service import (
     lightning_record_url,
     quote_related_ids,
     sync_quote_to_opportunity,
+    commercial_term_from_window,
+    remaining_service_end,
     volume_rate,
 )
 from subscription_timeline import list_account_periods
@@ -72,12 +79,14 @@ def _estimate_nets_cache_key(
     currency: str,
     path_b_before: bool,
     path_b_after: bool,
+    replace_skus: list[str] | None = None,
 ) -> tuple:
     return (
         account_id,
         int(baseline_qty),
         int(target_qty),
         tuple(sorted(add_skus)),
+        tuple(sorted(replace_skus or [])),
         currency,
         bool(path_b_before),
         bool(path_b_after),
@@ -98,6 +107,289 @@ def _soql_escape(value: str) -> str:
     return value.replace("\\", "\\\\").replace("'", "\\'")
 
 
+_SF_ID_TRAILING = re.compile(r"[.,;:!?)'\"\]]+$")
+
+
+def normalize_salesforce_id(value: str | None) -> str | None:
+    """Strip copy-paste punctuation (trailing period from a sentence, quotes)."""
+    raw = (value or "").strip().strip("'\"")
+    if not raw:
+        return None
+    raw = _SF_ID_TRAILING.sub("", raw).strip()
+    return raw or None
+
+
+PLAN_SHORT_LABELS = {
+    "BAMBOO-CORE": "Core",
+    "BAMBOO-CORE-FLAT-SM": "Core",
+    "BAMBOO-PRO": "Pro",
+    "BAMBOO-ELITE": "Elite",
+}
+PLAN_RANK = {
+    "BAMBOO-CORE": 1,
+    "BAMBOO-CORE-FLAT-SM": 1,
+    "BAMBOO-PRO": 2,
+    "BAMBOO-ELITE": 3,
+}
+# In-product self-serve expansion — Elite stays sales-assisted.
+SELF_SERVE_NEXT_PLAN = {
+    "BAMBOO-CORE": "BAMBOO-PRO",
+    "BAMBOO-CORE-FLAT-SM": "BAMBOO-PRO",
+}
+
+
+def _sku_label(sku: str) -> str:
+    s = (sku or "").upper()
+    return PLAN_LABELS.get(s) or ADDON_LABELS.get(s) or s
+
+
+def _need_keys(raw: Any) -> list[str]:
+    text = str(raw or "").replace(";", ",")
+    out: list[str] = []
+    for part in text.split(","):
+        key = part.strip().lower().replace(" ", "").replace("-", "")
+        if key == "time_off":
+            key = "timeoff"
+        if key:
+            out.append(key)
+    return out
+
+
+def _plan_sku_set() -> set[str]:
+    return set(CATALOG_PLAN_SKUS) | {CORE_FLAT_SKU}
+
+
+def _is_plan_sku(sku: str | None) -> bool:
+    return str(sku or "").upper() in _plan_sku_set()
+
+
+def _asset_qty(asset: dict[str, Any], *, field: str = "quantity") -> float:
+    raw = asset.get(field)
+    if raw is None and field != "quantity":
+        raw = asset.get("quantity")
+    try:
+        return float(raw) if raw is not None else 0.0
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _has_plan_sku(assets: list[dict[str, Any]], sku: str) -> bool:
+    wanted = str(sku or "").upper()
+    return any(str(a.get("sku") or "").upper() == wanted for a in assets)
+
+
+def current_plan_from_assets(
+    assets: list[dict[str, Any]],
+    *,
+    quantity_field: str = "quantity",
+) -> dict[str, Any] | None:
+    """Highest-rank plan whose quantity on ``quantity_field`` is > 0.
+
+    OOTB CurrentQuantity is today's Asset State Period only. A future Pro at
+    qty 0 is not the live plan while Core is still in effect.
+    """
+    ranked: list[tuple[int, dict[str, Any]]] = []
+    for asset in assets:
+        sku = str(asset.get("sku") or "").upper()
+        if sku not in _plan_sku_set():
+            continue
+        if asset.get("isFlat"):
+            ranked.append((PLAN_RANK.get(sku, 0), asset))
+            continue
+        if _asset_qty(asset, field=quantity_field) <= 0:
+            continue
+        ranked.append((PLAN_RANK.get(sku, 0), asset))
+    if not ranked:
+        return None
+    ranked.sort(key=lambda row: row[0], reverse=True)
+    return ranked[0][1]
+
+
+def upcoming_plan_from_assets(assets: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Not-yet-started plan (qty 0). Highest rank wins after a Core→Pro swap."""
+    ranked: list[tuple[int, dict[str, Any]]] = []
+    for asset in assets:
+        sku = str(asset.get("sku") or "").upper()
+        if sku not in _plan_sku_set() or asset.get("isFlat"):
+            continue
+        if _asset_qty(asset) > 0:
+            continue
+        ranked.append((PLAN_RANK.get(sku, 0), asset))
+    if not ranked:
+        return None
+    ranked.sort(key=lambda row: row[0], reverse=True)
+    return ranked[0][1]
+
+
+def _stamp_quantity_as_of(
+    session: OrgSession,
+    owned_assets: list[dict[str, Any]],
+    as_of: datetime | None,
+) -> None:
+    """Set quantityAsOf from ASP covering ``as_of`` (mutates rows)."""
+    when = as_of or datetime.now(timezone.utc)
+    for asset in owned_assets:
+        if asset.get("isFlat"):
+            asset["quantityAsOf"] = 1.0
+            continue
+        aid = asset.get("id")
+        if not aid:
+            asset["quantityAsOf"] = _asset_qty(asset)
+            continue
+        try:
+            asset["quantityAsOf"] = float(
+                asset_quantity_at(session, str(aid), as_of=when) or 0
+            )
+        except Exception:
+            asset["quantityAsOf"] = _asset_qty(asset)
+
+
+def _plan_in_effect_from_assets(
+    assets: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Highest-rank plan with quantityAsOf (or quantity) > 0."""
+    return current_plan_from_assets(assets, quantity_field="quantityAsOf")
+
+
+def plan_expansion_offer(
+    *,
+    plan_sku: str | None,
+    seats: int | None = None,
+    needs: Any = None,
+    currency: str = "USD",
+) -> dict[str, Any]:
+    """Core → Pro in-product offer. Pro/Elite are not self-serve upgrades."""
+    sku = (plan_sku or "").upper() or None
+    short = PLAN_SHORT_LABELS.get(sku or "", sku or "")
+    nxt = SELF_SERVE_NEXT_PLAN.get(sku or "")
+    need_list = _need_keys(needs)
+    if not sku:
+        return {
+            "available": False,
+            "fromSku": None,
+            "fromLabel": None,
+            "toSku": None,
+            "toLabel": None,
+            "reason": "none",
+            "copy": "No live plan asset on this account.",
+            "needs": need_list,
+        }
+    if not nxt:
+        copy = (
+            "You're on Pro. Elite and Payroll stay with a person."
+            if sku == "BAMBOO-PRO"
+            else "You're on Elite — talk to sales for other products."
+            if sku == "BAMBOO-ELITE"
+            else f"You're on {short}."
+        )
+        return {
+            "available": False,
+            "fromSku": sku,
+            "fromLabel": short,
+            "toSku": None,
+            "toLabel": None,
+            "reason": "current",
+            "copy": copy,
+            "seats": int(seats or 0),
+            "needs": need_list,
+        }
+    if "performance" in need_list:
+        hook = "You cared about performance — that's a Pro capability."
+    elif "reporting" in need_list:
+        hook = "You cared about reporting — that's a Pro capability."
+    else:
+        hook = "Unlock performance, reporting, and advanced HR — no sales call."
+    from_key = "BAMBOO-CORE" if sku == CORE_FLAT_SKU else sku
+    from_pepm = float(PLAN_LIST_USD.get(from_key) or 0)
+    to_pepm = float(PLAN_LIST_USD.get(nxt) or 0)
+    return {
+        "available": True,
+        "fromSku": sku,
+        "fromLabel": short,
+        "toSku": nxt,
+        "toLabel": PLAN_SHORT_LABELS.get(nxt, nxt),
+        "seats": int(seats or 0),
+        "currency": currency,
+        "listPepmFrom": from_pepm,
+        "listPepmTo": to_pepm,
+        "deltaPepm": round(to_pepm - from_pepm, 2),
+        "reason": "upgrade",
+        "copy": hook,
+        "needs": need_list,
+    }
+
+
+def resolve_upgrade(
+    owned_assets: list[dict[str, Any]],
+    upgrade_sku: str | None,
+) -> dict[str, Any]:
+    """Validate Core→Pro and return SKUs/assets to replace."""
+    wanted = (upgrade_sku or "").strip().upper()
+    if not wanted:
+        return {"ok": True, "addSku": None, "replaceSkus": [], "replaceAssetIds": []}
+    live = current_plan_from_assets(owned_assets)
+    upcoming = upcoming_plan_from_assets(owned_assets)
+    if _has_plan_sku(owned_assets, "BAMBOO-PRO") or _has_plan_sku(
+        owned_assets, "BAMBOO-ELITE"
+    ):
+        live_sku = str((live or {}).get("sku") or "").upper()
+        if live_sku in {"BAMBOO-CORE", "BAMBOO-CORE-FLAT-SM"} or not live_sku:
+            return {
+                "ok": False,
+                "error": "Pro is already scheduled on this account.",
+                "addSku": None,
+                "replaceSkus": [],
+                "replaceAssetIds": [],
+            }
+        offer = plan_expansion_offer(
+            plan_sku=(live or {}).get("sku") or "BAMBOO-PRO",
+            seats=int(_asset_qty(live or {})),
+        )
+        return {
+            "ok": False,
+            "error": offer.get("copy") or "Plan upgrade is not available.",
+            "addSku": None,
+            "replaceSkus": [],
+            "replaceAssetIds": [],
+        }
+    from_asset = live or upcoming
+    from_sku = str((from_asset or {}).get("sku") or "").upper()
+    offer = plan_expansion_offer(
+        plan_sku=from_sku or None,
+        seats=int(_asset_qty(from_asset or {})),
+    )
+    if not offer.get("available"):
+        return {
+            "ok": False,
+            "error": offer.get("copy") or "Plan upgrade is not available.",
+            "addSku": None,
+            "replaceSkus": [],
+            "replaceAssetIds": [],
+        }
+    if wanted != offer["toSku"]:
+        return {
+            "ok": False,
+            "error": "Only Core → Pro is self-serve. Elite stays with sales.",
+            "addSku": None,
+            "replaceSkus": [],
+            "replaceAssetIds": [],
+        }
+    from_sku = str(offer["fromSku"])
+    replace_ids = [
+        str(a["id"])
+        for a in owned_assets
+        if str(a.get("sku") or "").upper() == from_sku and a.get("id")
+    ]
+    return {
+        "ok": True,
+        "addSku": wanted,
+        "replaceSkus": [from_sku],
+        "replaceAssetIds": replace_ids,
+        "fromSku": from_sku,
+        "toSku": wanted,
+    }
+
+
 def resolve_account_id(
     session: OrgSession,
     *,
@@ -105,8 +397,9 @@ def resolve_account_id(
     company: str | None = None,
 ) -> dict[str, Any]:
     """Return Account row for Id or exact Name match."""
+    account_id = normalize_salesforce_id(account_id)
     if account_id:
-        safe = _soql_escape(account_id.strip())
+        safe = _soql_escape(account_id)
         rows = session.soql(
             "SELECT Id, Name, BillingCountry, CurrencyIsoCode "
             f"FROM Account WHERE Id = '{safe}' LIMIT 1"
@@ -139,6 +432,33 @@ def _asset_mrr(session: OrgSession, asset_id: str) -> float | None:
     metrics = asset_live_metrics(session, asset_id)
     mrr = metrics.get("mrr")
     return float(mrr) if mrr is not None else None
+
+
+def _account_team(
+    session: OrgSession, account_id: str, *, licensed_seats: int
+) -> dict[str, Any]:
+    """Roster for Licenses & billing — licensed seats are Asset quantity."""
+    try:
+        from activate import team_snapshot
+
+        return team_snapshot(
+            session,
+            account_id=account_id,
+            licensed_seats=licensed_seats or None,
+        )
+    except Exception:  # noqa: BLE001
+        return {
+            "people": [],
+            "seatTarget": int(licensed_seats or 12) or 12,
+            "seatsFilled": 0,
+            "seatsRemaining": int(licensed_seats or 12) or 12,
+            "canAdd": False,
+            "overSeats": False,
+            "ahaComplete": False,
+            "setupUrl": f"/activate?accountId={account_id}",
+            "adminInvited": False,
+            "timeOffSet": False,
+        }
 
 
 def load_account_console(
@@ -174,6 +494,7 @@ def load_account_console(
             recurring_monthly += float(mrr)
         else:
             recurring_complete = False
+        is_flat = not _is_headcount_sku(sku)
         assets.append(
             {
                 "id": row["Id"],
@@ -181,6 +502,8 @@ def load_account_console(
                 "sku": sku,
                 "quantity": qty,
                 "mrr": mrr,
+                "pepm": paid_pepm(quantity=qty, mrr=mrr, is_flat=is_flat),
+                "isFlat": is_flat,
                 "mrrSource": live.get("source"),
                 "status": row.get("Status"),
                 "productName": product.get("Name"),
@@ -189,6 +512,7 @@ def load_account_console(
                 "createdDate": row.get("CreatedDate"),
             }
         )
+    _fill_missing_lifecycle_ends(session, assets)
 
     orders_raw = session.soql(
         "SELECT Id, OrderNumber, Status, EffectiveDate, TotalAmount, "
@@ -231,12 +555,19 @@ def load_account_console(
 
     catalog = hydrate_catalog(session, country)
     try:
-        from payments import list_open_invoices, payment_received_signal
+        from payments import (
+            annotate_invoices_paid_applying,
+            bucket_open_invoices,
+            list_open_invoices,
+            payment_received_signal,
+        )
 
         invoices = list_open_invoices(session, aid)
         pay_sig = payment_received_signal(
             session, aid, open_invoice_count=len(invoices)
         )
+        invoices = annotate_invoices_paid_applying(invoices, pay_sig)
+        invoices = bucket_open_invoices(invoices, orders=orders)
     except Exception:  # noqa: BLE001
         invoices = []
         pay_sig = {
@@ -247,31 +578,25 @@ def load_account_console(
             "hint": None,
         }
 
-    plan_skus = set(CATALOG_PLAN_SKUS) | {CORE_FLAT_SKU}
-    primary = next(
-        (
-            a
-            for a in assets
-            if a.get("sku") in plan_skus and a.get("quantity") is not None
-        ),
-        None,
-    )
+    live_plan = current_plan_from_assets(assets)
+    upcoming_plan = upcoming_plan_from_assets(assets)
+    primary = live_plan or upcoming_plan
     if primary is None:
         primary = next(
-            (a for a in assets if a.get("quantity") is not None),
+            (a for a in assets if _is_plan_sku(a.get("sku"))),
             assets[0] if assets else None,
         )
-    current_qty = (
-        int(primary["quantity"]) if primary and primary.get("quantity") is not None else 0
-    )
+    current_qty = int(_asset_qty(live_plan or {}))
     term_start = (primary or {}).get("lifecycleStartDate")
     term_end = (primary or {}).get("lifecycleEndDate")
-    if not term_end and term_start:
-        try:
-            start_d = date.fromisoformat(str(term_start)[:10])
-            term_end = (start_d + timedelta(days=365)).isoformat()
-        except ValueError:
-            term_end = None
+    term_info = commercial_term_from_window(term_start, term_end)
+    plan_asset = live_plan or upcoming_plan
+    plan_for_pepm = live_plan or primary
+    plan_pepm = paid_pepm(
+        quantity=(plan_for_pepm or {}).get("quantity"),
+        mrr=(plan_for_pepm or {}).get("mrr"),
+        is_flat=bool((plan_for_pepm or {}).get("isFlat")),
+    )
 
     earliest_amend: str | None = None
     try:
@@ -285,6 +610,65 @@ def load_account_console(
     except Exception:
         earliest_amend = None
 
+    needs_raw = None
+    try:
+        need_rows = session.soql(
+            "SELECT RLM_Bamboo_PrimaryNeeds__c "
+            f"FROM Account WHERE Id = '{_soql_escape(aid)}' LIMIT 1"
+        )
+        if need_rows:
+            needs_raw = need_rows[0].get("RLM_Bamboo_PrimaryNeeds__c")
+    except Exception:
+        needs_raw = None
+    expansion = plan_expansion_offer(
+        plan_sku=(plan_asset or {}).get("sku"),
+        seats=current_qty or int(_asset_qty(upcoming_plan or {})),
+        needs=needs_raw,
+        currency=currency,
+    )
+    cash_due = None
+    if upcoming_plan:
+        cash_due = str(upcoming_plan.get("lifecycleStartDate") or "")[:10] or None
+    if not cash_due:
+        cash_due = earliest_amend
+    today_s = date.today().isoformat()
+    if cash_due and cash_due > today_s:
+        expansion["cashDueDate"] = cash_due
+    if _has_plan_sku(assets, "BAMBOO-PRO") or _has_plan_sku(assets, "BAMBOO-ELITE"):
+        live_sku = str((live_plan or {}).get("sku") or "").upper()
+        if live_sku in {"BAMBOO-CORE", "BAMBOO-CORE-FLAT-SM"} or not live_sku:
+            start_bit = ""
+            if cash_due and cash_due > today_s:
+                start_bit = f" starting {cash_due}"
+            expansion = {
+                **expansion,
+                "available": False,
+                "reason": "scheduled",
+                "copy": (
+                    f"Pro is already scheduled{start_bit} — cash is due then, "
+                    "not today. See upcoming changes."
+                    if start_bit
+                    else "Pro is already scheduled — see upcoming changes."
+                ),
+                "toSku": None,
+                "toLabel": None,
+                "deltaPepm": None,
+                "cashDueDate": cash_due if start_bit else expansion.get("cashDueDate"),
+            }
+        else:
+            expansion = plan_expansion_offer(
+                plan_sku=(live_plan or {}).get("sku") or "BAMBOO-PRO",
+                seats=current_qty,
+                needs=needs_raw,
+                currency=currency,
+            )
+    elif expansion.get("available") and cash_due and cash_due > today_s:
+        hook = expansion.get("copy") or ""
+        expansion["copy"] = (
+            f"{hook} Starts {cash_due} — first bill is due then, not today."
+        )
+        expansion["cashDueDate"] = cash_due
+
     return {
         "ok": True,
         "account": {
@@ -294,12 +678,29 @@ def load_account_console(
             "currency": currency,
             "country": country,
         },
+        "plan": {
+            "sku": (plan_asset or {}).get("sku"),
+            "label": PLAN_SHORT_LABELS.get(
+                str((plan_asset or {}).get("sku") or ""),
+                (plan_asset or {}).get("productName")
+                or (plan_asset or {}).get("name"),
+            ),
+            "assetId": (plan_asset or {}).get("id"),
+            "productName": (plan_asset or {}).get("productName")
+            or (plan_asset or {}).get("name"),
+        },
+        "expansion": expansion,
         "subscription": {
             "assets": assets,
             "primaryAssetId": primary["id"] if primary else None,
             "currentQuantity": current_qty,
             "termStartDate": str(term_start)[:10] if term_start else None,
             "termEndDate": str(term_end)[:10] if term_end else None,
+            "termMonths": term_info["termMonths"],
+            "termKind": term_info["termKind"],
+            "termLabel": term_info["termLabel"],
+            "termExact": term_info["termExact"],
+            "planPepm": plan_pepm,
             "earliestAmendStartDate": earliest_amend,
             "recurringMonthly": round(recurring_monthly, 2) if assets else 0.0,
             "recurringComplete": recurring_complete,
@@ -326,10 +727,7 @@ def load_account_console(
             "home": f"{base}/lightning/page/home" if base else "",
         },
         "demoMode": True,
-        "identityNote": (
-            "Demo pin — Continuity via Account Id / company name. "
-            "Experience Cloud login replaces this later."
-        ),
+        "team": _account_team(session, aid, licensed_seats=current_qty),
     }
 
 
@@ -373,6 +771,25 @@ def _is_headcount_sku(sku: str) -> bool:
     if s == CORE_FLAT_SKU or "FLAT" in s:
         return False
     return True
+
+
+def paid_pepm(
+    *,
+    quantity: Any,
+    mrr: Any,
+    is_flat: bool = False,
+) -> float | None:
+    """Net PEPM the account is paying (CurrentMrr / seats), not catalog list."""
+    if is_flat:
+        return None
+    try:
+        qty = float(quantity)
+        monthly = float(mrr)
+    except (TypeError, ValueError):
+        return None
+    if qty <= 0:
+        return None
+    return round(monthly / qty, 2)
 
 
 def list_headcount_assets(
@@ -453,6 +870,7 @@ def _quote_pricing_snapshot(session: OrgSession, quote_id: str) -> dict[str, Any
     q = qrows[0]
     lines_raw = session.soql(
         "SELECT Id, Quantity, UnitPrice, NetUnitPrice, TotalPrice, Discount, "
+        "StartDate, EndDate, "
         "Product2.Name, Product2.StockKeepingUnit, PricebookEntry.UnitPrice "
         f"FROM QuoteLineItem WHERE QuoteId = '{_soql_escape(quote_id)}'"
     )
@@ -482,6 +900,8 @@ def _quote_pricing_snapshot(session: OrgSession, quote_id: str) -> dict[str, Any
                 "netUnitPrice": net,
                 "totalPrice": float(row.get("TotalPrice") or 0),
                 "discount": disc,
+                "startDate": str(row.get("StartDate") or "")[:10] or None,
+                "endDate": str(row.get("EndDate") or "")[:10] or None,
                 "isFlat": (not _is_headcount_sku(sku)) if sku else False,
             }
         )
@@ -671,14 +1091,23 @@ def create_qty_amend_drafts(
             f"Change start moved to {eff_start.date().isoformat()} so the "
             "amend lands on your latest quantity period (needed for decreases)."
         )
+    skipped_zero: list[str] = []
     for asset in headcount_assets:
         current = asset_quantity_at(session, asset["id"], as_of=eff_start)
         asset["quantity"] = current
+        if current <= 0:
+            skipped_zero.append(str(asset.get("sku") or asset["id"]))
+            continue
         delta = float(new_qty) - current
         if abs(delta) < 1e-6:
             skipped.append(str(asset.get("sku") or asset["id"]))
             continue
         by_delta.setdefault(delta, []).append(asset)
+    if skipped_zero:
+        warnings.append(
+            "No seats in effect on "
+            f"{eff_start.date().isoformat()} (skipped): " + ", ".join(skipped_zero)
+        )
     if skipped:
         warnings.append(
             "Already at target qty on "
@@ -1133,6 +1562,8 @@ def _place_addon_quote(
     quantity: int,
     currency: str,
     preferred_quote_id: str | None = None,
+    start: date | None = None,
+    end: date | None = None,
 ) -> str:
     """Place or reuse a sticky add-module Quote on an existing Account.
 
@@ -1145,8 +1576,21 @@ def _place_addon_quote(
     if quantity < 1:
         raise ValueError("quantity must be >= 1")
     for sku in skus:
+        if sku in PLAN_LIST_USD:
+            raise ValueError(
+                f"Plan SKU {sku} is not an add-module — use Initiate Upgrade"
+            )
         if sku not in ADDON_LIST_USD:
-            raise ValueError(f"Unknown add-on SKU: {sku}")
+            raise ValueError(f"Unknown supplemental SKU: {sku}")
+
+    line_start, line_end = addon_line_window(
+        amend_start=start,
+        plan_start=None,
+        plan_end=end,
+        today=date.today(),
+    )
+    start_s = line_start.isoformat()
+    end_s = line_end.isoformat()
 
     cfg = module_preview_cfg(quantity=quantity, addon_skus=skus)
     sticky = find_sticky_module_draft(
@@ -1161,15 +1605,22 @@ def _place_addon_quote(
         # patch Quantity then System reprice).
         try:
             lines = session.soql(
-                "SELECT Id, Quantity, Product2.StockKeepingUnit "
+                "SELECT Id, Quantity, StartDate, EndDate, Product2.StockKeepingUnit "
                 f"FROM QuoteLineItem WHERE QuoteId = '{qid}'"
             )
             for line in lines:
                 sku = ((line.get("Product2") or {}).get("StockKeepingUnit") or "").upper()
-                if sku in skus and int(line.get("Quantity") or 0) != int(quantity):
-                    session.patch(
-                        "QuoteLineItem", line["Id"], {"Quantity": int(quantity)}
-                    )
+                if sku not in skus:
+                    continue
+                patch: dict[str, Any] = {}
+                if int(line.get("Quantity") or 0) != int(quantity):
+                    patch["Quantity"] = int(quantity)
+                if str(line.get("StartDate") or "")[:10] != start_s:
+                    patch["StartDate"] = start_s
+                if str(line.get("EndDate") or "")[:10] != end_s:
+                    patch["EndDate"] = end_s
+                if patch:
+                    session.patch("QuoteLineItem", line["Id"], patch)
             tag_amend_preview_quote(session, qid, cfg=cfg, kind="module")
             reprice_quote_system(session, qid)
             apply_amend_volume_pricing(
@@ -1213,25 +1664,24 @@ def _place_addon_quote(
     except Exception:
         pass
 
+    names = ", ".join(_sku_label(s) for s in skus)
     pb = session.soql("SELECT Id FROM Pricebook2 WHERE IsStandard = true LIMIT 1")[0]
     pbes = {sku: _pbe_for_sku(session, sku, currency) for sku in skus}
     opp_id = ensure_amend_opportunity(
         session,
         account_id=account_id,
         currency=currency,
-        name=f"Licenses add-on {'+'.join(skus)} ×{quantity}"[:120],
+        name=f"Licenses add-on {names} ×{quantity}"[:120],
         name_prefix="Licenses add-on",
         close_date=date.today() + timedelta(days=30),
     )
-    today = date.today().isoformat()
-    end = (date.today() + timedelta(days=365)).isoformat()
-    names = ", ".join(ADDON_LABELS.get(s, s) for s in skus)
+    quote_name = f"Add modules — {names}"
     records: list[dict[str, Any]] = [
         {
             "referenceId": "refQuote",
             "record": {
                 "attributes": {"method": "POST", "type": "Quote"},
-                "Name": f"Add modules — {names}"[:120],
+                "Name": quote_name[:120],
                 "OpportunityId": opp_id,
                 "Pricebook2Id": pb["Id"],
                 "QuoteAccountId": account_id,
@@ -1250,8 +1700,8 @@ def _place_addon_quote(
                     "Product2Id": pbe["Product2Id"],
                     "PricebookEntryId": pbe["Id"],
                     "Quantity": str(quantity),
-                    "StartDate": today,
-                    "EndDate": end,
+                    "StartDate": start_s,
+                    "EndDate": end_s,
                     "PeriodBoundary": "Anniversary",
                     "BillingFrequency": "Monthly",
                 },
@@ -1344,6 +1794,8 @@ def build_change_confirmation(
     qty_amend: dict[str, Any] | None,
     module_sale: dict[str, Any] | None,
     added_skus: list[str],
+    plan_upgrade: bool = False,
+    upgrade_sale: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Welcome-style confirmation payload with Lightning deep links."""
     transactions: list[dict[str, Any]] = []
@@ -1415,8 +1867,43 @@ def build_change_confirmation(
             }
         )
 
+    if upgrade_sale and upgrade_sale.get("ok"):
+        qid = upgrade_sale.get("quoteId") or ""
+        oid = upgrade_sale.get("orderId") or ""
+        asset_ids = list(upgrade_sale.get("assetIds") or [])
+        links = _txn_links(
+            session,
+            account_id=account_id,
+            quote_id=qid,
+            order_id=oid,
+            asset_ids=asset_ids,
+        )
+        transactions.append(
+            {
+                "kind": "planUpgrade",
+                "label": "Upgrade to Pro",
+                "orderNumber": upgrade_sale.get("orderNumber") or oid,
+                **links,
+                "links": {
+                    "account": links["account"],
+                    "contact": links["contact"],
+                    "opportunity": links["opportunity"],
+                    "quote": links["quote"],
+                    "order": links["order"],
+                    "assets": links["assets"],
+                },
+            }
+        )
+
     kinds = {t["kind"] for t in transactions}
-    if kinds == {"moduleSale"}:
+    if kinds == {"planUpgrade"} or (kinds == {"moduleSale"} and plan_upgrade):
+        kind = "upgrade"
+        title = f"Upgraded to Pro for {account_name}"
+        lede = (
+            "You're on Pro. This change is an upgrade in Salesforce Revenue Cloud "
+            "— pay the prorated difference with Salesforce Payments."
+        )
+    elif kinds == {"moduleSale"}:
         kind = "addon"
         title = f"Modules added for {account_name}"
         lede = (
@@ -1430,6 +1917,13 @@ def build_change_confirmation(
             "Your quantity amend is activated in Salesforce Revenue Cloud — "
             "Account, Opportunity, Quote, Order, and Assets are live."
         )
+    elif "planUpgrade" in kinds:
+        kind = "upgrade"
+        title = f"Upgraded to Pro for {account_name}"
+        lede = (
+            "You're on Pro. This change is an upgrade in Salesforce Revenue Cloud "
+            "— pay the prorated difference with Salesforce Payments."
+        )
     else:
         kind = "addon_and_qty"
         title = f"Changes complete for {account_name}"
@@ -1438,15 +1932,23 @@ def build_change_confirmation(
             "Revenue Cloud — open the records below beside this tab."
         )
 
-    # Primary transaction for top-level links (prefer module sale, else qty).
+    # Primary transaction for top-level links (prefer upgrade, then module, else qty).
     primary = next(
-        (t for t in transactions if t["kind"] == "moduleSale"),
-        transactions[0] if transactions else None,
+        (t for t in transactions if t["kind"] == "planUpgrade"),
+        next(
+            (t for t in transactions if t["kind"] == "moduleSale"),
+            transactions[0] if transactions else None,
+        ),
     )
     primary_links = (primary or {}).get("links") or {}
     metrics: list[list[str]] = []
     for t in transactions:
-        label = "Add-on order" if t["kind"] == "moduleSale" else "Amend order"
+        if t["kind"] == "planUpgrade":
+            label = "Upgrade order"
+        elif t["kind"] == "moduleSale":
+            label = "Add-on order"
+        else:
+            label = "Amend order"
         metrics.append([label, str(t.get("orderNumber") or "—")])
     if added_skus:
         metrics.append(["Modules", ", ".join(added_skus)])
@@ -1473,6 +1975,7 @@ class AccountChangeResult:
     account_id: str
     qty_amend: dict[str, Any] | None = None
     module_sale: dict[str, Any] | None = None
+    plan_upgrade: dict[str, Any] | None = None
     added_skus: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     error: str | None = None
@@ -1487,6 +1990,7 @@ class AccountChangeResult:
             "accountName": self.account_name,
             "qtyAmend": self.qty_amend,
             "moduleSale": self.module_sale,
+            "planUpgrade": self.plan_upgrade,
             "addedSkus": self.added_skus,
             "warnings": self.warnings,
             "error": self.error,
@@ -1494,11 +1998,15 @@ class AccountChangeResult:
             "payment": self.payment,
             # Convenience aliases for qty-only clients
             "amendOrderId": (self.qty_amend or {}).get("amendOrderId")
+            or (self.plan_upgrade or {}).get("orderId")
             or (self.module_sale or {}).get("orderId"),
             "amendOrderNumber": (self.qty_amend or {}).get("amendOrderNumber")
+            or (self.plan_upgrade or {}).get("orderNumber")
             or (self.module_sale or {}).get("orderNumber"),
             "assetQuantity": (self.qty_amend or {}).get("assetQuantity"),
-            "assetIds": (self.module_sale or {}).get("assetIds") or [],
+            "assetIds": (self.plan_upgrade or {}).get("assetIds")
+            or (self.module_sale or {}).get("assetIds")
+            or [],
             "links": (self.confirmation or {}).get("links") or {},
         }
 
@@ -1544,7 +2052,39 @@ def _owned_assets_detail(
                 "isFlat": not _is_headcount_sku(sku),
             }
         )
+    _fill_missing_lifecycle_ends(session, out)
     return out
+
+
+def _fill_missing_lifecycle_ends(
+    session: OrgSession, assets: list[dict[str, Any]]
+) -> None:
+    """Use latest AssetStatePeriod end when Asset.LifecycleEndDate is blank.
+
+    Add-module remaining term must not invent +1 month while an annual ASP exists.
+    One batched query — skip when every asset already has an end.
+    """
+    missing = [a for a in assets if a.get("id") and not a.get("lifecycleEndDate")]
+    if not missing:
+        return
+    ids = ",".join(f"'{_soql_escape(str(a['id']))}'" for a in missing)
+    try:
+        rows = session.soql(
+            "SELECT AssetId, EndDate FROM AssetStatePeriod "
+            f"WHERE AssetId IN ({ids}) AND EndDate != null "
+            "ORDER BY EndDate DESC"
+        )
+    except Exception:  # noqa: BLE001
+        return
+    latest: dict[str, Any] = {}
+    for row in rows:
+        aid = str(row.get("AssetId") or "")
+        if aid and aid not in latest:
+            latest[aid] = row.get("EndDate")
+    for asset in missing:
+        end = latest.get(str(asset["id"]))
+        if end:
+            asset["lifecycleEndDate"] = end
 
 
 def _line_monthly_from_schedule(
@@ -1673,14 +2213,21 @@ def _price_owned_pepm_cart(
     headcount: int,
     currency: str,
     path_b: bool,
+    exclude_skus: list[str] | None = None,
 ) -> tuple[dict[str, float], str, list[str]]:
     """Headless-price PEPM SKUs at a seat count. Returns nets, source, warnings."""
     from pricing_api import headless_price_cart
 
     warnings: list[str] = []
+    skip = {str(s).upper() for s in (exclude_skus or []) if s}
     catalog_lines: list[dict[str, Any]] = []
     for a in owned_assets:
+        sku = str(a.get("sku") or "").upper()
+        if sku in skip:
+            continue
         if a["isFlat"] or not _is_headcount_sku(a["sku"]):
+            continue
+        if _asset_qty(a, field="quantityAsOf") <= 0 and "quantityAsOf" in a:
             continue
         line = _catalog_line_for_sku(
             session, sku=a["sku"], currency=currency, quantity=headcount
@@ -1723,6 +2270,52 @@ def _term_end_from_assets(owned_assets: list[dict[str, Any]]) -> date | None:
     return max(ends) if ends else None
 
 
+def _day_from_asset(raw: Any) -> date | None:
+    if not raw:
+        return None
+    try:
+        return date.fromisoformat(str(raw)[:10])
+    except ValueError:
+        return None
+
+
+def addon_line_window(
+    *,
+    amend_start: date | datetime | None,
+    plan_start: date | None,
+    plan_end: date | None,
+    today: date | None = None,
+) -> tuple[date, date]:
+    """Add-module Quote line dates: remaining Core/Pro window, never today+365."""
+    start = today or date.today()
+    if isinstance(amend_start, datetime):
+        start = amend_start.date()
+    elif isinstance(amend_start, date):
+        start = amend_start
+    if plan_start and plan_start > start:
+        start = plan_start
+    return start, remaining_service_end(start, plan_end)
+
+
+def _addon_window_from_assets(
+    owned_assets: list[dict[str, Any]],
+    *,
+    amend_start: datetime | None,
+) -> tuple[date, date]:
+    plan = current_plan_from_assets(owned_assets) or upcoming_plan_from_assets(
+        owned_assets
+    )
+    plan_start = _day_from_asset((plan or {}).get("lifecycleStartDate"))
+    plan_end = _term_end_from_assets(owned_assets) or _day_from_asset(
+        (plan or {}).get("lifecycleEndDate")
+    )
+    return addon_line_window(
+        amend_start=amend_start,
+        plan_start=plan_start,
+        plan_end=plan_end,
+    )
+
+
 def _provisional_due_today(
     *,
     monthly_diff: float,
@@ -1755,7 +2348,11 @@ def _proration_months(
     if amend_start is None:
         return None, None
     start_d = amend_start.date()
-    end_d = term_end if term_end is not None else start_d + timedelta(days=365)
+    if term_end is None:
+        # Do not invent a 365-day window — that overstates month-to-month
+        # upgrades. Estimate is withheld until Generate quote / a real end date.
+        return None, None
+    end_d = term_end
     days_left = (end_d - start_d).days
     if days_left < 0:
         days_left = 0
@@ -1830,6 +2427,13 @@ def _change_lines_with_proration(
             qty_after = line_qty_delta
             pepm = float(net_pepm or 0)
             charge_monthly = round(pepm * line_qty_delta, 2)
+        elif after is None:
+            # Plan swap / SKU cancel — credit remaining seats at before PEPM.
+            line_qty_delta = -int((before or {}).get("qty") or baseline_qty)
+            qty_before = int((before or {}).get("qty") or baseline_qty)
+            qty_after = 0
+            pepm = float((before or {}).get("netPepm") or 0)
+            charge_monthly = round(pepm * line_qty_delta, 2)
         else:
             line_qty_delta = qty_delta
             qty_before = int(baseline_qty)
@@ -1869,12 +2473,17 @@ def _amend_change_setup(
     account_id: str,
     new_qty: int | None = None,
     addon_skus: list[str] | None = None,
+    upgrade_sku: str | None = None,
     start_date: date | None = None,
     current_qty: int | None = None,
 ) -> dict[str, Any]:
     """Shared Account/qty/Path B/before-MRR setup for estimate + Quote preview."""
     warnings: list[str] = []
-    addon_skus = [s.upper() for s in (addon_skus or []) if s]
+    addon_skus = [
+        s.upper()
+        for s in (addon_skus or [])
+        if s and str(s).upper() not in PLAN_LIST_USD
+    ]
     acct = resolve_account_id(session, account_id=account_id)
     currency = acct.get("CurrencyIsoCode") or "USD"
     billing = (acct.get("BillingCountry") or "US").upper()
@@ -1894,14 +2503,16 @@ def _amend_change_setup(
         amend_start = requested_start
 
     owned_assets = _owned_assets_detail(session, account_id)
-    headcount_assets = [a for a in owned_assets if not a["isFlat"] and a.get("quantity")]
-    today_qty = 0
-    if headcount_assets:
-        today_qty = int(headcount_assets[0]["quantity"] or 0)
-    elif current_qty is not None:
+    live_plan = current_plan_from_assets(owned_assets)
+    today_qty = int(_asset_qty(live_plan or {}))
+    if current_qty is not None and today_qty == 0:
         today_qty = int(current_qty)
 
-    sample_ids = [a["id"] for a in headcount_assets]
+    # Include qty-0 assets so future-start Core / scheduled Pro ASPs are visible.
+    headcount_assets = [
+        a for a in owned_assets if not a["isFlat"] and a.get("id")
+    ]
+    sample_ids = [str(a["id"]) for a in headcount_assets]
     earliest_start: datetime | None = None
     if sample_ids:
         earliest_start = resolve_amend_start(session, sample_ids, None)
@@ -1915,14 +2526,18 @@ def _amend_change_setup(
                 f"Change start moved to {amend_start.date().isoformat()} so the "
                 "amend lands on your latest quantity period (needed for decreases)."
             )
-    baseline_qty = today_qty
-    if sample_ids and amend_start is not None:
-        try:
-            baseline_qty = int(
-                asset_quantity_at(session, sample_ids[0], as_of=amend_start)
-            )
-        except Exception:
-            baseline_qty = today_qty
+    _stamp_quantity_as_of(session, owned_assets, amend_start)
+    in_effect = _plan_in_effect_from_assets(owned_assets)
+    baseline_qty = int(_asset_qty(in_effect or {}, field="quantityAsOf"))
+    target_asset_id = str((in_effect or {}).get("id") or "") or None
+    if in_effect:
+        headcount_assets = [
+            a
+            for a in owned_assets
+            if not a["isFlat"]
+            and a.get("id")
+            and _asset_qty(a, field="quantityAsOf") > 0
+        ]
 
     if current_qty is None:
         current_qty = baseline_qty
@@ -1933,6 +2548,16 @@ def _amend_change_setup(
     for s in addon_skus:
         if s in owned_skus:
             warnings.append(f"{s} already owned — skipped.")
+    upgrade = resolve_upgrade(owned_assets, upgrade_sku)
+    if not upgrade.get("ok"):
+        return {
+            "ok": False,
+            "error": upgrade.get("error") or "Plan upgrade is not available.",
+            "warnings": warnings,
+        }
+    replace_skus = list(upgrade.get("replaceSkus") or [])
+    replace_asset_ids = list(upgrade.get("replaceAssetIds") or [])
+    upgrade_to = str(upgrade.get("addSku") or "") or None
     if country in NON_US_COUNTRIES:
         blocked = [s for s in add_skus if s in US_ONLY_ADDONS]
         if blocked:
@@ -1943,22 +2568,29 @@ def _amend_change_setup(
             }
 
     qty_changing = new_qty is not None and int(new_qty) != int(baseline_qty)
-    if not qty_changing and not add_skus:
+    if not qty_changing and not add_skus and not upgrade_to:
         return {
             "ok": False,
-            "error": "Change employee count and/or select a module to preview.",
+            "error": "Change employee count, upgrade your plan, and/or select a module to preview.",
             "warnings": warnings,
         }
 
-    path_b = path_b_skus_eligible(owned_skus | set(add_skus))
+    priced_add_skus = list(add_skus)
+    if upgrade_to and upgrade_to not in priced_add_skus:
+        priced_add_skus.append(upgrade_to)
+    path_b = path_b_skus_eligible(
+        (owned_skus - set(replace_skus)) | set(priced_add_skus)
+    )
 
     before_lines: list[dict[str, Any]] = []
     for a in owned_assets:
-        if a.get("quantity") is None and not a["isFlat"]:
+        if a.get("isFlat"):
+            pass
+        elif _asset_qty(a, field="quantityAsOf") <= 0:
             continue
         mrr = a.get("mrr")
         if mrr is not None:
-            hc = 1 if a["isFlat"] else int(a.get("quantity") or today_qty or 0)
+            hc = 1 if a["isFlat"] else int(_asset_qty(a, field="quantityAsOf") or today_qty or 0)
             before_lines.append(
                 {
                     "sku": a["sku"],
@@ -2008,11 +2640,16 @@ def _amend_change_setup(
         "country": country,
         "owned_assets": owned_assets,
         "headcount_assets": headcount_assets,
+        "target_asset_id": target_asset_id,
         "today_qty": today_qty,
         "baseline_qty": baseline_qty,
         "target_qty": target_qty,
         "qty_changing": qty_changing,
         "add_skus": add_skus,
+        "priced_add_skus": priced_add_skus,
+        "replace_skus": replace_skus,
+        "replace_asset_ids": replace_asset_ids,
+        "upgrade_sku": upgrade_to,
         "path_b": path_b,
         "before_lines": before_lines,
         "monthly_before": monthly_before,
@@ -2032,13 +2669,13 @@ def estimate_account_amend(
     account_id: str,
     new_qty: int | None = None,
     addon_skus: list[str] | None = None,
+    upgrade_sku: str | None = None,
     start_date: date | None = None,
     current_qty: int | None = None,
 ) -> dict[str, Any]:
     """Phase 2 rail: Pricing API before/after → estimated prorated change lines.
 
-    Hero/lines are monthly delta × remaining term (avg month). Monthly/annual
-    run-rate stays in the payload for the amend summary after Generate quote.
+    Hero/lines are monthly delta × remaining term (avg month).
     Exact charged-today is Quote TotalPrice after System reprice.
     """
     setup = _amend_change_setup(
@@ -2046,6 +2683,7 @@ def estimate_account_amend(
         account_id=account_id,
         new_qty=new_qty,
         addon_skus=addon_skus,
+        upgrade_sku=upgrade_sku,
         start_date=start_date,
         current_qty=current_qty,
     )
@@ -2058,9 +2696,13 @@ def estimate_account_amend(
     baseline_qty = int(setup["baseline_qty"])
     target_qty = int(setup["target_qty"])
     add_skus = list(setup["add_skus"])
+    priced_add_skus = list(setup.get("priced_add_skus") or add_skus)
+    replace_skus = list(setup.get("replace_skus") or [])
     owned_skus = {a["sku"] for a in owned_assets}
     path_b_before = path_b_skus_eligible(owned_skus)
-    path_b_after = path_b_skus_eligible(owned_skus | set(add_skus))
+    path_b_after = path_b_skus_eligible(
+        (owned_skus - set(replace_skus)) | set(priced_add_skus)
+    )
     if path_b_after:
         warnings.append(
             "Path B Bundle & Save: 15% on Payroll + Benefits (a la carte with a plan)."
@@ -2076,10 +2718,11 @@ def estimate_account_amend(
         account_id=setup["account_id"],
         baseline_qty=baseline_qty,
         target_qty=target_qty,
-        add_skus=add_skus,
+        add_skus=priced_add_skus,
         currency=currency,
         path_b_before=path_b_before,
         path_b_after=path_b_after,
+        replace_skus=replace_skus,
     )
     cached_nets: dict[str, Any] | None = None
     with _ESTIMATE_NETS_GUARD:
@@ -2108,10 +2751,11 @@ def estimate_account_amend(
             return _price_owned_pepm_cart(
                 session,
                 owned_assets=owned_assets,
-                add_skus=add_skus,
+                add_skus=priced_add_skus,
                 headcount=target_qty,
                 currency=currency,
                 path_b=path_b_after,
+                exclude_skus=replace_skus,
             )
 
         with ThreadPoolExecutor(max_workers=2) as pool:
@@ -2154,9 +2798,12 @@ def estimate_account_amend(
             if flat_line:
                 flat_line["isNew"] = False
                 before_lines.append(dict(flat_line))
-                after_lines.append(dict(flat_line))
+                if a["sku"] not in replace_skus:
+                    after_lines.append(dict(flat_line))
             continue
         if not _is_headcount_sku(a["sku"]):
+            continue
+        if _asset_qty(a, field="quantityAsOf") <= 0:
             continue
         bl = _pepm_line_from_net(
             session,
@@ -2171,6 +2818,8 @@ def estimate_account_amend(
         )
         if bl:
             before_lines.append(bl)
+        if a["sku"] in replace_skus:
+            continue
         al = _pepm_line_from_net(
             session,
             sku=a["sku"],
@@ -2185,11 +2834,11 @@ def estimate_account_amend(
         if al:
             after_lines.append(al)
 
-    for sku in add_skus:
+    for sku in priced_add_skus:
         al = _pepm_line_from_net(
             session,
             sku=sku,
-            name=ADDON_LABELS.get(sku, sku),
+            name=_sku_label(sku),
             headcount=target_qty,
             currency=currency,
             path_b=path_b_after,
@@ -2243,6 +2892,7 @@ def estimate_account_amend(
             else 0
         ),
         "newQty": target_qty,
+        "upgradeSku": setup.get("upgrade_sku"),
         "amendStartDate": setup["amend_start_iso"],
         "earliestAmendStartDate": setup.get("earliest_amend_start_iso"),
         "requestedAmendStartDate": setup.get("requested_amend_start_iso"),
@@ -2277,8 +2927,7 @@ def estimate_account_amend(
         "warnings": warnings,
         "note": (
             "Est. prorated from Salesforce Pricing API monthly delta × remaining term. "
-            "Generate quote for the precise prorated charge (Quote TotalPrice). "
-            "Monthly/annual run-rate is on the amend summary."
+            "Generate quote for the precise prorated charge (Quote TotalPrice)."
         ),
     }
 
@@ -2291,21 +2940,27 @@ def preview_account_changes(
     asset_id: str | None = None,
     new_qty: int | None = None,
     addon_skus: list[str] | None = None,
+    upgrade_sku: str | None = None,
     start_date: date | None = None,
     current_qty: int | None = None,
     preferred_amend_quotes: list[dict[str, Any]] | None = None,
     preferred_module_quote_id: str | None = None,
+    preferred_upgrade_quote_id: str | None = None,
+    preferred_cancel_quote_id: str | None = None,
 ) -> dict[str, Any]:
     """Price change drafts in Revenue Cloud (no Activate).
 
-    Creates or reuses sticky amendment Quote(s) and/or an add-module Quote,
-    System-reprices (plus amend volume patch), and returns totals for the UI.
+    Creates or reuses sticky amendment Quote(s), an Initiate Upgrade Quote,
+    and/or an add-module Quote. System-reprices (plus amend volume patch)
+    and returns totals for the UI. Core→Pro is one upgrade Quote — not
+    a Pro sale plus a Core cancel.
     """
     setup = _amend_change_setup(
         session,
         account_id=account_id,
         new_qty=new_qty,
         addon_skus=addon_skus,
+        upgrade_sku=upgrade_sku,
         start_date=start_date,
         current_qty=current_qty,
     )
@@ -2322,6 +2977,11 @@ def preview_account_changes(
     target_qty = int(setup["target_qty"])
     qty_changing = bool(setup["qty_changing"])
     add_skus = list(setup["add_skus"])
+    priced_add_skus = list(setup.get("priced_add_skus") or add_skus)
+    replace_skus = list(setup.get("replace_skus") or [])
+    replace_asset_ids = list(setup.get("replace_asset_ids") or [])
+    upgrade_to = setup.get("upgrade_sku")
+    qty_amend_needed = bool(qty_changing) and not upgrade_to
     path_b = bool(setup["path_b"])
     before_lines = setup["before_lines"]
     monthly_before = float(setup["monthly_before"])
@@ -2360,6 +3020,8 @@ def preview_account_changes(
                 continue
             if not _is_headcount_sku(a["sku"]):
                 continue
+            if _asset_qty(a, field="quantityAsOf") <= 0:
+                continue
             bl = _pepm_line_from_net(
                 session,
                 sku=a["sku"],
@@ -2387,10 +3049,14 @@ def preview_account_changes(
     qty_preview_sticky = False
     module_quote_id: str | None = None
     module_snapshot: dict[str, Any] | None = None
+    upgrade_quote_id: str | None = None
+    upgrade_snapshot: dict[str, Any] | None = None
     with _account_lock(account_id):
-        if qty_changing:
-            if not asset_id and headcount_assets:
-                asset_id = headcount_assets[0]["id"]
+        if qty_amend_needed:
+            if not asset_id:
+                asset_id = setup.get("target_asset_id") or (
+                    headcount_assets[0]["id"] if headcount_assets else None
+                )
             created = create_qty_amend_drafts(
                 session,
                 account_id=account_id,
@@ -2448,6 +3114,9 @@ def preview_account_changes(
         if add_skus:
             try:
                 # _place_addon_quote already System-reprices + volume stamps.
+                addon_start, addon_end = _addon_window_from_assets(
+                    owned_assets, amend_start=amend_start
+                )
                 module_quote_id = _place_addon_quote(
                     session,
                     account_id=account_id,
@@ -2455,6 +3124,8 @@ def preview_account_changes(
                     quantity=target_qty,
                     currency=currency,
                     preferred_quote_id=preferred_module_quote_id,
+                    start=addon_start,
+                    end=addon_end,
                 )
                 sync_quote_to_opportunity(session, module_quote_id)
                 module_snapshot = _quote_pricing_snapshot(session, module_quote_id)
@@ -2480,9 +3151,56 @@ def preview_account_changes(
                     "amendQuotes": amend_drafts,
                 }
 
+        if replace_asset_ids and upgrade_to:
+            try:
+                upgrade_quote_id = upgrade_assets_to_quote(
+                    session,
+                    account_id=account_id,
+                    asset_ids=replace_asset_ids,
+                    to_sku=str(upgrade_to),
+                    out_quantity=int(baseline_qty),
+                    in_quantity=int(target_qty),
+                    start=amend_start,
+                    currency=currency,
+                    preferred_quote_id=preferred_upgrade_quote_id,
+                )
+                sync_quote_to_opportunity(session, upgrade_quote_id)
+                upgrade_snapshot = _quote_pricing_snapshot(session, upgrade_quote_id)
+                due_parts.append(
+                    {
+                        "kind": "planUpgrade",
+                        "quoteId": upgrade_quote_id,
+                        "quoteNumber": upgrade_snapshot.get("quoteNumber"),
+                        "totalPrice": float(upgrade_snapshot.get("totalPrice") or 0),
+                        "lines": upgrade_snapshot.get("lines") or [],
+                    }
+                )
+                for ql in upgrade_snapshot.get("lines") or []:
+                    sku = (ql.get("sku") or "").upper()
+                    net = float(ql.get("netUnitPrice") or 0)
+                    if sku and _is_headcount_sku(sku) and net > 0:
+                        net_from_quote[sku] = net
+            except Exception as exc:  # noqa: BLE001
+                return {
+                    "ok": False,
+                    "error": f"Plan upgrade preview failed: {exc}",
+                    "warnings": warnings,
+                    "amendQuotes": amend_drafts,
+                    "moduleQuoteId": module_quote_id,
+                }
+
     # --- Recurring after: prefer NetUnitPrice from priced quotes ---
     after_lines: list[dict[str, Any]] = []
+    replace_set = set(replace_skus)
     for a in owned_assets:
+        if a["sku"] in replace_set:
+            continue
+        if (
+            not a.get("isFlat")
+            and _asset_qty(a, field="quantityAsOf") <= 0
+            and "quantityAsOf" in a
+        ):
+            continue
         if a["isFlat"]:
             line = _line_monthly_from_schedule(
                 session,
@@ -2530,7 +3248,7 @@ def preview_account_changes(
         if line:
             after_lines.append(line)
 
-    for sku in add_skus:
+    for sku in priced_add_skus:
         if sku in net_from_quote:
             net = net_from_quote[sku]
             priced = _net_pepm_from_schedule(
@@ -2543,7 +3261,7 @@ def preview_account_changes(
             after_lines.append(
                 {
                     "sku": sku,
-                    "name": ADDON_LABELS.get(sku, sku),
+                    "name": _sku_label(sku),
                     "qty": target_qty,
                     "netPepm": net,
                     "listPepm": (priced or {}).get("listPepm"),
@@ -2552,14 +3270,16 @@ def preview_account_changes(
                     "isFlat": False,
                     "isPepm": True,
                     "isNew": True,
-                    "source": "moduleQuote",
+                    "source": (
+                        "upgradeQuote" if sku == upgrade_to else "moduleQuote"
+                    ),
                 }
             )
         else:
             line = _line_monthly_from_schedule(
                 session,
                 sku=sku,
-                name=ADDON_LABELS.get(sku, sku),
+                name=_sku_label(sku),
                 headcount=target_qty,
                 currency=currency,
                 is_flat=False,
@@ -2591,6 +3311,10 @@ def preview_account_changes(
             break
     if not opportunity_id and module_quote_id:
         opportunity_id = quote_related_ids(session, module_quote_id).get(
+            "opportunityId"
+        )
+    if not opportunity_id and upgrade_quote_id:
+        opportunity_id = quote_related_ids(session, upgrade_quote_id).get(
             "opportunityId"
         )
 
@@ -2638,9 +3362,14 @@ def preview_account_changes(
             "linesToday": before_lines,
             "amendQuotes": amend_drafts,
             "sticky": bool(
-                qty_preview_sticky or any(d.get("sticky") for d in amend_drafts)
+                qty_preview_sticky
+                or any(d.get("sticky") for d in amend_drafts)
+                or bool(upgrade_quote_id)
             ),
             "moduleQuoteId": module_quote_id,
+            "cancelQuoteId": None,
+            "upgradeQuoteId": upgrade_quote_id,
+            "upgradeSku": setup.get("upgrade_sku"),
             "moduleQuote": (
                 {
                     "quoteId": module_quote_id,
@@ -2648,6 +3377,15 @@ def preview_account_changes(
                     "totalPrice": (module_snapshot or {}).get("totalPrice"),
                 }
                 if module_quote_id
+                else None
+            ),
+            "upgradeQuote": (
+                {
+                    "quoteId": upgrade_quote_id,
+                    "quoteNumber": (upgrade_snapshot or {}).get("quoteNumber"),
+                    "totalPrice": (upgrade_snapshot or {}).get("totalPrice"),
+                }
+                if upgrade_quote_id
                 else None
             ),
             "warnings": warnings,
@@ -2670,24 +3408,31 @@ def place_account_changes(
     asset_id: str | None = None,
     new_qty: int | None = None,
     addon_skus: list[str] | None = None,
+    upgrade_sku: str | None = None,
     start_date: date | None = None,
     amend_quotes: list[dict[str, Any]] | None = None,
     module_quote_id: str | None = None,
+    upgrade_quote_id: str | None = None,
+    cancel_quote_id: str | None = None,
 ) -> AccountChangeResult:
-    """Apply qty amend and/or add-module sale for an Account.
+    """Apply qty amend, add-module, and/or Core→Pro Initiate Upgrade.
 
-    When ``amend_quotes`` / ``module_quote_id`` from a prior preview are passed,
-    activates those Quotes instead of creating new ones.
+    When preview Quote ids are passed, activates those Drafts instead of
+    creating new ones. ``cancel_quote_id`` is ignored (legacy rip-and-replace).
     """
     warnings: list[str] = []
-    addon_skus = [s.upper() for s in (addon_skus or []) if s]
+    del cancel_quote_id  # former Core-cancel Quote; upgrade is one transaction
+    addon_skus = [
+        s.upper()
+        for s in (addon_skus or [])
+        if s and str(s).upper() not in PLAN_LIST_USD
+    ]
     acct = resolve_account_id(session, account_id=account_id)
     currency = acct.get("CurrencyIsoCode") or "USD"
     billing = (acct.get("BillingCountry") or "US").upper()
     country = "UK" if billing in ("GB", "UK") else ("CA" if billing == "CA" else "US")
     amend_start: datetime | None = None
     if start_date is not None:
-        # Org timezone can treat "today 00:00Z" as past — keep midday UTC.
         amend_start = datetime(
             start_date.year,
             start_date.month,
@@ -2698,18 +3443,31 @@ def place_account_changes(
             tzinfo=timezone.utc,
         )
 
-    owned = {
-        (r.get("Product2") or {}).get("StockKeepingUnit")
-        for r in session.soql(
-            "SELECT Product2.StockKeepingUnit FROM Asset "
-            f"WHERE AccountId = '{account_id}'"
-        )
-        if (r.get("Product2") or {}).get("StockKeepingUnit")
-    }
+    owned_assets = _owned_assets_detail(session, account_id)
+    ids = [
+        str(a["id"]) for a in owned_assets if not a.get("isFlat") and a.get("id")
+    ]
+    if ids:
+        amend_start = resolve_amend_start(session, ids, amend_start)
+    _stamp_quantity_as_of(session, owned_assets, amend_start)
+    in_effect = _plan_in_effect_from_assets(owned_assets)
+    if not asset_id and in_effect:
+        asset_id = str(in_effect.get("id") or "") or None
+    owned = {a["sku"] for a in owned_assets if a.get("sku")}
     add_skus = [s for s in addon_skus if s not in owned]
     for s in addon_skus:
         if s in owned:
             warnings.append(f"{s} already owned — skipped.")
+    upgrade = resolve_upgrade(owned_assets, upgrade_sku)
+    if not upgrade.get("ok"):
+        return AccountChangeResult(
+            ok=False,
+            account_id=account_id,
+            error=upgrade.get("error") or "Plan upgrade is not available.",
+            warnings=warnings,
+        )
+    upgrade_to = str(upgrade.get("addSku") or "") or None
+    replace_ids = list(upgrade.get("replaceAssetIds") or [])
     if country in NON_US_COUNTRIES:
         blocked = [s for s in add_skus if s in US_ONLY_ADDONS]
         if blocked:
@@ -2721,12 +3479,13 @@ def place_account_changes(
             )
 
     qty_payload: dict[str, Any] | None = None
+    qty_amend_needed = new_qty is not None and not upgrade_to
     reuse_amends = [
         d
         for d in (amend_quotes or [])
         if d.get("quoteId") and d.get("assetIds")
     ]
-    if reuse_amends and new_qty is not None:
+    if qty_amend_needed and reuse_amends:
         qty_result = activate_qty_amend_drafts(
             session,
             account_id=account_id,
@@ -2744,8 +3503,14 @@ def place_account_changes(
                 warnings=warnings + qty_result.warnings,
             )
         warnings.extend(qty_result.warnings)
-    elif new_qty is not None:
-        headcount = list_headcount_assets(session, account_id)
+    elif qty_amend_needed:
+        headcount = [
+            a
+            for a in owned_assets
+            if not a.get("isFlat")
+            and a.get("id")
+            and _asset_qty(a, field="quantityAsOf") > 0
+        ]
         if not asset_id and headcount:
             asset_id = headcount[0]["id"]
         if not asset_id and not headcount:
@@ -2755,8 +3520,6 @@ def place_account_changes(
                 error="No per-employee assets found to amend",
                 warnings=warnings,
             )
-        # Skip only when every headcount asset is already at target *on start date*
-        # (ASP basis — same as Connect amend quantityChange).
         as_of = amend_start or datetime.now(timezone.utc)
         all_at_target = bool(headcount) and all(
             abs(
@@ -2790,7 +3553,9 @@ def place_account_changes(
     module_payload: dict[str, Any] | None = None
     if module_quote_id and add_skus:
         try:
-            co = checkout_quote(session, module_quote_id, poll_timeout=180)
+            co = checkout_quote_or_recover(
+                session, module_quote_id, poll_timeout=180
+            )
             module_payload = co.as_dict()
             if not co.ok:
                 return AccountChangeResult(
@@ -2813,7 +3578,6 @@ def place_account_changes(
                 warnings=warnings,
             )
     elif add_skus:
-        # Seat count for new modules: requested qty, else primary asset qty.
         qty = int(new_qty) if new_qty is not None else 0
         if qty < 1 and asset_id:
             try:
@@ -2829,14 +3593,19 @@ def place_account_changes(
                 warnings=warnings,
             )
         try:
+            addon_start, addon_end = _addon_window_from_assets(
+                owned_assets, amend_start=amend_start
+            )
             quote_id = _place_addon_quote(
                 session,
                 account_id=account_id,
                 addon_skus=add_skus,
                 quantity=qty,
                 currency=currency,
+                start=addon_start,
+                end=addon_end,
             )
-            co = checkout_quote(session, quote_id, poll_timeout=180)
+            co = checkout_quote_or_recover(session, quote_id, poll_timeout=180)
             module_payload = co.as_dict()
             if not co.ok:
                 return AccountChangeResult(
@@ -2859,11 +3628,70 @@ def place_account_changes(
                 warnings=warnings,
             )
 
-    if qty_payload is None and module_payload is None:
+    upgrade_payload: dict[str, Any] | None = None
+    if upgrade_to and replace_ids:
+        as_of = amend_start or datetime.now(timezone.utc)
+        if replace_ids:
+            as_of = resolve_amend_start(session, replace_ids, amend_start)
+        try:
+            out_qty = int(asset_quantity_at(session, replace_ids[0], as_of=as_of))
+        except Exception:
+            out_qty = int(new_qty) if new_qty is not None else 0
+        if out_qty < 1:
+            return AccountChangeResult(
+                ok=False,
+                account_id=account_id,
+                qty_amend=qty_payload,
+                module_sale=module_payload,
+                error="No seats in effect on the upgrade start date",
+                warnings=warnings,
+            )
+        in_qty = int(new_qty) if new_qty is not None else out_qty
+        if in_qty < 1:
+            in_qty = out_qty
+        try:
+            qid = (upgrade_quote_id or "").strip() or None
+            if not qid:
+                qid = upgrade_assets_to_quote(
+                    session,
+                    account_id=account_id,
+                    asset_ids=replace_ids,
+                    to_sku=upgrade_to,
+                    out_quantity=out_qty,
+                    in_quantity=in_qty,
+                    start=amend_start,
+                    currency=currency,
+                )
+            co = checkout_quote_or_recover(session, qid, poll_timeout=180)
+            upgrade_payload = co.as_dict()
+            if not co.ok:
+                return AccountChangeResult(
+                    ok=False,
+                    account_id=account_id,
+                    qty_amend=qty_payload,
+                    module_sale=module_payload,
+                    plan_upgrade=upgrade_payload,
+                    added_skus=add_skus,
+                    error=co.error or "Plan upgrade checkout failed",
+                    warnings=warnings + list(co.warnings or []),
+                )
+            warnings.extend(co.warnings or [])
+        except Exception as exc:  # noqa: BLE001
+            return AccountChangeResult(
+                ok=False,
+                account_id=account_id,
+                qty_amend=qty_payload,
+                module_sale=module_payload,
+                added_skus=add_skus,
+                error=str(exc),
+                warnings=warnings,
+            )
+
+    if qty_payload is None and module_payload is None and upgrade_payload is None:
         return AccountChangeResult(
             ok=False,
             account_id=account_id,
-            error="Nothing to change — set newQty and/or addonSkus",
+            error="Nothing to change — set newQty, upgradeSku, and/or addonSkus",
             warnings=warnings,
         )
 
@@ -2874,41 +3702,53 @@ def place_account_changes(
         qty_amend=qty_payload,
         module_sale=module_payload,
         added_skus=add_skus,
+        plan_upgrade=bool(upgrade_to),
+        upgrade_sale=upgrade_payload,
     )
 
-    # Pay Now for activated orders (module sale first, then qty amend).
+    # Invoice + Pay Now are not on the Place critical path. Activation is
+    # success; the success page / licenses UI POSTs collect-payment after.
     payment: dict[str, Any] | None = None
     order_ids: list[str] = []
+    if (
+        upgrade_payload
+        and upgrade_payload.get("ok")
+        and upgrade_payload.get("orderId")
+    ):
+        order_ids.append(str(upgrade_payload["orderId"]))
     if module_payload and module_payload.get("ok") and module_payload.get("orderId"):
-        order_ids.append(str(module_payload["orderId"]))
+        oid = str(module_payload["orderId"])
+        if oid not in order_ids:
+            order_ids.append(oid)
     if qty_payload and qty_payload.get("ok") and qty_payload.get("amendOrderId"):
         oid = str(qty_payload["amendOrderId"])
         if oid not in order_ids:
             order_ids.append(oid)
     if order_ids:
-        from payments import build_payment_prompt
+        payment = {
+            "ready": False,
+            "orderId": order_ids[0],
+            "collectPending": True,
+        }
 
-        for oid in order_ids:
-            try:
-                prompt = build_payment_prompt(
-                    session, oid, collect=True, poll_timeout=90
-                )
-                payment = prompt.as_dict()
-                if prompt.blocked_reason:
-                    warnings.append(f"Payment: {prompt.blocked_reason}")
-                warnings.extend(prompt.warnings or [])
-                if prompt.ready or (
-                    prompt.invoice_balance is not None and prompt.invoice_balance <= 0
-                ):
-                    break
-            except Exception as pay_exc:  # noqa: BLE001
-                warnings.append(f"Payment prompt failed: {pay_exc}")
-                if payment is None:
-                    payment = {
-                        "ready": False,
-                        "orderId": oid,
-                        "blockedReason": str(pay_exc),
-                    }
+    keep_quote_ids: list[str] = []
+    for payload in (qty_payload, module_payload, upgrade_payload):
+        if not isinstance(payload, dict):
+            continue
+        for key in ("amendQuoteId", "quoteId"):
+            qid = payload.get(key)
+            if qid:
+                keep_quote_ids.append(str(qid))
+    try:
+        discarded = discard_stale_amend_drafts(
+            session, account_id, keep_quote_ids=keep_quote_ids
+        )
+        if discarded:
+            warnings.append(
+                f"Discarded {len(discarded)} leftover preview Draft Quote(s)."
+            )
+    except Exception as exc:  # noqa: BLE001
+        warnings.append(f"Preview Draft cleanup skipped: {exc}")
 
     return AccountChangeResult(
         ok=True,
@@ -2916,6 +3756,7 @@ def place_account_changes(
         account_name=str(acct.get("Name") or ""),
         qty_amend=qty_payload,
         module_sale=module_payload,
+        plan_upgrade=upgrade_payload,
         added_skus=add_skus,
         warnings=warnings,
         confirmation=confirmation,

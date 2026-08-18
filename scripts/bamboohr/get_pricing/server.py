@@ -60,7 +60,7 @@ from account_console import (  # noqa: E402
 )
 from amend_summary import attach_amend_summary_view  # noqa: E402
 from ec_handoff import EcHandoffError, verify_ec_token  # noqa: E402
-from checkout import checkout_quote  # noqa: E402
+from checkout import checkout_quote, place_status_for_quotes  # noqa: E402
 from portal_login import create_buyer_login  # noqa: E402
 from docgen import (  # noqa: E402
     DEFAULT_TEMPLATE,
@@ -103,6 +103,13 @@ MICRO_SELF_SERVE = os.environ.get("BAMBOO_MICRO_SELF_SERVE", "1").strip() not in
 MICRO_MAX_HEADCOUNT = 24
 MICRO_PLANS = frozenset({"BAMBOO-CORE", "BAMBOO-PRO"})
 MICRO_COUNTRIES = frozenset({"US", "CA"})
+
+
+def _upgrade_sku_from_body(body: dict) -> str | None:
+    raw = str(body.get("upgradeSku") or body.get("upgradePlan") or "").strip().upper()
+    return raw or None
+
+
 SALES_HANDOFF_URL = os.environ.get(
     "BAMBOO_SALES_HANDOFF_URL",
     "mailto:sales@example.com?subject=BambooHR%20self-serve%20handoff",
@@ -841,7 +848,13 @@ class Handler(BaseHTTPRequestHandler):
                     account_id = claims["accountId"]
                     company = None
                 from account_console import resolve_account_id
-                from payments import list_open_invoices, payment_received_signal
+                from payments import (
+                    annotate_invoices_paid_applying,
+                    bucket_open_invoices,
+                    list_activated_orders,
+                    list_open_invoices,
+                    payment_received_signal,
+                )
 
                 acct = resolve_account_id(
                     _session(), account_id=account_id, company=company
@@ -851,6 +864,11 @@ class Handler(BaseHTTPRequestHandler):
                     _session(),
                     acct["Id"],
                     open_invoice_count=len(invoices),
+                )
+                invoices = annotate_invoices_paid_applying(invoices, pay_sig)
+                invoices = bucket_open_invoices(
+                    invoices,
+                    orders=list_activated_orders(_session(), acct["Id"]),
                 )
                 self._json(
                     200,
@@ -893,6 +911,35 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(401, {"ok": False, "error": str(exc)})
             except ValueError as exc:
                 self._json(400, {"ok": False, "error": str(exc)})
+            except Exception as exc:  # noqa: BLE001
+                self._json(503, {"ok": False, "error": str(exc)})
+            return
+        if path == "/api/account-amend-place-status":
+            try:
+                qs = parse_qs(urlparse(self.path).query)
+                account_id = (qs.get("accountId") or [None])[0]
+                raw_ids = (qs.get("quoteIds") or [""])[0]
+                quote_ids = [
+                    part.strip()
+                    for part in str(raw_ids).split(",")
+                    if part.strip()
+                ]
+                if not quote_ids:
+                    self._json(
+                        400,
+                        {"ok": False, "error": "quoteIds is required"},
+                    )
+                    return
+                payload = place_status_for_quotes(_session(), quote_ids)
+                if account_id and payload.get("accountId") and payload.get(
+                    "accountId"
+                ) != account_id:
+                    self._json(
+                        200,
+                        {"ok": False, "found": False},
+                    )
+                    return
+                self._json(200, payload)
             except Exception as exc:  # noqa: BLE001
                 self._json(503, {"ok": False, "error": str(exc)})
             return
@@ -1342,6 +1389,38 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(400, {"ok": False, "error": str(exc)})
             return
 
+        if path == "/api/activate":
+            try:
+                account_id = str(body.get("accountId") or "").strip() or None
+                company = str(body.get("company") or "").strip() or None
+                ec_token = str(body.get("ecToken") or "").strip()
+                if ec_token:
+                    claims = verify_ec_token(ec_token)
+                    account_id = claims["accountId"]
+                    company = None
+                from activate import complete_activate_steps
+
+                self._json(
+                    200,
+                    complete_activate_steps(
+                        _session(),
+                        account_id=account_id,
+                        company=company,
+                        first_name=body.get("firstName"),
+                        last_name=body.get("lastName"),
+                        email=body.get("email"),
+                        admin_email=body.get("adminEmail"),
+                        time_off_policy=body.get("timeOffPolicy"),
+                    ),
+                )
+            except EcHandoffError as exc:
+                self._json(401, {"ok": False, "error": str(exc)})
+            except ValueError as exc:
+                self._json(400, {"ok": False, "error": str(exc)})
+            except Exception as exc:  # noqa: BLE001
+                self._json(503, {"ok": False, "error": str(exc)})
+            return
+
         if path == "/api/create-login":
             account_id = str(body.get("accountId") or "").strip()
             contact_id = str(body.get("contactId") or "").strip()
@@ -1419,6 +1498,7 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(raw_addons, list):
                 raw_addons = []
             addon_skus = [str(s).strip() for s in raw_addons if str(s).strip()]
+            upgrade_sku = _upgrade_sku_from_body(body)
             new_qty: int | None
             if body.get("newQty") in (None, ""):
                 new_qty = None
@@ -1431,12 +1511,12 @@ class Handler(BaseHTTPRequestHandler):
             if not account_id:
                 self._json(400, {"ok": False, "error": "accountId is required"})
                 return
-            if new_qty is None and not addon_skus:
+            if new_qty is None and not addon_skus and not upgrade_sku:
                 self._json(
                     400,
                     {
                         "ok": False,
-                        "error": "Provide newQty and/or addonSkus to place a change",
+                        "error": "Provide newQty, upgradeSku, and/or addonSkus to place a change",
                     },
                 )
                 return
@@ -1469,6 +1549,8 @@ class Handler(BaseHTTPRequestHandler):
                 if isinstance(d, dict) and d.get("quoteId")
             ]
             module_quote_id = str(body.get("moduleQuoteId") or "").strip() or None
+            upgrade_quote_id = str(body.get("upgradeQuoteId") or "").strip() or None
+            cancel_quote_id = str(body.get("cancelQuoteId") or "").strip() or None
             try:
                 result = place_account_changes(
                     _session(),
@@ -1476,9 +1558,12 @@ class Handler(BaseHTTPRequestHandler):
                     asset_id=asset_id,
                     new_qty=new_qty,
                     addon_skus=addon_skus,
+                    upgrade_sku=upgrade_sku,
                     start_date=start_date,
                     amend_quotes=amend_quotes or None,
                     module_quote_id=module_quote_id,
+                    upgrade_quote_id=upgrade_quote_id,
+                    cancel_quote_id=cancel_quote_id,
                 )
                 self._json(200 if result.ok else 400, result.as_dict())
             except Exception as exc:  # noqa: BLE001
@@ -1492,6 +1577,7 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(raw_addons, list):
                 raw_addons = []
             addon_skus = [str(s).strip() for s in raw_addons if str(s).strip()]
+            upgrade_sku = _upgrade_sku_from_body(body)
             new_qty: int | None
             if body.get("newQty") in (None, ""):
                 new_qty = None
@@ -1523,6 +1609,7 @@ class Handler(BaseHTTPRequestHandler):
                     account_id=account_id,
                     new_qty=new_qty,
                     addon_skus=addon_skus,
+                    upgrade_sku=upgrade_sku,
                     start_date=start_date,
                 )
                 self._json(200 if result.get("ok") else 400, result)
@@ -1538,6 +1625,7 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(raw_addons, list):
                 raw_addons = []
             addon_skus = [str(s).strip() for s in raw_addons if str(s).strip()]
+            upgrade_sku = _upgrade_sku_from_body(body)
             new_qty: int | None
             if body.get("newQty") in (None, ""):
                 new_qty = None
@@ -1582,15 +1670,24 @@ class Handler(BaseHTTPRequestHandler):
                 preferred_module = (
                     str(body.get("moduleQuoteId") or "").strip() or None
                 )
+                preferred_upgrade = (
+                    str(body.get("upgradeQuoteId") or "").strip() or None
+                )
+                preferred_cancel = (
+                    str(body.get("cancelQuoteId") or "").strip() or None
+                )
                 result = preview_account_changes(
                     _session(),
                     account_id=account_id,
                     asset_id=asset_id,
                     new_qty=new_qty,
                     addon_skus=addon_skus,
+                    upgrade_sku=upgrade_sku,
                     start_date=start_date,
                     preferred_amend_quotes=preferred_amends or None,
                     preferred_module_quote_id=preferred_module,
+                    preferred_upgrade_quote_id=preferred_upgrade,
+                    preferred_cancel_quote_id=preferred_cancel,
                 )
                 # Auto-cache so /amend-quote/{id} works without a second callout.
                 if result.get("ok") and result.get("accountId"):

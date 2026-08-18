@@ -8,8 +8,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/app.css" />
-  <link rel="stylesheet" href="/static/agent-chat.css" />
+  <link rel="stylesheet" href="/static/app.css?v=wizard36" />
+  <link rel="stylesheet" href="/static/agent-chat.css?v=wizard36" />
 </head>
 <body class="quote-page amend-quote-page">
   <header class="site-header">
@@ -41,19 +41,17 @@
           <p class="muted" id="changeSub"></p>
         </div>
         <div class="quote-total-block amend-hero-total">
-          <p class="quote-total-label" id="payKicker">Prorated charge for this change</p>
+          <p class="quote-total-label" id="payKicker">Quoted now (remaining term)</p>
           <p class="quote-total amend-pay-amount" id="dueAmount"><span class="sym">$</span>—</p>
           <p class="quote-total-sub" id="payPlain"></p>
         </div>
       </header>
-      <p class="muted amend-pay-note" id="dueNote"></p>
       <div class="amend-quote-parts" id="quoteParts" hidden></div>
 
-      <!-- Line items → Place order (moved above After monthly) -->
       <section class="quote-lines-block amend-charge-lines" id="chargeLinesBlock" hidden>
         <h3>Line items</h3>
         <p class="lines-lede" id="chargeLinesLede">
-          List → Bundle &amp; Save (if eligible) → volume → charge for this change.
+          List → Bundle &amp; Save (if eligible) → volume → quoted remaining term.
         </p>
         <div id="chargeLinesTable"></div>
         <p class="muted" id="chargeLinesFoot"></p>
@@ -73,48 +71,6 @@
         </div>
       </div>
       <p class="status" id="placeStatus" role="status"></p>
-
-      <!-- Contract impact (after Place order — keep visually dominant) -->
-      <section class="amend-contract-impact" id="contractImpact" aria-labelledby="contractImpactTitle">
-        <header class="amend-contract-impact-head">
-          <p class="amend-contract-kicker">Ongoing subscription</p>
-          <h2 class="amend-contract-title" id="contractImpactTitle">
-            How this change affects your current contract
-          </h2>
-          <p class="amend-contract-lede" id="contractImpactLede">
-            Separate from the prorated charge above — this is what your monthly
-            recurring looks like after the change lands.
-          </p>
-        </header>
-
-        <div class="amend-after-chip" id="afterChip">
-          <p class="amend-after-label">After this change, monthly recurring</p>
-          <p class="amend-after-mrr" id="afterMrr">—</p>
-          <p class="muted" id="afterYearly"></p>
-        </div>
-
-        <div class="quote-lines-block amend-monthly-block" id="monthlyBlock">
-          <h3>Monthly by product</h3>
-          <p class="lines-lede" id="productsLede">
-            Today is live Current MRR. After is from your priced Quote. Yearly is monthly × 12 for reference only.
-          </p>
-          <div class="amend-mrr-table-wrap">
-            <table class="amend-mrr-table" id="mrrTable">
-              <thead>
-                <tr>
-                  <th>Product</th>
-                  <th>Today</th>
-                  <th>This change</th>
-                  <th>After</th>
-                </tr>
-              </thead>
-              <tbody id="mrrTableBody"></tbody>
-              <tfoot id="mrrTableFoot"></tfoot>
-            </table>
-          </div>
-          <p class="muted amend-compare-hint" id="compareHint"></p>
-        </div>
-      </section>
 
       <!-- Pricing context (same as pricing summary) -->
       <section class="buyer-card" id="customerCard">
@@ -159,7 +115,7 @@
   </footer>
 
   <script src="/static/pay-now.js"></script>
-  <script src="/static/amend-quote.js"></script>
-  <script src="/static/agent-chat.js"></script>
+  <script src="/static/amend-quote.js?v=wizard36"></script>
+  <script src="/static/agent-chat.js?v=wizard36"></script>
 </body>
 </html>

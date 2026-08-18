@@ -106,16 +106,18 @@ Full JWT / Docker / Connected App steps: **HOSTED.md**.
 | POST | `/api/qualify-cadence` | Demo inbox: `{ sessionId, which: day1\|week1 }` marks follow-up sent |
 | GET | `/api/agent-config` | Agentforce / Messaging embed flags (`enabled`, `preview`, deployment ids) — no secrets |
 | GET | `/api/catalog?country=US\|CA\|UK` | Curated SKUs → org PBE list PEPM / names / availability |
-| GET | `/api/account-console?accountId=\|company=\|ecToken=` | Licenses & billing (demo pin or EC HMAC handoff); includes open `invoices` |
-| GET | `/api/account-invoices?accountId=\|company=\|ecToken=` | Posted invoices with balance &gt; 0 (+ Active Pay Now URL when present). Also `paymentReceived` / `pendingBalanceApply` when Payment Processed or PaymentLink Disabled (Balance lag). |
-| GET | `/api/activate?accountId=\|company=\|ecToken=` | Post-pay aha checklist stub (paid / assets / login + product stubs) |
+| GET | `/api/account-console?accountId=\|company=\|ecToken=` | Licenses & billing (demo pin or EC HMAC handoff); includes open `invoices` and `team` (named onboard Contacts vs licensed seats) |
+| GET | `/api/account-invoices?accountId=\|company=\|ecToken=` | Posted invoices with balance &gt; 0 (+ Active Pay Now URL when present). Per-invoice `paidApplying` when a Processed Payment of that amount was created at or after the invoice (Balance lag). `bucket` is `thisBill` (invoices of the latest Activated Order that still has an open/paid-applying bill) or `earlier` (prior-change leftovers — stay earlier after this bill applies, unless the only remaining group is paid-applying). Leftover invoices of other amounts stay payable. Also account-level `paymentReceived` / `pendingBalanceApply`. |
+| GET | `/api/account-amend-place-status?accountId=&quoteIds=` | Recover Place: newest Activated Order for those Quote ids (success when Place HTTP timed out). |
+| GET | `/api/activate?accountId=\|company=\|ecToken=` | Post-pay activation: `customerSteps` (paid / licensed / signed in) + `ahaSteps` (employees, invite, time-off, licenses). `setup` is Day N of 14 from Pay Now. `needs` personalizes aha order/copy from Account `RLM_Bamboo_PrimaryNeeds__c`. Invite and time-off are done only when the CRM Task exists. |
+| POST | `/api/activate` | Complete an aha step: `{ accountId\|company\|ecToken, firstName+lastName+email?, adminEmail?, timeOffPolicy? }`. Person → Contact (`RLM_Bamboo_OnboardEmployee__c`). `adminEmail` → Contact + Task *Invited as BambooHR admin*. `timeOffPolicy` → Account field + Task *Set time-off policy* (no email / no PTO engine). |
 | GET | `/activate` | Branded activate checklist UI |
 | GET | `/api/catalog?country=&fullCatalog=` | Hydrated plans/add-ons. Micro mode (default) returns **Core/Pro only**; `fullCatalog=1` for full catalog. |
 | GET | `/api/ec-handoff?token=` | Verify EC handoff → `{ accountId, contactId, exp }` |
 | POST | `/api/create-login` | `{ accountId, contactId?, email, password }` → community User + `ecToken` handoff |
-| POST | `/api/account-amend-estimate` | Pricing API before/after → est. prorated change lines (`dueToday` provisional). `{ accountId, newQty?, addonSkus?, startDate? }` — exact charge after Generate quote |
-| POST | `/api/account-amend-preview` | Generate / **update** quote: sticky Draft Quotes + System reprice (no Activate). Pass prior `amendQuotes` / `moduleQuoteId` to retarget the same Draft(s); other stale Draft amend Quotes for the Account are discarded. Returns `dueToday` from Quote TotalPrice |
-| POST | `/api/account-amend` | `{ accountId, newQty?, addonSkus?, amendQuotes?, moduleQuoteId? }` → activate preview Quotes → Order (native createOrderFromQuote) |
+| POST | `/api/account-amend-estimate` | Pricing API before/after → est. prorated change lines (`dueToday` provisional). `{ accountId, newQty?, addonSkus?, upgradeSku?, startDate? }` — Core→Pro uses `upgradeSku=BAMBOO-PRO`. Exact charge after Generate quote |
+| POST | `/api/account-amend-preview` | Generate / **update** quote: sticky Draft Quotes + System reprice (no Activate). Pass prior `amendQuotes` / `moduleQuoteId` / `upgradeQuoteId`. `upgradeSku` calls Initiate Upgrade (one Quote). Returns `dueToday` from Quote TotalPrice |
+| POST | `/api/account-amend` | `{ accountId, newQty?, addonSkus?, upgradeSku?, amendQuotes?, moduleQuoteId?, upgradeQuoteId? }` → activate preview Quotes → Order. Returns when the Order is Activated (invoice/Pay Now is collected after). Core→Pro is OOTB Initiate Upgrade, not cancel + replace. |
 | POST | `/api/qualify-session` | Persist wizard progress (size/geo/needs/role/email/UTM). `{ sessionId?, step, headcount, country, needs, dmRole, email, company, utm }` |
 | POST | `/api/qualify-lookup` | `{ email }` → `{ status: selfServe\|salesWorking\|existingCustomer }` — Contact lookup, never a Lead |
 | POST | `/api/qualify-commit` | Beat 5: match/update Account+Contact and stamp SelfServe **before** Quote. `{ buyer?, headcount, country, needs?, dmRole?, utm? }` — top-level discovery fields merge into `buyer` |
@@ -130,8 +132,11 @@ Full JWT / Docker / Connected App steps: **HOSTED.md**.
 | GET | `/api/docgen-pdf/<contentVersionId>` | PDF bytes (attachment) |
 | POST | `/api/quote-email` | `{ quoteId, toEmail?, attachPdf? }` → Salesforce sends quote email (+ DocGen PDF) |
 
-**Licenses & billing UI:** `/account` — subscription, open invoices (Pay Now),
-recent orders, qty amend preview/place.
+**Licenses & billing UI:** `/account` — subscription snapshot (**month-to-month
+vs 12/24/36-month term**, paid PEPM, recurring monthly total), **Your plan**
+(Core→Pro in-product upgrade; Elite stays with sales), **Your team** (same
+Contacts as `/activate`; add-teammate does not change Asset quantity), open
+invoices (Pay Now), recent orders, qty amend preview/place.
 Demo pin via Account Id / company name; buyer path via Experience Cloud login →
 signed `ecToken` (see `EXPERIENCE_CLOUD.md`). Open **Pay** in a private window
 if you’re also logged into Salesforce (guest Pay Now + admin cookies conflict).
@@ -145,14 +150,44 @@ HOSTED.md Path C (`publish_bff.py --named`).
 **Licenses rail** shows an **estimated prorated charge** from the Pricing API
 (monthly delta × remaining term) with per-line seat deltas. ``Asset.CurrentMrr``
 still drives “today” on the account. **Generate quote** creates Draft Quotes +
-System reprice; the amend summary shows the exact Quote TotalPrice plus monthly /
-annual run-rate compare.
+System reprice; the amend summary shows the exact Quote TotalPrice.
+
+**Core→Pro (month-to-month and annual):** same OOTB Initiate Upgrade. Pro
+inherits Core’s remaining lifecycle window — it does **not** restart a new
+year and it does **not** convert month-to-month into annual.
+
+| Current Core term | After upgrade |
+|-------------------|---------------|
+| Month-to-month (~1-month Asset window) | Pro through this period end; still month-to-month |
+| 12 / 24 / 36-month | Pro through original term end (coterminous) |
+
+Estimate math is monthly delta ($7 PEPM × seats) × remaining calendar-month
+fraction from Core `LifecycleEndDate`. If that end date is missing, the rail
+withholds the estimate instead of inventing 365 days. UpgradeTo `EndDate`
+defaults to **+1 month** when the source window is absent (Get Pricing default
+term), never +12. Quote TotalPrice after System reprice is the charged amount.
+
+Smoke both term types on **fresh** Core accounts (do not reuse an already
+upgraded demo Account). Place + Pay on Get Pricing, then Licenses → Upgrade
+to Pro, seats unchanged, no add-ons:
+
+1. **Annual** — buy Core with `termMonths` 12/24/36. Expect Pro `EndDate` =
+   remaining Core end (not a new 12-month restart). Prorated charge ≈ rest of
+   commitment × $7 × seats.
+2. **Month-to-month** — buy Core with default `termMonths=1`. Expect Pro
+   `EndDate` ≈ Core period end (~1 month), **not** +12 months. Prorated
+   charge ≈ rest of this month × $7 × seats.
+
+After Pay, Asset Actions should be **UpgradeFrom / UpgradeTo**. If Initiate
+Upgrade 404s or 500s, fail openly — there is no cancel+replace fallback.
+Account billing address is required for Order Activate.
 
 **Amend summary:** ``POST /api/account-amend-preview`` attaches
 ``amendSummaryView``. The ``/amend-quote/{id}`` page renders that view
-(prorated Quote charge hero, monthly Today / This change / After table,
-yearly as monthly × 12 reference only, per-Quote parts when both seat-change
-and add-module Quotes exist). Generate quote from Licenses caches the preview
+(**Quoted now (remaining term)** hero, line items with each line's start and
+end dates, Place order; per-Quote parts when both seat-change and add-module
+Quotes exist). Pay Now is the **first Billing invoice**, which can be a shorter
+slice than this Quote total. Generate quote from Licenses caches the preview
 (including the view) then opens the summary.
 
 **Upcoming changes** on `/account` come from ``AssetStatePeriod`` (account-level
@@ -234,9 +269,14 @@ curl -sS 'http://127.0.0.1:8765/api/account-console?company=Rick%20Worldwide' \
 ```
 
 Qty amends use ASP quantity on the effective start date (bumped to the latest
-`AssetStatePeriod` when needed) so **decreases** validate. Preview tags Draft
-amendment Quotes with `[bamboohr-preview]` and discards leftovers before the
-next preview / after activate.
+`AssetStatePeriod` when needed) so **decreases** validate. Live plan/qty is
+today's ASP with qty &gt; 0 — a future Pro at qty 0 is scheduled, not current.
+After a future Core→Pro swap (both qty 0 until the start date), Licenses
+shows Pro as the upcoming plan, not Core.
+Seat changes amend only assets with qty &gt; 0 on that date (never Core and Pro
+together). No covering ASP that day is qty 0, not `AssetAction.TotalQuantity`.
+Preview tags Draft amendment Quotes with `[bamboohr-preview]` and discards
+leftovers before the next preview / after activate.
 
 Amend volume + Path B: BFF stamps `RLM_Bamboo_Amend_Volume__c` +
 `RLM_Amend_Volume_Qty__c`, resolves Path B from Account Assets ∪ Quote lines

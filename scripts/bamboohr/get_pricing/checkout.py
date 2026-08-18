@@ -8,16 +8,20 @@ import urllib.error
 import urllib.request
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from service import (
     API,
     CATALOG_PLAN_SKUS,
     CORE_FLAT_SKU,
+    COUNTRY_SHIPPING,
     OrgSession,
     PATH_B_BUNDLE_SAVE,
     US_ONLY_ADDONS,
+    _pbe_for_sku,
+    add_calendar_months,
+    remaining_service_end,
     volume_rate,
 )
 
@@ -245,10 +249,80 @@ def create_order_from_quote(session: OrgSession, quote_id: str) -> tuple[str, st
     return order_id, out.get("orderNumber")
 
 
+def checkout_address_defaults(
+    *,
+    billing_country: str | None = None,
+    currency: str | None = None,
+) -> dict[str, str]:
+    """Demo Account/Order address so Order Activate can succeed."""
+    cc = (billing_country or "").upper()
+    cur = (currency or "").upper()
+    if cc in ("GB", "UK") or cur == "GBP":
+        key = "UK"
+    elif cc == "CA" or cur == "CAD":
+        key = "CA"
+    else:
+        key = "US"
+    return dict(COUNTRY_SHIPPING[key])
+
+
+def ensure_account_checkout_address(session: OrgSession, account_id: str) -> None:
+    """Fill missing Account billing/shipping from COUNTRY_SHIPPING defaults.
+
+    Order Activate requires a billing address *on the Account* ("Enter the
+    billing address associated with the account"). Proof/harness Accounts
+    often have neither billing nor shipping.
+    """
+    aid = (account_id or "").strip()
+    if not aid:
+        return
+    rows = session.soql(
+        "SELECT BillingStreet, BillingCity, BillingState, BillingPostalCode, "
+        "BillingCountry, ShippingStreet, ShippingCity, ShippingState, "
+        "ShippingPostalCode, ShippingCountry, CurrencyIsoCode "
+        f"FROM Account WHERE Id = '{_soql_escape_local(aid)}' LIMIT 1"
+    )
+    if not rows:
+        return
+    acct = rows[0]
+    needs_billing = not (acct.get("BillingStreet") and acct.get("BillingCity"))
+    needs_shipping = not (acct.get("ShippingStreet") and acct.get("ShippingCity"))
+    if not needs_billing and not needs_shipping:
+        return
+    defaults = checkout_address_defaults(
+        billing_country=acct.get("BillingCountry"),
+        currency=acct.get("CurrencyIsoCode"),
+    )
+    patch: dict[str, Any] = {}
+    if needs_billing:
+        for key in (
+            "BillingStreet",
+            "BillingCity",
+            "BillingState",
+            "BillingPostalCode",
+            "BillingCountry",
+        ):
+            if defaults.get(key):
+                patch[key] = defaults[key]
+    if needs_shipping:
+        for key in (
+            "ShippingStreet",
+            "ShippingCity",
+            "ShippingState",
+            "ShippingPostalCode",
+            "ShippingCountry",
+        ):
+            if defaults.get(key):
+                patch[key] = defaults[key]
+    if patch:
+        session.patch("Account", aid, patch)
+
+
 def set_order_shipping_from_account(session: OrgSession, order_id: str, account_id: str) -> None:
     acct = session.soql(
         "SELECT ShippingStreet, ShippingCity, ShippingState, ShippingPostalCode, "
-        f"ShippingCountry FROM Account WHERE Id = '{account_id}'"
+        "ShippingCountry, BillingStreet, BillingCity, BillingState, "
+        f"BillingPostalCode, BillingCountry FROM Account WHERE Id = '{account_id}'"
     )[0]
     payload = {
         "ShippingStreet": acct.get("ShippingStreet"),
@@ -256,7 +330,16 @@ def set_order_shipping_from_account(session: OrgSession, order_id: str, account_
         "ShippingState": acct.get("ShippingState"),
         "ShippingPostalCode": acct.get("ShippingPostalCode"),
         "ShippingCountry": acct.get("ShippingCountry"),
+        "BillingStreet": acct.get("BillingStreet"),
+        "BillingCity": acct.get("BillingCity"),
+        "BillingState": acct.get("BillingState"),
+        "BillingPostalCode": acct.get("BillingPostalCode"),
+        "BillingCountry": acct.get("BillingCountry"),
     }
+    if not payload.get("BillingCity") and not payload.get("BillingCountry"):
+        raise RuntimeError(
+            f"Account {account_id} has no billing address — activation will fail"
+        )
     if not payload.get("ShippingCity") and not payload.get("ShippingCountry"):
         raise RuntimeError(
             f"Account {account_id} has no shipping address — activation will fail"
@@ -296,12 +379,27 @@ def set_order_bill_to_contact(
     )
 
 
-def activate_order(session: OrgSession, order_id: str) -> None:
-    _patch(
-        session,
-        f"/services/data/{API}/sobjects/Order/{order_id}",
-        {"Status": "Activated"},
-    )
+def activate_order(
+    session: OrgSession, order_id: str, *, account_id: str | None = None
+) -> None:
+    try:
+        _patch(
+            session,
+            f"/services/data/{API}/sobjects/Order/{order_id}",
+            {"Status": "Activated"},
+        )
+    except RuntimeError as exc:
+        msg = str(exc)
+        if account_id and "billing address" in msg.lower():
+            ensure_account_checkout_address(session, account_id)
+            set_order_shipping_from_account(session, order_id, account_id)
+            _patch(
+                session,
+                f"/services/data/{API}/sobjects/Order/{order_id}",
+                {"Status": "Activated"},
+            )
+            return
+        raise
 
 
 def resolve_volume_tier_percent(
@@ -622,11 +720,33 @@ def place_activate_order(
             by_sku[sku] = (qty, list_p, net)
         if by_sku:
             _custom_price_quote(session, quote_id, by_sku)
-    order_id, order_number = create_order_from_quote(session, quote_id)
+    ensure_account_checkout_address(session, account_id)
+    try:
+        order_id, order_number = create_order_from_quote(session, quote_id)
+    except RuntimeError:
+        existing = session.soql(
+            "SELECT Id, OrderNumber, Status FROM Order "
+            f"WHERE QuoteId = '{quote_id}' "
+            "ORDER BY CreatedDate DESC LIMIT 5"
+        )
+        draft = next(
+            (
+                row
+                for row in existing
+                if (row.get("Status") or "") != "Activated"
+            ),
+            existing[0] if existing else None,
+        )
+        if not draft:
+            raise
+        order_id = draft["Id"]
+        order_number = draft.get("OrderNumber")
+        if (draft.get("Status") or "") == "Activated":
+            return order_id, order_number
     set_order_shipping_from_account(session, order_id, account_id)
     contact_id = ensure_bill_to_contact(session, account_id)
     set_order_bill_to_contact(session, order_id, contact_id)
-    activate_order(session, order_id)
+    activate_order(session, order_id, account_id=account_id)
     return order_id, order_number
 
 
@@ -700,8 +820,11 @@ def asset_quantity_at(
     period = asset_state_period_at(session, asset_id, as_of=as_of)
     if period is not None and period.get("quantity") is not None:
         return float(period["quantity"])
-    # No ASP for that day — fall back to latest TotalQuantity.
-    return _current_asset_quantity(session, asset_id)
+    # No covering ASP that day = nothing in effect (not lifetime TotalQuantity).
+    # After a future-dated upgrade, Core has no ASP on the Pro start date;
+    # falling back to AssetAction.TotalQuantity would still look like 12 seats
+    # and a +1-seat amend would charge Core and Pro.
+    return 0.0
 
 
 def asset_state_period_at(
@@ -841,36 +964,53 @@ def discard_stale_amend_drafts(
     *,
     keep_quote_ids: list[str] | None = None,
 ) -> list[str]:
-    """Delete or cancel Draft Amendment Quotes for an Account (preview hygiene).
+    """Delete or cancel leftover preview Draft Quotes (amend / upgrade / module)."""
+    return discard_stale_preview_drafts(
+        session, account_id, keep_quote_ids=keep_quote_ids
+    )
 
-    Tags Description with a cleanup marker before delete/cancel so org audits
-    can tell preview leftovers from intentional drafts. Returns handled Quote
-    ids. Keeps any ids in ``keep_quote_ids``.
+
+def _is_preview_leftover_draft(name: str, description: str) -> bool:
+    tagged = PREVIEW_MARKER in (description or "")
+    lowered = (name or "").lower()
+    named = (
+        "amendment" in lowered
+        or lowered.startswith("upgrade")
+        or lowered.startswith("add modules")
+    )
+    return tagged or named
+
+
+def discard_stale_preview_drafts(
+    session: OrgSession,
+    account_id: str,
+    *,
+    keep_quote_ids: list[str] | None = None,
+) -> list[str]:
+    """Delete or cancel Draft preview Quotes for an Account (post-Place hygiene).
+
+    Covers Amendment, Upgrade, and Add-modules leftovers tagged
+    ``[bamboohr-preview]`` or named as preview Quotes. Keeps ``keep_quote_ids``.
+    Self-serve acquisition Drafts (un-tagged) are left alone.
     """
     keep = {k for k in (keep_quote_ids or []) if k}
-    # QuoteAccountId is the RLM account FK; also match classic AccountId.
-    # Description is not filterable in SOQL — select it and match in Python.
     rows = session.soql(
         "SELECT Id, Name, QuoteNumber, Description FROM Quote "
         f"WHERE Status = 'Draft' "
         f"AND (QuoteAccountId = '{account_id}' OR AccountId = '{account_id}') "
-        "AND (Name LIKE 'Amendment%' OR Name LIKE '%Amendment%') "
         "ORDER BY CreatedDate DESC LIMIT 100"
     )
     deleted: list[str] = []
-    tag = "[bamboohr-preview] stale amend draft — auto-cleanup"
+    tag = "[bamboohr-preview] stale preview draft — auto-cleanup"
     for row in rows:
         qid = row["Id"]
         if qid in keep:
             continue
-        name = (row.get("Name") or "").lower()
+        name = row.get("Name") or ""
         desc = (row.get("Description") or "").strip()
-        if (
-            "amendment" not in name
-            and "[bamboohr-preview]" not in desc
-        ):
+        if not _is_preview_leftover_draft(name, desc):
             continue
-        if "[bamboohr-preview]" not in desc:
+        if PREVIEW_MARKER not in desc:
             try:
                 session.patch(
                     "Quote",
@@ -914,6 +1054,122 @@ def amend_preview_cfg(
 def module_preview_cfg(*, quantity: int, addon_skus: list[str]) -> str:
     skus = "+".join(sorted(s.upper() for s in addon_skus if s))
     return f"qty={int(quantity)};skus={skus}"
+
+
+def upgrade_preview_cfg(
+    *,
+    to_sku: str,
+    quantity: int,
+    start_iso: str,
+    asset_ids: list[str],
+) -> str:
+    """Stable fingerprint for sticky Initiate Upgrade Draft Quotes."""
+    assets = "+".join(sorted(a for a in asset_ids if a))
+    return (
+        f"to={str(to_sku or '').upper()};qty={int(quantity)};"
+        f"start={start_iso[:10]};assets={assets}"
+    )
+
+
+def _iso_day(value: datetime | date | str | None) -> date | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text[:10])
+    except ValueError:
+        return None
+
+
+def build_initiate_upgrade_body(
+    *,
+    swap_start: datetime | str,
+    asset_id: str,
+    out_quantity: int,
+    product2_id: str,
+    pricebook_entry_id: str,
+    in_quantity: int,
+    line_start: date | str,
+    line_end: date | str | None = None,
+    product_selling_model_id: str | None = None,
+    reference_id: str = "UPGRADE-001",
+    opportunity_id: str | None = None,
+    extra_out_assets: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Connect Initiate Upgrade body. Do not stamp UnitPrice — System reprice owns net.
+
+    Term-defined UpgradeTo lines must carry EndDate + PeriodBoundary +
+    BillingFrequency. Without them the platform prices an incomplete line and
+    fails with ``Waterfall tag is not in the line item hierarchy``.
+    """
+    if isinstance(swap_start, datetime):
+        start_iso = swap_start.strftime("%Y-%m-%dT00:00:00.000Z")
+    else:
+        start_iso = str(swap_start)
+    start_d = _iso_day(line_start)
+    if start_d is None:
+        raise ValueError("line_start is required")
+    line_start_s = start_d.isoformat()
+    # Missing end must not invent a 12-month commitment. Get Pricing default
+    # is month-to-month (1-month Term Monthly window); annual upgrades pass
+    # the remaining Core LifecycleEndDate explicitly.
+    end_d = _iso_day(line_end) or add_calendar_months(start_d, 1)
+    if end_d <= start_d:
+        end_d = add_calendar_months(start_d, 1)
+    swap_assets: list[dict[str, Any]] = [
+        {"assetId": asset_id, "quantity": int(out_quantity)}
+    ]
+    for extra in extra_out_assets or []:
+        aid = str(extra.get("assetId") or extra.get("id") or "").strip()
+        if not aid or aid == asset_id:
+            continue
+        qty = extra.get("quantity", out_quantity)
+        swap_assets.append({"assetId": aid, "quantity": int(qty)})
+    record: dict[str, Any] = {
+        "attributes": {
+            "type": "QuoteLineItem",
+            "method": "POST",
+        },
+        "Product2Id": product2_id,
+        "PricebookEntryId": pricebook_entry_id,
+        "Quantity": str(int(in_quantity)),
+        "StartDate": line_start_s,
+        "EndDate": end_d.isoformat(),
+        "PeriodBoundary": "Anniversary",
+        "BillingFrequency": "Monthly",
+    }
+    if product_selling_model_id:
+        record["ProductSellingModelId"] = product_selling_model_id
+    body: dict[str, Any] = {
+        "swapStartDate": start_iso,
+        "outputRecordType": "Quote",
+        "swapGroups": {
+            "groups": [
+                {
+                    "referenceId": reference_id,
+                    "outGroup": {"swapAssets": swap_assets},
+                    "inGroup": {
+                        "graphId": "upgradeRequest",
+                        "records": [
+                            {
+                                "referenceId": "refQuoteLine0",
+                                "record": record,
+                            }
+                        ],
+                    },
+                }
+            ]
+        },
+    }
+    if opportunity_id:
+        body["opportunityId"] = opportunity_id
+    return body
 
 
 def _soql_escape_local(value: str) -> str:
@@ -1076,15 +1332,16 @@ def find_sticky_amend_mutable(
     return None
 
 
-def find_sticky_module_draft(
+def find_sticky_tagged_draft(
     session: OrgSession,
     account_id: str,
     *,
+    kind: str,
     cfg: str,
     preferred_quote_id: str | None = None,
 ) -> dict[str, Any] | None:
-    """Return Draft add-module preview Quote matching sticky cfg."""
-    if not account_id or not cfg:
+    """Return Draft preview Quote matching ``[bamboohr-preview] {kind} {cfg}``."""
+    if not account_id or not cfg or not kind:
         return None
     preferred = (preferred_quote_id or "").strip()
     if preferred:
@@ -1095,10 +1352,9 @@ def find_sticky_module_draft(
         if rows:
             row = rows[0]
             if (row.get("Status") or "") == "Draft":
-                parsed = parse_preview_cfg(row.get("Description"), "module")
+                parsed = parse_preview_cfg(row.get("Description"), kind)
                 if parsed == cfg:
                     return row
-    # Description is not SOQL-filterable — select Drafts and match in Python.
     rows = session.soql(
         "SELECT Id, Name, Status, Description, OpportunityId, QuoteNumber, "
         "CreatedDate FROM Quote WHERE Status = 'Draft' "
@@ -1107,10 +1363,44 @@ def find_sticky_module_draft(
         "ORDER BY CreatedDate DESC LIMIT 40"
     )
     for row in rows:
-        parsed = parse_preview_cfg(row.get("Description"), "module")
+        parsed = parse_preview_cfg(row.get("Description"), kind)
         if parsed == cfg:
             return row
     return None
+
+
+def find_sticky_module_draft(
+    session: OrgSession,
+    account_id: str,
+    *,
+    cfg: str,
+    preferred_quote_id: str | None = None,
+) -> dict[str, Any] | None:
+    """Return Draft add-module preview Quote matching sticky cfg."""
+    return find_sticky_tagged_draft(
+        session,
+        account_id,
+        kind="module",
+        cfg=cfg,
+        preferred_quote_id=preferred_quote_id,
+    )
+
+
+def find_sticky_upgrade_draft(
+    session: OrgSession,
+    account_id: str,
+    *,
+    cfg: str,
+    preferred_quote_id: str | None = None,
+) -> dict[str, Any] | None:
+    """Return Draft Initiate Upgrade preview Quote matching sticky cfg."""
+    return find_sticky_tagged_draft(
+        session,
+        account_id,
+        kind="upgrade",
+        cfg=cfg,
+        preferred_quote_id=preferred_quote_id,
+    )
 
 
 def poll_asset_quantity(
@@ -1224,6 +1514,211 @@ def amend_assets_quantity(
     if result.get("success") is False:
         raise RuntimeError(f"Asset amend failed: {result.get('errors') or result}")
     return result.get("amendmentRecordId") or result.get("id")
+
+
+def cancel_assets_to_quote(
+    session: OrgSession,
+    asset_ids: list[str],
+    *,
+    start: datetime | None = None,
+    opportunity_id: str | None = None,
+    preferred_quote_id: str | None = None,
+) -> str | None:
+    """Cancel assets via Connect API; returns a Draft cancellation Quote Id."""
+    ids = [a for a in asset_ids if a]
+    if not ids:
+        raise RuntimeError("assetIds is required for cancel")
+    when = resolve_amend_start(session, ids, start)
+    start_iso = when.date().isoformat()
+    cfg = f"start={start_iso};assets={'+'.join(sorted(ids))}"
+    preferred = (preferred_quote_id or "").strip()
+    if preferred:
+        rows = session.soql(
+            "SELECT Id, Status, Description FROM Quote "
+            f"WHERE Id = '{_soql_escape_local(preferred)}' LIMIT 1"
+        )
+        if rows and (rows[0].get("Status") or "") == "Draft":
+            parsed = parse_preview_cfg(rows[0].get("Description"), "cancel")
+            if parsed == cfg:
+                return preferred
+    body: dict[str, Any] = {
+        "assetIds": ids,
+        "cancellationDate": when.strftime("%Y-%m-%dT00:00:00.000Z"),
+        "outputRecordType": "Quote",
+    }
+    if opportunity_id:
+        body["opportunityId"] = opportunity_id
+    path = f"/services/data/{API}/connect/revenue-management/assets/actions/cancel"
+    try:
+        result = session.post(path, body)
+    except RuntimeError as exc:
+        raise RuntimeError(f"Asset cancel failed: {exc}") from exc
+    if isinstance(result, list) and result:
+        result = result[0]
+    if not isinstance(result, dict):
+        return None
+    if result.get("success") is False:
+        raise RuntimeError(f"Asset cancel failed: {result.get('errors') or result}")
+    quote_id = (
+        result.get("cancellationRecordId")
+        or result.get("amendmentRecordId")
+        or result.get("id")
+    )
+    if quote_id:
+        tag_amend_preview_quote(session, quote_id, cfg=cfg, kind="cancel")
+    return quote_id
+
+
+def upgrade_assets_to_quote(
+    session: OrgSession,
+    *,
+    account_id: str,
+    asset_ids: list[str],
+    to_sku: str,
+    out_quantity: int,
+    in_quantity: int,
+    start: datetime | None = None,
+    currency: str = "USD",
+    preferred_quote_id: str | None = None,
+    opportunity_id: str | None = None,
+) -> str:
+    """Core→Pro via OOTB Initiate Upgrade; returns a Draft amendment Quote Id.
+
+    Does not stamp UnitPrice. UpgradeTo EndDate is the remaining Core
+    lifecycle window (month-to-month stays ~1 month; 12/24/36 stay
+    coterminous). After the API returns a Quote, System reprice plus amend
+    volume overlay own net. Sticky Drafts are tagged
+    ``[bamboohr-preview] upgrade``.
+    """
+    ids = [a for a in asset_ids if a]
+    if not ids:
+        raise RuntimeError("assetIds is required for upgrade")
+    wanted = (to_sku or "").strip().upper()
+    if not wanted:
+        raise RuntimeError("to_sku is required for upgrade")
+    if int(out_quantity) < 1 or int(in_quantity) < 1:
+        raise RuntimeError("upgrade quantities must be >= 1")
+    when = resolve_amend_start(session, ids, start)
+    start_iso = when.date().isoformat()
+    cfg = upgrade_preview_cfg(
+        to_sku=wanted,
+        quantity=int(in_quantity),
+        start_iso=start_iso,
+        asset_ids=ids,
+    )
+    sticky = find_sticky_upgrade_draft(
+        session,
+        account_id,
+        cfg=cfg,
+        preferred_quote_id=preferred_quote_id,
+    )
+    if sticky:
+        qid = str(sticky["Id"])
+        try:
+            reprice_quote_system(session, qid)
+            apply_amend_volume_pricing(
+                session,
+                qid,
+                volume_headcount=int(in_quantity),
+                account_id=account_id,
+                extra_skus=[wanted],
+            )
+            tag_amend_preview_quote(session, qid, cfg=cfg, kind="upgrade")
+            return qid
+        except Exception:
+            try:
+                session.delete("Quote", qid)
+            except Exception:
+                pass
+
+    try:
+        other = session.soql(
+            "SELECT Id, Description FROM Quote WHERE Status = 'Draft' "
+            f"AND (QuoteAccountId = '{_soql_escape_local(account_id)}' "
+            f"OR AccountId = '{_soql_escape_local(account_id)}') "
+            "ORDER BY CreatedDate DESC LIMIT 40"
+        )
+        for row in other:
+            parsed = parse_preview_cfg(row.get("Description"), "upgrade")
+            if parsed is None:
+                continue
+            try:
+                session.delete("Quote", row["Id"])
+            except Exception:
+                try:
+                    session.patch("Quote", row["Id"], {"Status": "Denied"})
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    pbe = _pbe_for_sku(session, wanted, currency)
+    extra = [{"assetId": aid, "quantity": int(out_quantity)} for aid in ids[1:]]
+    end_rows = session.soql(
+        "SELECT LifecycleEndDate FROM Asset "
+        f"WHERE Id = '{_soql_escape_local(ids[0])}' LIMIT 1"
+    )
+    line_end = _iso_day((end_rows[0] or {}).get("LifecycleEndDate")) if end_rows else None
+    asp_end = None
+    try:
+        asp = session.soql(
+            "SELECT EndDate FROM AssetStatePeriod "
+            f"WHERE AssetId = '{_soql_escape_local(ids[0])}' "
+            "AND EndDate != null ORDER BY EndDate DESC LIMIT 1"
+        )
+        if asp:
+            asp_end = _iso_day(asp[0].get("EndDate"))
+    except Exception:  # noqa: BLE001
+        asp_end = None
+    line_end = remaining_service_end(when.date(), line_end, asp_end)
+    body = build_initiate_upgrade_body(
+        swap_start=when,
+        asset_id=ids[0],
+        out_quantity=int(out_quantity),
+        product2_id=str(pbe["Product2Id"]),
+        pricebook_entry_id=str(pbe["Id"]),
+        in_quantity=int(in_quantity),
+        line_start=when.date(),
+        line_end=line_end,
+        product_selling_model_id=str(pbe.get("ProductSellingModelId") or "") or None,
+        opportunity_id=opportunity_id,
+        extra_out_assets=extra,
+    )
+    path = (
+        f"/services/data/{API}/revenue/transaction-management/assets/actions/upgrade"
+    )
+    try:
+        result = session.post(path, body)
+    except RuntimeError as exc:
+        raise RuntimeError(f"Asset upgrade failed: {exc}") from exc
+    if isinstance(result, list) and result:
+        result = result[0]
+    if not isinstance(result, dict):
+        raise RuntimeError(f"Asset upgrade failed: unexpected response {result!r}")
+    if result.get("success") is False:
+        raise RuntimeError(f"Asset upgrade failed: {result.get('errors') or result}")
+    quote_id = (
+        result.get("salesTransactionId")
+        or result.get("amendmentRecordId")
+        or result.get("id")
+    )
+    if not quote_id:
+        raise RuntimeError(f"Asset upgrade returned no Quote Id: {result}")
+    try:
+        reprice_quote_system(session, quote_id)
+        apply_amend_volume_pricing(
+            session,
+            quote_id,
+            volume_headcount=int(in_quantity),
+            account_id=account_id,
+            extra_skus=[wanted],
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(
+            f"Upgrade Quote {quote_id} created but System reprice failed: {exc}"
+        ) from exc
+    tag_amend_preview_quote(session, quote_id, cfg=cfg, kind="upgrade")
+    return quote_id
 
 
 def complete_amend_quote(
@@ -1379,3 +1874,147 @@ def checkout_quote(
             error=str(exc),
             warnings=warnings,
         )
+
+
+def pick_activated_order_for_quotes(
+    orders: list[dict[str, Any]],
+    quote_ids: list[str],
+) -> dict[str, Any] | None:
+    """Newest Activated order whose QuoteId is in the Place payload."""
+    wanted = {str(qid).strip() for qid in quote_ids if str(qid).strip()}
+    if not wanted:
+        return None
+    matches: list[dict[str, Any]] = []
+    for row in orders:
+        status = row.get("Status") or row.get("status") or ""
+        qid = str(row.get("QuoteId") or row.get("quoteId") or "").strip()
+        if status == "Activated" and qid in wanted:
+            matches.append(row)
+    if not matches:
+        return None
+    matches.sort(
+        key=lambda r: str(r.get("CreatedDate") or r.get("createdDate") or ""),
+        reverse=True,
+    )
+    return matches[0]
+
+
+def find_activated_order_for_quotes(
+    session: OrgSession,
+    quote_ids: list[str],
+) -> dict[str, Any] | None:
+    ids = [str(qid).strip() for qid in quote_ids if str(qid).strip()]
+    if not ids:
+        return None
+    in_list = ",".join(f"'{_soql_escape_local(i)}'" for i in ids)
+    rows = session.soql(
+        "SELECT Id, OrderNumber, Status, QuoteId, AccountId, CreatedDate "
+        "FROM Order "
+        f"WHERE QuoteId IN ({in_list}) AND Status = 'Activated' "
+        "ORDER BY CreatedDate DESC LIMIT 10"
+    )
+    return pick_activated_order_for_quotes(rows, ids)
+
+
+def place_status_for_quotes(
+    session: OrgSession,
+    quote_ids: list[str],
+) -> dict[str, Any]:
+    """Buyer recover payload when Place HTTP timed out but RC activated."""
+    row = find_activated_order_for_quotes(session, quote_ids)
+    if not row:
+        return {"ok": False, "found": False}
+    base = (getattr(session, "_instance", None) or "").rstrip("/")
+
+    def _lex(entity: str, rid: str | None) -> str:
+        return f"{base}/lightning/r/{entity}/{rid}/view" if rid and base else ""
+
+    oid = str(row.get("Id") or "")
+    qid = str(row.get("QuoteId") or "") or None
+    aid = str(row.get("AccountId") or "") or None
+    opp = str(row.get("OpportunityId") or "") or None
+    if not opp and qid:
+        try:
+            qrows = session.soql(
+                "SELECT OpportunityId FROM Quote "
+                f"WHERE Id = '{_soql_escape_local(qid)}' LIMIT 1"
+            )
+            opp = (qrows[0].get("OpportunityId") if qrows else None) or None
+        except Exception:  # noqa: BLE001
+            opp = None
+    number = row.get("OrderNumber") or oid
+    return {
+        "ok": True,
+        "found": True,
+        "recovered": True,
+        "orderId": oid,
+        "orderNumber": number,
+        "quoteId": qid,
+        "accountId": aid,
+        "opportunityId": opp,
+        "confirmation": {
+            "title": "Changes complete",
+            "lede": (
+                "Your change is activated in Salesforce Revenue Cloud — "
+                "the order was already placed."
+            ),
+            "metrics": [{"label": "Order", "value": number}],
+            "links": {
+                "account": _lex("Account", aid),
+                "opportunity": _lex("Opportunity", opp),
+                "quote": _lex("Quote", qid),
+                "order": _lex("Order", oid),
+            },
+        },
+        "payment": {
+            "ready": False,
+            "orderId": oid,
+            "collectPending": True,
+        },
+    }
+
+
+def checkout_quote_or_recover(
+    session: OrgSession,
+    quote_id: str,
+    **kwargs: Any,
+) -> CheckoutResult:
+    """Place/activate, treating an already-Activated order as success.
+
+    Place must not look failed when createOrderFromQuote + Activate finished
+    but a later poll (assets / invoice) raised. Invoice collect stays off
+    the Place path — licenses POSTs collect-payment after success.
+    """
+    kwargs.setdefault("collect_payment", False)
+    result = checkout_quote(session, quote_id, **kwargs)
+    if result.ok:
+        return result
+    recovered: dict[str, Any] | None = None
+    if result.order_id:
+        try:
+            rows = session.soql(
+                "SELECT Id, OrderNumber, Status, QuoteId, AccountId, CreatedDate "
+                "FROM Order "
+                f"WHERE Id = '{_soql_escape_local(result.order_id)}' LIMIT 1"
+            )
+        except Exception:  # noqa: BLE001
+            rows = []
+        if rows and (rows[0].get("Status") or "") == "Activated":
+            recovered = rows[0]
+    if recovered is None:
+        try:
+            recovered = find_activated_order_for_quotes(session, [quote_id])
+        except Exception:  # noqa: BLE001
+            recovered = None
+    if recovered is None:
+        return result
+    result.ok = True
+    result.error = None
+    result.order_id = recovered.get("Id") or result.order_id
+    result.order_number = recovered.get("OrderNumber") or result.order_number
+    result.warnings = list(result.warnings or [])
+    result.warnings.append(
+        "Order already Activated — treating Place as success."
+    )
+    return result
+

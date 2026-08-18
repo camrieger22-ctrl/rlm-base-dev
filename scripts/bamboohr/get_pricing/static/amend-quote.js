@@ -34,12 +34,6 @@
     return m ? decodeURIComponent(m[1]) : "";
   };
 
-  const signedMoney = (n, cur) => {
-    const v = Number(n) || 0;
-    if (Math.abs(v) < 0.005) return money(0, cur);
-    return `${v > 0 ? "+" : "−"}${money(Math.abs(v), cur)}`;
-  };
-
   const formatStart = (iso) => {
     if (!iso) return "";
     try {
@@ -53,6 +47,13 @@
     } catch (_) {
       return String(iso).slice(0, 10);
     }
+  };
+
+  const formatWindow = (start, end) => {
+    const a = formatStart(start);
+    const b = formatStart(end);
+    if (a && b) return `${a} – ${b}`;
+    return a || b || "";
   };
 
   const formatPricedAt = (iso) => {
@@ -275,8 +276,16 @@
                 volPct
               )}%</span></span></td>`
             : `<td class="num">${esc(money(net, cur))}</td>`;
+        const serviceWindow = formatWindow(li.startDate, li.endDate);
         return `<tr class="${bundlePct > 0 ? "has-bundle" : ""}">
-          <td class="prod">${esc(li.name || li.sku)}</td>
+          <td class="prod">
+            ${esc(li.name || li.sku)}
+            ${
+              serviceWindow
+                ? `<div class="muted amend-line-dates">${esc(serviceWindow)}</div>`
+                : ""
+            }
+          </td>
           <td class="num">${esc(qty)}</td>
           <td class="num">${esc(money(listP, cur))}</td>
           ${bundleCell}
@@ -298,15 +307,12 @@
       </tr></tfoot>
     </table></div>`;
     chargeFoot.textContent =
-      "Qty is the seats (or modules) on this amend Quote — not your full after-headcount. Line charges sum to the prorated total above.";
+      "Qty is the seats (or modules) on this amend Quote — not your full after-headcount. Dates are that line's service window. Line charges sum to the prorated total above.";
   };
 
   const hidePreSuccessSections = () => {
     const ids = [
-      "dueNote",
       "quoteParts",
-      "afterChip",
-      "monthlyBlock",
       "customerCard",
       "drivers",
       "pricingLogic",
@@ -359,8 +365,8 @@
     payKicker.textContent =
       v.hero?.label ||
       (isCredit
-        ? labels.proratedCredit || "Prorated credit for this change"
-        : labels.proratedCharge || "Prorated charge for this change");
+        ? labels.proratedCredit || "Quoted credit (remaining term)"
+        : labels.proratedCharge || "Quoted now (remaining term)");
     if (hasDue) {
       dueEl.textContent = money(due, cur);
       dueEl.classList.toggle("is-credit", isCredit);
@@ -369,13 +375,10 @@
       dueEl.classList.remove("is-credit");
     }
     document.getElementById("payPlain").textContent = hasDue
-      ? "From your Salesforce Quote total"
+      ? v.cashDueHint
+        ? `${v.cashDueHint} Remaining-term Quote total — Pay Now collects the first bill`
+        : "Remaining-term Quote total — Pay Now collects the first bill"
       : "Quote charge pending";
-    document.getElementById("dueNote").textContent =
-      v.compareHint ||
-      (isCredit
-        ? "This is the prorated Quote credit for this change only — not your full annual bill and not monthly × 12."
-        : "This is the prorated Quote charge for this change only — not your full annual bill and not monthly × 12.");
 
     const partsEl = document.getElementById("quoteParts");
     const parts = v.dueForChange?.parts || v.quotes || [];
@@ -397,102 +400,7 @@
       partsEl.innerHTML = "";
     }
 
-    // 2. Contract impact — after Place order
-    const mrrAfter = v.totals?.mrr?.after;
-    const mrrToday = v.totals?.mrr?.today;
-    const mrrDelta = v.totals?.mrr?.delta;
-    const yearlyAfter = v.totals?.yearlyRunRate?.after;
-    document.getElementById("afterMrr").textContent = money(mrrAfter, cur);
-    document.getElementById("afterYearly").textContent =
-      yearlyAfter != null
-        ? `${money(yearlyAfter, cur)} / year (monthly × 12)`
-        : "";
-    const impactLede = document.getElementById("contractImpactLede");
-    if (impactLede) {
-      const deltaBit =
-        mrrDelta != null && Number.isFinite(Number(mrrDelta))
-          ? ` Monthly changes by ${signedMoney(mrrDelta, cur)}`
-          : "";
-      const todayBit =
-        mrrToday != null
-          ? ` Today you pay ${money(mrrToday, cur)}/mo.`
-          : "";
-      impactLede.textContent =
-        "Separate from the prorated charge above — this is what your monthly recurring looks like after the change lands." +
-        todayBit +
-        deltaBit;
-    }
-
-    // 3. Monthly by product
-    const products = v.products || [];
-    const bodyRows = products
-      .map((p) => {
-        const qtyLine = p.isNew
-          ? `${p.after?.qty ?? "—"} seats · new`
-          : p.delta?.qty
-            ? `${p.today?.qty ?? "—"} → ${p.after?.qty ?? "—"} seats`
-            : `${p.after?.qty ?? p.today?.qty ?? "—"} seats`;
-        const dClass =
-          Number(p.delta?.mrr) > 0
-            ? "is-up"
-            : Number(p.delta?.mrr) < 0
-              ? "is-down"
-              : "";
-        return `<tr class="${p.isNew ? "is-new" : ""}">
-          <td>
-            <strong>${esc(p.name || p.sku)}${
-          p.isNew ? ' <span class="line-badge">New</span>' : ""
-        }</strong>
-            <div class="muted amend-row-meta">${esc(qtyLine)}</div>
-          </td>
-          <td>
-            <div>${esc(money(p.today?.mrr, cur))}</div>
-            <div class="muted amend-row-meta">yr ${esc(
-              money(p.today?.yearlyRunRate, cur)
-            )}</div>
-          </td>
-          <td class="${dClass}">
-            <div>${esc(signedMoney(p.delta?.mrr, cur))}</div>
-            <div class="muted amend-row-meta">yr ${esc(
-              signedMoney(p.delta?.yearlyRunRate, cur)
-            )}</div>
-          </td>
-          <td>
-            <div><strong>${esc(money(p.after?.mrr, cur))}</strong></div>
-            <div class="muted amend-row-meta">yr ${esc(
-              money(p.after?.yearlyRunRate, cur)
-            )}</div>
-          </td>
-        </tr>`;
-      })
-      .join("");
-
-    const t = v.totals || {};
-    const dTot =
-      Number(t.mrr?.delta) > 0
-        ? "is-up"
-        : Number(t.mrr?.delta) < 0
-          ? "is-down"
-          : "";
-    document.getElementById("mrrTableBody").innerHTML =
-      bodyRows ||
-      `<tr><td colspan="4" class="muted">No product lines on this summary.</td></tr>`;
-    document.getElementById("mrrTableFoot").innerHTML = `<tr>
-      <th>Total monthly</th>
-      <td>${esc(money(t.mrr?.today, cur))}</td>
-      <td class="${dTot}">${esc(signedMoney(t.mrr?.delta, cur))}</td>
-      <td><strong>${esc(money(t.mrr?.after, cur))}</strong></td>
-    </tr>
-    <tr class="amend-yearly-foot">
-      <th>Yearly (monthly × 12)</th>
-      <td>${esc(money(t.yearlyRunRate?.today, cur))}</td>
-      <td class="${dTot}">${esc(signedMoney(t.yearlyRunRate?.delta, cur))}</td>
-      <td>${esc(money(t.yearlyRunRate?.after, cur))}</td>
-    </tr>`;
-    document.getElementById("compareHint").textContent =
-      "Yearly figures are monthly × 12 for reference — not the prorated Quote charge.";
-
-    // 4. Pricing-summary twin from Customer → Place order
+    // Customer and pricing context
     document.getElementById("customerKicker").innerHTML =
       `Customer in Salesforce <span class="line-badge">Existing customer</span>`;
     document.getElementById("customerName").textContent =
@@ -562,18 +470,29 @@
         }));
       const moduleQuoteId =
         data.moduleQuoteId || v.moduleQuoteId || null;
-      if (accountId && (amendQuotes.length || moduleQuoteId)) {
+      const upgradeQuoteId =
+        data.upgradeQuoteId || v.upgradeQuoteId || null;
+      const upgradeSku = data.upgradeSku || v.upgradeSku || null;
+      if (accountId && (amendQuotes.length || moduleQuoteId || upgradeQuoteId || upgradeSku)) {
         sessionStorage.setItem(
           "bhAmendSticky",
           JSON.stringify({
             accountId,
             amendQuotes,
             moduleQuoteId,
+            upgradeQuoteId,
+            upgradeSku,
             newQty: v.seats?.after ?? data.newQty ?? null,
             addonSkus: (v.products || data.lines || [])
               .filter((p) => p.isNew)
               .map((p) => p.sku)
-              .filter(Boolean),
+              .filter(
+                (sku) =>
+                  sku &&
+                  !["BAMBOO-CORE", "BAMBOO-PRO", "BAMBOO-ELITE"].includes(
+                    String(sku).toUpperCase()
+                  )
+              ),
             startDate: v.amendStartDate || data.amendStartDate || null,
             updatedAt: new Date().toISOString(),
           })
@@ -584,6 +503,93 @@
     }
   };
 
+  const quoteIdsFromPlaceBody = (body) =>
+    [
+      body.upgradeQuoteId,
+      body.moduleQuoteId,
+      ...((body.amendQuotes || []).map((q) => q.quoteId) || []),
+    ].filter(Boolean);
+
+  const recoverPlacedOrder = async (accountId, quoteIds) => {
+    const ids = (quoteIds || []).filter(Boolean);
+    if (!ids.length) return null;
+    const params = new URLSearchParams({
+      accountId: accountId || "",
+      quoteIds: ids.join(","),
+    });
+    const resp = await fetch(`/api/account-amend-place-status?${params}`);
+    const data = await resp.json();
+    if (resp.ok && data.ok && data.found && data.orderId) return data;
+    return null;
+  };
+
+  const kickCollectPayment = (orderId) => {
+    if (!orderId) return;
+    fetch("/api/collect-payment", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ orderId, pollTimeout: 90 }),
+    }).catch(() => {});
+  };
+
+  const showPlaceSuccess = (data) => {
+    try {
+      sessionStorage.removeItem("bhAmendSticky");
+    } catch (_) {
+      /* ignore */
+    }
+    const actions = document.getElementById("quoteActions");
+    if (actions) actions.hidden = true;
+    hidePreSuccessSections();
+    const status = document.getElementById("placeStatus");
+    if (status) {
+      status.textContent = "";
+      status.classList.remove("error");
+    }
+    const success = document.getElementById("orderSuccess");
+    success.hidden = false;
+    const conf = data.confirmation || {};
+    document.getElementById("successTitle").textContent =
+      conf.title ||
+      `Changes complete for ${
+        view?.accountName || summary.accountName || "your company"
+      }`;
+    document.getElementById("successLede").textContent =
+      conf.lede ||
+      "Your change is activated in Salesforce Revenue Cloud — Opportunity, Quote, Order, and Assets are live.";
+    const metrics = Array.isArray(conf.metrics) ? conf.metrics : [];
+    document.getElementById("successMetrics").innerHTML = metrics
+      .map(
+        (m) =>
+          `<div class="q-metric"><span class="q-label">${esc(
+            m.label
+          )}</span><span class="q-value">${esc(m.value)}</span></div>`
+      )
+      .join("");
+    const links = conf.links || data.links || {};
+    const linkRows = [
+      ["Account", links.account],
+      ["Opportunity", links.opportunity],
+      ["Quote", links.quote],
+      ["Order", links.order],
+    ].filter(([, href]) => href);
+    document.getElementById("successLinks").innerHTML = linkRows
+      .map(
+        ([label, href]) =>
+          `<a class="button-link secondary" href="${esc(
+            href
+          )}" target="_blank" rel="noopener">Open ${esc(label)}</a>`
+      )
+      .join("");
+    success.scrollIntoView({ behavior: "smooth", block: "start" });
+    const orderId =
+      (data.payment && data.payment.orderId) ||
+      data.orderId ||
+      data.amendOrderId ||
+      null;
+    kickCollectPayment(orderId);
+  };
+
   const placeOrder = async () => {
     if (!summary?.accountId) return;
     const btn = document.getElementById("placeAmendBtn");
@@ -591,37 +597,41 @@
     btn.disabled = true;
     status.textContent = "Placing in Revenue Cloud (Order + Activate)…";
     status.classList.remove("error");
+    const planSkus = new Set(["BAMBOO-CORE", "BAMBOO-PRO", "BAMBOO-ELITE"]);
+    const newSkus = (view?.products || summary.lines || [])
+      .filter((l) => l.isNew && (l.sku || l.after))
+      .map((l) => l.sku)
+      .filter((sku) => sku && !planSkus.has(String(sku).toUpperCase()));
+    const body = {
+      accountId: summary.accountId,
+      assetId: summary.assetId || undefined,
+      addonSkus: newSkus,
+      startDate:
+        view?.amendStartDate || summary.amendStartDate || undefined,
+      amendQuotes: (summary.amendQuotes || view?.amendQuotes || []).map(
+        (q) => ({
+          quoteId: q.quoteId,
+          assetIds: q.assetIds || [],
+          opportunityId:
+            q.opportunityId ||
+            summary.opportunityId ||
+            view?.opportunityId,
+        })
+      ),
+      moduleQuoteId:
+        summary.moduleQuoteId || view?.moduleQuoteId || undefined,
+      upgradeQuoteId:
+        summary.upgradeQuoteId || view?.upgradeQuoteId || undefined,
+      upgradeSku: summary.upgradeSku || view?.upgradeSku || undefined,
+    };
+    const baseline = Number(
+      summary.baselineQty ?? view?.seats?.baselineOnStart ?? summary.currentQty
+    );
+    const newQty = summary.newQty ?? view?.seats?.after;
+    if (newQty != null && Number(newQty) !== baseline) {
+      body.newQty = Number(newQty);
+    }
     try {
-      const newSkus = (view?.products || summary.lines || [])
-        .filter((l) => l.isNew && (l.sku || l.after))
-        .map((l) => l.sku)
-        .filter(Boolean);
-      const body = {
-        accountId: summary.accountId,
-        assetId: summary.assetId || undefined,
-        addonSkus: newSkus,
-        startDate:
-          view?.amendStartDate || summary.amendStartDate || undefined,
-        amendQuotes: (summary.amendQuotes || view?.amendQuotes || []).map(
-          (q) => ({
-            quoteId: q.quoteId,
-            assetIds: q.assetIds || [],
-            opportunityId:
-              q.opportunityId ||
-              summary.opportunityId ||
-              view?.opportunityId,
-          })
-        ),
-        moduleQuoteId:
-          summary.moduleQuoteId || view?.moduleQuoteId || undefined,
-      };
-      const baseline = Number(
-        summary.baselineQty ?? view?.seats?.baselineOnStart ?? summary.currentQty
-      );
-      const newQty = summary.newQty ?? view?.seats?.after;
-      if (newQty != null && Number(newQty) !== baseline) {
-        body.newQty = Number(newQty);
-      }
       const resp = await fetch("/api/account-amend", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -629,54 +639,31 @@
       });
       const data = await resp.json();
       if (!resp.ok || !data.ok) throw new Error(data.error || "Change failed");
-
-      try {
-        sessionStorage.removeItem("bhAmendSticky");
-      } catch (_) {
-        /* ignore */
-      }
-
-      const actions = document.getElementById("quoteActions");
-      if (actions) actions.hidden = true;
-      hidePreSuccessSections();
-      status.textContent = "";
-      const success = document.getElementById("orderSuccess");
-      success.hidden = false;
-      const conf = data.confirmation || {};
-      document.getElementById("successTitle").textContent =
-        conf.title ||
-        `Changes complete for ${
-          view?.accountName || summary.accountName || "your company"
-        }`;
-      document.getElementById("successLede").textContent =
-        conf.lede ||
-        "Your change is activated in Salesforce Revenue Cloud — Opportunity, Quote, Order, and Assets are live.";
-      const metrics = Array.isArray(conf.metrics) ? conf.metrics : [];
-      document.getElementById("successMetrics").innerHTML = metrics
-        .map(
-          (m) =>
-            `<div class="q-metric"><span class="q-label">${esc(
-              m.label
-            )}</span><span class="q-value">${esc(m.value)}</span></div>`
-        )
-        .join("");
-      const links = conf.links || data.links || {};
-      const linkRows = [
-        ["Account", links.account],
-        ["Opportunity", links.opportunity],
-        ["Quote", links.quote],
-        ["Order", links.order],
-      ].filter(([, href]) => href);
-      document.getElementById("successLinks").innerHTML = linkRows
-        .map(
-          ([label, href]) =>
-            `<a class="button-link secondary" href="${esc(
-              href
-            )}" target="_blank" rel="noopener">Open ${esc(label)}</a>`
-        )
-        .join("");
-      success.scrollIntoView({ behavior: "smooth", block: "start" });
+      showPlaceSuccess(data);
     } catch (err) {
+      status.textContent =
+        "Checking whether Salesforce already placed the order…";
+      status.classList.remove("error");
+      let recovered = null;
+      try {
+        recovered = await recoverPlacedOrder(
+          body.accountId,
+          quoteIdsFromPlaceBody(body)
+        );
+        if (!recovered) {
+          await new Promise((r) => setTimeout(r, 4000));
+          recovered = await recoverPlacedOrder(
+            body.accountId,
+            quoteIdsFromPlaceBody(body)
+          );
+        }
+      } catch (_) {
+        recovered = null;
+      }
+      if (recovered) {
+        showPlaceSuccess(recovered);
+        return;
+      }
       status.textContent = err.message || String(err);
       status.classList.add("error");
       btn.disabled = false;

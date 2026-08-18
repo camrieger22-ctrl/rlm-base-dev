@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>RLM_Bamboo_OnboardAdmin__c</fullName>
+    <defaultValue>false</defaultValue>
+    <description>True when this Contact was invited as a BambooHR admin from /activate (demo aha — Task is the invite proof; no email is sent).</description>
+    <externalId>false</externalId>
+    <label>BambooHR Onboard Admin</label>
+    <trackHistory>false</trackHistory>
+    <type>Checkbox</type>
+</CustomField>

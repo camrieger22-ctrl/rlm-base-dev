@@ -37,6 +37,8 @@ class PaymentPrompt:
     invoice_url: str | None = None
     blocked_reason: str | None = None
     warnings: list[str] = field(default_factory=list)
+    paid_applying: bool = False
+    collect_pending: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -50,6 +52,8 @@ class PaymentPrompt:
             "invoiceUrl": self.invoice_url,
             "blockedReason": self.blocked_reason,
             "warnings": self.warnings,
+            "paidApplying": self.paid_applying,
+            "collectPending": self.collect_pending,
         }
 
 
@@ -743,6 +747,203 @@ def _create_payment_link(
     return rows[0]
 
 
+_AMOUNT_TOL = 0.02
+
+
+def amounts_close(left: Any, right: Any, *, tol: float = _AMOUNT_TOL) -> bool:
+    try:
+        return abs(float(left) - float(right)) <= float(tol)
+    except (TypeError, ValueError):
+        return False
+
+
+def _created_stamp(row: dict[str, Any]) -> str:
+    return str(row.get("createdDate") or row.get("CreatedDate") or "")
+
+
+def annotate_invoices_paid_applying(
+    invoices: list[dict[str, Any]],
+    pay_sig: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Flag invoices whose remaining balance matches a Processed payment.
+
+    Pay Now can mark Payment Processed while Invoice.Balance still shows the
+    old due. Match by amount **and** payment-at-or-after-invoice so an older
+    payment cannot mark a leftover bill of the same total.
+    """
+    sig = pay_sig or {}
+    payments = [dict(p) for p in (sig.get("recentPayments") or [])]
+    used_pay: set[str] = set()
+
+    indexed = list(enumerate(invoices))
+    indexed.sort(key=lambda pair: _created_stamp(pair[1]), reverse=True)
+    out = [dict(inv) for inv in invoices]
+    for orig_i, _inv in indexed:
+        target = out[orig_i]
+        bal = target.get("balance")
+        total = target.get("totalAmountWithTax")
+        inv_when = _created_stamp(target)
+        paid = False
+        reason: str | None = None
+        for pay in payments:
+            pid = str(pay.get("id") or "")
+            if pid and pid in used_pay:
+                continue
+            pay_when = _created_stamp(pay)
+            if inv_when and pay_when and pay_when < inv_when:
+                continue
+            if amounts_close(pay.get("amount"), bal) or amounts_close(
+                pay.get("amount"), total
+            ):
+                paid = True
+                reason = "paymentProcessed"
+                if pid:
+                    used_pay.add(pid)
+                break
+        target["paidApplying"] = paid
+        if paid:
+            target["paidApplyingReason"] = reason
+            target["paymentUrl"] = None
+    return out
+
+
+_THIS_BILL_CLUSTER_SECONDS = 15 * 60
+
+
+def _parse_sf_dt(value: Any) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    raw = raw.replace("+0000", "+00:00").replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+
+
+def _activated_orders(orders: list[dict[str, Any]] | None) -> list[tuple[str, datetime]]:
+    """Activated orders as (id, createdDate), newest first."""
+    rows: list[tuple[str, datetime]] = []
+    for order in orders or []:
+        status = str(order.get("status") or order.get("Status") or "Activated")
+        if status and status != "Activated":
+            continue
+        oid = str(order.get("id") or order.get("Id") or "")
+        when = _parse_sf_dt(order.get("createdDate") or order.get("CreatedDate"))
+        if not oid or when is None:
+            continue
+        rows.append((oid, when))
+    rows.sort(key=lambda pair: pair[1], reverse=True)
+    return rows
+
+
+def _attribute_invoice_order(
+    inv_when: datetime | None,
+    activated: list[tuple[str, datetime]],
+) -> str | None:
+    """Nearest preceding Activated Order (invoice created at/after the order)."""
+    if inv_when is None:
+        return None
+    matched: str | None = None
+    matched_when: datetime | None = None
+    for oid, when in activated:
+        if when <= inv_when and (matched_when is None or when > matched_when):
+            matched = oid
+            matched_when = when
+    return matched
+
+
+def bucket_open_invoices(
+    invoices: list[dict[str, Any]],
+    orders: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """This bill = invoices of the latest Activated Order that still has an open bill.
+
+    Invoice.ReferenceEntityId is usually null after generate, so attribution is
+    nearest preceding Order.CreatedDate. Leftovers from older orders stay
+    ``earlier`` after this bill applies — unless the only remaining group is
+    paid-applying (future-start upgrade whose first bill is the original sale).
+    """
+    activated = _activated_orders(orders)
+    stamps = [_parse_sf_dt(inv.get("createdDate")) for inv in invoices]
+    if not activated:
+        newest = max((s for s in stamps if s is not None), default=None)
+        out: list[dict[str, Any]] = []
+        for inv, when in zip(invoices, stamps, strict=False):
+            row = dict(inv)
+            if newest is None or when is None:
+                row["bucket"] = "thisBill"
+            elif (newest - when).total_seconds() <= _THIS_BILL_CLUSTER_SECONDS:
+                row["bucket"] = "thisBill"
+            else:
+                row["bucket"] = "earlier"
+            out.append(row)
+        return out
+
+    attributed: list[str | None] = [
+        _attribute_invoice_order(when, activated) for when in stamps
+    ]
+    latest_id = activated[0][0]
+    this_bill_order = latest_id if any(oid == latest_id for oid in attributed) else None
+    if this_bill_order is None:
+        remaining = [oid for oid in attributed if oid]
+        if remaining:
+            newest_remaining = min(
+                remaining,
+                key=lambda oid: next(
+                    (i for i, (rid, _) in enumerate(activated) if rid == oid),
+                    10**9,
+                ),
+            )
+            group = [
+                inv
+                for inv, oid in zip(invoices, attributed, strict=False)
+                if oid == newest_remaining
+            ]
+            if any(inv.get("paidApplying") for inv in group):
+                this_bill_order = newest_remaining
+
+    out = []
+    for inv, oid in zip(invoices, attributed, strict=False):
+        row = dict(inv)
+        row["orderId"] = oid
+        if this_bill_order and oid == this_bill_order:
+            row["bucket"] = "thisBill"
+        else:
+            row["bucket"] = "earlier"
+        out.append(row)
+    return out
+
+
+def list_activated_orders(
+    session: OrgSession,
+    account_id: str,
+    *,
+    limit: int = 15,
+) -> list[dict[str, Any]]:
+    """Activated Orders for invoice bucketing (ReferenceEntityId is often null)."""
+    if not account_id:
+        return []
+    lim = max(1, min(int(limit), 40))
+    try:
+        rows = session.soql(
+            "SELECT Id, OrderNumber, Status, CreatedDate FROM Order "
+            f"WHERE AccountId = '{account_id}' AND Status = 'Activated' "
+            f"ORDER BY CreatedDate DESC LIMIT {lim}"
+        )
+    except Exception:  # noqa: BLE001
+        return []
+    return [
+        {
+            "id": r["Id"],
+            "orderNumber": r.get("OrderNumber"),
+            "status": r.get("Status"),
+            "createdDate": r.get("CreatedDate"),
+        }
+        for r in rows
+    ]
+
+
 def list_open_invoices(
     session: OrgSession,
     account_id: str,
@@ -897,7 +1098,7 @@ def build_payment_prompt_for_invoice(
 
     rows = session.soql(
         "SELECT Id, InvoiceNumber, DocumentNumber, Status, Balance, "
-        "BillingAccountId, ReferenceEntityId "
+        "TotalAmountWithTax, BillingAccountId, ReferenceEntityId, CreatedDate "
         f"FROM Invoice WHERE Id = '{inv_id}' LIMIT 1"
     )
     if not rows:
@@ -933,6 +1134,23 @@ def build_payment_prompt_for_invoice(
         return prompt
     if not account_id:
         prompt.blocked_reason = "Invoice has no BillingAccountId"
+        return prompt
+
+    pay_sig = payment_received_signal(session, account_id, open_invoice_count=1)
+    annotated = annotate_invoices_paid_applying(
+        [
+            {
+                "id": inv_id,
+                "balance": balance,
+                "totalAmountWithTax": invoice.get("TotalAmountWithTax"),
+                "createdDate": invoice.get("CreatedDate"),
+            }
+        ],
+        pay_sig,
+    )
+    if annotated and annotated[0].get("paidApplying"):
+        prompt.paid_applying = True
+        prompt.ready = False
         return prompt
 
     readiness = payments_readiness(session)

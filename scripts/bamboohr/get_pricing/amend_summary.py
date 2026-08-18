@@ -10,18 +10,19 @@ fallback already present on preview lines).
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 
 from service import PATH_B_BUNDLE_SAVE, US_ONLY_ADDONS
 
-HERO_LABEL_CHARGE = "Prorated charge for this change"
-HERO_LABEL_CREDIT = "Prorated credit for this change"
+HERO_LABEL_CHARGE = "Quoted now (remaining term)"
+HERO_LABEL_CREDIT = "Quoted credit (remaining term)"
 
 COMPARE_HINT = (
-    "The prorated charge is what this change costs on your Salesforce Quote. "
-    "Monthly is your ongoing subscription; yearly is just monthly × 12 for "
-    "reference — not the Quote total."
+    "Quoted now is the Salesforce Quote total for the remaining term. "
+    "Pay Now collects the first Billing invoice, which can be a shorter "
+    "first slice — not this Quote total. Monthly is ongoing subscription; "
+    "yearly is monthly × 12 for reference."
 )
 
 
@@ -77,6 +78,11 @@ def _kind_label(kind: str) -> str:
     return k or "Quote"
 
 
+def _iso_day(value: Any) -> str | None:
+    text = str(value or "").strip()
+    return text[:10] or None
+
+
 def _charge_line_from_qli(
     ql: dict[str, Any], *, path_b: bool, volume_percent: float | None
 ) -> dict[str, Any]:
@@ -124,6 +130,8 @@ def _charge_line_from_qli(
         "volumePercent": vol_pct,
         "netPepm": net if net else None,
         "lineTotal": round(line_total, 2),
+        "startDate": _iso_day(ql.get("startDate")),
+        "endDate": _iso_day(ql.get("endDate")),
         "source": "quoteLineTotalPrice",
     }
 
@@ -344,6 +352,13 @@ def build_amend_summary_view(preview: dict[str, Any]) -> dict[str, Any]:
             break
 
     priced_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    cash_due = None
+    start_s = str(preview.get("amendStartDate") or "")[:10]
+    try:
+        if start_s and date.fromisoformat(start_s) > date.today():
+            cash_due = start_s
+    except ValueError:
+        cash_due = None
 
     return {
         "ok": True,
@@ -355,6 +370,12 @@ def build_amend_summary_view(preview: dict[str, Any]) -> dict[str, Any]:
         "country": preview.get("country"),
         "opportunityId": preview.get("opportunityId"),
         "amendStartDate": preview.get("amendStartDate"),
+        "cashDueDate": cash_due,
+        "cashDueHint": (
+            f"First bill is due {cash_due}, not today."
+            if cash_due
+            else None
+        ),
         "pathBBundleSave": path_b,
         "volumePercentAfter": volume_pct,
         "seats": {
@@ -398,6 +419,10 @@ def build_amend_summary_view(preview: dict[str, Any]) -> dict[str, Any]:
         "amendQuotes": preview.get("amendQuotes") or [],
         "moduleQuoteId": preview.get("moduleQuoteId"),
         "moduleQuote": preview.get("moduleQuote"),
+        "cancelQuoteId": preview.get("cancelQuoteId"),
+        "upgradeQuoteId": preview.get("upgradeQuoteId"),
+        "upgradeQuote": preview.get("upgradeQuote"),
+        "upgradeSku": preview.get("upgradeSku"),
         "warnings": list(preview.get("warnings") or []),
         "compareHint": COMPARE_HINT,
         "labels": {
@@ -409,9 +434,10 @@ def build_amend_summary_view(preview: dict[str, Any]) -> dict[str, Any]:
             "changeColumn": "This change",
             "afterColumn": "After (quoted)",
             "chargeLinesLede": (
-                "List → Bundle & Save (if eligible) → volume → charge for this "
-                "change. Qty is seats/modules on the amend Quote. Line totals "
-                "sum to the prorated charge above."
+                "List → Bundle & Save (if eligible) → volume → quoted remaining "
+                "term. Qty is seats/modules on the amend Quote. Dates are "
+                "that line's service window. Line totals sum to Quoted now "
+                "above — Pay Now may bill a shorter first slice."
             ),
         },
     }

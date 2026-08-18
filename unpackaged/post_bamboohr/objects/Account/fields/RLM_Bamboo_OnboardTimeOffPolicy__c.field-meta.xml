@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>RLM_Bamboo_OnboardTimeOffPolicy__c</fullName>
+    <description>Post-pay aha: time-off policy the buyer chose during Activate (e.g. Unlimited PTO).</description>
+    <externalId>false</externalId>
+    <label>Onboard Time Off Policy</label>
+    <length>80</length>
+    <required>false</required>
+    <trackHistory>false</trackHistory>
+    <type>Text</type>
+    <unique>false</unique>
+</CustomField>

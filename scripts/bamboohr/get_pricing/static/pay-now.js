@@ -56,13 +56,20 @@
     const hasInvoice = !!(pay.invoiceId || pay.invoiceNumber || invoiceUrl);
     const hasPayUrl = !!payUrl;
     const balance = pay.invoiceBalance;
+    const paidApplying = !!pay.paidApplying;
+    const collectPending = !!pay.collectPending && !hasInvoice && !paidApplying;
     const zeroDue = balance != null && Number(balance) <= 0;
     const showInvoice =
       opts.showInvoiceLink === true ||
       (opts.showInvoiceLink !== false && isDemoMode());
 
     const show =
-      hasInvoice || !!pay.blockedReason || hasPayUrl || zeroDue;
+      hasInvoice ||
+      !!pay.blockedReason ||
+      hasPayUrl ||
+      zeroDue ||
+      paidApplying ||
+      collectPending;
     if (!show) {
       card.hidden = true;
       return { shown: false };
@@ -74,19 +81,31 @@
     }
 
     if (els.lede) {
-      if (pay.invoiceNumber) {
+      if (paidApplying && pay.invoiceNumber) {
+        els.lede.textContent = `Invoice ${pay.invoiceNumber} · Paid — applying to invoice.`;
+      } else if (pay.invoiceNumber) {
+        const billLabel = paidApplying
+          ? " · paid, applying"
+          : zeroDue
+            ? ""
+            : " due this bill";
         const bal =
-          balance != null
-            ? ` · ${money(balance, currency)}${zeroDue ? "" : " due"}`
+          balance != null ? ` · ${money(balance, currency)}${billLabel}` : "";
+        const quoted =
+          opts.quotedAmount != null && Number.isFinite(Number(opts.quotedAmount))
+            ? ` Quoted remaining term was ${money(opts.quotedAmount, currency)}.`
             : "";
-        els.lede.textContent = `Invoice ${pay.invoiceNumber}${bal}.`;
+        els.lede.textContent = `Invoice ${pay.invoiceNumber}${bal}.${quoted}`;
+      } else if (collectPending) {
+        els.lede.textContent =
+          "Posting the first Billing invoice for this change. Pay Now is that bill, not the remaining-term Quote total.";
       } else if (opts.defaultLede) {
         els.lede.textContent = opts.defaultLede;
       }
     }
 
     if (els.payBtn) {
-      if (hasPayUrl) {
+      if (hasPayUrl && !paidApplying && !zeroDue) {
         els.payBtn.href = payUrl;
         els.payBtn.hidden = false;
       } else {
@@ -106,10 +125,14 @@
 
     if (els.hint) {
       els.hint.textContent = INCOGNITO_HINT;
-      els.hint.hidden = !hasPayUrl;
+      els.hint.hidden = !(hasPayUrl && !paidApplying && !zeroDue);
     }
 
-    const canRetry = !!(pay.invoiceId || pay.orderId) && !hasPayUrl && !zeroDue;
+    const canRetry =
+      !paidApplying &&
+      !!(pay.invoiceId || pay.orderId) &&
+      !hasPayUrl &&
+      !zeroDue;
     if (els.retryBtn) {
       els.retryBtn.hidden = !canRetry;
       els.retryBtn.dataset.invoiceId = pay.invoiceId || "";
@@ -117,14 +140,19 @@
     }
 
     if (els.emailBtn) {
-      els.emailBtn.hidden = !(hasPayUrl && !zeroDue);
+      els.emailBtn.hidden = !(hasPayUrl && !zeroDue && !paidApplying);
     }
 
     if (els.status) {
       els.status.classList.remove("error");
-      if (hasPayUrl) {
+      if (paidApplying) {
         els.status.textContent =
-          "Ready — open Pay now to complete payment.";
+          "Payment received. Invoice balance may take a moment to update.";
+      } else if (collectPending) {
+        els.status.textContent = "Posting your first bill…";
+      } else if (hasPayUrl) {
+        els.status.textContent =
+          "Ready — open Pay now to complete this bill (not the remaining-term Quote).";
       } else if (zeroDue) {
         els.status.textContent = "No amount due.";
       } else if (pay.blockedReason) {
@@ -139,7 +167,7 @@
       }
     }
 
-    return { shown: true, hasPayUrl, canRetry };
+    return { shown: true, hasPayUrl, canRetry, paidApplying, collectPending };
   };
 
   /**
@@ -165,6 +193,11 @@
         body: JSON.stringify(body),
       });
       const data = await resp.json();
+      if (data.paidApplying) {
+        const next = { ...pay, ...data };
+        render(els, next, opts);
+        return next;
+      }
       if (!resp.ok && !data.paymentUrl) {
         throw new Error(
           data.blockedReason || data.error || "Could not create payment link"

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>RLM_Bamboo_OnboardComplete__c</fullName>
+    <description>True when Activate aha is done: employees loaded, admin invited, and time-off policy set.</description>
+    <externalId>false</externalId>
+    <formula>AND(
+  NOT(ISBLANK(RLM_Bamboo_OnboardEmployees__c)),
+  RLM_Bamboo_OnboardEmployees__c &gt; 0,
+  NOT(ISBLANK(RLM_Bamboo_OnboardAdminEmail__c)),
+  NOT(ISBLANK(RLM_Bamboo_OnboardTimeOffPolicy__c))
+)</formula>
+    <formulaTreatBlanksAs>BlankAsZero</formulaTreatBlanksAs>
+    <label>Onboard Aha Complete</label>
+    <type>Checkbox</type>
+</CustomField>

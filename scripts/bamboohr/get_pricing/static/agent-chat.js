@@ -15,6 +15,7 @@
 
   const detectPage = () => {
     const p = location.pathname || "";
+    if (p.startsWith("/activate")) return "activate";
     if (p.startsWith("/amend-quote/")) return "amend-quote";
     if (p.startsWith("/quote/")) return "quote";
     if (p === "/account" || p.startsWith("/account") || p === "/licenses") {
@@ -48,6 +49,8 @@
       readJson(sessionStorage, PIN_KEY) || readJson(localStorage, PIN_KEY);
     const page = detectPage();
     const q = window.BH_QUALIFY_CONTEXT || {};
+    const activate = window.BH_ACTIVATE_CONTEXT || {};
+    const acct = window.BH_ACCOUNT_CONTEXT || {};
     const ctx = {
       page,
       accountId:
@@ -60,6 +63,7 @@
       amendSummaryId: page === "amend-quote" ? pathId("amend-quote") : null,
       amendQuotes: sticky?.amendQuotes || [],
       moduleQuoteId: sticky?.moduleQuoteId || null,
+      upgradeQuoteId: sticky?.upgradeQuoteId || null,
       ecToken: params.get("ecToken") || null,
       country:
         document.getElementById("heroCountry")?.value ||
@@ -84,6 +88,16 @@
         q.headcount ||
         Number(document.getElementById("heroHeadcount")?.value || 0) ||
         null,
+      activateStep: activate.activateStep || null,
+      ahaComplete: !!activate.ahaComplete,
+      primaryNeeds: activate.needsLabel || (activate.needs || []).join(", ") || null,
+      setupDay: activate.setupDay || null,
+      setupDeadline: activate.setupDeadline || null,
+      currentPlan: acct.currentPlan || null,
+      currentPlanLabel: acct.currentPlanLabel || null,
+      upgradeAvailable: !!acct.upgradeAvailable,
+      upgradeTo: acct.upgradeTo || null,
+      upgradeSelected: !!acct.upgradeSelected,
     };
     return ctx;
   };
@@ -113,11 +127,19 @@
     ensure("salesHandoffVisible", ctx.salesHandoffVisible ? "1" : "");
     ensure("qualifySessionId", ctx.qualifySessionId);
     ensure("headcount", ctx.headcount);
+    ensure("activateStep", ctx.activateStep);
+    ensure("primaryNeeds", ctx.primaryNeeds);
+    ensure("setupDay", ctx.setupDay);
+    ensure("ahaComplete", ctx.ahaComplete ? "1" : "");
+    ensure("currentPlan", ctx.currentPlan);
+    ensure("upgradeTo", ctx.upgradeTo);
+    ensure("upgradeSelected", ctx.upgradeSelected ? "1" : "");
     ensure(
       "amendQuotes",
       ctx.amendQuotes?.length ? JSON.stringify(ctx.amendQuotes) : ""
     );
     ensure("moduleQuoteId", ctx.moduleQuoteId);
+    ensure("upgradeQuoteId", ctx.upgradeQuoteId);
   };
 
   /** Expose for Messaging prechat / future action bridge. */
@@ -180,6 +202,8 @@
         meta.textContent = [
           `page=${ctx.page}`,
           ctx.qualifyStep ? `qualifyStep=${ctx.qualifyStep}` : null,
+          ctx.activateStep ? `activateStep=${ctx.activateStep}` : null,
+          ctx.primaryNeeds ? `needs=${ctx.primaryNeeds}` : null,
           ctx.bounceType ? `bounce=${ctx.bounceType}` : null,
           ctx.accountId ? `account=${ctx.accountId}` : null,
           ctx.quoteId ? `quote=${ctx.quoteId}` : null,
@@ -237,6 +261,10 @@
       salesHandoffVisible: ctx.salesHandoffVisible ? "1" : "0",
       qualifySessionId: str(ctx.qualifySessionId),
       headcount: str(ctx.headcount),
+      activateStep: str(ctx.activateStep),
+      primaryNeeds: str(ctx.primaryNeeds),
+      setupDay: str(ctx.setupDay),
+      ahaComplete: ctx.ahaComplete ? "1" : "0",
     };
     // MIAW takes an object keyed by channel parameter name; legacy Embedded Chat
     // takes an array of {name, value}.

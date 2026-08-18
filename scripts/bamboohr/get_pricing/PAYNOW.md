@@ -221,7 +221,7 @@ Direct Builder URL (admin session on `master-demo`):
 | 1.2 | `list_open_invoices(accountId)` | Posted invoices with `Balance > 0` |
 | 1.3 | `payment_prompt_for_invoice(invoiceId)` | Link by billing account + balance (Order optional) |
 | 1.4 | Idempotency | Reuse Active PaymentLink when possible; else SingleUse create |
-| 1.5 | Post-pay helper (optional) | Payment Processed / link Disabled → “Paid / processing” |
+| 1.5 | Post-pay helper | Per-invoice `paidApplying` when a **Processed Payment** amount matches that bill (leftover invoices stay payable). Disabled PaymentLink alone is not enough. |
 
 **API**
 

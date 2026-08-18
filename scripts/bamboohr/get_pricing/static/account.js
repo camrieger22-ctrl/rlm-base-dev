@@ -8,8 +8,15 @@
   const qtyInput = document.getElementById("qtyInput");
   const qtyRange = document.getElementById("qtyRange");
 
+  const cleanAccountId = (raw) =>
+    String(raw || "")
+      .trim()
+      .replace(/^['"]+|['"]+$/g, "")
+      .replace(/[.,;:!?)'"\]]+$/g, "");
+
   let state = null;
   const selectedAddons = new Set();
+  let upgradeSelected = false;
   /** Last Pricing API estimate — enables Generate quote when fresh. */
   let pricedEstimate = null;
   /** Full Quote preview from Generate quote (has dueToday + quote ids). */
@@ -65,11 +72,17 @@
         assetIds: Array.isArray(q.assetIds) ? q.assetIds : [],
       }));
     const moduleQuoteId = preview.moduleQuoteId || null;
-    if (!amendQuotes.length && !moduleQuoteId) return null;
+    const upgradeQuoteId = preview.upgradeQuoteId || null;
+    const upgradeSku = preview.upgradeSku || null;
+    if (!amendQuotes.length && !moduleQuoteId && !upgradeQuoteId && !upgradeSku) {
+      return null;
+    }
     return {
       accountId,
       amendQuotes,
       moduleQuoteId,
+      upgradeQuoteId,
+      upgradeSku,
       newQty: preview.newQty ?? null,
       addonSkus: Array.isArray(preview.addonSkus)
         ? preview.addonSkus
@@ -84,7 +97,14 @@
     if (!sid) return null;
     const s = stickyAmendDrafts || readStickyAmend();
     if (!s || s.accountId !== sid) return null;
-    if (!(s.amendQuotes || []).length && !s.moduleQuoteId) return null;
+    if (
+      !(s.amendQuotes || []).length &&
+      !s.moduleQuoteId &&
+      !s.upgradeQuoteId &&
+      !s.upgradeSku
+    ) {
+      return null;
+    }
     return s;
   };
   const showChangeSuccess = (data) => {
@@ -152,8 +172,18 @@
         currency: state?.account?.currency || "USD",
         defaultTitle: "Pay your invoice",
         defaultLede:
-          "Salesforce Billing posted an invoice for this change. Pay securely with Salesforce Payments.",
+          "Salesforce Billing posts a first-bill invoice for this change. Pay Now is that bill — not the remaining-term Quote total.",
       });
+      if (payment.collectPending && (payment.orderId || payment.invoiceId)) {
+        BambooPayNow.retryCollect(payEls, payment, {
+          currency: state?.account?.currency || "USD",
+        })
+          .then((next) => {
+            payEls._payment = next;
+            data.payment = next;
+          })
+          .catch(() => {});
+      }
     }
 
     const transactions = Array.isArray(conf.transactions) ? conf.transactions : [];
@@ -265,6 +295,97 @@
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#39;");
 
+  const renderTeam = (team) => {
+    const t = team && typeof team === "object" ? team : {};
+    if (state) state.team = t;
+    const people = Array.isArray(t.people) ? t.people : [];
+    const filled = t.seatsFilled != null ? Number(t.seatsFilled) : people.length;
+    const target = t.seatTarget != null ? t.seatTarget : "—";
+    const countEl = document.getElementById("teamCount");
+    if (countEl) countEl.textContent = `${filled} of ${target} seats`;
+    const list = document.getElementById("teamList");
+    if (list) {
+      list.innerHTML = people.length
+        ? people
+            .map((p) => {
+              const label = esc(p.name) + (p.email ? " · " + esc(p.email) : "");
+              return p.url
+                ? `<li><a class="team-person" href="${esc(p.url)}" target="_blank" rel="noopener">${label}</a></li>`
+                : `<li>${label}</li>`;
+            })
+            .join("")
+        : "<li class='muted'>No teammates yet. Add someone by name.</li>";
+    }
+    const form = document.getElementById("teamAddForm");
+    if (form) form.hidden = !t.canAdd;
+    const hint = document.getElementById("teamSeatHint");
+    if (hint) {
+      if (t.overSeats) {
+        hint.hidden = false;
+        hint.innerHTML =
+          'You have more people than licensed seats. <a href="#expandPlan">Increase Employees</a> below to match.';
+      } else if (!t.canAdd && filled > 0) {
+        hint.hidden = false;
+        hint.innerHTML =
+          'All licensed seats have a person. <a href="#expandPlan">Increase Employees</a> below to add more teammates.';
+      } else {
+        hint.hidden = true;
+        hint.textContent = "";
+      }
+    }
+    const setupUrl = t.setupUrl || "/activate";
+    const setupLink = document.getElementById("teamSetupLink");
+    if (setupLink) {
+      setupLink.href = setupUrl;
+      setupLink.textContent = t.ahaComplete
+        ? "View setup checklist"
+        : "Finish setup";
+    }
+    const nav = document.getElementById("setupNavLink");
+    if (nav) {
+      nav.href = setupUrl;
+      nav.hidden = false;
+      nav.textContent = t.ahaComplete ? "Setup" : "Finish setup";
+    }
+  };
+
+  const addTeammate = (payload) => {
+    const statusEl = document.getElementById("teamStatus");
+    const form = document.getElementById("teamAddForm");
+    const accountId = state?.account?.id;
+    if (!accountId) return;
+    if (statusEl) {
+      statusEl.textContent = "Saving…";
+      statusEl.classList.remove("error");
+    }
+    form?.querySelectorAll("input, button").forEach((el) => {
+      el.disabled = true;
+    });
+    return fetch("/api/activate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accountId, ...payload }),
+    })
+      .then((r) => r.json().then((d) => ({ ok: r.ok, d })))
+      .then(({ ok, d }) => {
+        if (!ok || !d.ok) throw new Error(d.error || "Could not add teammate");
+        renderTeam(d.team);
+        if (statusEl) statusEl.textContent = "Saved to Salesforce";
+        form?.reset();
+      })
+      .catch((err) => {
+        if (statusEl) {
+          statusEl.textContent = err.message || String(err);
+          statusEl.classList.add("error");
+        }
+      })
+      .finally(() => {
+        form?.querySelectorAll("input, button").forEach((el) => {
+          el.disabled = false;
+        });
+      });
+  };
+
   /** Lightning record link — prove the demo wrote real Salesforce data. */
   const sfRecordLink = (url, label, objectLabel) => {
     const text = esc(label);
@@ -322,7 +443,11 @@
     );
     const qtyChanged = newQty !== baselineQty;
     const addons = [...selectedAddons];
-    const hasChange = qtyChanged || addons.length > 0;
+    const upgradeSku =
+      upgradeSelected && state?.expansion?.available
+        ? state.expansion.toSku
+        : null;
+    const hasChange = qtyChanged || addons.length > 0 || !!upgradeSku;
     return {
       currentQty: baselineQty,
       baselineQty,
@@ -333,6 +458,7 @@
       daysLeft,
       qtyChanged,
       addons,
+      upgradeSku,
       hasChange,
       qtyValid: parsed != null,
     };
@@ -372,9 +498,11 @@
         .filter((l) => l.isNew)
         .map((l) => String(l.sku || ""))
     );
+    const selectedNew = new Set(ctx.addons);
+    if (ctx.upgradeSku) selectedNew.add(ctx.upgradeSku);
     const addonsMatch =
-      ctx.addons.length === estimateAddonSkus.size &&
-      ctx.addons.every((s) => estimateAddonSkus.has(s));
+      selectedNew.size === estimateAddonSkus.size &&
+      [...selectedNew].every((s) => estimateAddonSkus.has(s));
     return (
       pricedEstimate.accountId === state.account.id &&
       Number(pricedEstimate.newQty) === Number(ctx.newQty) &&
@@ -399,8 +527,7 @@
     if (!Number.isFinite(daysLeft)) return false;
     const start = parseDate(ctx.startIso);
     const end = ctx.termEnd instanceof Date ? ctx.termEnd : parseDate(ctx.termEnd);
-    const months =
-      start && end ? calendarMonthsBetween(start, end) : Math.max(0, daysLeft) / (365.25 / 12);
+    const months = start && end ? calendarMonthsBetween(start, end) : 0;
     const lines = (pricedEstimate.lines || []).map((l) => {
       const charge =
         l.chargeMonthly != null && Number.isFinite(Number(l.chargeMonthly))
@@ -499,28 +626,63 @@
     }
     card.hidden = false;
     if (hint) hint.hidden = false;
-    list.innerHTML = rows
-      .map((inv) => {
+    const thisBill = rows.filter((inv) => inv.bucket !== "earlier");
+    const earlier = rows.filter((inv) => inv.bucket === "earlier");
+    const lede = document.getElementById("invoicePanelLede");
+    if (lede) {
+      lede.textContent = earlier.length
+        ? "This bill vs earlier invoices from prior changes. Pay Now on this bill is the first invoice (not the remaining-term Quote). Earlier rows stay payable separately."
+        : "This bill from Salesforce Billing — Pay Now is the first invoice, which can differ from the remaining-term Quote total. Click a number to open the Invoice; pay with Salesforce Payments.";
+    }
+    const rowHtml = (inv) => {
         const when = (inv.createdDate || "").slice(0, 10);
         const bal = money(inv.balance, currency);
-        const ready = !!inv.paymentUrl;
+        const applying = !!inv.paidApplying;
+        const ready = !!inv.paymentUrl && !applying;
         const label = inv.invoiceNumber || inv.id;
-        return `<li class="invoice-row" data-invoice-id="${esc(inv.id)}">
-          <div>
-            ${sfRecordLink(inv.invoiceUrl, label, "Invoice")}
-            <span>${esc(when)} · balance ${esc(bal)}</span>
-          </div>
-          <div class="invoice-row-actions">
-            <span class="activity-badge">${esc(inv.status || "Posted")}</span>
-            <button type="button" class="demo-btn demo-btn-primary invoice-pay-btn"
+        const earlierBill = inv.bucket === "earlier";
+        const badge = applying
+          ? "Paid — applying"
+          : inv.status || "Posted";
+        const payBtn = applying
+          ? ""
+          : `<button type="button" class="demo-btn demo-btn-primary invoice-pay-btn"
               data-invoice-id="${esc(inv.id)}"
               data-payment-url="${ready ? esc(inv.paymentUrl) : ""}">
               Pay
-            </button>
+            </button>`;
+        const dueBit = applying
+          ? "paid, applying"
+          : earlierBill
+            ? `earlier invoice ${esc(bal)}`
+            : `this bill ${esc(bal)}`;
+        return `<li class="invoice-row" data-invoice-id="${esc(inv.id)}">
+          <div>
+            ${sfRecordLink(inv.invoiceUrl, label, "Invoice")}
+            <span>${esc(when)} · ${dueBit}</span>
+          </div>
+          <div class="invoice-row-actions">
+            <span class="activity-badge${applying ? " is-paid" : ""}">${esc(
+              badge
+            )}</span>
+            ${payBtn}
           </div>
         </li>`;
-      })
-      .join("");
+    };
+    const parts = [];
+    if (thisBill.length) {
+      if (earlier.length) {
+        parts.push(`<li class="invoice-group-label">This bill</li>`);
+      }
+      parts.push(...thisBill.map(rowHtml));
+    }
+    if (earlier.length) {
+      parts.push(
+        `<li class="invoice-group-label">Earlier invoices — prior changes, not this one</li>`
+      );
+      parts.push(...earlier.map(rowHtml));
+    }
+    list.innerHTML = parts.join("");
     list.querySelectorAll(".invoice-pay-btn").forEach((btn) => {
       btn.addEventListener("click", () => payInvoice(btn));
     });
@@ -539,7 +701,21 @@
       state.pendingBalanceApply = !!data.pendingBalanceApply;
       state.paymentHint = data.hint || null;
       renderInvoices(state.invoices, state.account.currency || "USD");
-      if (data.pendingBalanceApply) {
+      const applying = (state.invoices || []).filter((i) => i.paidApplying);
+      const stillDue = (state.invoices || []).filter((i) => !i.paidApplying);
+      const earlierDue = stillDue.filter((i) => i.bucket === "earlier");
+      const thisDue = stillDue.filter((i) => i.bucket !== "earlier");
+      if (applying.length && earlierDue.length) {
+        setInvoiceStatus(
+          `${applying.length} payment(s) applying · ${earlierDue.length} earlier invoice(s) still due from prior changes.`
+        );
+        scheduleInvoicePoll();
+      } else if (applying.length && thisDue.length) {
+        setInvoiceStatus(
+          `${applying.length} payment(s) applying · ${thisDue.length} still due this bill.`
+        );
+        scheduleInvoicePoll();
+      } else if (data.pendingBalanceApply || applying.length) {
         setInvoiceStatus(
           data.hint ||
             "Payment received — invoice balance may take a moment to update."
@@ -602,6 +778,13 @@
         body: JSON.stringify({ invoiceId }),
       });
       const data = await resp.json();
+      if (data.paidApplying) {
+        setInvoiceStatus(
+          "Payment received — applying to this invoice. Balance may take a moment to update."
+        );
+        refreshInvoices().catch(() => {});
+        return;
+      }
       if (!resp.ok || !(data.paymentUrl || data.ready)) {
         throw new Error(
           data.blockedReason || data.error || "Could not create payment link"
@@ -680,19 +863,8 @@
   };
 
   const termEndDate = () => {
-    const end = parseDate(state?.subscription?.termEndDate);
-    if (end) return end;
-    const start = parseDate(state?.subscription?.termStartDate);
-    if (start) {
-      const e = new Date(start);
-      e.setUTCFullYear(e.getUTCFullYear() + 1);
-      return e;
-    }
-    // Demo fallback: one year from tomorrow.
-    const e = new Date();
-    e.setUTCDate(e.getUTCDate() + 1);
-    e.setUTCFullYear(e.getUTCFullYear() + 1);
-    return e;
+    // Never invent +365 — missing end withholds the local remaining-term estimate.
+    return parseDate(state?.subscription?.termEndDate) || null;
   };
 
   const savePin = (accountId, company) => {
@@ -715,7 +887,10 @@
         const raw = store.getItem("bhAccountPin");
         if (!raw) continue;
         const parsed = JSON.parse(raw);
-        if (parsed && parsed.accountId) return parsed;
+        if (parsed && parsed.accountId) {
+          parsed.accountId = cleanAccountId(parsed.accountId);
+          return parsed;
+        }
       } catch (_) {
         /* ignore */
       }
@@ -798,6 +973,38 @@
       total += monthly;
     }
     if (includeSelectedAddons) {
+      const replaceSku =
+        upgradeSelected && state?.expansion?.fromSku
+          ? state.expansion.fromSku
+          : null;
+      if (replaceSku) {
+        const idx = lines.findIndex((l) => l.sku === replaceSku);
+        if (idx >= 0) {
+          total -= lines[idx].monthly;
+          lines.splice(idx, 1);
+        }
+        const toSku = state.expansion.toSku;
+        const info = listForSku(toSku);
+        if (info && info.listPepm != null) {
+          const pepm = netPepm(info.listPepm, headcount);
+          const monthly = Math.round(pepm * headcount * 100) / 100;
+          lines.push({
+            id: toSku,
+            name: info.name || toSku,
+            sku: toSku,
+            qty: headcount,
+            listPepm: info.listPepm,
+            netPepm: pepm,
+            flatMonthly: null,
+            isFlat: false,
+            monthly,
+            isPrimary: true,
+            isNew: true,
+            isPepm: true,
+          });
+          total += monthly;
+        }
+      }
       for (const sku of selectedAddons) {
         const info = listForSku(sku);
         if (!info || info.listPepm == null) continue;
@@ -1008,9 +1215,9 @@
       if (hasDue && due < 0) {
         railBill.textContent = provisional ? "Est. credit" : "Credit";
       } else if (hasDue && !provisional) {
-        railBill.textContent = "Prorated charge";
+        railBill.textContent = "Quoted now";
       } else {
-        railBill.textContent = "Est. prorated";
+        railBill.textContent = "Est. quoted";
       }
     }
     if (railPepm) {
@@ -1020,9 +1227,9 @@
       if (hasDue && due < 0) {
         railTotalLabel.textContent = provisional ? "Est. credit total" : "Credit total";
       } else if (hasDue && !provisional) {
-        railTotalLabel.textContent = "Prorated total";
+        railTotalLabel.textContent = "Quoted remaining term";
       } else {
-        railTotalLabel.textContent = "Est. prorated total";
+        railTotalLabel.textContent = "Est. remaining term";
       }
     }
     if (railTotal) {
@@ -1039,11 +1246,11 @@
       if (!hasDue && awaitingPrice) {
         railPepmUnit.textContent = "Pricing with Salesforce Pricing API…";
       } else if (provisional) {
-        railPepmUnit.textContent = `Pricing API estimate${dayBit} · Generate quote for exact charge`;
+        railPepmUnit.textContent = `Pricing API estimate${dayBit} · Generate quote for exact remaining-term total`;
       } else if (hasDue) {
-        railPepmUnit.textContent = `Salesforce Quote total${dayBit}${endBit}`;
+        railPepmUnit.textContent = `Remaining-term Quote total${dayBit}${endBit} · Pay Now is the first bill`;
       } else {
-        railPepmUnit.textContent = "until Generate quote for exact charge";
+        railPepmUnit.textContent = "until Generate quote for exact remaining-term total";
       }
     }
     if (railLines && Array.isArray(lines)) {
@@ -1100,7 +1307,7 @@
     if (!state?.account?.id) return;
     const qtyChanged = newQty !== currentQty;
     const addons = [...selectedAddons];
-    if (!qtyChanged && !addons.length) return;
+    if (!qtyChanged && !addons.length && !upgradeSelected) return;
 
     if (estimateInFlight) {
       // Invalidate the in-flight response so it cannot overwrite the date/qty
@@ -1126,6 +1333,9 @@
         startDate: startIso,
       };
       if (qtyChanged) body.newQty = newQty;
+      if (upgradeSelected && state.expansion?.toSku) {
+        body.upgradeSku = state.expansion.toSku;
+      }
       const resp = await fetch("/api/account-amend-estimate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1305,19 +1515,19 @@
         ? `Current term ends ${formatDateLabel(termEnd)} · ${daysLeft} day${
             daysLeft === 1 ? "" : "s"
           } from your start date${baselineNote}${minNote}`
-        : "Term end unavailable — proration uses a 365-day estimate." + minNote;
+        : "Term end unavailable — Generate quote for the exact prorated charge." + minNote;
     }
 
     const before = sfRecurringToday();
     // "After" provisional estimate only — RC preview replaces this when ready.
     const after =
-      delta === 0 && selectedAddons.size === 0
+      delta === 0 && selectedAddons.size === 0 && !upgradeSelected
         ? before
         : (() => {
             const est = subscriptionTotals(newQty, { includeSelectedAddons: true });
             return est.lines.length ? est : before;
           })();
-    const hasChange = delta !== 0 || selectedAddons.size > 0;
+    const hasChange = delta !== 0 || selectedAddons.size > 0 || upgradeSelected;
 
     document.getElementById("subRecurring").textContent = money(before.total, cur);
 
@@ -1332,6 +1542,13 @@
         badge.textContent = `${sign}${Math.abs(delta)} seats across ${pepmCount} per-employee product${
           pepmCount === 1 ? "" : "s"
         } (${baselineQty} → ${newQty})`;
+      } else if (upgradeSelected) {
+        badge.hidden = false;
+        const from = state?.expansion?.fromLabel || "Core";
+        const to = state?.expansion?.toLabel || "Pro";
+        const pepm = Number(state?.expansion?.listPepmTo);
+        const pepmBit = Number.isFinite(pepm) && pepm > 0 ? ` · ${money(pepm, cur)} PEPM` : "";
+        badge.textContent = `Upgrade ${from} → ${to} at ${newQty} seats${pepmBit}`;
       } else {
         badge.hidden = false;
         badge.textContent = `Adding ${selectedAddons.size} module${
@@ -1361,17 +1578,20 @@
         const monthlyAfter = Number(a?.monthly) || 0;
         const monthlyDiff = Math.round((monthlyAfter - monthlyBefore) * 100) / 100;
         const isNew = !!(a?.isNew) || (!b && !!a);
+        const isRemoved = !a && !!b;
         const qtyDelta = isNew
           ? Number(a?.qty) || newQty
-          : delta;
-        if (!isNew && qtyDelta === 0 && Math.abs(monthlyDiff) < 0.005) continue;
+          : isRemoved
+            ? -(Number(b?.qty) || newQty)
+            : delta;
+        if (!isNew && !isRemoved && qtyDelta === 0 && Math.abs(monthlyDiff) < 0.005) continue;
         const netPepm = Number(a?.netPepm ?? b?.netPepm) || 0;
         const chargeMonthly = (a || b)?.isFlat
           ? isNew
             ? monthlyAfter
             : monthlyDiff
           : Math.round(netPepm * qtyDelta * 100) / 100;
-        if (Math.abs(chargeMonthly) < 0.005 && !isNew) continue;
+        if (Math.abs(chargeMonthly) < 0.005 && !isNew && !isRemoved) continue;
         localChangeLines.push({
           name: (a || b).name,
           sku,
@@ -1493,14 +1713,28 @@
     consoleRoot.hidden = false;
     document.getElementById("accountSub").textContent =
       `${data.account.name} · ${data.account.currency}`;
-    document.getElementById("identityNote").textContent = data.identityNote || "";
     const termEnd = data.subscription.termEndDate
       ? formatDateLabel(parseDate(data.subscription.termEndDate))
       : null;
     document.getElementById("subMeta").textContent =
       `${data.subscription.assets.length} product(s) · ${
         data.subscription.currentQuantity || "—"
-      } employees on primary plan` + (termEnd ? ` · term ends ${termEnd}` : "");
+      } employees on primary plan`;
+
+    const subTermValue = document.getElementById("subTermValue");
+    const subTermHint = document.getElementById("subTermHint");
+    if (subTermValue) {
+      subTermValue.textContent = data.subscription.termLabel || "—";
+    }
+    if (subTermHint) {
+      if (data.subscription.termKind === "month_to_month" && termEnd) {
+        subTermHint.textContent = `Current period through ${termEnd}`;
+      } else if (data.subscription.termKind === "committed" && termEnd) {
+        subTermHint.textContent = `Ends ${termEnd}`;
+      } else {
+        subTermHint.textContent = "";
+      }
+    }
 
     const startInput = document.getElementById("startDateInput");
     if (startInput) {
@@ -1515,22 +1749,52 @@
 
     const subLines = document.getElementById("subLines");
     const snap = sfRecurringToday();
+    const cur = data.account.currency || "USD";
     subLines.innerHTML = snap.lines
-      .map(
-        (l) => `<li>
+      .map((l) => {
+        const pepmBit =
+          l.isPepm && l.netPepm != null
+            ? ` · ${money(l.netPepm, cur)} PEPM`
+            : l.isFlat
+              ? " · flat monthly"
+              : "";
+        return `<li>
           <div>
             <strong>${l.name}</strong>
-            <span>${l.sku || ""} · ${l.qty} employees</span>
+            <span>${l.sku || ""} · ${l.qty} employees${pepmBit}</span>
           </div>
-          <em>${money(l.monthly, data.account.currency)}</em>
-        </li>`
-      )
+          <em>${money(l.monthly, cur)}</em>
+        </li>`;
+      })
       .join("") || "<li class='muted'>No assets on this Account yet.</li>";
+    const recurringText = snap.lines.length ? `${money(snap.total, cur)} / mo` : "—";
     const subRecurring = document.getElementById("subRecurring");
-    if (subRecurring) {
-      subRecurring.textContent = snap.lines.length
-        ? `${money(snap.total, data.account.currency)} / mo`
-        : "—";
+    if (subRecurring) subRecurring.textContent = recurringText;
+    const subFactRecurring = document.getElementById("subFactRecurring");
+    if (subFactRecurring) {
+      subFactRecurring.textContent = snap.lines.length ? money(snap.total, cur) : "—";
+    }
+    const subPepmValue = document.getElementById("subPepmValue");
+    const subPepmHint = document.getElementById("subPepmHint");
+    const subPepmLabel = document.getElementById("subPepmLabel");
+    const planPepm = data.subscription.planPepm;
+    const primaryLine = snap.lines.find((l) => l.isPrimary) || snap.lines[0];
+    if (subPepmValue && subPepmHint) {
+      if (planPepm != null) {
+        if (subPepmLabel) subPepmLabel.textContent = "Your PEPM";
+        subPepmValue.textContent = money(planPepm, cur);
+        subPepmHint.textContent = `${
+          data.subscription.currentQuantity || "—"
+        } employees on ${data.plan?.label || "plan"}`;
+      } else if (primaryLine?.isFlat) {
+        if (subPepmLabel) subPepmLabel.textContent = "Monthly plan";
+        subPepmValue.textContent = money(primaryLine.monthly, cur);
+        subPepmHint.textContent = "Small-business flat (not PEPM)";
+      } else {
+        if (subPepmLabel) subPepmLabel.textContent = "Your PEPM";
+        subPepmValue.textContent = "—";
+        subPepmHint.textContent = "Not on file yet";
+      }
     }
     renderSubscriptionTimeline(
       data.subscription?.timeline,
@@ -1556,7 +1820,22 @@
     state.paymentReceived = !!data.paymentReceived;
     state.pendingBalanceApply = !!data.pendingBalanceApply;
     state.paymentHint = data.paymentHint || null;
-    if (state.pendingBalanceApply) {
+    renderTeam(data.team);
+    const applying = (data.invoices || []).filter((i) => i.paidApplying);
+    const stillDue = (data.invoices || []).filter((i) => !i.paidApplying);
+    const earlierDue = stillDue.filter((i) => i.bucket === "earlier");
+    const thisDue = stillDue.filter((i) => i.bucket !== "earlier");
+    if (applying.length && earlierDue.length) {
+      setInvoiceStatus(
+        `${applying.length} payment(s) applying · ${earlierDue.length} earlier invoice(s) still due from prior changes.`
+      );
+      scheduleInvoicePoll();
+    } else if (applying.length && thisDue.length) {
+      setInvoiceStatus(
+        `${applying.length} payment(s) applying · ${thisDue.length} still due this bill.`
+      );
+      scheduleInvoicePoll();
+    } else if (state.pendingBalanceApply || applying.length) {
       setInvoiceStatus(
         state.paymentHint ||
           "Payment received — invoice balance may take a moment to update."
@@ -1627,7 +1906,107 @@
     setQty(startQty);
     savePin(data.account.id, data.account.name);
     applyAccountFocus();
+    renderPlanUpgrade(data);
+    publishAccountAgentContext(data);
     restoreStickyAmendEditor(data);
+  };
+
+  const publishAccountAgentContext = (data) => {
+    const exp = data?.expansion || {};
+    window.BH_ACCOUNT_CONTEXT = {
+      page: "account",
+      accountId: data?.account?.id || null,
+      currentPlan: data?.plan?.sku || null,
+      currentPlanLabel: data?.plan?.label || null,
+      termKind: data?.subscription?.termKind || null,
+      termLabel: data?.subscription?.termLabel || null,
+      planPepm: data?.subscription?.planPepm ?? null,
+      recurringMonthly: data?.subscription?.recurringMonthly ?? null,
+      upgradeAvailable: !!exp.available,
+      upgradeTo: exp.toSku || null,
+      upgradeSelected: !!upgradeSelected,
+    };
+    try {
+      document.dispatchEvent(new CustomEvent("bh-agent-context-refresh"));
+    } catch (_) {
+      /* ignore */
+    }
+  };
+
+  const renderPlanUpgrade = (data) => {
+    const card = document.getElementById("planUpgradeCard");
+    const meta = document.getElementById("planUpgradeMeta");
+    const pill = document.getElementById("planUpgradePill");
+    const body = document.getElementById("planUpgradeBody");
+    if (!card || !body) return;
+    const exp = data?.expansion || {};
+    const plan = data?.plan || {};
+    if (pill) pill.textContent = plan.label || exp.fromLabel || "—";
+    if (!plan.sku && !exp.fromSku) {
+      card.hidden = true;
+      return;
+    }
+    card.hidden = false;
+    const cur = data.account?.currency || "USD";
+    if (!exp.available) {
+      if (meta) meta.textContent = exp.copy || "Your plan is live.";
+      body.innerHTML = `<p class="muted">${esc(exp.copy || "No in-product upgrade.")}</p>`;
+      upgradeSelected = false;
+      return;
+    }
+    if (meta) meta.textContent = exp.copy || "Upgrade in-product — no sales call.";
+    const selected = upgradeSelected;
+    const toLabel = exp.toLabel || "Pro";
+    const fromLabel = exp.fromLabel || "Core";
+    const toPepm = Number(exp.listPepmTo);
+    const delta = Number(exp.deltaPepm || 0);
+    const seats = Number(exp.seats || data.subscription?.currentQuantity || 0);
+    const hasToPepm = Number.isFinite(toPepm) && toPepm > 0;
+    const monthly =
+      hasToPepm && seats > 0
+        ? Math.round(toPepm * seats * 100) / 100
+        : null;
+    const priceStrong = hasToPepm ? money(toPepm, cur) : (delta >= 0 ? "+" : "") + money(delta, cur);
+    const priceUnit = hasToPepm
+      ? `PEPM on ${toLabel}`
+      : `${cur} PEPM vs ${fromLabel}`;
+    const deltaBits = [];
+    if (hasToPepm && Number.isFinite(delta) && delta !== 0) {
+      deltaBits.push(`${delta >= 0 ? "+" : ""}${money(delta, cur)} PEPM vs ${fromLabel}`);
+    }
+    if (monthly != null) {
+      deltaBits.push(`${money(monthly, cur)} / mo at ${seats.toLocaleString()} seats`);
+    }
+    body.innerHTML =
+      '<button type="button" class="plan-upgrade-card' +
+      (selected ? " selected" : "") +
+      '" id="upgradePlanBtn" aria-pressed="' +
+      (selected ? "true" : "false") +
+      '">' +
+      '<span class="mod-check" aria-hidden="true"></span>' +
+      "<p class=\"mod-name\">Upgrade to " +
+      esc(toLabel) +
+      "</p>" +
+      '<p class="mod-price"><strong>' +
+      esc(priceStrong) +
+      "</strong> <span>" +
+      esc(priceUnit) +
+      "</span></p>" +
+      (deltaBits.length
+        ? '<p class="plan-upgrade-delta">' + esc(deltaBits.join(" · ")) + "</p>"
+        : "") +
+      '<p class="mod-note">' +
+      (selected
+        ? "Selected · Generate quote to switch to " + esc(toLabel)
+        : esc(exp.copy || "Click to upgrade")) +
+      "</p></button>";
+    document.getElementById("upgradePlanBtn")?.addEventListener("click", () => {
+      upgradeSelected = !upgradeSelected;
+      renderPlanUpgrade(data);
+      publishAccountAgentContext(data);
+      syncPreview();
+      syncAmendActions();
+    });
   };
 
   const restoreStickyAmendEditor = (data) => {
@@ -1643,7 +2022,12 @@
     const editing = params.get("edit") === "1";
     // Always keep sticky Quote ids for Update quote; restore seats/modules when
     // returning from amend summary Edit change.
-    if (editing || sticky.newQty != null || (sticky.addonSkus || []).length) {
+    if (
+      editing ||
+      sticky.newQty != null ||
+      (sticky.addonSkus || []).length ||
+      sticky.upgradeSku
+    ) {
       if (sticky.startDate) {
         applyStartDateBounds({ preferred: String(sticky.startDate).slice(0, 10) });
       }
@@ -1659,6 +2043,12 @@
       for (const sku of sticky.addonSkus || []) {
         if (sku && !ownedSkus.has(sku)) selectedAddons.add(sku);
       }
+      upgradeSelected = !!(
+        sticky.upgradeSku &&
+        data.expansion?.available &&
+        sticky.upgradeSku === data.expansion.toSku
+      );
+      renderPlanUpgrade(data);
       // Re-paint module cards to match selection without a full console redraw.
       document.querySelectorAll("#moduleGrid .module-card").forEach((card) => {
         const sku = card.dataset.sku;
@@ -1752,7 +2142,7 @@
     loginStatus.classList.remove("error");
     const params = new URLSearchParams();
     if (ecToken) params.set("ecToken", ecToken);
-    else if (accountId) params.set("accountId", accountId);
+    else if (accountId) params.set("accountId", cleanAccountId(accountId));
     else if (company) params.set("company", company);
     else {
       loginStatus.textContent = "Enter a company name or Account Id.";
@@ -1806,11 +2196,20 @@
   };
 
   const openFromPinFields = () => {
-    const accountId = accountIdInput.value.trim();
+    const accountId = cleanAccountId(accountIdInput.value);
     const company = companyInput.value.trim();
     loadConsole(accountId ? { accountId } : { company });
   };
   document.getElementById("loadAccountBtn")?.addEventListener("click", openFromPinFields);
+  document.getElementById("teamAddForm")?.addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const form = ev.currentTarget;
+    addTeammate({
+      firstName: form.firstName.value,
+      lastName: form.lastName.value,
+      email: form.email.value,
+    });
+  });
   [companyInput, accountIdInput].forEach((el) => {
     el?.addEventListener("keydown", (ev) => {
       if (ev.key === "Enter") {
@@ -1857,7 +2256,7 @@
     const ctx = amendChangeCtx();
     if (!ctx?.hasChange || !ctx.qtyValid) {
       amendStatus.textContent =
-        "Change employee count and/or select a module first.";
+        "Change seats, upgrade your plan, or select a module first.";
       amendStatus.classList.remove("error");
       return;
     }
@@ -1882,9 +2281,11 @@
         startDate: ctx.startIso,
       };
       if (ctx.qtyChanged) body.newQty = ctx.newQty;
+      if (ctx.upgradeSku) body.upgradeSku = ctx.upgradeSku;
       // Prefer the open self-serve Draft Quote(s) — retarget instead of create.
       if (sticky?.amendQuotes?.length) body.amendQuotes = sticky.amendQuotes;
       if (sticky?.moduleQuoteId) body.moduleQuoteId = sticky.moduleQuoteId;
+      if (sticky?.upgradeQuoteId) body.upgradeQuoteId = sticky.upgradeQuoteId;
       const resp = await fetch("/api/account-amend-preview", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1960,7 +2361,7 @@
 
   const params = new URLSearchParams(location.search);
   const qEcToken = params.get("ecToken");
-  const qAccount = params.get("accountId");
+  const qAccount = cleanAccountId(params.get("accountId"));
   const qCompany = params.get("company");
   const pin = readPin();
   // Prefer URL / saved pin over any placeholder — never force Northwind.

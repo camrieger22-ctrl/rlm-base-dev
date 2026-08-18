@@ -9,7 +9,7 @@ import urllib.request
 import uuid
 from dataclasses import dataclass, field
 import calendar
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from qualify_crm import (
@@ -48,6 +48,19 @@ def add_calendar_months(day: date, months: int) -> date:
     month = (day.month - 1 + months) % 12 + 1
     last = calendar.monthrange(year, month)[1]
     return date(year, month, min(day.day, last))
+
+
+def remaining_service_end(start: date, *ends: date | None) -> date:
+    """Coterminous line end: latest remaining window, else +1 month — never +365.
+
+    Missing LifecycleEndDate must not invent a year. If an annual window exists
+    on another end (ASP, sibling asset), use that instead of +1 month.
+    """
+    later = [e for e in ends if isinstance(e, date) and e > start]
+    if later:
+        return max(later)
+    return add_calendar_months(start, 1)
+
 
 COUNTRY_ACCOUNT = {
     "US": "Acme",
@@ -345,6 +358,87 @@ def resolve_subscription_window(
     else:
         end = add_calendar_months(start, months)
     return start, end, months
+
+
+def _as_iso_date(value: date | datetime | str | None) -> date | None:
+    """First 10 chars of an ISO datetime, or a date/datetime value."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text[:10])
+    except ValueError:
+        return None
+
+
+def commercial_term_from_window(
+    start: date | datetime | str | None,
+    end: date | datetime | str | None,
+) -> dict[str, Any]:
+    """Classify month-to-month vs 12/24/36 from an Asset/Quote lifecycle window.
+
+    Get Pricing uses the same Term Monthly PBEs for every option; ``termMonths=1``
+    is a 1-month window (month-to-month) and 12/24/36 are committed terms.
+    Do **not** use ``Asset.RenewalTerm`` — that is the billing cadence (always
+    1 Month on this catalog), not the commercial commitment.
+    """
+    start_d = _as_iso_date(start)
+    end_d = _as_iso_date(end)
+    empty = {
+        "termMonths": None,
+        "termKind": "unknown",
+        "termLabel": "Term unknown",
+        "termExact": False,
+    }
+    if start_d is None or end_d is None or end_d <= start_d:
+        return empty
+
+    def _payload(months: int, *, exact: bool) -> dict[str, Any]:
+        if months <= 1:
+            return {
+                "termMonths": 1,
+                "termKind": "month_to_month",
+                "termLabel": "Month-to-month",
+                "termExact": exact,
+            }
+        return {
+            "termMonths": months,
+            "termKind": "committed",
+            "termLabel": f"{months}-month term",
+            "termExact": exact,
+        }
+
+    for months in ALLOWED_TERM_MONTHS:
+        expected = add_calendar_months(start_d, months)
+        if end_d in (expected, expected - timedelta(days=1)):
+            return _payload(months, exact=True)
+
+    days = (end_d - start_d).days
+    bands = (
+        (1, 20, 45),
+        (12, 330, 400),
+        (24, 690, 780),
+        (36, 1050, 1150),
+    )
+    for months, lo, hi in bands:
+        if lo <= days <= hi:
+            return _payload(months, exact=False)
+
+    approx = max(1, round(days / 30.437))
+    if approx <= 2:
+        return _payload(1, exact=False)
+    return {
+        "termMonths": approx,
+        "termKind": "committed",
+        "termLabel": "Committed term",
+        "termExact": False,
+    }
 
 # Demo volume ladder (bh-pricing PAT) — keep in sync with RLM_BambooVolumeTiers.
 VOLUME_BANDS = (
