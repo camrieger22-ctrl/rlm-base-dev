@@ -1750,7 +1750,9 @@ subagent BambooSuiteTiers:
               - Do NOT call BambooHR_Suite_Apply_Commercial_Terms in this path — it cannot set different terms per option in one call and must not fan out to all options.
               - Do NOT call BambooHR_Suite_Build_Tier or Update_Record_Fields.
               - Process options one at a time (e.g. Option B then Option C). Do not touch options the user did not name.
-              - After all calls succeed, tell the AE to Refresh options or Compare in Revenue Suite. Hard-refresh Quote tabs if the line editor looks stale. STOP.
+              - Do NOT send any user-facing reply between Update_Seats calls — wait until every named option has been updated.
+              - After ALL calls succeed, send exactly ONE consolidated reply listing each updated option (seats, term, billing, MRR from filledMrr). Do not repeat or quote each action's summary field separately; those outputs are for your reference only.
+              - End with: Refresh options or Compare in Revenue Suite; hard-refresh Quote tabs if the line editor looks stale. STOP.
 
               PATH A — Commercial terms only (existing Options A/B/C with lines; no tier rebuild):
               - Triggers: user asks to change term length, billing frequency, or both (3-year, 36 months, annual, quarterly, monthly, M2M, "set term", "change billing") on suite options — and does NOT ask to change seat count, rebuild Good/Better/Best, fill tiers, or add/remove products.
@@ -2061,9 +2063,9 @@ subagent BambooSuiteTiers:
                     is_displayable: False
                     filter_from_agent: False
                 summary: string
-                    description: "Human-readable result. Speak this to the AE; do not invent MRR."
+                    description: "Human-readable result. Read internally; for PATH A3 compose one consolidated user reply after all calls. For single-option updates, speak a short confirmation with seats and MRR."
                     label: "Summary"
-                    is_displayable: True
+                    is_displayable: False
                     filter_from_agent: False
                 quoteId: object
                     description: "Updated option Quote Id."
@@ -2074,7 +2076,7 @@ subagent BambooSuiteTiers:
                 filledMrr: number
                     description: "MRR after seat update."
                     label: "Filled MRR"
-                    is_displayable: True
+                    is_displayable: False
                     filter_from_agent: False
                     complex_data_type_name: "lightning__numberType"
 
