@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Restore_Sync__c</fullName>
+    <defaultValue>true</defaultValue>
+    <description>When true, restore Staged Sync Quote after success (Phase A behavior). False in Edit mode.</description>
+    <externalId>false</externalId>
+    <label>Restore Sync</label>
+    <trackTrending>false</trackTrending>
+    <type>Checkbox</type>
+</CustomField>

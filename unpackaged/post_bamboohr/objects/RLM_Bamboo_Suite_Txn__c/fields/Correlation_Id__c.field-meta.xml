@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Correlation_Id__c</fullName>
+    <caseSensitive>false</caseSensitive>
+    <description>External poll id returned to LWC and invocables.</description>
+    <externalId>true</externalId>
+    <label>Correlation Id</label>
+    <length>36</length>
+    <required>true</required>
+    <trackTrending>false</trackTrending>
+    <type>Text</type>
+    <unique>true</unique>
+</CustomField>

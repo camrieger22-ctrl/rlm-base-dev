@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Staged_Sync_Quote__c</fullName>
+    <deleteConstraint>SetNull</deleteConstraint>
+    <description>Opportunity.SyncedQuoteId captured when the job was enqueued.</description>
+    <externalId>false</externalId>
+    <label>Staged Sync Quote</label>
+    <referenceTo>Quote</referenceTo>
+    <relationshipLabel>Bamboo Suite Transactions (Staged Sync)</relationshipLabel>
+    <relationshipName>Bamboo_Suite_Transactions_Staged</relationshipName>
+    <required>false</required>
+    <trackTrending>false</trackTrending>
+    <type>Lookup</type>
+</CustomField>

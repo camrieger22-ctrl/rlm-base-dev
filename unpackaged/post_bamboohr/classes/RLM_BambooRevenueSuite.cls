@@ -2262,6 +2262,31 @@ public with sharing class RLM_BambooRevenueSuite {
     @TestVisible
     private static final Integer LOCK_RETRY_ATTEMPTS = 3;
 
+    /** Slice 4d Phase B — route commercial mutations through txn orchestrator when true. */
+    @TestVisible
+    private static Boolean USE_TXN_ORCHESTRATOR = false;
+
+    /** When true, Place runs without nested suspend/restore (orchestrator owns sync lifecycle). */
+    @TestVisible
+    private static Boolean TXN_JOB_IN_PROGRESS = false;
+
+    public static Boolean isTxnOrchestratorEnabled() {
+        return USE_TXN_ORCHESTRATOR == true;
+    }
+
+    @TestVisible
+    public static void setTxnJobInProgress(Boolean value) {
+        TXN_JOB_IN_PROGRESS = value == true;
+    }
+
+    public static Id syncedQuoteIdForOpportunityPublic(Id opportunityId) {
+        return syncedQuoteIdForOpportunity(opportunityId);
+    }
+
+    public static void clearOpportunitySyncedQuotePublic(Id opportunityId) {
+        setOpportunitySyncedQuote(opportunityId, null);
+    }
+
     /**
      * PST locks the parent Opportunity when SyncedQuoteId is set (even for a sibling
      * option quote). Clear sync before Place, verify pricing while still unsynced, then
@@ -2307,6 +2332,11 @@ public with sharing class RLM_BambooRevenueSuite {
         RevSalesTrxn.ConfigurationExecutionEnum configExec,
         RevSalesTrxn.ConfigurationOptionsInput configOpts
     ) {
+        if (TXN_JOB_IN_PROGRESS) {
+            executePlace(nodes, pricingPref, configExec, configOpts);
+            ensureQuotePricedWhileSyncSuspended(quoteId);
+            return;
+        }
         Id oppId = opportunityIdForQuote(quoteId);
         Id syncedQuoteId = syncedQuoteIdForOpportunity(oppId);
         if (syncedQuoteId != null) {
