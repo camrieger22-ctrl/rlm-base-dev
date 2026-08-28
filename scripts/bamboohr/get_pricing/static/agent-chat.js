@@ -51,13 +51,18 @@
     const q = window.BH_QUALIFY_CONTEXT || {};
     const activate = window.BH_ACTIVATE_CONTEXT || {};
     const acct = window.BH_ACCOUNT_CONTEXT || {};
+    const quoteCtx = window.BH_QUOTE_CONTEXT || {};
+    const onWizard = page === "get-pricing";
+    const onQuote = page === "quote" || page === "amend-quote";
+    const onLicenses = page === "account" || page === "activate";
     const ctx = {
       page,
       accountId:
         params.get("accountId") ||
-        sticky?.accountId ||
-        pin?.accountId ||
-        null,
+        (onQuote ? quoteCtx.accountId || null : null) ||
+        (onLicenses
+          ? sticky?.accountId || pin?.accountId || acct.accountId || null
+          : null),
       contactId: params.get("contactId") || null,
       quoteId: page === "quote" ? pathId("quote") : null,
       amendSummaryId: page === "amend-quote" ? pathId("amend-quote") : null,
@@ -73,21 +78,27 @@
       company: hero?.company || pin?.company || null,
       email: hero?.email || null,
       bffOrigin: location.origin,
-      // Slice 2b — Agent walks the five beats from live wizard state.
-      qualifyStep:
-        q.qualifyStep ||
-        Number(document.body?.dataset?.qualifyStep || 0) ||
-        null,
-      bounceType: q.bounceType || document.body?.dataset?.bounceType || null,
-      bounceReason:
-        q.bounceReason || document.body?.dataset?.bounceReason || null,
-      salesHandoffVisible: !document.getElementById("salesHandoff")?.hidden,
-      qualifySessionId:
-        q.sessionId || sessionStorage.getItem("bhQualifySessionId") || null,
-      headcount:
-        q.headcount ||
-        Number(document.getElementById("heroHeadcount")?.value || 0) ||
-        null,
+      // Wizard leftovers must not stamp Quote / Licenses chats.
+      qualifyStep: onWizard
+        ? q.qualifyStep ||
+          Number(document.body?.dataset?.qualifyStep || 0) ||
+          null
+        : null,
+      bounceType: onWizard
+        ? q.bounceType || document.body?.dataset?.bounceType || null
+        : null,
+      bounceReason: onWizard
+        ? q.bounceReason || document.body?.dataset?.bounceReason || null
+        : null,
+      salesHandoffVisible: onWizard && !document.getElementById("salesHandoff")?.hidden,
+      qualifySessionId: onWizard
+        ? q.sessionId || sessionStorage.getItem("bhQualifySessionId") || null
+        : null,
+      headcount: onWizard
+        ? q.headcount ||
+          Number(document.getElementById("heroHeadcount")?.value || 0) ||
+          null
+        : quoteCtx.headcount || null,
       activateStep: activate.activateStep || null,
       ahaComplete: !!activate.ahaComplete,
       primaryNeeds: activate.needsLabel || (activate.needs || []).join(", ") || null,
@@ -98,6 +109,14 @@
       upgradeAvailable: !!acct.upgradeAvailable,
       upgradeTo: acct.upgradeTo || null,
       upgradeSelected: !!acct.upgradeSelected,
+      nextModuleSku: acct.nextModuleSku || null,
+      nextModuleCopy: acct.nextModuleCopy || null,
+      nextModuleAvailable: !!acct.nextModuleAvailable,
+      eliteIsSales: acct.eliteIsSales !== false,
+      payrollIsSales: acct.payrollIsSales !== false,
+      cadenceWhich: activate.cadenceWhich || null,
+      cadenceDue: !!activate.cadenceDue,
+      cadenceLabel: activate.cadenceLabel || null,
     };
     return ctx;
   };
@@ -134,6 +153,14 @@
     ensure("currentPlan", ctx.currentPlan);
     ensure("upgradeTo", ctx.upgradeTo);
     ensure("upgradeSelected", ctx.upgradeSelected ? "1" : "");
+    ensure("nextModuleSku", ctx.nextModuleSku);
+    ensure("nextModuleCopy", ctx.nextModuleCopy);
+    ensure("nextModuleAvailable", ctx.nextModuleAvailable ? "1" : "");
+    ensure("eliteIsSales", ctx.eliteIsSales ? "1" : "");
+    ensure("payrollIsSales", ctx.payrollIsSales ? "1" : "");
+    ensure("cadenceWhich", ctx.cadenceWhich);
+    ensure("cadenceDue", ctx.cadenceDue ? "1" : "");
+    ensure("cadenceLabel", ctx.cadenceLabel);
     ensure(
       "amendQuotes",
       ctx.amendQuotes?.length ? JSON.stringify(ctx.amendQuotes) : ""
@@ -179,8 +206,8 @@
         </p>
         <ul class="bh-agent-hints">
           <li>“Where am I in the signup?” <span>(5-beat wizard)</span></li>
-          <li>“Why do I need to talk to sales?” <span>(bounce)</span></li>
-          <li>“Create a quote for my company” <span>(needs email)</span></li>
+          <li>“What's the next module?” <span>(Time &amp; Attendance)</span></li>
+          <li>“Can I upgrade to Elite?” <span>(talk to a person)</span></li>
         </ul>
         <p class="bh-agent-meta muted" id="bhAgentMeta"></p>
         <p class="bh-agent-footnote muted">
@@ -265,6 +292,12 @@
       primaryNeeds: str(ctx.primaryNeeds),
       setupDay: str(ctx.setupDay),
       ahaComplete: ctx.ahaComplete ? "1" : "0",
+      nextModuleSku: str(ctx.nextModuleSku),
+      nextModuleCopy: str(ctx.nextModuleCopy),
+      eliteIsSales: ctx.eliteIsSales ? "1" : "0",
+      payrollIsSales: ctx.payrollIsSales ? "1" : "0",
+      cadenceWhich: str(ctx.cadenceWhich),
+      cadenceDue: ctx.cadenceDue ? "1" : "0",
     };
     // MIAW takes an object keyed by channel parameter name; legacy Embedded Chat
     // takes an array of {name, value}.

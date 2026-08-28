@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<QuickAction xmlns="http://soap.sforce.com/2006/04/metadata">
+    <actionSubtype>ScreenAction</actionSubtype>
+    <height>280</height>
+    <label>Create Quote (Bamboo Suite)</label>
+    <lightningWebComponent>rlmBambooCreateQuoteAction</lightningWebComponent>
+    <optionsCreateFeedItem>false</optionsCreateFeedItem>
+    <type>LightningWebComponent</type>
+    <width>100</width>
+</QuickAction>

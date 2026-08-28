@@ -18,6 +18,12 @@
   const newEstimateLink = document.getElementById("newEstimateLink");
   const licensesCta = document.getElementById("licensesCta");
   const footerNote = document.getElementById("activateFooterNote");
+  const cadenceEl = document.getElementById("activateCadence");
+  const cadenceTitle = document.getElementById("cadenceTitle");
+  const cadenceBody = document.getElementById("cadenceBody");
+  const cadenceHint = document.getElementById("cadenceHint");
+  const cadenceMarkBtn = document.getElementById("cadenceMarkBtn");
+  const cadenceTaskLinks = document.getElementById("cadenceTaskLinks");
 
   const qs = new URLSearchParams();
   if (params.get("ecToken")) qs.set("ecToken", params.get("ecToken"));
@@ -41,6 +47,7 @@
     stepsEl.querySelectorAll("button, input, select").forEach((el) => {
       el.disabled = busy;
     });
+    if (cadenceMarkBtn) cadenceMarkBtn.disabled = busy;
   };
 
   const save = (payload) => {
@@ -118,6 +125,7 @@
   const publishAgentContext = (data) => {
     const aha = data.ahaSteps || [];
     const open = aha.find((s) => !s.done && s.action) || aha.find((s) => !s.done);
+    const cadence = data.cadence || {};
     window.BH_ACTIVATE_CONTEXT = {
       page: "activate",
       accountId: data.accountId,
@@ -128,8 +136,63 @@
       setupDay: data.setup ? data.setup.day : null,
       setupDeadline: data.setup ? data.setup.deadline : null,
       setupLabel: data.setup ? data.setup.label : null,
+      cadenceWhich: cadence.which || null,
+      cadenceDue: !!cadence.due,
+      cadenceLabel: cadence.label || null,
+      cadenceOwner: cadence.owner || "Marketing",
+      eliteIsSales: true,
+      payrollIsSales: true,
     };
     document.dispatchEvent(new CustomEvent("bh-agent-context-refresh"));
+  };
+
+  const renderCadence = (data) => {
+    if (!cadenceEl) return;
+    const cadence = data.cadence || {};
+    cadenceEl.hidden = false;
+    cadenceEl.classList.toggle("is-due", !!cadence.due);
+    if (cadenceTitle) {
+      cadenceTitle.textContent = cadence.due
+        ? cadence.title || cadence.label || "Marketing follow-up"
+        : cadence.label || "Marketing follows up during the 14-day setup window";
+    }
+    if (cadenceBody) {
+      cadenceBody.textContent = cadence.due
+        ? cadence.body || ""
+        : cadence.complete
+          ? "Setup is done. Marketing cadence is complete — proof is the CRM Tasks on this Account."
+          : "Day 3, 7, and 14 nudges are Marketing-owned. When the clock hits each day, a CRM Task is logged — no email, not Marketing Cloud.";
+    }
+    if (cadenceHint) {
+      cadenceHint.textContent = cadence.due
+        ? "Creates a CRM Task — we do not send email."
+        : cadence.complete
+          ? "Elite and Payroll stay with a person."
+          : "Marketing owns follow-up. This demo does not send email.";
+    }
+    if (cadenceMarkBtn) {
+      cadenceMarkBtn.hidden = !cadence.due;
+      cadenceMarkBtn.dataset.which = cadence.which || "";
+      cadenceMarkBtn.textContent = cadence.which
+        ? "Mark " + cadence.which.replace("day", "day ") + " sent"
+        : "Mark follow-up sent";
+    }
+    if (cadenceTaskLinks) {
+      if (cadence.taskUrl) {
+        cadenceTaskLinks.hidden = false;
+        cadenceTaskLinks.innerHTML =
+          '<a class="activate-person" href="' +
+          esc(cadence.taskUrl) +
+          '" target="_blank" rel="noopener">Open cadence Task</a>';
+      } else if (cadence.taskId) {
+        cadenceTaskLinks.hidden = false;
+        cadenceTaskLinks.innerHTML =
+          '<span class="muted">CRM Task ' + esc(cadence.taskId) + "</span>";
+      } else {
+        cadenceTaskLinks.hidden = true;
+        cadenceTaskLinks.innerHTML = "";
+      }
+    }
   };
 
   const render = (data) => {
@@ -194,6 +257,7 @@
     } else if (customerProof) {
       customerProof.hidden = true;
     }
+    renderCadence(data);
     const steps = data.ahaSteps || data.steps || [];
     const done = (data.progress && data.progress.done) || 0;
     const total = (data.progress && data.progress.total) || steps.length || 1;
@@ -306,6 +370,29 @@
     } else if (action === "timeoff") {
       save({ timeOffPolicy: form.timeOffPolicy.value });
     }
+  });
+
+  cadenceMarkBtn?.addEventListener("click", () => {
+    const which = cadenceMarkBtn.dataset.which;
+    if (!which) return;
+    setBusy(true);
+    status.textContent = "Logging Marketing follow-up…";
+    status.classList.remove("error");
+    fetch("/api/activate-cadence", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...identity(), which }),
+    })
+      .then((r) => r.json().then((d) => ({ ok: r.ok, d })))
+      .then(({ ok, d }) => {
+        if (!ok || !d.ok) throw new Error(d.error || "Could not mark cadence");
+        render(d);
+      })
+      .catch((err) => {
+        status.textContent = err.message || String(err);
+        status.classList.add("error");
+        setBusy(false);
+      });
   });
 
   fetch("/api/activate?" + qs.toString())

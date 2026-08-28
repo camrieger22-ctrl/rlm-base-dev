@@ -128,11 +128,18 @@ class CheckoutResult:
     payment: dict[str, Any] | None = None
     warnings: list[str] = field(default_factory=list)
     error: str | None = None
+    quote_total: float | None = None
+    start_date: str | None = None
+    quote_name: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
+        pay = self.payment or {}
         return {
             "ok": self.ok,
             "quoteId": self.quote_id,
+            "quoteName": self.quote_name,
+            "quoteTotal": self.quote_total,
+            "startDate": iso_day(self.start_date),
             "orderId": self.order_id,
             "orderNumber": self.order_number,
             "assetIds": self.asset_ids,
@@ -144,6 +151,7 @@ class CheckoutResult:
             # Back-compat alias used by earlier P3 smoke/UI.
             "amendTransactionId": self.amend_quote_id,
             "payment": self.payment,
+            "paymentUrl": pay.get("paymentUrl"),
             "warnings": self.warnings,
             "error": self.error,
         }
@@ -1652,12 +1660,19 @@ def upgrade_assets_to_quote(
     except Exception:
         pass
 
-    pbe = _pbe_for_sku(session, wanted, currency)
-    extra = [{"assetId": aid, "quantity": int(out_quantity)} for aid in ids[1:]]
     end_rows = session.soql(
         "SELECT LifecycleEndDate FROM Asset "
         f"WHERE Id = '{_soql_escape_local(ids[0])}' LIMIT 1"
     )
+    # Blank LifecycleEndDate ⇒ evergreen commercial path.
+    src_smt = (
+        "Evergreen"
+        if end_rows and not (end_rows[0] or {}).get("LifecycleEndDate")
+        else "TermDefined"
+    )
+    pbe_smt = "Evergreen" if src_smt == "Evergreen" else "TermDefined"
+    pbe = _pbe_for_sku(session, wanted, currency, selling_model_type=pbe_smt)
+    extra = [{"assetId": aid, "quantity": int(out_quantity)} for aid in ids[1:]]
     line_end = _iso_day((end_rows[0] or {}).get("LifecycleEndDate")) if end_rows else None
     asp_end = None
     try:
@@ -1759,6 +1774,37 @@ def complete_amend_quote(
     return order_id, order_number, last_qty
 
 
+def iso_day(value: Any) -> str | None:
+    """Normalize Salesforce date/datetime to YYYY-MM-DD."""
+    if value in (None, ""):
+        return None
+    text = str(value).strip()
+    return text[:10] if len(text) >= 10 else text
+
+
+def quote_start_date(
+    session: OrgSession, quote_id: str, header_value: Any = None
+) -> str | None:
+    """Header Quote.StartDate is often blank in RLM — fall back to line StartDate."""
+    start = iso_day(header_value)
+    if start:
+        return start
+    qid = _soql_escape_local(quote_id)
+    if not qid:
+        return None
+    try:
+        rows = session.soql(
+            "SELECT StartDate FROM QuoteLineItem "
+            f"WHERE QuoteId = '{qid}' AND StartDate != null "
+            "ORDER BY CreatedDate ASC LIMIT 1"
+        )
+    except Exception:  # noqa: BLE001
+        return None
+    if not rows:
+        return None
+    return iso_day(rows[0].get("StartDate"))
+
+
 def checkout_quote(
     session: OrgSession,
     quote_id: str,
@@ -1766,8 +1812,17 @@ def checkout_quote(
     amend_qty: int | None = None,
     poll_timeout: int = 180,
     collect_payment: bool = True,
+    chat_fast: bool = False,
 ) -> CheckoutResult:
-    """Place order from quote, activate (assetize), optional qty amend + Pay Now."""
+    """Place order from quote, activate (assetize), optional qty amend + Pay Now.
+
+    ``chat_fast`` keeps asset/Pay Now polling inside the Agentforce 120s callout
+    budget. Payment URL may be empty — Collect Payment fills it later.
+    """
+    if chat_fast:
+        poll_timeout = min(int(poll_timeout or 20), 20)
+        # Stay inside the 120s Agentforce callout: Collect Payment owns Pay Now.
+        collect_payment = False
     warnings: list[str] = []
     order_id: str | None = None
     order_number: str | None = None
@@ -1779,16 +1834,45 @@ def checkout_quote(
     payment: dict[str, Any] | None = None
 
     q = session.soql(
-        f"SELECT Id, QuoteAccountId, Status FROM Quote WHERE Id = '{quote_id}'"
+        "SELECT Id, QuoteAccountId, Status, Name, TotalPrice, StartDate "
+        f"FROM Quote WHERE Id = '{quote_id}'"
     )
     if not q:
         return CheckoutResult(ok=False, quote_id=quote_id, error="Quote not found")
     account_id = q[0].get("QuoteAccountId")
+    quote_name = q[0].get("Name")
+    start_date = quote_start_date(session, quote_id, q[0].get("StartDate"))
+    try:
+        quote_total = (
+            float(q[0]["TotalPrice"]) if q[0].get("TotalPrice") is not None else None
+        )
+    except (TypeError, ValueError):
+        quote_total = None
     if not account_id:
         return CheckoutResult(
             ok=False,
             quote_id=quote_id,
             error="Quote missing QuoteAccountId — required for createOrderFromQuote",
+        )
+
+    existing = find_activated_order_for_quotes(session, [quote_id])
+    if existing:
+        order_id = existing.get("Id")
+        order_number = existing.get("OrderNumber")
+        warnings.append(
+            "Order already Activated — reusing it instead of placing again."
+        )
+        # Already Activated: never generate invoice / Pay Now again.
+        return CheckoutResult(
+            ok=True,
+            quote_id=quote_id,
+            order_id=order_id,
+            order_number=order_number,
+            payment=payment,
+            warnings=warnings,
+            quote_total=quote_total,
+            start_date=start_date,
+            quote_name=quote_name,
         )
 
     try:
@@ -1857,6 +1941,9 @@ def checkout_quote(
             amend_requested_qty=amend_qty,
             payment=payment,
             warnings=warnings,
+            quote_total=quote_total,
+            start_date=str(start_date) if start_date else None,
+            quote_name=quote_name,
         )
     except Exception as exc:  # noqa: BLE001
         return CheckoutResult(
@@ -1873,6 +1960,9 @@ def checkout_quote(
             payment=payment,
             error=str(exc),
             warnings=warnings,
+            quote_total=quote_total,
+            start_date=str(start_date) if start_date else None,
+            quote_name=quote_name,
         )
 
 

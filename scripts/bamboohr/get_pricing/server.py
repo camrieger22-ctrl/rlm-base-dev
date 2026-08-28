@@ -52,7 +52,9 @@ def _load_dotenv(path: Path) -> None:
 _load_dotenv(HERE / ".env")
 
 from account_console import (  # noqa: E402
+    SELF_SERVE_ADDON_SKUS,
     estimate_account_amend,
+    filter_self_serve_addons,
     load_account_console,
     place_account_changes,
     preview_account_changes,
@@ -60,7 +62,11 @@ from account_console import (  # noqa: E402
 )
 from amend_summary import attach_amend_summary_view  # noqa: E402
 from ec_handoff import EcHandoffError, verify_ec_token  # noqa: E402
-from checkout import checkout_quote, place_status_for_quotes  # noqa: E402
+from checkout import (  # noqa: E402
+    checkout_quote,
+    checkout_quote_or_recover,
+    place_status_for_quotes,
+)
 from portal_login import create_buyer_login  # noqa: E402
 from docgen import (  # noqa: E402
     DEFAULT_TEMPLATE,
@@ -85,10 +91,13 @@ from service import (  # noqa: E402
 )
 from qualify_crm import (  # noqa: E402
     DualMotionBlocked,
+    QualifyCommitRequired,
+    QuoteReuseBlocked,
     get_qualify_session,
     list_qualify_sessions,
     lookup_email,
     mark_qualify_cadence_sent,
+    require_self_serve_commit,
     upsert_qualify_session,
 )
 
@@ -742,12 +751,15 @@ class Handler(BaseHTTPRequestHandler):
                         for p in (catalog.get("plans") or [])
                         if (p.get("sku") or "") in MICRO_PLANS
                     ]
-                    catalog = {
-                        **catalog,
-                        "plans": plans,
-                        "microFiltered": True,
-                        "microPlans": sorted(MICRO_PLANS),
-                    }
+                    catalog = filter_self_serve_addons(
+                        {
+                            **catalog,
+                            "plans": plans,
+                        }
+                    )
+                    catalog["microFiltered"] = True
+                    catalog["microPlans"] = sorted(MICRO_PLANS)
+                    catalog["microAddons"] = sorted(SELF_SERVE_ADDON_SKUS)
                 else:
                     catalog = {**catalog, "microFiltered": False}
                 self._json(200, catalog)
@@ -1281,6 +1293,8 @@ class Handler(BaseHTTPRequestHandler):
                         body if isinstance(body, dict) else {}
                     ),
                     account_id=str(body.get("accountId") or "") or None,
+                    start_date=_parse_start_date(body.get("startDate")),
+                    term_months=_parse_term_months(body.get("termMonths")),
                 )
                 if result.get("ok") and result.get("quoteId"):
                     # Seed cache early so /quote/{id} works after promote/submit.
@@ -1296,6 +1310,13 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/get-pricing":
             try:
                 _assert_micro_cart(body)
+                buyer = BuyerInfo.from_request(
+                    body if isinstance(body, dict) else {}
+                )
+                if buyer.email and not (
+                    body.get("fullCatalog") or body.get("bypassMicro")
+                ):
+                    require_self_serve_commit(_session(), buyer.email)
                 raw_addons = body.get("addonSkus") or body.get("addons") or []
                 if isinstance(raw_addons, str):
                     raw_addons = [s.strip() for s in raw_addons.split(",") if s.strip()]
@@ -1308,9 +1329,7 @@ class Handler(BaseHTTPRequestHandler):
                     free_trial=bool(
                         body.get("freeTrial") or body.get("free_trial")
                     ),
-                    buyer=BuyerInfo.from_request(
-                        body if isinstance(body, dict) else {}
-                    ),
+                    buyer=buyer,
                     preview_quote_id=str(
                         body.get("previewQuoteId") or body.get("quoteId") or ""
                     )
@@ -1324,6 +1343,18 @@ class Handler(BaseHTTPRequestHandler):
                     QUOTE_CACHE[result.quote_id] = payload
                     payload["quoteUrl"] = f"/quote/{result.quote_id}"
                 self._json(200, payload)
+            except QualifyCommitRequired as exc:
+                looked = exc.lookup or {}
+                self._json(
+                    409,
+                    {
+                        "ok": False,
+                        "error": str(exc),
+                        "status": "commitRequired",
+                        "reason": str(exc),
+                        "accountId": looked.get("accountId"),
+                    },
+                )
             except DualMotionBlocked as exc:
                 looked = exc.lookup or {}
                 self._json(
@@ -1335,6 +1366,16 @@ class Handler(BaseHTTPRequestHandler):
                         "reason": looked.get("reason"),
                         "signInUrl": looked.get("signInUrl"),
                         "accountId": looked.get("accountId"),
+                    },
+                )
+            except QuoteReuseBlocked as exc:
+                self._json(
+                    409,
+                    {
+                        "ok": False,
+                        "error": str(exc),
+                        "status": "quoteReuseBlocked",
+                        "quoteId": exc.quote_id,
                     },
                 )
             except Exception as exc:  # noqa: BLE001
@@ -1411,6 +1452,35 @@ class Handler(BaseHTTPRequestHandler):
                         email=body.get("email"),
                         admin_email=body.get("adminEmail"),
                         time_off_policy=body.get("timeOffPolicy"),
+                    ),
+                )
+            except EcHandoffError as exc:
+                self._json(401, {"ok": False, "error": str(exc)})
+            except ValueError as exc:
+                self._json(400, {"ok": False, "error": str(exc)})
+            except Exception as exc:  # noqa: BLE001
+                self._json(503, {"ok": False, "error": str(exc)})
+            return
+
+        if path == "/api/activate-cadence":
+            try:
+                account_id = str(body.get("accountId") or "").strip() or None
+                company = str(body.get("company") or "").strip() or None
+                ec_token = str(body.get("ecToken") or "").strip()
+                if ec_token:
+                    claims = verify_ec_token(ec_token)
+                    account_id = claims["accountId"]
+                    company = None
+                which = str(body.get("which") or body.get("cadence") or "").strip()
+                from activate import mark_aha_cadence_sent
+
+                self._json(
+                    200,
+                    mark_aha_cadence_sent(
+                        _session(),
+                        account_id=account_id,
+                        company=company,
+                        which=which,
                     ),
                 )
             except EcHandoffError as exc:
@@ -1571,7 +1641,8 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/account-amend-estimate":
-            # Phase 2 rail: Pricing API after PEPM — no Opp/Quote / due-today.
+            # Phase 2 rail: Core→Pro uses sticky Upgrade Quote (exact TotalPrice);
+            # seat/module-only stays Pricing API provisional until Generate quote.
             account_id = str(body.get("accountId") or "").strip()
             raw_addons = body.get("addonSkus") or body.get("addons") or []
             if not isinstance(raw_addons, list):
@@ -1603,6 +1674,9 @@ class Handler(BaseHTTPRequestHandler):
                         {"ok": False, "error": "startDate must be YYYY-MM-DD"},
                     )
                     return
+            preferred_upgrade = (
+                str(body.get("upgradeQuoteId") or "").strip() or None
+            )
             try:
                 result = estimate_account_amend(
                     _session(),
@@ -1611,6 +1685,7 @@ class Handler(BaseHTTPRequestHandler):
                     addon_skus=addon_skus,
                     upgrade_sku=upgrade_sku,
                     start_date=start_date,
+                    preferred_upgrade_quote_id=preferred_upgrade,
                 )
                 self._json(200 if result.get("ok") else 400, result)
             except Exception as exc:  # noqa: BLE001
@@ -1748,11 +1823,28 @@ class Handler(BaseHTTPRequestHandler):
                 if invoice_id:
                     prompt = build_payment_prompt_for_invoice(sess, invoice_id)
                 else:
+                    target_date = None
+                    target_raw = str(body.get("targetDate") or "").strip()
+                    if target_raw:
+                        try:
+                            from datetime import date as _date
+
+                            target_date = _date.fromisoformat(target_raw[:10])
+                        except ValueError:
+                            self._json(
+                                400,
+                                {
+                                    "ok": False,
+                                    "error": "targetDate must be YYYY-MM-DD",
+                                },
+                            )
+                            return
                     prompt = build_payment_prompt(
                         sess,
                         order_id,
                         collect=True,
                         poll_timeout=int(body.get("pollTimeout") or 90),
+                        target_date=target_date,
                     )
                 payload = {
                     "ok": bool(prompt.invoice_id or prompt.ready),
@@ -1864,12 +1956,17 @@ class Handler(BaseHTTPRequestHandler):
                 sess = _session()
                 collect_raw = body.get("collectPayment")
                 collect_payment = True if collect_raw is None else bool(collect_raw)
-                result = checkout_quote(
+                chat_fast = bool(body.get("chatFast"))
+                poll_timeout = int(body.get("pollTimeout") or (20 if chat_fast else 180))
+                if chat_fast:
+                    poll_timeout = min(poll_timeout, 20)
+                result = checkout_quote_or_recover(
                     sess,
                     quote_id,
                     amend_qty=amend_qty,
-                    poll_timeout=int(body.get("pollTimeout") or 180),
+                    poll_timeout=poll_timeout,
                     collect_payment=collect_payment,
+                    chat_fast=chat_fast,
                 )
                 payload = result.as_dict()
                 cached = QUOTE_CACHE.get(quote_id) or {}

@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 import os
 import sys
@@ -152,6 +152,8 @@ def test_empty_checklist_without_account() -> None:
     check("employees action", data["steps"][3]["action"] == "employees")
     check("team payload present", data["team"]["seatsFilled"] == 0)
     check("team cannot add without account", data["team"]["canAdd"] is False)
+    check("cadence owner", data["cadence"]["owner"] == "Marketing")
+    check("cadence not due without clock", data["cadence"]["due"] is False)
 
 
 def test_add_named_employees() -> None:
@@ -280,6 +282,8 @@ def test_complete_remaining_steps() -> None:
     ]
     check("timeoff Task created", len(timeoff_tasks) == 1)
     check("aha complete", out["ahaComplete"] is True)
+    check("cadence complete after aha", out["cadence"]["complete"] is True)
+    check("cadence not due after aha", out["cadence"]["due"] is False)
     check("spreadsheet finish", "spreadsheet" in (out["message"] or "").lower())
     check("licenses mentions seats", "seats filled" in next(
         s for s in out["steps"] if s["id"] == "licenses"
@@ -368,6 +372,122 @@ def test_setup_clock_from_payment() -> None:
     check("deadline Aug 24", clock["deadline"] == "2026-08-24")
 
 
+def test_aha_cadence_sequence() -> None:
+    print("\nMarketing cadence")
+    waiting = act.aha_cadence(clock={"day": 2}, sent={}, aha_complete=False)
+    check("day 2 not due", waiting["due"] is False)
+    check("waiting on day 3", "day 3" in (waiting.get("label") or "").lower())
+    day3 = act.aha_cadence(clock={"day": 3}, sent={}, aha_complete=False)
+    check("day 3 due", day3["due"] is True and day3["which"] == "day3")
+    still_first = act.aha_cadence(clock={"day": 8}, sent={}, aha_complete=False)
+    check("day 8 still owes day3 first", still_first["which"] == "day3")
+    day7 = act.aha_cadence(
+        clock={"day": 8}, sent={"day3": "00T1"}, aha_complete=False
+    )
+    check("after day3, day7 is due", day7["which"] == "day7")
+    waiting = act.aha_cadence(
+        clock={"day": 5}, sent={"day3": "00T1"}, aha_complete=False
+    )
+    check("waiting after mark is sent", waiting["due"] is False and waiting["sent"] is True)
+    day14 = act.aha_cadence(
+        clock={"day": 14},
+        sent={"day3": "00T1", "day7": "00T2"},
+        aha_complete=False,
+    )
+    check("day 14 due", day14["which"] == "day14")
+    done = act.aha_cadence(clock={"day": 8}, sent={}, aha_complete=True)
+    check("aha complete stops due", done["due"] is False and done["complete"] is True)
+
+
+def test_mark_aha_cadence_creates_task() -> None:
+    print("\nmark cadence sent")
+    session = FakeSession(_acct())
+    start = datetime.now(timezone.utc) - timedelta(days=2)
+    session.payments = [
+        {
+            "Id": "0aQ",
+            "Amount": 120,
+            "Status": "Processed",
+            "CreatedDate": start.strftime("%Y-%m-%dT12:00:00.000+0000"),
+        }
+    ]
+    out = act.mark_aha_cadence_sent(
+        session, account_id="001000000000001AAA", which="day3"
+    )
+    tasks = [c for s, c in session.creates if s == "Task"]
+    check("created cadence Task", len(tasks) == 1)
+    check(
+        "marketing subject",
+        "Day 3" in tasks[0]["Subject"] and "Marketing" in tasks[0]["Subject"],
+    )
+    check("completed Task", tasks[0]["Status"] == "Completed")
+    check("on Account", tasks[0]["WhatId"] == "001000000000001AAA")
+    check("day3 no longer due", (out.get("cadence") or {}).get("which") != "day3")
+    act.mark_aha_cadence_sent(
+        session, account_id="001000000000001AAA", which="day3"
+    )
+    check(
+        "idempotent",
+        len([c for s, c in session.creates if s == "Task"]) == 1,
+    )
+    try:
+        act.mark_aha_cadence_sent(
+            session, account_id="001000000000001AAA", which="day99"
+        )
+        check("bad which raises", False)
+    except ValueError as exc:
+        check("bad which raises", "day3" in str(exc))
+
+
+def test_parse_needs_timetracking() -> None:
+    print("\nneeds include time tracking")
+    check(
+        "time tracking alias",
+        act.parse_needs("hiring, time tracking") == ["hiring", "timetracking"],
+    )
+    check("label", act.NEED_LABELS["timetracking"] == "Time tracking")
+
+
+def test_auto_cadence_creates_due_tasks() -> None:
+    print("\nauto cadence Tasks on GET")
+    session = FakeSession(_acct())
+    start = datetime.now(timezone.utc) - timedelta(days=7)
+    session.payments = [
+        {
+            "Id": "0aQ",
+            "Amount": 120,
+            "Status": "Processed",
+            "CreatedDate": start.strftime("%Y-%m-%dT12:00:00.000+0000"),
+        }
+    ]
+    data = act.build_activate_checklist(
+        session, account_id="001000000000001AAA"
+    )
+    subjects = [t.get("Subject") or "" for t in session.tasks]
+    check("day3 auto-created", any("Day 3" in s for s in subjects))
+    check("day7 auto-created", any("Day 7" in s for s in subjects))
+    check("not due after auto", data["cadence"]["due"] is False)
+    check("sent after auto", data["cadence"]["sent"] is True)
+    n = len(session.tasks)
+    act.build_activate_checklist(session, account_id="001000000000001AAA")
+    check("GET is idempotent", len(session.tasks) == n)
+    empty = FakeSession(_acct())
+    empty.payments = list(session.payments)
+    act.build_activate_checklist(empty)
+    check("no Tasks without accountId", len(empty.tasks) == 0)
+
+
+def test_pass3_activate_ui_hooks() -> None:
+    print("\nActivate cadence UI")
+    html = open(os.path.join(GP, "static", "activate.html"), encoding="utf-8").read()
+    js = open(os.path.join(GP, "static", "activate.js"), encoding="utf-8").read()
+    check("cadence card", 'id="activateCadence"' in html)
+    check("mark sent button", 'id="cadenceMarkBtn"' in html)
+    check("posts activate-cadence", "/api/activate-cadence" in js)
+    check("Salesforce Account copy", "Salesforce Account" in html)
+    check("cache wizard40", "wizard40" in html)
+
+
 def test_rejects_bad_input() -> None:
     print("\nvalidation")
     session = FakeSession(_acct())
@@ -409,6 +529,11 @@ def main() -> int:
     test_timeoff_stamp_without_task_is_not_done()
     test_needs_put_timeoff_before_invite()
     test_setup_clock_from_payment()
+    test_aha_cadence_sequence()
+    test_parse_needs_timetracking()
+    test_auto_cadence_creates_due_tasks()
+    test_mark_aha_cadence_creates_task()
+    test_pass3_activate_ui_hooks()
     test_rejects_bad_input()
     passed = sum(1 for _, ok in RESULTS if ok)
     print(f"\n{passed}/{len(RESULTS)} passed")

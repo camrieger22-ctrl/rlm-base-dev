@@ -34,10 +34,13 @@ from service import (
     core_flat_price,
     expected_addon_net,
     expected_net,
+    is_evergreen_term,
     line_item_dict,
     lightning_record_url,
     normalize_addons,
     plan_list_price,
+    quote_line_term_fields,
+    resolve_subscription_window,
     resolve_buyer_account,
     sync_quote_to_opportunity,
     uses_core_flat,
@@ -175,20 +178,25 @@ def _opp_has_other_quotes(
 
 
 def discard_preview_quote(session: OrgSession, quote_id: str | None) -> bool:
-    """Delete a sticky preview Quote and its orphan Get Pricing Opportunity."""
+    """Delete a sticky preview Quote and its orphan Get Pricing Opportunity.
+
+    Never deletes a normal Get Pricing / SelfServe Draft — those Ids are reused
+    in place by ``get_pricing``, not discarded.
+    """
     qid = (quote_id or "").strip()
     if not qid:
         return False
-    opp_id = None
+    rows: list[dict[str, Any]] = []
     try:
         rows = session.soql(
-            f"SELECT OpportunityId FROM Quote WHERE Id = '{_soql_escape(qid)}' LIMIT 1"
+            "SELECT Id, OpportunityId, Name, Description FROM Quote "
+            f"WHERE Id = '{_soql_escape(qid)}' LIMIT 1"
         )
-        if rows:
-            opp_id = rows[0].get("OpportunityId")
     except Exception:
-        pass
-    deleted = False
+        return False
+    if not rows or not _is_preview_quote(rows[0]):
+        return False
+    opp_id = rows[0].get("OpportunityId")
     try:
         session.delete("Quote", qid)
         deleted = True
@@ -328,25 +336,31 @@ def _replace_sticky_lines_via_pst(
     plan_qty: int,
     headcount: int,
     start: str,
-    end: str,
+    end: str | None,
+    stamp_preview_description: bool = True,
 ) -> None:
     """Best-practice cart update: DELETE old QLIs + POST new ones in one place graph.
 
     Matches Salesforce Place Quote / PST examples (method DELETE on QuoteLineItem).
+    Pass ``stamp_preview_description=False`` when updating a real SelfServe Draft
+    so the Quote is not tagged as a sticky preview.
     """
     existing = _quote_line_rows(session, quote_id)
+    quote_record: dict[str, Any] = {
+        "attributes": {
+            "method": "PATCH",
+            "type": "Quote",
+            "id": quote_id,
+        },
+        "Name": quote_name,
+        "StartDate": start,
+    }
+    if stamp_preview_description:
+        quote_record["Description"] = _description_for(cfg)
     records: list[dict[str, Any]] = [
         {
             "referenceId": "refQuote",
-            "record": {
-                "attributes": {
-                    "method": "PATCH",
-                    "type": "Quote",
-                    "id": quote_id,
-                },
-                "Name": quote_name,
-                "Description": _description_for(cfg),
-            },
+            "record": quote_record,
         }
     ]
     for i, row in enumerate(existing):
@@ -377,10 +391,7 @@ def _replace_sticky_lines_via_pst(
                     "Product2Id": pbe["Product2Id"],
                     "PricebookEntryId": pbe["Id"],
                     "Quantity": str(line_qty),
-                    "StartDate": start,
-                    "EndDate": end,
-                    "PeriodBoundary": "Anniversary",
-                    "BillingFrequency": "Monthly",
+                    **quote_line_term_fields(start, end),
                 },
             }
         )
@@ -439,6 +450,8 @@ def _create_sticky_quote(
     pbes: dict[str, dict[str, Any]],
     cfg: str,
     opportunity_id: str | None = None,
+    start_iso: str | None = None,
+    end_iso: str | None = None,
 ) -> tuple[str, str]:
     """Create the Account's sticky Draft Quote on one reused Opportunity.
 
@@ -464,9 +477,10 @@ def _create_sticky_quote(
         )
     except Exception:
         pass
-    today = date.today().isoformat()
-    term_days = TRIAL_DAYS if free_trial else 365
-    end = (date.today() + timedelta(days=term_days)).isoformat()
+    start = start_iso or date.today().isoformat()
+    end = end_iso
+    if free_trial and not end:
+        end = (date.today() + timedelta(days=TRIAL_DAYS)).isoformat()
     quote_name = _quote_name(plan_sku, addon_skus, free_trial)
     records: list[dict[str, Any]] = [
         {
@@ -479,6 +493,7 @@ def _create_sticky_quote(
                 "QuoteAccountId": acct["Id"],
                 "CurrencyIsoCode": currency,
                 "Description": _description_for(cfg),
+                "StartDate": start,
             },
         }
     ]
@@ -497,10 +512,7 @@ def _create_sticky_quote(
                     "Product2Id": pbe["Product2Id"],
                     "PricebookEntryId": pbe["Id"],
                     "Quantity": str(line_qty),
-                    "StartDate": today,
-                    "EndDate": end,
-                    "PeriodBoundary": "Anniversary",
-                    "BillingFrequency": "Monthly",
+                    **quote_line_term_fields(start, end),
                 },
             }
         )
@@ -615,6 +627,8 @@ def preview_get_pricing(
     quote_id: str | None = None,
     buyer: BuyerInfo | None = None,
     account_id: str | None = None,
+    start_date: date | None = None,
+    term_months: int | None = None,
 ) -> dict[str, Any]:
     """Create or refresh one sticky Draft Quote; return System-reprice totals."""
     warnings: list[str] = []
@@ -627,6 +641,19 @@ def preview_get_pricing(
         return {"ok": False, "error": f"Unsupported plan {plan_sku!r}"}
     if headcount < 1 or headcount > 100000:
         return {"ok": False, "error": "headcount must be between 1 and 100000"}
+
+    try:
+        start_day, end_day, months = resolve_subscription_window(
+            start_date=start_date,
+            term_months=term_months,
+            free_trial=bool(free_trial),
+        )
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+    start_iso = start_day.isoformat()
+    end_iso = end_day.isoformat() if end_day else None
+    evergreen = is_evergreen_term(months, free_trial=bool(free_trial))
+    pbe_smt = "Evergreen" if evergreen else "TermDefined"
 
     try:
         addon_skus = normalize_addons(addon_skus)
@@ -673,7 +700,14 @@ def preview_get_pricing(
         )
 
     skus_needed = [sell_plan_sku, *addon_skus]
-    pbes = {sku: _pbe_for_sku(session, sku, currency) for sku in skus_needed}
+    pbes = {
+        sku: _pbe_for_sku(session, sku, currency, selling_model_type=pbe_smt)
+        for sku in skus_needed
+    }
+    if evergreen:
+        warnings.append(
+            "Month-to-month preview: Evergreen Monthly (no commitment end date)."
+        )
 
     with _account_lock(acct["Id"]):
 
@@ -697,9 +731,8 @@ def preview_get_pricing(
         can_reuse = False
         lines_replaced = False
         qty_only_update = False
-        today = date.today().isoformat()
-        term_days = TRIAL_DAYS if free_trial else 365
-        end = (date.today() + timedelta(days=term_days)).isoformat()
+        today = start_iso
+        end = end_iso
         q_name = _quote_name(plan_sku, addon_skus, free_trial)
         preferred_opp_id = (sticky or {}).get("OpportunityId")
 
@@ -807,6 +840,8 @@ def preview_get_pricing(
                 pbes=pbes,
                 cfg=cfg,
                 opportunity_id=preferred_opp_id,
+                start_iso=start_iso,
+                end_iso=end_iso,
             )
             created_new = True
 

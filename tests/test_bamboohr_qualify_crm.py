@@ -166,6 +166,15 @@ def test_self_serve_names() -> None:
     check("self-serve hyphen", qc.is_self_serve_name("self-serve checkout"))
     check("self serve spaces", qc.is_self_serve_name("self serve"))
     check("plain AE name is not self-serve", not qc.is_self_serve_name("Acme Q1 Renewal"))
+    check(
+        "Get Pricing name is acquisition draft",
+        qc.is_acquisition_draft_name("Get Pricing — BambooHR Pro"),
+    )
+    check(
+        "trial name is acquisition draft",
+        qc.is_acquisition_draft_name("14-day trial — BambooHR Core"),
+    )
+    check("AE renewal is not acquisition draft", not qc.is_acquisition_draft_name("Acme Q1 Renewal"))
 
 
 def test_lookup_email() -> None:
@@ -290,6 +299,13 @@ def test_campaign_and_sessions() -> None:
         )
         check("email merges onto same session", rec2.get("email") == "pat@acme.com")
         check("needs preserved", rec2.get("needs") == ["records", "hiring"])
+        rec3 = qc.upsert_qualify_session(
+            {"sessionId": sid, "step": 5, "needs": []}
+        )
+        check(
+            "empty needs list does not wipe prior needs",
+            rec3.get("needs") == ["records", "hiring"],
+        )
         check("utm preserved", rec2.get("utm", {}).get("utm_campaign") == "micro-plg")
         incomplete = qc.list_qualify_sessions(incomplete_only=True)
         check("incomplete list includes it", any(r["sessionId"] == sid for r in incomplete))
@@ -327,6 +343,79 @@ def test_handoff_brief() -> None:
     check("brief is a bounce", brief.startswith(qc.HANDOFF_TASK_PREFIX))
     check("brief keeps payroll reason", "Payroll" in brief)
     check("brief keeps headcount", "24" in brief)
+
+
+def test_micro_qualify_gates_and_quote_commit() -> None:
+    print("\nmicro qualify gates + Quote requires SelfServe stamp")
+    import service as svc
+
+    try:
+        qc.assert_micro_qualify(headcount=40, country="US", needs=["hiring"])
+        check("40 employees rejected", False)
+    except ValueError as exc:
+        check("40 employees rejected", "24" in str(exc))
+    try:
+        qc.assert_micro_qualify(headcount=12, country="UK", needs=["hiring"])
+        check("UK rejected", False)
+    except ValueError as exc:
+        check("UK rejected", "Canada" in str(exc))
+    try:
+        qc.assert_micro_qualify(headcount=12, country="US", needs=["hiring", "payroll"])
+        check("payroll needs rejected", False)
+    except ValueError as exc:
+        check("payroll needs rejected", "Payroll" in str(exc))
+
+    buyer = svc.BuyerInfo(
+        company="Sales Path Co",
+        email="sales-path@example.com",
+        needs=["payroll"],
+    )
+    try:
+        svc.commit_qualify_identity(
+            FakeSession(), buyer=buyer, headcount=12, country="US"
+        )
+        check("commit payroll needs fails", False)
+    except ValueError:
+        check("commit payroll needs fails", True)
+
+    try:
+        qc.require_self_serve_commit(FakeSession(), "new-uncommitted@example.com")
+        check("uncommitted email blocks Quote", False)
+    except qc.QualifyCommitRequired:
+        check("uncommitted email blocks Quote", True)
+
+    stamped = FakeSession(
+        contacts=[
+            {
+                "Id": "003x",
+                "AccountId": "001x",
+                "Email": "committed@example.com",
+                "Account": {
+                    "Name": "Committed Co",
+                    "RLM_Bamboo_SelfServe__c": True,
+                },
+            }
+        ]
+    )
+    looked = qc.require_self_serve_commit(stamped, "committed@example.com")
+    check("stamped SelfServe allows Quote", looked.get("selfServeStamped") is True)
+
+    existing = FakeSession(
+        contacts=[
+            {
+                "Id": "003e",
+                "AccountId": "001e",
+                "Email": "has-assets@example.com",
+                "Account": {"Name": "Cust", "RLM_Bamboo_SelfServe__c": False},
+            }
+        ],
+        assets=[{"Id": "02i"}],
+    )
+    try:
+        qc.require_self_serve_commit(existing, "has-assets@example.com")
+        check("existing customer still DualMotion", False)
+    except qc.DualMotionBlocked:
+        check("existing customer still DualMotion", True)
 
 
 def test_commit_and_handoff() -> None:
@@ -677,6 +766,7 @@ def main() -> int:
     test_campaign_and_sessions()
     test_opp_quote_names()
     test_handoff_brief()
+    test_micro_qualify_gates_and_quote_commit()
     test_commit_and_handoff()
     test_lookup_backfills_legacy_bounce()
     test_buyer_from_request_merges_top_level()

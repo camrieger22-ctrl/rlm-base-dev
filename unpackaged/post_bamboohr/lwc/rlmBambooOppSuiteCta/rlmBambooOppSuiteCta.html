@@ -1,0 +1,18 @@
+<template>
+    <div class="cta">
+        <div class="brand-row">
+            <span class="brand">BambooHR Revenue Suite</span>
+            <span class="chip">AE</span>
+        </div>
+        <p class="blurb">
+            Build quote options in the BambooHR suite (catalog, configure, Agentforce). Does not
+            open classic New Quote.
+        </p>
+        <template if:true={error}>
+            <div class="error" role="alert">{error}</div>
+        </template>
+        <button class="primary" type="button" onclick={handleCreate} disabled={disabled}>
+            {buttonLabel}
+        </button>
+    </div>
+</template>

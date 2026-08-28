@@ -636,6 +636,7 @@ project:
     q3_pricing_dataset: &q3_pricing_dataset "datasets/sfdmu/q3/en-US/q3-pricing"                                     # Q3 pricing data (split from former q3-multicurrency)
     bamboohr_pcm_dataset: &bamboohr_pcm_dataset "datasets/sfdmu/bamboohr/en-US/bh-pcm"                               # BambooHR product catalog
     bamboohr_pricing_dataset: &bamboohr_pricing_dataset "datasets/sfdmu/bamboohr/en-US/bh-pricing"                   # BambooHR pricing
+    bamboohr_billing_dataset: &bamboohr_billing_dataset "datasets/sfdmu/bamboohr/en-US/bh-billing"                   # BambooHR BillingPolicy on Product2
     q3_billing_dataset: &q3_billing_dataset "datasets/sfdmu/q3/en-US/q3-billing"                                     # Q3 billing data
     q3_dro_dataset: &q3_dro_dataset "datasets/sfdmu/q3/en-US/q3-dro"                                                 # Q3 DRO data
     q3_tax_dataset: &q3_tax_dataset "datasets/sfdmu/q3/en-US/q3-tax"                                                 # Q3 tax data
@@ -1050,7 +1051,7 @@ tasks:
 
   test_agents:
     group: Revenue Lifecycle Management
-    description: Run Agentforce CLI Testing Center specs against published+activated agents. Use the agent option to run one suite (billing or quoting-assistant) or all suites in one explicit invocation; use test_files to run a comma-separated subset of YAML specs. Deploys each selected spec as an AiEvaluationDefinition (`sf agent test create`) and runs it (`sf agent test run`), failing if any topic/action assertion — or any output validation on a case that set an expectedOutcome — does not pass. Requires the target agent to be published and activated first (see prepare_agents). Not part of prepare_agents; run only on demand or in CI after activation.
+    description: Run Agentforce CLI Testing Center specs against published+activated agents. Use the agent option to run one suite (billing, quoting-assistant, or bamboohr-self-service) or all suites in one explicit invocation; use test_files to run a comma-separated subset of YAML specs. Deploys each selected spec as an AiEvaluationDefinition (`sf agent test create`) and runs it (`sf agent test run`), failing if any topic/action assertion — or any output validation on a case that set an expectedOutcome — does not pass. Requires the target agent to be published and activated first (see prepare_agents). Not part of prepare_agents; run only on demand or in CI after activation.
     class_path: tasks.rlm_test_agents.TestAgents
     options:
       agent: quoting-assistant
@@ -2217,6 +2218,17 @@ tasks:
     class_path: tasks.rlm_sfdmu.LoadSFDMUData
     options:
       pathtoexportjson: *bamboohr_pricing_dataset
+
+  insert_bamboohr_billing_data:
+    group: Revenue Lifecycle Management
+    description: >
+      Assign Billing Policy - Advance to BambooHR Product2 SKUs so Term Monthly
+      12/24/36 deals invoice monthly (PEPM × seats), not full-term OrderAmount
+      upfront. Run after insert_bamboohr_pcm_data and after qb-billing policies
+      exist (prepare_billing).
+    class_path: tasks.rlm_sfdmu.LoadSFDMUData
+    options:
+      pathtoexportjson: *bamboohr_billing_dataset
 
   migrate_bamboohr_to_three_plan_skus:
     group: Revenue Lifecycle Management
@@ -4351,7 +4363,9 @@ flows:
       ManualDiscount), amend Volume Discount for LastTransaction lines
       (RLM_Amend_Volume_Qty__c context + overlay), and plan-exclusivity CML
       when constraints_data is on.
-      Catalog/pricing data still loads via insert_bamboohr_* tasks. Quote page
+      Catalog/pricing data still loads via insert_bamboohr_* tasks; after pcm +
+      qb-billing, run insert_bamboohr_billing_data (also step 28 here when
+      billing=true) so Term Monthly deals invoice monthly. Quote page
       coach + TLE side-panel fields ship via the bamboohr flexipage patch during
       prepare_ux when bamboohr=true.
     steps:
@@ -4460,6 +4474,9 @@ flows:
         options:
           operation: activate_versions
           version_full_names: BambooHrPlans_V1
+      28:
+        task: insert_bamboohr_billing_data
+        when: project_config.project__custom__bamboohr and project_config.project__custom__billing
 
   upsert_fulfillment_scope_cnfg:
     group: Revenue Lifecycle Management

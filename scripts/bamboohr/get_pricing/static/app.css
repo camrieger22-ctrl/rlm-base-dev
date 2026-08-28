@@ -2578,13 +2578,78 @@ body.quote-page {
 
 .account-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.85fr);
+  grid-template-columns: 1fr;
   gap: 1.1rem;
   align-items: start;
 }
 
-@media (max-width: 900px) {
-  .account-grid { grid-template-columns: 1fr; }
+.account-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0 0 1.15rem;
+  padding: 0.3rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+}
+
+.account-tab {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--abbey);
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 700;
+  padding: 0.55rem 1rem;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.account-tab:hover {
+  color: var(--ink);
+  background: var(--lima-soft);
+}
+
+.account-tab[aria-selected="true"] {
+  color: #fff;
+  background: var(--bilbao);
+}
+
+.account-tab-panel {
+  min-width: 0;
+}
+
+#accountWorkspace {
+  position: relative;
+}
+
+@media (min-width: 960px) {
+  #accountWorkspace.has-change-rail {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+    gap: 1.1rem 1.25rem;
+    align-items: start;
+  }
+
+  #accountWorkspace.has-change-rail .account-tabs {
+    grid-column: 1 / -1;
+  }
+
+  #accountWorkspace.has-change-rail #accountGrid {
+    grid-column: 1;
+  }
+
+  #accountWorkspace.has-change-rail .account-plan-rail {
+    grid-column: 2;
+    grid-row: 2;
+    position: sticky;
+    top: 5rem;
+    margin: 0;
+    max-width: none;
+    width: 100%;
+  }
 }
 
 .sub-facts {
@@ -3989,6 +4054,34 @@ body.micro-mode .plan-grid--micro {
   font-weight: 500;
   color: #5a6b5c;
   font-size: 0.78rem;
+}
+.activate-cadence {
+  margin: 0 0 1rem;
+  padding: 0.85rem 1rem 1rem;
+  background: #fff;
+  border: 1px solid rgba(56, 102, 60, 0.12);
+  border-radius: 14px;
+}
+.activate-cadence.is-due {
+  border-color: rgba(115, 175, 0, 0.45);
+  background: #f7faf5;
+}
+.activate-cadence h3 {
+  margin: 0 0 0.35rem;
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #1a2e1c;
+}
+.activate-cadence p {
+  margin: 0 0 0.5rem;
+  font-size: 0.92rem;
+  color: #4a5c4c;
+}
+.activate-cadence .quote-cta {
+  margin-top: 0.25rem;
+}
+.account-page .next-module-cta {
+  margin-top: 0.75rem;
 }
 .activate-aha-head {
   display: flex;

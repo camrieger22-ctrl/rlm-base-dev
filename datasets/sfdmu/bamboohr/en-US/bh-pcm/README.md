@@ -7,6 +7,7 @@ SFDMU data plan for BambooHR Product Catalog Management (PCM). **Three plan SKUs
 | Task | Description |
 |------|-------------|
 | `insert_bamboohr_pcm_data` | Runs this SFDMU plan |
+| `insert_bamboohr_billing_data` | Assigns `Billing Policy - Advance` (after pcm + qb-billing) |
 | `migrate_bamboohr_to_three_plan_skus` | Deactivates legacy `BAMBOO-SUITE` + Plan ABA after cutover |
 
 ```yaml
@@ -49,9 +50,9 @@ Legacy `BAMBOO-SUITE` (one SKU + Plan attribute) is obsolete after migrate.
 | 9 | ProductClassificationAttr | Upsert | `Name` | 0 (excluded) |
 | 10 | Product2 | Upsert | `StockKeepingUnit` | 9 |
 | 11 | ProductAttributeDefinition | Upsert | `AttributeDefinition.Code;Product2.StockKeepingUnit` | 0 (excluded) |
-| 12 | ProductSellingModel | Upsert | `Name;SellingModelType` | 2 |
+| 12 | ProductSellingModel | Upsert | `Name;SellingModelType` | 3 |
 | 13 | ProrationPolicy | Upsert | `Name` | 1 |
-| 14 | ProductSellingModelOption | Upsert | `Product2.StockKeepingUnit;ProductSellingModel.Name;ProductSellingModel.SellingModelType` | 18 |
+| 14 | ProductSellingModelOption | Upsert | `Product2.StockKeepingUnit;ProductSellingModel.Name;ProductSellingModel.SellingModelType` | 27 |
 | 15 | ProductRampSegment | Upsert | `Product.StockKeepingUnit;ProductSellingModel.SellingModelType;SegmentType` | 0 (excluded) |
 | 16 | ProductRelationshipType | Upsert | `Name` | 1 |
 | 17 | ProductComponentGroup | Upsert | `Code` | 2 |
@@ -63,7 +64,7 @@ Legacy `BAMBOO-SUITE` (one SKU + Plan attribute) is obsolete after migrate.
 | 23 | ProductCategoryProduct | Upsert | `ProductCategory.Code;Product.StockKeepingUnit` | 9 |
 | 24 | ProductQualification | Upsert | `Name` | 0 (excluded) |
 | 25 | ProductDisqualification | Upsert | `Name` | 0 (excluded) |
-| 26 | ProductCategoryDisqual | Upsert | `RLM_Disqualification_Key__c` | 1 (`PC-BH-US-ADDONS|CA`) |
+| 26 | ProductCategoryDisqual | Upsert | `RLM_Disqualification_Key__c` | 2 |
 | 27 | ProductCategoryQualification | Upsert | `RLM_Qualification_Key__c` | 0 (excluded) |
 | 28 | ProdtAttrScope | Upsert | `Name` | 0 (excluded) |
 

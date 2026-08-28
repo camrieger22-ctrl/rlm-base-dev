@@ -21,9 +21,10 @@ Pay Now (checkout + Licenses weave-in plan).
    Agent chat reads `qualifyStep` / bounce context to walk the five beats.
 1. User continues to **Core or Pro** only (Elite / add-ons hidden). Headcount 1–24.
    **Standard list PEPM** × headcount (no `BAMBOO-CORE-FLAT-SM` package).
-   Month-to-month PEPM by default (`termMonths=1`); buyers can also pick a
-   **12 / 24 / 36**-month commitment. Same Term Monthly PBEs; Quote line
-   StartDate/EndDate span the selected window (`ALLOWED_TERM_MONTHS`).
+    Month-to-month PEPM by default (`termMonths=1` → **Evergreen Monthly**, no
+   EndDate); buyers can also pick a **12 / 24 / 36**-month **TermDefined**
+   commitment (Term Monthly PBEs; Quote line StartDate/EndDate span the window).
+   Same monthly Billing / Pay Now for both paths.
 2. Configurator changes call **`/api/get-pricing-estimate`**: Salesforce
    **Pricing API** (headless) prices the cart with synthetic Quote/QLI ids —
    **no Opportunity or Quote** is created while configuring. Local math paints
@@ -105,17 +106,18 @@ Full JWT / Docker / Connected App steps: **HOSTED.md**.
 | GET | `/qualify-inbox` | Abandoned sessions + cadence stage (waiting / 1-day due / 1-week due) + resume / mailto / mark-sent |
 | POST | `/api/qualify-cadence` | Demo inbox: `{ sessionId, which: day1\|week1 }` marks follow-up sent |
 | GET | `/api/agent-config` | Agentforce / Messaging embed flags (`enabled`, `preview`, deployment ids) — no secrets |
-| GET | `/api/catalog?country=US\|CA\|UK` | Curated SKUs → org PBE list PEPM / names / availability |
-| GET | `/api/account-console?accountId=\|company=\|ecToken=` | Licenses & billing (demo pin or EC HMAC handoff); includes open `invoices` and `team` (named onboard Contacts vs licensed seats) |
-| GET | `/api/account-invoices?accountId=\|company=\|ecToken=` | Posted invoices with balance &gt; 0 (+ Active Pay Now URL when present). Per-invoice `paidApplying` when a Processed Payment of that amount was created at or after the invoice (Balance lag). `bucket` is `thisBill` (invoices of the latest Activated Order that still has an open/paid-applying bill) or `earlier` (prior-change leftovers — stay earlier after this bill applies, unless the only remaining group is paid-applying). Leftover invoices of other amounts stay payable. Also account-level `paymentReceived` / `pendingBalanceApply`. |
+| GET | `/api/catalog?country=US\|CA\|UK` | Curated SKUs → org PBE list PEPM / names / availability. Default micro filter: Core/Pro + Time; `fullCatalog=1` for the rest. |
+| GET | `/api/account-console?accountId=\|company=\|ecToken=` | Licenses & billing (demo pin or EC HMAC handoff); includes open `invoices`, `team` (named onboard Contacts vs licensed seats), `expansion` (Core→Pro), and `nextModule` (Time & Attendance self-serve; Elite/Payroll stay sales). |
+| GET | `/api/account-invoices?accountId=\|company=\|ecToken=` | Posted invoices for the account (open **and** settled — Licenses history). Active Pay Now URL only when `balance &gt; 0`. Per-invoice `settled` / `settlementStatus`; `paidApplying` when a Processed Payment matches while Balance still lags. `bucket` is `thisBill` or `earlier`. Also account-level `paymentReceived` / `pendingBalanceApply`. |
 | GET | `/api/account-amend-place-status?accountId=&quoteIds=` | Recover Place: newest Activated Order for those Quote ids (success when Place HTTP timed out). |
-| GET | `/api/activate?accountId=\|company=\|ecToken=` | Post-pay activation: `customerSteps` (paid / licensed / signed in) + `ahaSteps` (employees, invite, time-off, licenses). `setup` is Day N of 14 from Pay Now. `needs` personalizes aha order/copy from Account `RLM_Bamboo_PrimaryNeeds__c`. Invite and time-off are done only when the CRM Task exists. |
+| GET | `/api/activate?accountId=\|company=\|ecToken=` | Post-pay activation: `customerSteps` (paid / licensed / signed in) + `ahaSteps` (employees, invite, time-off, licenses). `setup` is Day N of 14 from Pay Now. `cadence` is Marketing Day 3 / 7 / 14 follow-up (`which`, `due`, Task proof — not email / Marketing Cloud). When `accountId` is present, due cadence steps auto-create CRM Tasks (no email). `needs` personalizes aha order/copy from Account `RLM_Bamboo_PrimaryNeeds__c` (includes `timetracking`). Invite and time-off are done only when the CRM Task exists. |
 | POST | `/api/activate` | Complete an aha step: `{ accountId\|company\|ecToken, firstName+lastName+email?, adminEmail?, timeOffPolicy? }`. Person → Contact (`RLM_Bamboo_OnboardEmployee__c`). `adminEmail` → Contact + Task *Invited as BambooHR admin*. `timeOffPolicy` → Account field + Task *Set time-off policy* (no email / no PTO engine). |
+| POST | `/api/activate-cadence` | Marketing aha nudge: `{ accountId\|company\|ecToken, which: day3\|day7\|day14 }` creates a Completed CRM Task if GET has not already logged it (demo proof — not Marketing Cloud). |
 | GET | `/activate` | Branded activate checklist UI |
-| GET | `/api/catalog?country=&fullCatalog=` | Hydrated plans/add-ons. Micro mode (default) returns **Core/Pro only**; `fullCatalog=1` for full catalog. |
+| GET | `/api/catalog?country=&fullCatalog=` | Hydrated plans/add-ons. Micro mode (default) returns **Core/Pro** plans and **Time & Attendance** only; Payroll/Benefits/Global/Elite are omitted. `fullCatalog=1` restores the SE catalog. |
 | GET | `/api/ec-handoff?token=` | Verify EC handoff → `{ accountId, contactId, exp }` |
 | POST | `/api/create-login` | `{ accountId, contactId?, email, password }` → community User + `ecToken` handoff |
-| POST | `/api/account-amend-estimate` | Pricing API before/after → est. prorated change lines (`dueToday` provisional). `{ accountId, newQty?, addonSkus?, upgradeSku?, startDate? }` — Core→Pro uses `upgradeSku=BAMBOO-PRO`. Exact charge after Generate quote |
+| POST | `/api/account-amend-estimate` | Phase 2 rail. **Core→Pro** (`upgradeSku`): sticky Initiate Upgrade + System reprice → `dueToday` = Quote `TotalPrice` (`dueTodayProvisional: false`, returns `upgradeQuoteId`). Seat/module-only: Pricing API before/after → est. prorated lines (`dueTodayProvisional: true`). Pass prior `upgradeQuoteId` to retarget. |
 | POST | `/api/account-amend-preview` | Generate / **update** quote: sticky Draft Quotes + System reprice (no Activate). Pass prior `amendQuotes` / `moduleQuoteId` / `upgradeQuoteId`. `upgradeSku` calls Initiate Upgrade (one Quote). Returns `dueToday` from Quote TotalPrice |
 | POST | `/api/account-amend` | `{ accountId, newQty?, addonSkus?, upgradeSku?, amendQuotes?, moduleQuoteId?, upgradeQuoteId? }` → activate preview Quotes → Order. Returns when the Order is Activated (invoice/Pay Now is collected after). Core→Pro is OOTB Initiate Upgrade, not cancel + replace. |
 | POST | `/api/qualify-session` | Persist wizard progress (size/geo/needs/role/email/UTM). `{ sessionId?, step, headcount, country, needs, dmRole, email, company, utm }` |
@@ -132,14 +134,15 @@ Full JWT / Docker / Connected App steps: **HOSTED.md**.
 | GET | `/api/docgen-pdf/<contentVersionId>` | PDF bytes (attachment) |
 | POST | `/api/quote-email` | `{ quoteId, toEmail?, attachPdf? }` → Salesforce sends quote email (+ DocGen PDF) |
 
-**Licenses & billing UI:** `/account` — subscription snapshot (**month-to-month
-vs 12/24/36-month term**, paid PEPM, recurring monthly total), **Your plan**
-(Core→Pro in-product upgrade; Elite stays with sales), **Your team** (same
-Contacts as `/activate`; add-teammate does not change Asset quantity), open
-invoices (Pay Now), recent orders, qty amend preview/place.
-Demo pin via Account Id / company name; buyer path via Experience Cloud login →
-signed `ecToken` (see `EXPERIENCE_CLOUD.md`). Open **Pay** in a private window
-if you’re also logged into Salesforce (guest Pay Now + admin cookies conflict).
+**Licenses & billing UI:** `/account` — tabs **Overview** (subscription,
+Your plan / Core→Pro, Next module / T&A, Change employees + sticky change rail),
+**Billing** (invoices + Pay Now, orders), and **People** (team contacts; does
+not change Asset quantity). Volume bands and the Add modules grid are hidden
+for micro self-serve. Demo pin via Account Id / company name; buyer path via
+Experience Cloud login → signed `ecToken` (see `EXPERIENCE_CLOUD.md`). Open
+**Pay** in a private window if you’re also logged into Salesforce (guest Pay
+Now + admin cookies conflict). After Place, dismiss success lands on Billing.
+Deep links: `?tab=billing|people|overview`, `?focus=invoices`, `?paid=1`.
 
 Pay Now weave-in plan / phases: **[PAYNOW.md](./PAYNOW.md)**.
 
@@ -155,6 +158,28 @@ System reprice; the amend summary shows the exact Quote TotalPrice.
 **Core→Pro (month-to-month and annual):** same OOTB Initiate Upgrade. Pro
 inherits Core’s remaining lifecycle window — it does **not** restart a new
 year and it does **not** convert month-to-month into annual.
+
+**12 / 24 / 36-month billing:** assign **Billing Policy - Advance** on Bamboo
+Product2 (`cci task run insert_bamboohr_billing_data` after pcm + qb-billing).
+Schedules use monthly `BillingPeriodAmount` (PEPM × seats); Pay Now should
+collect ~one month first, with later months pending for seat true-ups.
+
+**Mid-month seat true-up smoke:** with the BFF up against the org:
+
+```bash
+# Needs CumulusCI for org SOQL (not bare python):
+~/.local/pipx/venvs/cumulusci/bin/python \
+  scripts/bamboohr/get_pricing/smoke_midmonth_trueup.py \
+  --org master-demo --base-url http://127.0.0.1:8765
+```
+
+When `today.day >= 15` (or `--mode midmonth`), it buys Core @ 15 seats from
+the 1st, invoices with `POST /api/collect-payment` `targetDate` = period start
+(single month, no catch-up), amends 15→23 on the 15th, asserts the stub ≈
+`8 × PEPM × remaining_days / days_in_month`, ASP MRR ≈ 23 × PEPM, then
+regenerates on `NextBillingDate` for ~full month @ 23. Use `--mode sameday`
+any day for a compressed path (start = amend = today). Offline proration
+math: `python tests/test_bamboohr_midmonth_trueup_math.py`.
 
 | Current Core term | After upgrade |
 |-------------------|---------------|
@@ -205,10 +230,11 @@ BFF pages load `/static/agent-chat.js`. By default you get a **preview launcher*
 | `AGENT_CHAT_ENABLED=1` + deployment fields | Loads Messaging for In-App and Web |
 | `AGENT_CHAT_PREVIEW=0` and not enabled | No launcher |
 
-Context (`page`, `accountId`, sticky Draft ids, …) is published as
+Context (`page`, `accountId`, sticky Draft ids, `nextModuleSku`, `cadenceWhich`, …) is published as
 `window.BH_AGENT_CONTEXT`. Locked product rules: guest may **estimate**; Quote
-create needs company + email; **Place order stays on the summary CTA**; actions
-call the BFF (Phase 2). Plan:
+create needs company + email; **Place order stays on the summary CTA**; Time &
+Attendance is the in-product next module; **Elite and Payroll stay with a person**;
+actions call the BFF (Phase 2). Plan:
 `.agents/artifacts/bamboohr-bff-agentforce-implementation-plan.md`.
 
 ### Agentforce → BFF actions (Phase 2)
@@ -224,8 +250,26 @@ Apex cannot reach `127.0.0.1`.
 | Estimate Get Pricing | `POST /api/get-pricing-estimate` |
 | Create Get Pricing Quote | `POST /api/get-pricing` |
 | Get Licenses Summary | `GET /api/account-console` |
-| Estimate Amend | `POST /api/account-amend-estimate` |
+| Estimate Amend | `POST /api/account-amend-estimate` (Core→Pro: sticky Upgrade Quote; else Pricing API) |
 | Generate Or Update Amend Quote | `POST /api/account-amend-preview` + cache |
+| Save Qualify Session | `POST /api/qualify-session` |
+| Lookup Qualify Email | `POST /api/qualify-lookup` |
+| Commit Qualify Identity | `POST /api/qualify-commit` |
+| Handoff Qualify To Sales | `POST /api/qualify-handoff` |
+
+Create Quote is blocked until beat-5 SelfServe commit: BFF returns **409**
+`status: commitRequired`; Apex treats that as failure. Payroll / Elite SKUs are
+rejected in Apex before the callout. Empty `needs` on Save Qualify Session does
+not wipe prior wizard needs.
+
+**Agent tests (Testing Center YAML):** `agentforce/tests/bamboohr-self-service-qualify.yaml`
+and spec `agentforce/specs/bamboohrSelfServiceAgent.yaml`. Live run (org
+must already have the published agent):
+
+```bash
+sf agent test run --target-org master-demo \
+  --test-file scripts/bamboohr/get_pricing/agentforce/tests/bamboohr-self-service-qualify.yaml
+```
 
 Checklist: `.agents/artifacts/bamboohr-agentforce-phase2-checklist.md`.
 

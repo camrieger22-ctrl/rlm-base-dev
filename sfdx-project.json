@@ -13,6 +13,7 @@
     { "path": "unpackaged/post_billing_template_id_settings" },
     { "path": "unpackaged/post_billing_template_settings" },
     { "path": "unpackaged/post_billing_ui" },
+    { "path": "unpackaged/post_bamboohr" },
     { "path": "unpackaged/post_clm" },
     { "path": "unpackaged/post_collections" },
     { "path": "unpackaged/post_commerce" },

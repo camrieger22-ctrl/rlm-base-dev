@@ -29,9 +29,11 @@ from service import (
     core_flat_price,
     expected_addon_net,
     expected_net,
+    is_evergreen_term,
     line_item_dict,
     normalize_addons,
     plan_list_price,
+    pricing_window_end,
     resolve_subscription_window,
     uses_core_flat,
     volume_rate,
@@ -59,14 +61,21 @@ def _standard_pricebook_id(session: OrgSession) -> str:
     return pb
 
 
-def cached_pbe_for_sku(session: OrgSession, sku: str, currency: str = "USD") -> dict:
+def cached_pbe_for_sku(
+    session: OrgSession,
+    sku: str,
+    currency: str = "USD",
+    *,
+    selling_model_type: str = "TermDefined",
+) -> dict:
     """PBE lookup with process-local cache (estimate fires this many times)."""
-    key = (session.alias or "default", sku.upper(), currency.upper())
+    smt = (selling_model_type or "TermDefined").strip() or "TermDefined"
+    key = (session.alias or "default", sku.upper(), currency.upper(), smt)
     with _pbe_lock:
         hit = _pbe_cache.get(key)
         if hit:
             return hit
-    row = _pbe_for_sku(session, sku, currency)
+    row = _pbe_for_sku(session, sku, currency, selling_model_type=smt)
     with _pbe_lock:
         _pbe_cache[key] = row
     return row
@@ -165,7 +174,7 @@ def headless_price_cart(
         free_trial=free_trial,
     )
     today = start_day.isoformat()
-    end = end_day.isoformat()
+    end = pricing_window_end(start_day, end_day).isoformat()
     synth_quote = f"0Q0EST{uuid.uuid4().hex[:12].upper()}"
     items = []
     for i, line in enumerate(lines):
@@ -287,8 +296,13 @@ def estimate_get_pricing(
 
     skus_needed = [sell_plan_sku, *addon_skus]
     catalog_lines: list[dict[str, Any]] = []
+    pbe_smt = (
+        "Evergreen"
+        if is_evergreen_term(months, free_trial=free_trial)
+        else "TermDefined"
+    )
     for sku in skus_needed:
-        pbe = _pbe_for_sku(session, sku, currency)
+        pbe = _pbe_for_sku(session, sku, currency, selling_model_type=pbe_smt)
         catalog_lines.append(
             {
                 "sku": sku,

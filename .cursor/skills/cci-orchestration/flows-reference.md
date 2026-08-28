@@ -247,6 +247,7 @@ Deploy BambooHR volume-tier coach + US-only category qualification wiring (PCQ f
 27. **task** `manage_expression_sets`  `when: project_config.project__custom__bamboohr and project_config.project__custom__constraints_data`
    - `operation`: `activate_versions`
    - `version_full_names`: `BambooHrPlans_V1`
+28. **task** `insert_bamboohr_billing_data`  `when: project_config.project__custom__bamboohr and project_config.project__custom__billing`
 
 ---
 

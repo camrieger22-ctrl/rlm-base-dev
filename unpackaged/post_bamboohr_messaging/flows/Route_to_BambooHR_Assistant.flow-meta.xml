@@ -139,7 +139,7 @@
     </processMetadataValues>
     <processType>RoutingFlow</processType>
     <recordUpdates>
-        <description>Persist hidden pre-chat context so the agent can read it — agent variables can only bind to MessagingSession fields. Faults route anyway: losing context must never drop the chat.</description>
+        <description>Persist hidden pre-chat context so the agent can read it — agent variables can only bind to MessagingSession fields. Stamps wizard beat plus AccountId, QuoteId, and qualifySessionId. Faults route anyway: losing context must never drop the chat.</description>
         <name>Stamp_Qualify_Context</name>
         <label>Stamp Qualify Context on Session</label>
         <locationX>0</locationX>
@@ -180,6 +180,24 @@
             <field>RLM_Bamboo_QualifyStep__c</field>
             <value>
                 <elementReference>qualifyStep</elementReference>
+            </value>
+        </inputAssignments>
+        <inputAssignments>
+            <field>RLM_Bamboo_AccountId__c</field>
+            <value>
+                <elementReference>AccountId</elementReference>
+            </value>
+        </inputAssignments>
+        <inputAssignments>
+            <field>RLM_Bamboo_QuoteId__c</field>
+            <value>
+                <elementReference>QuoteId</elementReference>
+            </value>
+        </inputAssignments>
+        <inputAssignments>
+            <field>RLM_Bamboo_QualifySessionId__c</field>
+            <value>
+                <elementReference>qualifySessionId</elementReference>
             </value>
         </inputAssignments>
         <object>MessagingSession</object>

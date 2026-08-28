@@ -36,6 +36,29 @@ class DualMotionBlocked(ValueError):
         self.lookup = lookup
 
 
+class QualifyCommitRequired(ValueError):
+    """Get Pricing Quote before beat-5 SelfServe stamp — agent/UI must commit first."""
+
+    def __init__(self, lookup: dict[str, Any] | None = None) -> None:
+        super().__init__(
+            "Create your self-serve account before requesting a Quote."
+        )
+        self.lookup = lookup or {}
+
+
+class QuoteReuseBlocked(ValueError):
+    """previewQuoteId / quoteId cannot be updated in place — never delete it."""
+
+    def __init__(self, message: str, quote_id: str | None = None) -> None:
+        super().__init__(message)
+        self.quote_id = quote_id
+
+
+MICRO_MAX_HEADCOUNT = 24
+MICRO_COUNTRIES = frozenset({"US", "CA"})
+SALES_NEEDS = frozenset({"payroll", "elite", "benefits", "global"})
+
+
 SALES_WORKING_COPY = (
     "Sales is already working this. We will not start a second self-serve Quote."
 )
@@ -78,6 +101,19 @@ def is_self_serve_name(*parts: str) -> bool:
     blob = " ".join(p or "" for p in parts).lower()
     compact = blob.replace(" ", "").replace("_", "").replace("-", "")
     return "selfserve" in compact or "self-serve" in blob or "self serve" in blob
+
+
+def is_acquisition_draft_name(name: str) -> bool:
+    """True for Get Pricing / SelfServe / trial Drafts the buyer agent may update."""
+    n = (name or "").strip()
+    if not n:
+        return False
+    if is_self_serve_name(n):
+        return True
+    low = n.lower()
+    if low.startswith("get pricing"):
+        return True
+    return bool(re.search(r"\d+-day trial", low))
 
 
 def classify_from_rows(
@@ -286,6 +322,7 @@ def lookup_email(session: Any, email: str) -> dict[str, Any]:
     rows = session.soql(
         "SELECT Id, AccountId, FirstName, LastName, Email, LeadSource, Description, "
         "Account.Name, Account.RLM_Bamboo_SalesHandoff__c, "
+        "Account.RLM_Bamboo_SelfServe__c, "
         "Account.Owner.Name, Account.Owner.Email, "
         "Account.Owner.UserRole.Name, Account.Owner.IsActive "
         "FROM Contact "
@@ -303,6 +340,7 @@ def lookup_email(session: Any, email: str) -> dict[str, Any]:
             "signInUrl": None,
             "ownerName": None,
             "ownerEmail": None,
+            "selfServeStamped": False,
         }
     c = rows[0]
     aid = c["AccountId"]
@@ -396,6 +434,7 @@ def lookup_email(session: Any, email: str) -> dict[str, Any]:
         "ownerName": owner_name,
         "ownerEmail": owner_email,
         "signInUrl": sign_in,
+        "selfServeStamped": bool(acct.get("RLM_Bamboo_SelfServe__c")),
     }
 
 
@@ -420,6 +459,42 @@ def _safe_patch(session: Any, sobject: str, record_id: str, fields: dict[str, An
                 warnings.append(f"{sobject} stamp skipped: {msg[:240]}")
                 return warnings
     return warnings
+
+
+def assert_micro_qualify(
+    *,
+    headcount: int | None,
+    country: str | None,
+    needs: list[str] | None,
+) -> None:
+    """Reject beat-5 SelfServe stamp for sales-path size / geo / needs."""
+    hc = int(headcount or 0)
+    if hc > MICRO_MAX_HEADCOUNT:
+        raise ValueError(
+            f"Micro self-serve supports at most {MICRO_MAX_HEADCOUNT} employees "
+            "(talk to sales for larger teams)."
+        )
+    geo = (country or "US").upper().strip()
+    if geo and geo not in MICRO_COUNTRIES:
+        raise ValueError("Micro self-serve is US and Canada only.")
+    sales = [n for n in (needs or []) if str(n).strip().lower() in SALES_NEEDS]
+    if sales:
+        raise ValueError(
+            "Payroll, Elite, Benefits, and Global Payroll stay with a person — "
+            "use sales handoff, not a self-serve account."
+        )
+
+
+def require_self_serve_commit(session: Any, email: str) -> dict[str, Any]:
+    """Block Quote create until beat-5 SelfServe stamp (or dual-motion bounce)."""
+    looked = lookup_email(session, email)
+    if not looked.get("ok"):
+        raise ValueError(looked.get("error") or "Enter a valid work email.")
+    if looked.get("status") in (STATUS_SALES_WORKING, STATUS_EXISTING_CUSTOMER):
+        raise DualMotionBlocked(looked)
+    if not looked.get("selfServeStamped"):
+        raise QualifyCommitRequired(looked)
+    return looked
 
 
 def stamp_self_serve(
@@ -536,7 +611,11 @@ def upsert_qualify_session(payload: dict[str, Any]) -> dict[str, Any]:
             "step": payload.get("step") if payload.get("step") is not None else prior.get("step"),
             "headcount": payload.get("headcount", prior.get("headcount")),
             "country": payload.get("country", prior.get("country")),
-            "needs": payload.get("needs", prior.get("needs")) or [],
+            "needs": (
+                payload["needs"]
+                if payload.get("needs")
+                else (prior.get("needs") or [])
+            ),
             "dmRole": payload.get("dmRole", prior.get("dmRole")),
             "email": payload.get("email", prior.get("email")) or "",
             "company": payload.get("company", prior.get("company")) or "",

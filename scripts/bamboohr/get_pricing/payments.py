@@ -597,11 +597,15 @@ def generate_invoice_for_order(
     *,
     action: str = "Posted",
     poll_timeout: int = 90,
+    target_date: date | None = None,
 ) -> dict[str, Any] | None:
     """Invoice the order via Billing Business API; poll for a Posted invoice.
 
-    Uses ``targetDate`` = max(today, earliest NextBillingDate) so future-dated
-    BambooHR amend starts still invoice when schedules exist.
+    Default ``targetDate`` = max(today, earliest NextBillingDate) so
+    future-dated BambooHR amend starts still invoice when schedules exist.
+
+    Pass ``target_date`` to pin the Billing generate window (harness / next
+    period proof) without waiting for the calendar.
     """
     order_rows = session.soql(
         f"SELECT Id, AccountId FROM Order WHERE Id = '{order_id}'"
@@ -626,8 +630,11 @@ def generate_invoice_for_order(
         )
 
     today = date.today()
-    next_bill = _earliest_next_billing_date(schedules) or today
-    target = max(today, next_bill)
+    if target_date is not None:
+        target = target_date
+    else:
+        next_bill = _earliest_next_billing_date(schedules) or today
+        target = max(today, next_bill)
     target_s = target.isoformat()
     started = datetime.now(timezone.utc) - timedelta(seconds=5)
 
@@ -783,6 +790,19 @@ def annotate_invoices_paid_applying(
         bal = target.get("balance")
         total = target.get("totalAmountWithTax")
         inv_when = _created_stamp(target)
+        try:
+            bal_f = float(bal) if bal is not None else 0.0
+        except (TypeError, ValueError):
+            bal_f = 0.0
+        if (
+            target.get("settled")
+            or bal_f <= 0
+            or target.get("settlementStatus") == "Settled"
+        ):
+            target["settled"] = True
+            target["paidApplying"] = False
+            target["paymentUrl"] = None
+            continue
         paid = False
         reason: str | None = None
         for pay in payments:
@@ -950,15 +970,22 @@ def list_open_invoices(
     *,
     limit: int = 20,
 ) -> list[dict[str, Any]]:
-    """Posted invoices with remaining balance for an Account (buyer Licenses UI)."""
+    """Posted invoices for an Account (Licenses UI — open and settled).
+
+    Historically open-only (``Balance > 0``). Buyers need history too, so every
+    Posted invoice is returned; Pay Now links are only resolved when balance
+    remains. ``settled`` is true when balance is zero (or SettlementStatus is
+    Settled).
+    """
     if not account_id:
         return []
     lim = max(1, min(int(limit), 50))
     rows = session.soql(
-        "SELECT Id, InvoiceNumber, DocumentNumber, Status, Balance, "
-        "TotalAmountWithTax, BillingAccountId, ReferenceEntityId, CreatedDate "
+        "SELECT Id, InvoiceNumber, DocumentNumber, Status, SettlementStatus, "
+        "Balance, TotalAmountWithTax, BillingAccountId, ReferenceEntityId, "
+        "CreatedDate, FullSettlementDate "
         f"FROM Invoice WHERE BillingAccountId = '{account_id}' "
-        "AND Status = 'Posted' AND Balance > 0 "
+        "AND Status = 'Posted' "
         f"ORDER BY CreatedDate DESC LIMIT {lim}"
     )
     out: list[dict[str, Any]] = []
@@ -966,22 +993,29 @@ def list_open_invoices(
         inv_id = row["Id"]
         number = row.get("InvoiceNumber") or row.get("DocumentNumber") or inv_id
         balance = float(row.get("Balance") or 0)
-        active = _find_active_payment_link(
-            session,
-            account_id=account_id,
-            amount=balance,
-            title_hint=f"Pay invoice {number}",
-        )
+        settlement = row.get("SettlementStatus")
+        settled = balance <= 0 or settlement == "Settled"
+        active = None
+        if not settled and balance > 0:
+            active = _find_active_payment_link(
+                session,
+                account_id=account_id,
+                amount=balance,
+                title_hint=f"Pay invoice {number}",
+            )
         out.append(
             {
                 "id": inv_id,
                 "invoiceNumber": number,
                 "documentNumber": row.get("DocumentNumber"),
                 "status": row.get("Status"),
+                "settlementStatus": settlement,
+                "settled": settled,
                 "balance": balance,
                 "totalAmountWithTax": row.get("TotalAmountWithTax"),
                 "referenceEntityId": row.get("ReferenceEntityId"),
                 "createdDate": row.get("CreatedDate"),
+                "fullSettlementDate": row.get("FullSettlementDate"),
                 "invoiceUrl": _lex_url(session, "Invoice", inv_id),
                 "paymentLinkId": (active or {}).get("Id"),
                 "paymentUrl": (active or {}).get("PaymentUrl"),
@@ -1204,6 +1238,7 @@ def build_payment_prompt(
     *,
     collect: bool = True,
     poll_timeout: int = 90,
+    target_date: date | None = None,
 ) -> PaymentPrompt:
     """After order activate: invoice + Pay Now URL when org is configured."""
     warnings: list[str] = []
@@ -1220,7 +1255,10 @@ def build_payment_prompt(
 
     try:
         invoice = generate_invoice_for_order(
-            session, order_id, poll_timeout=poll_timeout
+            session,
+            order_id,
+            poll_timeout=poll_timeout,
+            target_date=target_date,
         )
     except Exception as exc:  # noqa: BLE001
         return PaymentPrompt(

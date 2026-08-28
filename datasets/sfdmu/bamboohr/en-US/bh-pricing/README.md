@@ -22,7 +22,7 @@ insert_bamboohr_pricing_data:
 
 | Rule | Implementation |
 |------|----------------|
-| Core / Pro / Elite PEPM | Own PBEs: **USD $10 / $17 / $25** Monthly; Annual = 12×. **CAD** ×1.35, **GBP** ×0.79 (demo FX) |
+| Core / Pro / Elite PEPM | Own PBEs: **USD $10 / $17 / $25** Monthly + matching **Evergreen Monthly** (same UnitPrice); Annual = 12×. **CAD** ×1.35, **GBP** ×0.79 (demo FX) |
 | Core small-biz flat | `BAMBOO-CORE-FLAT-SM` **USD $250** / CAD **$337.50** / GBP **£197.50** Monthly (qty 1); Annual = 12×; **no volume tiers**; Get Pricing when Core + headcount ≤ 25 |
 | Add-on placeholders | Payroll / Benefits / Time / Global: USD $8/$6/$4/$12; CAD/GBP scaled by same FX |
 | Volume demo ladder | `Standard Price Adjustment Tier` 5–25% on PEPM plans + add-ons (not on flat SKU) — **USD + CAD + GBP** schedules |
@@ -85,7 +85,7 @@ See `scripts/bamboohr/get_pricing/README.md` (P2 form + P3 `/api/checkout`).
 | 0 | Account | Upsert | `Name` | 4 (Acme, Prestige, UK Demo, Nonprofit) |
 | 1 | CurrencyType | Upsert | `IsoCode` | 3 (USD, CAD, GBP) |
 | 2 | ProrationPolicy | Update | `Name` | 1 |
-| 3 | ProductSellingModel | Readonly | `Name;SellingModelType` | 2 |
+| 3 | ProductSellingModel | Readonly | `Name;SellingModelType` | 3 |
 | 4 | AttributeDefinition | Readonly | `Code` | 0 (excluded) |
 | 5 | Product2 | Readonly | `StockKeepingUnit` | 9 |
 | 6 | CostBook | Upsert | `Name` | 0 (excluded) |
@@ -96,6 +96,6 @@ See `scripts/bamboohr/get_pricing/README.md` (P2 form + P3 `/api/checkout`).
 | 11 | AttributeAdjustmentCondition | Insert | `AttributeBasedAdjRule.Name;AttributeDefinition.Code;Product.StockKeepingUnit` | 0 (excluded) |
 | 12 | AttributeBasedAdjustment | Insert | `AttributeBasedAdjRule.Name;PriceAdjustmentSchedule.Name;Product.StockKeepingUnit;ProductSellingModel.Name;CurrencyIsoCode` | 0 (excluded) |
 | 13 | BundleBasedAdjustment | Insert | `PriceAdjustmentSchedule.Name;Product.StockKeepingUnit;ParentProduct.StockKeepingUnit;RootBundle.StockKeepingUnit;ProductSellingModel.Name;ParentProductSellingModel.Name;RootProductSellingModel.Name;CurrencyIsoCode` | 12 |
-| 14 | PricebookEntry | Insert | `Product2.StockKeepingUnit;ProductSellingModel.Name;CurrencyIsoCode;Pricebook2.Name` | 54 |
+| 14 | PricebookEntry | Insert | `Product2.StockKeepingUnit;ProductSellingModel.Name;CurrencyIsoCode;Pricebook2.Name` | 81 |
 | 15 | PricebookEntryDerivedPrice | Insert | `Pricebook.Name;PricebookEntry.Product2.StockKeepingUnit;PricebookEntry.ProductSellingModel.Name;Product.StockKeepingUnit;ContributingProduct.StockKeepingUnit;ProductSellingModel.Name;CurrencyIsoCode` | 0 (excluded) |
 | 16 | CostBookEntry | Insert | `CostBook.Name;Product.StockKeepingUnit;CurrencyIsoCode` | 0 (excluded) |

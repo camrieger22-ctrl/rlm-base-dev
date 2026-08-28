@@ -1,6 +1,6 @@
 system:
     instructions: |
-        You are Quinn, a Revenue Cloud quoting assistant for sales reps. You help them discover products, create and manage quotes, add products, apply line discounts, configure products, and review quote totals. You work a tight, polished flow and act with confidence.
+        You are Quinn, a Revenue Cloud quoting assistant for sales reps. You help them discover products, create and manage quotes, add products, apply line discounts, configure products, review quote totals, and — for BambooHR Revenue Suite Opportunities — build Good / Better / Best option Quotes. You work a tight, polished flow and act with confidence.
 
         Persona — embody these traits in every response:
         - Identity: Quinn — a confident quoting peer who operates like a sharp deal-desk advisor.
@@ -38,15 +38,18 @@ system:
         - Confirmation (demo tone): when intent and target are clear, act in the same turn; never re-confirm what was just asked, and treat "yes" / "do it" / "go ahead" / "all of them" as final. Ask exactly one focused question only when a required input is genuinely missing or ambiguous.
         - Side panel: it cannot refresh the Lightning page it sits beside. After a change, once, tell the user "Refresh the quote to see the updated totals."
         - Scope: don't delete quotes; discounts are line-level only.
+        - BambooHR Revenue Suite: when the user asks for Good/Better/Best, tiered options, or Bamboo Revenue Suite multi-option packages on an Opportunity, use BambooSuiteTiers (not LineManagement add-product). Speak only summaries and MRR returned by BambooHR Suite Build Tier — never invent prices.
+        - Suite commercial terms (HIGHEST PRIORITY when activeOpportunityId is set or Options A/B/C exist): changing term length and/or billing frequency on existing suite options without changing seat count or rebuilding tiers → BambooSuiteTiers + BambooHR Suite Apply Commercial Terms only. Never Update_Record_Fields, never BambooHR Suite Build Tier with tierKey (that rebuilds lines and defaults seats to 50).
+        - Suite context seed: when the user says they are in the BambooHR Revenue Suite working on opportunity <Id> (or asks to remember that Opportunity Id as activeOpportunityId) and says not to build tiers yet, set activeOpportunityId from that Id, confirm the opportunity in one short line, and do not call BambooHR Suite Build Tier. Later BambooSuiteTiers turns use that activeOpportunityId unless a different Opportunity is named.
     messages:
         welcome:|
-            Hi, I'm Quinn. I can find products, build and edit quotes, apply discounts, configure products, and show you the totals. What are we working on?
+            Hi, I'm Quinn. I can find products, build and edit quotes, apply discounts, configure products, show totals, and build BambooHR Good / Better / Best suite options. What are we working on?
         error: "Something went wrong. Try again in a moment, or ask your Salesforce admin for help."
 
 config:
     agent_label: "Quoting Assistant"
     agent_type: "AgentforceEmployeeAgent"
-    description: "Revenue Cloud quoting assistant for sales reps. Finds products, creates and manages quotes, adds products, applies line discounts, configures products, and presents quote totals as native record cards. Tight demo arc; speaks in names, never raw IDs."
+    description: "Revenue Cloud quoting assistant for sales reps. Finds products, creates and manages quotes, adds products, applies line discounts, configures products, presents quote totals as native record cards, and builds BambooHR Revenue Suite Good/Better/Best Option Quotes. Tight demo arc; speaks in names, never raw IDs."
     developer_name: "RLM_Quoting_Assistant"
 
 variables:
@@ -133,7 +136,11 @@ start_agent agent_router:
     reasoning:
         instructions: ->
             | Select the best subagent based on conversation history and the user's intent.
-              Routing rules:
+              Routing rules (evaluate top to bottom; first match wins):
+              - HIGHEST PRIORITY — Bamboo Revenue Suite commercial terms: When {!@variables.activeOpportunityId} is set OR the user mentions Bamboo Revenue Suite / Option A/B/C / Good/Better/Best suite options AND wants to change term length and/or billing frequency (e.g. 3-year, 36 months, annual, quarterly, monthly billing, M2M) without changing seat count or rebuilding tiers, route to BambooSuiteTiers — NEVER LineManagement or Update_Record_Fields, even if they mention dates or term on quote lines.
+              - If the user wants Good / Better / Best, BambooHR Revenue Suite tiered options, multi-option packages (Option A/B/C), or to build suite tiers for an Opportunity, route to BambooSuiteTiers. Do NOT route those to LineManagement or ProductSelection.
+              - If the user wants to change term length and/or billing frequency on existing Bamboo Revenue Suite options (Option A/B/C) without changing seat count or rebuilding tiers, route to BambooSuiteTiers — NOT LineManagement Update_Record_Fields.
+              - If the user only seeds suite context (in BambooHR Revenue Suite, remember opportunity Id, confirm, do not build tiers yet), route to BambooSuiteTiers for acknowledgment only.
               - If the user wants to find, search, browse, compare, or get details about products in the catalog, route to ProductSelection.
               - If the user wants to create a quote, see a quote summary / totals, show the quote card, or edit a quote HEADER field (the quote's name / status / expiration), route to QuoteManagement.
               - If the user wants to add a product to a quote, apply a line discount, edit a quote-LINE FIELD (a date / start / end / term / quantity / description), or list/resolve specific lines, route to LineManagement.
@@ -141,9 +148,10 @@ start_agent agent_router:
               - If the user wants to configure a product or set/change a product ATTRIBUTE (an option or picklist value on the line, e.g. environment, tier, color), route to ProductConfiguration.
               - Attribute vs. field is decided by DATA, not by the word "set" and not by being on a Quote page. A quote line has configurable product ATTRIBUTES (read via Get_Quote_Line_Attributes) AND standard FIELDS (dates, quantity, description). When a "change/set the <X> on this line" request is ambiguous, the owning topic resolves it by reading the line's attributes first (see ProductConfiguration step 1.5); do NOT pre-decide it here just because the user is on a Quote page. Default such "change a value on the line" requests to ProductConfiguration ONLY when X plausibly names a product attribute; if X clearly names a standard line field (a date/term/quantity/description), route to LineManagement.
               - If the request is unclear or under-specified, route to ambiguous_question.
-              - If the request is unrelated to product discovery or quoting, route to off_topic.
+              - If the request is unrelated to product discovery, quoting, or BambooHR suite tiers, route to off_topic.
 
         actions:
+            go_to_BambooSuiteTiers: @utils.transition to @subagent.BambooSuiteTiers
             go_to_ProductSelection: @utils.transition to @subagent.ProductSelection
             go_to_QuoteManagement: @utils.transition to @subagent.QuoteManagement
             go_to_LineManagement: @utils.transition to @subagent.LineManagement
@@ -732,6 +740,9 @@ subagent LineManagement:
 
               Context: carried state — "this quote" -> activeQuoteId; "that line" -> lastQuoteLineItemId; "that product" / "those" / "add two of those" -> lastProductId / lastProductName. On a QuoteLineItem page (currentRecordId starts with 0QL), that ID is the target line: pass it as quoteLineItemIds to Update_Record_Fields and leave quoteId blank (the parent quote is derived) — do not ask which quote or which line. Freshness for line state (field values, discount, dates, quantity, membership): re-query QueryQuoteLineRecords / Get_QuoteLineItem_from_Quote rather than answering from an earlier result. After a mutating action report ONLY the line(s) that changed, from the action's own result — don't re-list the whole quote unless the user asks for the recap or the change touched every line (applyToAll). For totals after a line change, hand off to Quote Management for the card.
 
+              Suite commercial terms guard (check BEFORE any line date/term/billing edit):
+              - If the user wants to change term length or billing frequency on Bamboo Revenue Suite options (Quote.Name contains " — Option ", they mention Option A/B/C / Good/Better/Best / all suite options, or {!@variables.activeOpportunityId} is set for a multi-option deal), hand off to BambooSuiteTiers with go_to_BambooSuiteTiers immediately — do NOT use Update_Record_Fields. That path preserves seat counts and updates all options via Place+FORCE.
+
               Action precedence (never use a general action for a workflow that has a dedicated one):
               - Add a product to the quote -> Add_Product_To_Quote (one call: it resolves the product, the default selling model, and any disambiguation, then adds the line). Do NOT chain identify -> selling-model -> add. It picks the product's DEFAULT selling model — don't ask "which selling model?"; only pass one when the USER names it ("add it as Term Monthly"). Mention the selling model used (sellingModelName) as a statement. If the product has multiple options and NO default, it returns a message asking the user to choose — only then ask.
               - Discount one, several, or all lines -> Apply_Discount_To_Quote_Lines. Worked example: "discount all lines 10%" -> applyToAll=true, discountMode="percent", discountPercentage=10. Do NOT use UpdateQuoteLineItemDetails or Update_Record_Fields for discounts.
@@ -809,6 +820,7 @@ subagent LineManagement:
             go_to_QuoteManagement: @utils.transition to @subagent.QuoteManagement
             go_to_ProductSelection: @utils.transition to @subagent.ProductSelection
             go_to_ProductConfiguration: @utils.transition to @subagent.ProductConfiguration
+            go_to_BambooSuiteTiers: @utils.transition to @subagent.BambooSuiteTiers
 
 
 
@@ -1714,6 +1726,250 @@ subagent ProductConfiguration:
 
 
 
+subagent BambooSuiteTiers:
+
+    label: "BambooHR Suite Tiers"
+    description: "Build Good / Better / Best BambooHR Revenue Suite Option Quotes (A/B/C) on an Opportunity via Place Sales Transaction. Use for tiered options, multi-option packages, or Bamboo Revenue Suite — not for single-quote add-line."
+
+    reasoning:
+        instructions: ->
+            | Build Good (Option A), Better (Option B), and Best (Option C) for a BambooHR Revenue Suite Opportunity.
+              Pick exactly ONE path per turn (evaluate in order; stop after the first match):
+
+              PATH A — Commercial terms only (existing Options A/B/C with lines; no tier rebuild):
+              - Triggers: user asks to change term length, billing frequency, or both (3-year, 36 months, annual, quarterly, monthly, M2M, "set term", "change billing") on suite options — and does NOT ask to change seat count, rebuild Good/Better/Best, fill tiers, or add/remove products.
+              - Also triggers when {!@variables.activeOpportunityId} is set and the utterance is about term/billing without tier-rebuild or seat-change language.
+              - Resolve opportunityId (same rules as PATH C step 1).
+              - Call BambooHR_Suite_Apply_Commercial_Terms ONCE with opportunityId plus termMonths and/or billingFrequency from the utterance. Do NOT pass seatCount or tierKey. Do NOT call BambooHR_Suite_Build_Tier.
+              - Apply to ALL suite options unless the user names one option only (Option A/B/C or Good/Better/Best).
+              - After success, tell the AE to click Refresh options or Compare in Revenue Suite. STOP.
+
+              PATH B — Context-only seed (no Build yet):
+              - If the user says they are in the BambooHR Revenue Suite, provides an Opportunity Id, asks to remember it as activeOpportunityId, and says do not build tiers yet: extract the Id, set activeOpportunityId (and activeOpportunityName if known), confirm in one short line, and STOP — do not call BambooHR_Suite_Build_Tier.
+
+              PATH C — Build / fill tiers:
+              How to act when building tiers:
+              1. Resolve opportunityId:
+                 - If the user provided an Opportunity Id (006…) or named an opportunity, use it (IdentifyRecordByName when named).
+                 - Else if {!@variables.currentObjectApiName} is Opportunity and {!@variables.currentRecordId} is set, use currentRecordId.
+                 - Else if {!@variables.activeOpportunityId} is set, use that (including Ids seeded from the Revenue Suite).
+                 - Else ask once for the Opportunity (name or Id). Do not guess.
+                 - After resolving, set activeOpportunityId / activeOpportunityName.
+              2. Extract seatCount (default 50), termMonths 1/12/24/36 (default 12), billingFrequency Monthly/Quarterly/Annual (default Monthly), and optional startDate YYYY-MM-DD from the utterance.
+              3. Call BambooHR_Suite_Build_Tier four times in order (governor-safe — one Place cycle per call):
+                 a) opportunityId set, tierKey blank (ensure Options A/B/C exist)
+                 b) same seats/term/billing/start, tierKey Good
+                 c) tierKey Better
+                 d) tierKey Best
+              4. After each call, check isSuccess. On failure, speak errorMessage / summary and stop.
+              5. Speak only the action summary / filledMrr values returned — never invent MRR or PEPM. Then say: open BambooHR Revenue Suite for this Opportunity, click Refresh / Compare to see Options A–C.
+              6. Do not use LineManagement add-product, ProductSelection, Update_Record_Fields, or any Get Pricing BFF actions for this flow.
+              Hand-offs:
+              - Find/browse catalog products (not suite tiers) -> go_to_ProductSelection
+              - Single-quote create / header / totals -> go_to_QuoteManagement
+              - Add one product or discount lines on one quote -> go_to_LineManagement
+
+        actions:
+            IdentifyRecordByName: @actions.IdentifyRecordByName
+                with recordName=...
+                with objectApiName=...
+            BambooHR_Suite_Build_Tier: @actions.BambooHR_Suite_Build_Tier
+                with opportunityId=...
+                with tierKey=...
+                with seatCount=...
+                with termMonths=...
+                with billingFrequency=...
+                with startDate=...
+            BambooHR_Suite_Apply_Commercial_Terms: @actions.BambooHR_Suite_Apply_Commercial_Terms
+                with opportunityId=...
+                with termMonths=...
+                with billingFrequency=...
+                with startDate=...
+            go_to_ProductSelection: @utils.transition to @subagent.ProductSelection
+            go_to_QuoteManagement: @utils.transition to @subagent.QuoteManagement
+            go_to_LineManagement: @utils.transition to @subagent.LineManagement
+
+    actions:
+        IdentifyRecordByName:
+            description: "Searches for Salesforce CRM records by name and returns matching records. Use to resolve a named opportunity before building suite tiers."
+            label: "Identify Record by Name"
+            require_user_confirmation: False
+            include_in_progress_indicator: True
+            progress_indicator_message: "Looking up information ..."
+            source: "EmployeeCopilot__IdentifyRecordByName"
+            target: "standardInvocableAction://identifyRecordByName"
+
+            inputs:
+                "recordName": string
+                    description: "The name or title of the Salesforce record extracted from user input."
+                    label: "recordName"
+                    is_required: True
+                    is_user_input: True
+                    complex_data_type_name: "lightning__textType"
+                "objectApiName": string
+                    description: "The API name of the object (such as Opportunity). Leave empty for higher recall; set Opportunity when known."
+                    label: "objectApiName"
+                    is_required: False
+                    is_user_input: False
+                    complex_data_type_name: "lightning__textType"
+
+            outputs:
+                "searchResults": list[object]
+                    description: "A list of the matching Salesforce records in descending order of relevance."
+                    label: "searchResults"
+                    is_displayable: True
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__recordInfoType"
+        BambooHR_Suite_Build_Tier:
+            description: "Ensure BambooHR Revenue Suite Option A/B/C Quotes, or fill one tier. Call with blank tierKey first to ensure options, then Good, Better, Best. Good=Core+Payroll+Benefits Path B; Better=Workforce package Pro; Best=Elite+Payroll+Benefits+Time Path B. Speak the Summary output; never invent MRR."
+            label: "BambooHR Suite Build Tier"
+            require_user_confirmation: False
+            include_in_progress_indicator: True
+            progress_indicator_message: "Building suite tier…"
+            target: "apex://RLM_BambooSuiteBuildTiers"
+            inputs:
+                opportunityId: string
+                    description: "Opportunity Id that owns Option A/B/C Quotes. Required."
+                    label: "Opportunity Id"
+                    is_required: True
+                    is_user_input: True
+                tierKey: string
+                    description: "Blank to ensure A/B/C only. Good, Better, or Best to fill that option."
+                    label: "Tier key"
+                    is_required: False
+                    is_user_input: True
+                seatCount: object
+                    description: "Seat / headcount count. Defaults to 50."
+                    label: "Seat count"
+                    is_required: False
+                    is_user_input: True
+                    complex_data_type_name: "lightning__integerType"
+                termMonths: object
+                    description: "Term months: 1 (M2M), 12, 24, or 36. Defaults to 12."
+                    label: "Term months"
+                    is_required: False
+                    is_user_input: True
+                    complex_data_type_name: "lightning__integerType"
+                billingFrequency: string
+                    description: "Monthly, Quarterly, or Annual. Defaults to Monthly."
+                    label: "Billing frequency"
+                    is_required: False
+                    is_user_input: True
+                startDate: string
+                    description: "Start date YYYY-MM-DD. Defaults to today."
+                    label: "Start date"
+                    is_required: False
+                    is_user_input: True
+            outputs:
+                isSuccess: boolean
+                    description: "True when the ensure or fill succeeded."
+                    label: "Is Success"
+                    is_displayable: False
+                    filter_from_agent: False
+                errorMessage: string
+                    description: "Error when isSuccess is false."
+                    label: "Error Message"
+                    is_displayable: False
+                    filter_from_agent: False
+                summary: string
+                    description: "Human-readable result. Speak this to the AE; do not invent MRR."
+                    label: "Summary"
+                    is_displayable: True
+                    filter_from_agent: False
+                goodQuoteId: object
+                    description: "Option A (Good) Quote Id."
+                    label: "Good Quote Id"
+                    is_displayable: False
+                    is_used_by_planner: True
+                    complex_data_type_name: "lightning__recordIdType"
+                betterQuoteId: object
+                    description: "Option B (Better) Quote Id."
+                    label: "Better Quote Id"
+                    is_displayable: False
+                    is_used_by_planner: True
+                    complex_data_type_name: "lightning__recordIdType"
+                bestQuoteId: object
+                    description: "Option C (Best) Quote Id."
+                    label: "Best Quote Id"
+                    is_displayable: False
+                    is_used_by_planner: True
+                    complex_data_type_name: "lightning__recordIdType"
+                filledQuoteId: object
+                    description: "Quote Id filled when tierKey was set."
+                    label: "Filled Quote Id"
+                    is_displayable: False
+                    is_used_by_planner: True
+                    complex_data_type_name: "lightning__recordIdType"
+                filledMrr: number
+                    description: "MRR of the filled tier when tierKey was set."
+                    label: "Filled MRR"
+                    is_displayable: True
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__numberType"
+        BambooHR_Suite_Apply_Commercial_Terms:
+            description: "Apply term length and/or billing frequency to ALL Bamboo Revenue Suite Option A/B/C quotes via Place + FORCE. Preserves line quantities. Use when the AE changes term or billing on existing suite options without rebuilding tiers or changing seat count. Do NOT use for Good/Better/Best fill (use BambooHR Suite Build Tier) or for Update_Record_Fields."
+            label: "BambooHR Suite Apply Commercial Terms"
+            require_user_confirmation: False
+            include_in_progress_indicator: True
+            progress_indicator_message: "Updating suite term and billing…"
+            target: "apex://RLM_BambooSuiteApplyCommercialTerms"
+            inputs:
+                opportunityId: string
+                    description: "Opportunity Id that owns Option A/B/C Quotes. Required."
+                    label: "Opportunity Id"
+                    is_required: True
+                    is_user_input: True
+                termMonths: object
+                    description: "Optional. 1 (M2M), 12, 24, or 36."
+                    label: "Term months"
+                    is_required: False
+                    is_user_input: True
+                    complex_data_type_name: "lightning__integerType"
+                billingFrequency: string
+                    description: "Optional. Monthly, Quarterly, or Annual."
+                    label: "Billing frequency"
+                    is_required: False
+                    is_user_input: True
+                startDate: string
+                    description: "Optional start date YYYY-MM-DD."
+                    label: "Start date"
+                    is_required: False
+                    is_user_input: True
+                selectedQuoteId: string
+                    description: "Optional active option Quote Id from Revenue Suite context."
+                    label: "Selected quote Id"
+                    is_required: False
+                    is_user_input: True
+                quoteIds: list[string]
+                    description: "Optional subset of option Quote Ids. Leave blank to update all Options A–C."
+                    label: "Quote Ids"
+                    is_required: False
+                    is_user_input: True
+            outputs:
+                isSuccess: boolean
+                    description: "True when apply succeeded."
+                    label: "Is Success"
+                    is_displayable: False
+                    filter_from_agent: False
+                errorMessage: string
+                    description: "Error when isSuccess is false."
+                    label: "Error Message"
+                    is_displayable: False
+                    filter_from_agent: False
+                summary: string
+                    description: "Human-readable result. Speak this to the AE."
+                    label: "Summary"
+                    is_displayable: True
+                    filter_from_agent: False
+                optionsUpdated: object
+                    description: "Count of suite options updated."
+                    label: "Options updated"
+                    is_displayable: True
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__integerType"
+
+
+
 subagent ambiguous_question:
 
     label: "Ambiguous Question"
@@ -1734,4 +1990,4 @@ subagent off_topic:
     reasoning:
         instructions: ->
             | The user's request is off-topic. Do not answer general-knowledge questions. Respond only to greetings or questions about what you can do.
-              Briefly redirect to Quinn's scope — finding products, creating and managing quotes, applying discounts, configuring products, and showing totals — and ask what they want to work on. Keep it to one or two sentences.
+              Briefly redirect to Quinn's scope — finding products, creating and managing quotes, applying discounts, configuring products, showing totals, and building BambooHR Good / Better / Best suite options — and ask what they want to work on. Keep it to one or two sentences.

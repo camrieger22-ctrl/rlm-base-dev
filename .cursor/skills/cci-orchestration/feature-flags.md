@@ -3,7 +3,7 @@
 > **Auto-generated** by `scripts/ai/generate_cci_reference.py` from `cumulusci.yml`.  
 > Do not edit manually — re-run the script after changing `cumulusci.yml`.
 
-**42 feature flags**, **88 configuration values**, **42 YAML anchors** under `project.custom`.
+**42 feature flags**, **89 configuration values**, **42 YAML anchors** under `project.custom`.
 
 ---
 
@@ -16,8 +16,8 @@ Boolean flags that gate task/flow execution via `when:` clauses.
 | `agents` | `True` | 11 flow step(s) |
 | `analytics` | `True` | 2 flow step(s) |
 | `approvals` | `True` | 5 flow step(s) |
-| `bamboohr` | `False` | 28 flow step(s) |
-| `billing` | `True` | 22 flow step(s) |
+| `bamboohr` | `False` | 29 flow step(s) |
+| `billing` | `True` | 23 flow step(s) |
 | `billing_portal` | `False` | 3 flow step(s) |
 | `billing_portal_deploy` | `True` | 1 flow step(s) |
 | `billing_ui` | `True` | 4 flow step(s) |
@@ -117,6 +117,7 @@ Boolean flags that gate task/flow execution via `when:` clauses.
 - `prepare_bamboohr` step 25 → `validate_cml`
 - `prepare_bamboohr` step 26 → `import_cml`
 - `prepare_bamboohr` step 27 → `manage_expression_sets`
+- `prepare_bamboohr` step 28 → `insert_bamboohr_billing_data`
 
 ### `billing` (default: `True`)
 
@@ -124,6 +125,7 @@ Boolean flags that gate task/flow execution via `when:` clauses.
 - `extend_context_definitions` step 4 → `extend_context_billing`
 - `extend_context_definitions` step 5 → `extend_context_collection_plan_segment`
 - `prepare_large_stx` step 3 → `seed_large_deal_billing_treatment`
+- `prepare_bamboohr` step 28 → `insert_bamboohr_billing_data`
 - `prepare_billing` step 1 → `deploy_post_billing`
 - `prepare_billing` step 2 → `insert_billing_data`
 - `prepare_billing` step 3 → `insert_q3_billing_data`
@@ -540,6 +542,7 @@ Non-boolean scalar values under `project.custom` used as YAML anchors for contex
 | `asset_context_base_reference` | `AssetContext__stdctx` |
 | `asset_context_default_mapping` | `AssetEntitiesMapping` |
 | `asset_context_name` | `RLM_AssetContext` |
+| `bamboohr_billing_dataset` | `datasets/sfdmu/bamboohr/en-US/bh-billing` |
 | `bamboohr_pcm_dataset` | `datasets/sfdmu/bamboohr/en-US/bh-pcm` |
 | `bamboohr_plans_constraints_data_dir` | `datasets/constraints/bamboohr/BambooHrPlans` |
 | `bamboohr_pricing_dataset` | `datasets/sfdmu/bamboohr/en-US/bh-pricing` |

@@ -46,6 +46,57 @@ def test_offer_pro_is_current() -> None:
     check("elite is sales", "sales" in offer["copy"].lower() or "person" in offer["copy"].lower())
 
 
+def test_next_module_offer() -> None:
+    print("\nnext module")
+    habit = ac.next_module_offer(owned_skus=["BAMBOO-PRO"])
+    check("TIME available", habit["available"] is True)
+    check("TIME sku", habit["sku"] == "BAMBOO-ADD-TIME")
+    check("habit reason", habit["reason"] == "habit")
+    check("elite sales flag", habit["eliteIsSales"] is True)
+    check("payroll sales flag", habit["payrollIsSales"] is True)
+    check("sales copy", "person" in habit["copy"].lower())
+    needs = ac.next_module_offer(
+        needs="hiring, timetracking", owned_skus=["BAMBOO-CORE"]
+    )
+    check("needs reason", needs["reason"] == "needs")
+    check("time tracking copy", "time" in needs["copy"].lower())
+    owned = ac.next_module_offer(owned_skus=["BAMBOO-PRO", "BAMBOO-ADD-TIME"])
+    check("owned not available", owned["available"] is False)
+    check("owned reason", owned["reason"] == "owned")
+    check("owned sales copy", "person" in owned["copy"].lower())
+    tagged = ac.tag_licenses_addons(
+        {
+            "addons": [
+                {"sku": "BAMBOO-ADD-TIME", "available": True},
+                {"sku": "BAMBOO-ADD-PAYROLL", "available": True},
+                {"sku": "BAMBOO-ADD-GLOBAL", "available": True},
+            ]
+        }
+    )
+    by_sku = {a["sku"]: a for a in tagged["addons"]}
+    check("TIME self-serve", by_sku["BAMBOO-ADD-TIME"]["selfServe"] is True)
+    check("Payroll off Licenses grid", "BAMBOO-ADD-PAYROLL" not in by_sku)
+    check("Global off Licenses grid", "BAMBOO-ADD-GLOBAL" not in by_sku)
+    hidden = ac.filter_self_serve_addons(
+        {
+            "addons": [
+                {"sku": "BAMBOO-ADD-TIME"},
+                {"sku": "BAMBOO-ADD-PAYROLL"},
+                {"sku": "BAMBOO-ADD-BENEFITS"},
+            ]
+        }
+    )
+    check(
+        "unassisted catalog is TIME only",
+        [a["sku"] for a in hidden["addons"]] == ["BAMBOO-ADD-TIME"],
+    )
+    try:
+        ac.assert_self_serve_addons(["BAMBOO-ADD-PAYROLL"])
+        check("payroll addon blocked", False)
+    except ValueError as exc:
+        check("payroll addon blocked", "person" in str(exc).lower())
+
+
 def test_current_plan_rank() -> None:
     print("\nplan from assets")
     assets = [
@@ -87,6 +138,32 @@ def test_current_plan_ignores_future_pro() -> None:
         "upcoming after swap is Pro not Core",
         (ac.upcoming_plan_from_assets(swapped) or {}).get("sku") == "BAMBOO-PRO",
     )
+
+
+def test_plan_display_status() -> None:
+    print("\nplan pill status")
+    live = ac.plan_display_status(
+        live_plan={"sku": "BAMBOO-CORE", "quantity": 12},
+        upcoming_plan={
+            "sku": "BAMBOO-PRO",
+            "quantity": 0,
+            "lifecycleStartDate": "2026-09-01",
+        },
+        current_qty=12,
+    )
+    check("live Core stays live", live["live"] is True)
+    check("live has no startsOn", live["startsOn"] is None)
+    future = ac.plan_display_status(
+        live_plan=None,
+        upcoming_plan={
+            "sku": "BAMBOO-PRO",
+            "quantity": 0,
+            "lifecycleStartDate": "2026-09-01T00:00:00.000+0000",
+        },
+        current_qty=0,
+    )
+    check("qty 0 is not live", future["live"] is False)
+    check("startsOn Sep 1", future["startsOn"] == "2026-09-01")
 
 
 def test_resolve_upgrade() -> None:
@@ -396,6 +473,20 @@ def test_account_js_term_end_does_not_invent_year() -> None:
     check("withholds when missing", "|| null" in chunk)
 
 
+def test_pass3_licenses_ui_hooks() -> None:
+    print("\nLicenses next-module UI")
+    html = open(os.path.join(GP, "static", "account.html"), encoding="utf-8").read()
+    js = open(os.path.join(GP, "static", "account.js"), encoding="utf-8").read()
+    agent = open(os.path.join(GP, "static", "agent-chat.js"), encoding="utf-8").read()
+    check("next module card", 'id="nextModuleCard"' in html)
+    check("renderNextModule", "renderNextModule" in js)
+    check("self-serve modules only", "selfServe" in js)
+    check("agent nextModuleSku", "nextModuleSku" in agent)
+    check("agent eliteIsSales", "eliteIsSales" in agent)
+    check("starts pill", "Starts " in js and "plan.startsOn" in js)
+    check("cache wizard41", "wizard41" in html)
+
+
 def test_checkout_address_defaults() -> None:
     print("\ncheckout address defaults")
     us = co.checkout_address_defaults(billing_country="US")
@@ -411,8 +502,10 @@ def test_checkout_address_defaults() -> None:
 def main() -> int:
     test_offer_core_to_pro()
     test_offer_pro_is_current()
+    test_next_module_offer()
     test_current_plan_rank()
     test_current_plan_ignores_future_pro()
+    test_plan_display_status()
     test_resolve_upgrade()
     test_seat_amend_after_scheduled_upgrade()
     test_asset_quantity_at_no_asp_is_zero()
@@ -422,6 +515,7 @@ def main() -> int:
     test_addon_line_window_remaining_term()
     test_fill_missing_lifecycle_ends_from_asp()
     test_account_js_term_end_does_not_invent_year()
+    test_pass3_licenses_ui_hooks()
     test_checkout_address_defaults()
     passed = sum(1 for _, ok in RESULTS if ok)
     print(f"\n{passed}/{len(RESULTS)} passed")

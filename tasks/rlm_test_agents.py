@@ -20,7 +20,7 @@ Notes:
     ``org_config.username``) so the task never silently hits the user's default
     SF CLI org.
   * The task can target one named agent suite (``billing``,
-    ``quoting-assistant``), all suites in one invocation, or a comma-separated subset of
+    ``quoting-assistant``, ``bamboohr-self-service``), all suites in one invocation, or a comma-separated subset of
     YAML spec files. api-names are derived deterministically from each spec's
     filename and sanitized to the ``AiEvaluationDefinition`` naming rules.
   * ``sf agent test run --wait`` exits non-zero when test cases fail, so the run
@@ -54,6 +54,11 @@ AGENT_TEST_SUITES = {
         "tests_path": "unpackaged/post_agents/tests/quoting-assistant",
         "api_name_prefix": "RLM_QuotingAsst",
     },
+    "bamboohr-self-service": {
+        "label": "BambooHR_Self_Service_Assistant",
+        "tests_path": "unpackaged/post_agents/tests/bamboohr-self-service",
+        "api_name_prefix": "RLM_BambooSS",
+    },
 }
 
 AGENT_SUITE_ALIASES = {
@@ -75,7 +80,7 @@ class TestAgents(BaseSalesforceTask):
     task_options = {
         "agent": {
             "description": (
-                "Agent test suite to run: quote, billing, quoting-assistant, or all. "
+                "Agent test suite to run: quote, billing, quoting-assistant, bamboohr-self-service, or all. "
                 f"Default: {DEFAULT_AGENT}. Ignored when tests_path is provided."
             ),
             "required": False,

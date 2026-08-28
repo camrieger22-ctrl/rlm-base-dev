@@ -1,3 +1,4 @@
 $$Name$SellingModelType,DoesAutoRenewAssetByDefault,Name,PricingTerm,PricingTermUnit,SellingModelType,Status
 Term Monthly;TermDefined,false,Term Monthly,1,Months,TermDefined,Active
 Term Annual;TermDefined,false,Term Annual,1,Annual,TermDefined,Active
+Evergreen Monthly;Evergreen,false,Evergreen Monthly,1,Months,Evergreen,Active

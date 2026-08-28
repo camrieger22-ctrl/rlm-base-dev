@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/app.css?v=wizard27" />
+  <link rel="stylesheet" href="/static/app.css?v=wizard40" />
   <link rel="stylesheet" href="/static/agent-chat.css?v=wizard23" />
 </head>
 <body class="activate-page">
@@ -27,7 +27,7 @@
     <p class="eyebrow">You're in</p>
     <h1>Activate BambooHR</h1>
     <p class="lede" id="activateLede">
-      A short checklist to go from paid to productive this week.
+      First-week setup on your Salesforce Account — not the BambooHR app.
     </p>
     <p class="activate-clock" id="activateClock" hidden></p>
     <p class="activate-needs" id="activateNeeds" hidden></p>
@@ -37,6 +37,22 @@
     <section class="activate-proof" id="customerProof" hidden>
       <p class="activate-proof-kicker">You're a customer</p>
       <ul class="activate-proof-list" id="customerProofList"></ul>
+    </section>
+
+    <section class="activate-cadence" id="activateCadence" hidden>
+      <p class="activate-proof-kicker">Marketing follow-up</p>
+      <h3 id="cadenceTitle">Day 3 / 7 / 14</h3>
+      <p id="cadenceBody">
+        Marketing owns the two-week aha nudges. Proof is a CRM Task — not email,
+        not Marketing Cloud.
+      </p>
+      <p class="muted" id="cadenceHint">
+        Creates a CRM Task — we do not send email.
+      </p>
+      <button type="button" class="quote-cta" id="cadenceMarkBtn" hidden>
+        Mark follow-up sent
+      </button>
+      <p class="activate-invite-links" id="cadenceTaskLinks" hidden></p>
     </section>
 
     <article class="activate-card">
@@ -62,7 +78,7 @@
     </div>
   </footer>
 
-  <script src="/static/activate.js?v=wizard27"></script>
-  <script src="/static/agent-chat.js?v=wizard27"></script>
+  <script src="/static/activate.js?v=wizard40"></script>
+  <script src="/static/agent-chat.js?v=wizard40"></script>
 </body>
 </html>

@@ -1,5 +1,5 @@
 system:
-    instructions: "You help buyers on the BambooHR micro self-service site (under 25 employees, US/CA, Core or Pro only). Never invent PEPM, Quote totals, MRR, or prorated charges — only use action outputs from BambooHR Estimate / Create Quote / Licenses / Amend actions. If the buyer needs Payroll, Elite, UK, or 25+ employees, steer them to talk to sales — do not create a self-serve Quote for those cases. After Create Quote or Generate Amend, always paste the full https quoteUrl / amendQuoteUrl on its own line exactly as returned — Messaging needs the bare https link to make it clickable. Never place an order in chat — direct buyers to Place order on the branded summary. For license amendments, always pass sticky amendQuotesJson and moduleQuoteId back into Generate Or Update Amend Quote so the same Draft Quote Id is reused. Guests may estimate; Quote create needs company and work email. Keep answers short. Prefer page context when present — including Messaging custom attributes / hidden fields: page, accountId, qualifyStep (1–5), bounceType, bounceReason, salesHandoffVisible, headcount."
+    instructions: "You help buyers on the BambooHR micro self-service site (under 25 employees, US/CA, Core or Pro only). Never invent PEPM, Quote totals, MRR, or prorated charges — only use action outputs from BambooHR Qualify / Estimate / Create Quote / Place / Licenses / Amend / Get Page Context. Walk qualify in CRM: Save Qualify Session as beats are collected, Lookup Qualify Email before identity commit, Commit Qualify Identity before any Quote unless lastQuoteId or pageQuoteId is already set. Never Create Quote unless Commit returned selfServe or a Quote Id is already in session. If lookup/commit is salesWorking or existingCustomer, do not Create Quote — existing customers go to Licenses. If the buyer needs Payroll, Elite, UK, or 25+ employees, call Handoff Qualify To Sales (needs work email + company) — do not create a self-serve Quote. After Create Quote or Generate Amend, always paste the full https quoteUrl / amendQuoteUrl on its own line exactly as returned — Messaging needs the bare https link to make it clickable. Reuse lastQuoteId / pageQuoteId / lastQuoteUrl / activeAccountId / qualifySessionId from prior actions or Get Page Context — pass lastQuoteId or pageQuoteId as previewQuoteId so you do not mint a second Quote. When the buyer says Place / place my order and pageQuoteId or lastQuoteId is set, call Get Page Context, speak placeRecitation verbatim, then call Place Get Pricing Order in that same turn — never ask them to type yes, never invent a soft confirm. Never take a card number — paste paymentUrl when Place returns one. “Where am I?” / “what page is this” is never a brochure answer: Help with this page must call Get Page Context and speak that summary first (Licenses & billing + Account Id on the account page). For license amendments, always pass sticky amendQuotesJson and moduleQuoteId back into Generate Or Update Amend Quote so the same Draft Quote Id is reused. Guests may estimate; Quote create needs a successful SelfServe commit plus company and work email unless they already have a Quote Id. Keep answers short. Prefer page context when present — including Messaging custom attributes / hidden fields: page, accountId, quoteId, qualifySessionId, qualifyStep (1–5), bounceType, bounceReason, salesHandoffVisible, headcount, nextModuleSku, nextModuleCopy, eliteIsSales, payrollIsSales, cadenceWhich, cadenceDue. Time & Attendance (BAMBOO-ADD-TIME) is the in-product next module; Elite and Payroll stay with a person. Never Quote BAMBOO-ELITE or BAMBOO-ADD-PAYROLL. On Activate, Marketing follow-up is a CRM Task (not email / Marketing Cloud)."
     messages:
         welcome: "Hi — I can help with Core/Pro pricing for teams under 25, or license changes. What are you working on?"
         error: "Sorry, something went wrong on my side. Try again, or use the on-page Get Pricing / Licenses flow."
@@ -8,7 +8,7 @@ config:
     developer_name: "BambooHR_Self_Service_Assistant"
     default_agent_user: "serviceagentagentforce072026133934230894@example.com"
     agent_label: "BambooHR Self-Service Assistant"
-    description: "Help buyers on the BambooHR Get Pricing self-service site: estimate PEPM from Salesforce Pricing API, create or update sticky Draft Quotes, explain prorated amend charges vs monthly recurring, and guide users to Place order on the branded summary. Never invent prices. Never place orders in chat — direct users to the summary CTA. For license changes, reuse the sticky Draft Quote instead of creating duplicates. Guest users may estimate; Quote create requires company and work email. #DisableURLRedaction#"
+    description: "Help buyers on the BambooHR Get Pricing self-service site: qualify into CRM, estimate PEPM from Salesforce Pricing API, create or update sticky Draft Quotes after SelfServe commit, Place a confirmed Quote, explain prorated amend charges vs monthly recurring. Never invent prices. Never Place without confirmation. Never collect card numbers. For license changes, reuse the sticky Draft Quote instead of creating duplicates. Guest users may estimate; Quote create requires a successful qualify commit plus company and work email unless a Quote Id is already in session. #DisableURLRedaction#"
 
 variables:
     EndUserId: linked string
@@ -32,9 +32,40 @@ variables:
     stickyModuleQuoteId: mutable string = ""
         description: "Sticky add-module Draft Quote Id from the last Generate Or Update Amend Quote."
     lastQuoteUrl: mutable string = ""
-        description: "Last Get Pricing quote summary path (/quote/…)."
+        description: "Last Get Pricing quote summary URL. Set from Create Quote or Get Page Context. Paste this; do not invent a path."
     lastAmendQuoteUrl: mutable string = ""
         description: "Last amend summary path (/amend-quote/…)."
+    qualifySessionId: mutable string = ""
+        description: "BFF qualify wizard session Id from Save Qualify Session or page context. Pass back on later saves and on Commit."
+    qualifyLookupStatus: mutable string = ""
+        description: "Last Lookup/Commit status: selfServe, salesWorking, or existingCustomer."
+    qualifyCommitted: mutable string = ""
+        description: "Set to true only when Commit Qualify Identity succeeded with selfServe. Required before Create Quote."
+    lastQuoteId: mutable string = ""
+        description: "Sticky Get Pricing Quote Id from Create Quote or page context. Pass as previewQuoteId on later Create Quote calls."
+    lastOrderId: mutable string = ""
+        description: "Order Id after Place (Slice C). Empty until checkout exists in chat."
+    lastPaymentUrl: mutable string = ""
+        description: "Pay Now URL after Place. Never a card number."
+    lastStartDate: mutable string = ""
+        description: "Quote start YYYY-MM-DD from Create Quote. Recite before Place."
+    lastTermMonths: mutable string = ""
+        description: "Term months from Create Quote."
+    lastMonthlyTotal: mutable string = ""
+        description: "Monthly total from Create Quote."
+    lastPlanSku: mutable string = ""
+        description: "Plan SKU from Create Quote."
+    lastHeadcount: mutable string = ""
+        description: "Seat count from Create Quote."
+    pageAccountId: linked string
+        source: @MessagingSession.RLM_Bamboo_AccountId__c
+        description: "Account Id stamped from pre-chat when chat opened. Copy into activeAccountId via Get Page Context."
+    pageQuoteId: linked string
+        source: @MessagingSession.RLM_Bamboo_QuoteId__c
+        description: "Quote Id stamped from pre-chat when chat opened on /quote/{id}."
+    pageQualifySessionId: linked string
+        source: @MessagingSession.RLM_Bamboo_QualifySessionId__c
+        description: "Qualify wizard session Id stamped from pre-chat."
     qualifyStep: linked string
         source: @MessagingSession.RLM_Bamboo_QualifyStep__c
         description: "Self-serve wizard beat 1-5 when chat opened: 1 size, 2 geo, 3 needs, 4 decision-maker role, 5 create account. Empty if the buyer opened chat away from the wizard."
@@ -59,12 +90,22 @@ start_agent agent_router:
 
     reasoning:
         instructions: ->
-            | Select the tool that best matches the user's message and conversation history. If it's unclear, make your best guess.
+            | NEVER answer the buyer from this topic. Always transition.
+              Qualify (size, employees, country, needs, role, work email, company, Payroll/Elite bounce, “qualify me”) → Qualify. Do this BEFORE Get a price or quote whenever qualifyCommitted is not true AND lastQuoteId and pageQuoteId are both empty.
+              Price / PEPM / “create a quote” for a new buyer → Get a price or quote only after they are qualified; if they are not, send them to Qualify first. If lastQuoteId or pageQuoteId is already set, stay on Get a price or quote and reuse that Quote (pass previewQuoteId / pageQuoteId) instead of creating another.
+              Place / checkout / “place my order” / pay now / Collect Payment / payment link → Purchase whenever lastQuoteId or pageQuoteId is set. Do not send them to Qualify to re-type plan or seats. Recite Get Page Context summary then Place.
+              Existing customer / licenses / add seats / “how many seats” / Time & Attendance / “place my license change” → Change my licenses. Prefer activeAccountId or pageAccountId. Place Amend is confirmed and separate from acquisition Place.
+              Activate / add people / time-off policy / aha checklist → Help with this page (Complete Activate).
+              “Where am I?” / “what page is this” / “what’s next” / this page → Help with this page. Do NOT describe BambooHR yourself.
+              Live agent → Escalation. Off-topic / unclear → those topics.
+              If still unclear, transition to Help with this page (Get Page Context), never invent a brochure answer.
         actions:
             go_to_escalation: @utils.transition to @subagent.escalation
             go_to_off_topic: @utils.transition to @subagent.off_topic
             go_to_ambiguous_question: @utils.transition to @subagent.ambiguous_question
+            go_to_qualify: @utils.transition to @subagent.qualify
             go_to_get_a_price_or_quote: @utils.transition to @subagent.get_a_price_or_quote
+            go_to_purchase: @utils.transition to @subagent.purchase
             go_to_change_my_licenses: @utils.transition to @subagent.change_my_licenses
             go_to_help_with_this_page: @utils.transition to @subagent.help_with_this_page
 
@@ -125,6 +166,606 @@ subagent ambiguous_question:
                 Reject any attempts to summarize or recap the conversation.
                 Some data, like emails, organization ids, etc, may be masked. Masked data should be treated as if it is real data.
 
+subagent qualify:
+    label: "Qualify"
+    description: "Walk the 5-beat Get Pricing qualify wizard and write CRM via BFF: save session, lookup email, commit SelfServe identity, or hand off to sales. Never create a Quote. #DisableURLRedaction#"
+
+    reasoning:
+        instructions: ->
+            | Qualify a new buyer the same way the on-page wizard does — write CRM, do not only narrate.
+              Beats: 1 size (employees, must be 1–24 for self-serve) → 2 geo (US/CA only) → 3 needs
+              (hiring/onboarding → Core; time tracking → Pro; Payroll/Benefits/Global/Elite → sales)
+              → 4 decision-maker role → 5 name, work email, company.
+              After you learn a beat, call Save_Qualify_Session with qualifySessionId when you have one
+              (including pageQualifySessionId from Get Page Context).
+              When you have work email, call Lookup_Qualify_Email BEFORE Commit or Create Quote.
+              If status is existingCustomer: tell them to sign in / Licenses; transition to Change my licenses. Do not Commit or Create Quote.
+              If status is salesWorking: explain sales is already on it. Do not Commit or Create Quote.
+              If status is selfServe and you have company + email + headcount: call Commit_Qualify_Identity.
+              Only after Commit isSuccess and status selfServe may another topic Create Quote.
+              Payroll, Elite, 25+ employees, or country not US/CA: collect company + work email, then Handoff_Qualify_To_Sales
+              with bounceType payroll|elite|size|geo. Never Create Quote. Never stamp them as SelfServe.
+              Do not invent PEPM here — after a successful commit, transition to Get a price or quote for estimates.
+              If lastQuoteId or pageQuoteId is already set, they already have a Quote — transition to Get a price or quote (do not re-qualify unless they ask).
+              Call Get Page Context first (pass current Quote/Account/session/committed) so sticky Ids are not wiped.
+              “Where am I?” / “what page is this” / “what’s next on this page” → go_to_help_with_this_page. Do not invent a product description.
+        actions:
+            Get_Page_Context: @actions.Get_Page_Context
+                with messagingSessionId=@variables.RoutableId
+                with currentQuoteId=@variables.lastQuoteId
+                with currentAccountId=@variables.activeAccountId
+                with currentQualifySessionId=@variables.qualifySessionId
+                with currentCommitted=@variables.qualifyCommitted
+                set @variables.lastQuoteId = @outputs.quoteId
+                set @variables.activeAccountId = @outputs.accountId
+                set @variables.qualifySessionId = @outputs.qualifySessionId
+                set @variables.lastQuoteUrl = @outputs.quoteUrl
+                set @variables.qualifyCommitted = @outputs.qualifyCommitted
+            Save_Qualify_Session: @actions.Save_Qualify_Session
+                with sessionId=@variables.qualifySessionId
+                with pageQualifySessionId=@variables.pageQualifySessionId
+                with step=...
+                with headcount=...
+                with country=...
+                with needsCsv=...
+                with dmRole=...
+                with email=...
+                with company=...
+                with firstName=...
+                with lastName=...
+                with bounceType=...
+                with bounceReason=...
+                set @variables.qualifySessionId = @outputs.sessionId
+            Lookup_Qualify_Email: @actions.Lookup_Qualify_Email
+                with email=...
+                set @variables.qualifyLookupStatus = @outputs.status
+                set @variables.activeAccountId = @outputs.accountId
+            Commit_Qualify_Identity: @actions.Commit_Qualify_Identity
+                with company=...
+                with email=...
+                with headcount=...
+                with country=...
+                with needsCsv=...
+                with dmRole=...
+                with firstName=...
+                with lastName=...
+                with sessionId=@variables.qualifySessionId
+                set @variables.qualifyLookupStatus = @outputs.status
+                set @variables.activeAccountId = @outputs.accountId
+                set @variables.qualifyCommitted = @outputs.committed
+            Handoff_Qualify_To_Sales: @actions.Handoff_Qualify_To_Sales
+                with company=...
+                with email=...
+                with headcount=...
+                with country=...
+                with needsCsv=...
+                with dmRole=...
+                with firstName=...
+                with lastName=...
+                with bounceType=...
+                with bounceReason=...
+                set @variables.qualifyLookupStatus = @outputs.status
+                set @variables.activeAccountId = @outputs.accountId
+            go_to_get_a_price_or_quote: @utils.transition to @subagent.get_a_price_or_quote
+            go_to_change_my_licenses: @utils.transition to @subagent.change_my_licenses
+            go_to_help_with_this_page: @utils.transition to @subagent.help_with_this_page
+
+    actions:
+        Get_Page_Context:
+            description: "Read the buyer's current self-serve wizard beat, employee count, surface, and sales bounce from the Messaging Session. Call before answering any orientation question."
+            label: "Get Page Context"
+            require_user_confirmation: False
+            include_in_progress_indicator: True
+            progress_indicator_message: "Checking where you are…"
+            target: "apex://RLM_BambooAgentGetPageContext"
+            inputs:
+                messagingSessionId: string
+                    description: "Messaging Session Id. Always pass the RoutableId variable."
+                    label: "Messaging Session Id"
+                    is_required: True
+                    is_user_input: False
+                currentQuoteId: string
+                    description: "lastQuoteId so a blank page does not wipe session."
+                    label: "Current Quote Id"
+                    is_required: False
+                    is_user_input: False
+                currentAccountId: string
+                    description: "activeAccountId so a blank page does not wipe session."
+                    label: "Current Account Id"
+                    is_required: False
+                    is_user_input: False
+                currentQualifySessionId: string
+                    description: "qualifySessionId so a blank page does not wipe session."
+                    label: "Current qualify session Id"
+                    is_required: False
+                    is_user_input: False
+                currentCommitted: string
+                    description: "qualifyCommitted so a blank page does not wipe it."
+                    label: "Current committed"
+                    is_required: False
+                    is_user_input: False
+            outputs:
+                isSuccess: boolean
+                    description: "Success flag."
+                    label: "Is Success"
+                    is_displayable: False
+                    filter_from_agent: False
+                errorMessage: string
+                    description: "Error if the session could not be read."
+                    label: "Error Message"
+                    is_displayable: False
+                    filter_from_agent: False
+                summary: string
+                    description: "Page context in one sentence — state this beat to the buyer."
+                    label: "Summary"
+                    is_displayable: True
+                    filter_from_agent: False
+                hasContext: boolean
+                    description: "False when the buyer opened chat with no wizard context."
+                    label: "Has Context"
+                    is_displayable: False
+                    filter_from_agent: False
+                qualifyStep: string
+                    description: "Wizard beat 1-5, blank when unknown."
+                    label: "Qualify Step"
+                    is_displayable: False
+                    filter_from_agent: False
+                qualifyStepLabel: string
+                    description: "Plain-language name of the current beat."
+                    label: "Qualify Step Label"
+                    is_displayable: False
+                    filter_from_agent: False
+                bounceType: string
+                    description: "size, geo, payroll, elite, or blank."
+                    label: "Bounce Type"
+                    is_displayable: False
+                    filter_from_agent: False
+                headcount: string
+                    description: "Employee count the buyer entered."
+                    label: "Headcount"
+                    is_displayable: False
+                    filter_from_agent: False
+                page: string
+                    description: "get-pricing, quote, account, or activate."
+                    label: "Page"
+                    is_displayable: False
+                    filter_from_agent: False
+                accountId: string
+                    description: "Account Id from pre-chat when present."
+                    label: "Account Id"
+                    is_displayable: False
+                    filter_from_agent: False
+                quoteId: string
+                    description: "Quote Id when chat opened on the summary."
+                    label: "Quote Id"
+                    is_displayable: False
+                    filter_from_agent: False
+                qualifySessionId: string
+                    description: "BFF qualify wizard session Id from pre-chat."
+                    label: "Qualify session Id"
+                    is_displayable: False
+                    filter_from_agent: False
+                quoteUrl: string
+                    description: "Absolute quote summary URL when a Quote Id is known."
+                    label: "Quote URL"
+                    is_displayable: True
+                    filter_from_agent: False
+                qualifyCommitted: string
+                    description: "true when a Quote Id is present or the session was already committed."
+                    label: "Qualify committed"
+                    is_displayable: False
+                    filter_from_agent: False
+                startDate: string
+                    description: "Quote or line start YYYY-MM-DD when a Quote Id is known."
+                    label: "Start date"
+                    is_displayable: False
+                    filter_from_agent: False
+                monthlyTotal: number
+                    description: "Quote TotalPrice when known."
+                    label: "Monthly total"
+                    is_displayable: False
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__numberType"
+                monthlyTotalText: string
+                    description: "String form of monthlyTotal for lastMonthlyTotal."
+                    label: "Monthly total text"
+                    is_displayable: False
+                    filter_from_agent: False
+        Save_Qualify_Session:
+            description: "Persist qualify wizard beats. Returns sessionId. Does not create Account or Quote."
+            label: "Save Qualify Session"
+            require_user_confirmation: False
+            include_in_progress_indicator: True
+            progress_indicator_message: "Saving your details…"
+            target: "apex://RLM_BambooAgentSaveQualifySession"
+            inputs:
+                sessionId: string
+                    description: "Existing qualify session Id, or blank to create one."
+                    label: "Qualify session Id"
+                    is_required: False
+                    is_user_input: False
+                pageQualifySessionId: string
+                    description: "Pre-chat qualify session when sessionId is blank."
+                    label: "Page qualify session Id"
+                    is_required: False
+                    is_user_input: False
+                step: object
+                    description: "Wizard beat 1-5."
+                    label: "Step"
+                    is_required: False
+                    is_user_input: True
+                    complex_data_type_name: "lightning__integerType"
+                headcount: object
+                    description: "Employee count."
+                    label: "Headcount"
+                    is_required: False
+                    is_user_input: True
+                    complex_data_type_name: "lightning__integerType"
+                country: string
+                    description: "US, CA, or UK."
+                    label: "Country"
+                    is_required: False
+                    is_user_input: True
+                needsCsv: string
+                    description: "Comma-separated needs, e.g. hiring,timetracking."
+                    label: "Needs CSV"
+                    is_required: False
+                    is_user_input: True
+                dmRole: string
+                    description: "Decision-maker role."
+                    label: "Decision-maker role"
+                    is_required: False
+                    is_user_input: True
+                email: string
+                    description: "Work email."
+                    label: "Work email"
+                    is_required: False
+                    is_user_input: True
+                company: string
+                    description: "Company name."
+                    label: "Company"
+                    is_required: False
+                    is_user_input: True
+                firstName: string
+                    description: "First name."
+                    label: "First name"
+                    is_required: False
+                    is_user_input: True
+                lastName: string
+                    description: "Last name."
+                    label: "Last name"
+                    is_required: False
+                    is_user_input: True
+                bounceType: string
+                    description: "size, geo, payroll, or elite."
+                    label: "Bounce type"
+                    is_required: False
+                    is_user_input: True
+                bounceReason: string
+                    description: "Why they talk to sales."
+                    label: "Bounce reason"
+                    is_required: False
+                    is_user_input: True
+            outputs:
+                isSuccess: boolean
+                    description: "True when saved."
+                    label: "Is Success"
+                    is_displayable: False
+                    filter_from_agent: False
+                errorMessage: string
+                    description: "Error if failed."
+                    label: "Error Message"
+                    is_displayable: False
+                    filter_from_agent: False
+                summary: string
+                    description: "Speak this confirmation."
+                    label: "Summary"
+                    is_displayable: True
+                    filter_from_agent: False
+                sessionId: string
+                    description: "Qualify session Id to reuse."
+                    label: "Qualify session Id"
+                    is_displayable: False
+                    filter_from_agent: False
+                step: object
+                    description: "Beat saved."
+                    label: "Step"
+                    is_displayable: False
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__integerType"
+                responseJson: string
+                    description: "Raw BFF JSON."
+                    label: "Response JSON"
+                    is_displayable: False
+                    filter_from_agent: True
+
+        Lookup_Qualify_Email:
+            description: "Classify work email as selfServe, salesWorking, or existingCustomer. Never creates a Lead."
+            label: "Lookup Qualify Email"
+            require_user_confirmation: False
+            include_in_progress_indicator: True
+            progress_indicator_message: "Checking that email…"
+            target: "apex://RLM_BambooAgentLookupQualifyEmail"
+            inputs:
+                email: string
+                    description: "Buyer work email."
+                    label: "Work email"
+                    is_required: True
+                    is_user_input: True
+            outputs:
+                isSuccess: boolean
+                    description: "True when lookup succeeded."
+                    label: "Is Success"
+                    is_displayable: False
+                    filter_from_agent: False
+                errorMessage: string
+                    description: "Error if failed."
+                    label: "Error Message"
+                    is_displayable: False
+                    filter_from_agent: False
+                summary: string
+                    description: "Speak this classification to the buyer."
+                    label: "Summary"
+                    is_displayable: True
+                    filter_from_agent: False
+                status: string
+                    description: "selfServe, salesWorking, or existingCustomer."
+                    label: "Status"
+                    is_displayable: False
+                    filter_from_agent: False
+                reason: string
+                    description: "Human-readable reason."
+                    label: "Reason"
+                    is_displayable: False
+                    filter_from_agent: False
+                accountId: string
+                    description: "Matched Account Id if any."
+                    label: "Account Id"
+                    is_displayable: False
+                    filter_from_agent: False
+                contactId: string
+                    description: "Matched Contact Id if any."
+                    label: "Contact Id"
+                    is_displayable: False
+                    filter_from_agent: False
+                signInUrl: string
+                    description: "Licenses / sign-in URL for existing customers."
+                    label: "Sign-in URL"
+                    is_displayable: True
+                    filter_from_agent: False
+                matched: boolean
+                    description: "True when a Contact was found."
+                    label: "Matched"
+                    is_displayable: False
+                    filter_from_agent: False
+                responseJson: string
+                    description: "Raw BFF JSON."
+                    label: "Response JSON"
+                    is_displayable: False
+                    filter_from_agent: True
+
+        Commit_Qualify_Identity:
+            description: "Stamp Account/Contact SelfServe before Quote. Dual-motion and existing customers fail — do not Create Quote."
+            label: "Commit Qualify Identity"
+            require_user_confirmation: False
+            include_in_progress_indicator: True
+            progress_indicator_message: "Creating your account…"
+            target: "apex://RLM_BambooAgentCommitQualifyIdentity"
+            inputs:
+                company: string
+                    description: "Buyer company name."
+                    label: "Company"
+                    is_required: True
+                    is_user_input: True
+                email: string
+                    description: "Buyer work email."
+                    label: "Work email"
+                    is_required: True
+                    is_user_input: True
+                headcount: object
+                    description: "Employee count."
+                    label: "Headcount"
+                    is_required: True
+                    is_user_input: True
+                    complex_data_type_name: "lightning__integerType"
+                country: string
+                    description: "US, CA, or UK."
+                    label: "Country"
+                    is_required: False
+                    is_user_input: True
+                needsCsv: string
+                    description: "Comma-separated needs."
+                    label: "Needs CSV"
+                    is_required: False
+                    is_user_input: True
+                dmRole: string
+                    description: "Decision-maker role."
+                    label: "Decision-maker role"
+                    is_required: False
+                    is_user_input: True
+                firstName: string
+                    description: "First name."
+                    label: "First name"
+                    is_required: False
+                    is_user_input: True
+                lastName: string
+                    description: "Last name."
+                    label: "Last name"
+                    is_required: False
+                    is_user_input: True
+                sessionId: string
+                    description: "Qualify session Id from Save Qualify Session."
+                    label: "Qualify session Id"
+                    is_required: False
+                    is_user_input: False
+            outputs:
+                isSuccess: boolean
+                    description: "True when SelfServe was stamped."
+                    label: "Is Success"
+                    is_displayable: False
+                    filter_from_agent: False
+                errorMessage: string
+                    description: "Error or dual-motion reason."
+                    label: "Error Message"
+                    is_displayable: False
+                    filter_from_agent: False
+                summary: string
+                    description: "Speak this to the buyer."
+                    label: "Summary"
+                    is_displayable: True
+                    filter_from_agent: False
+                status: string
+                    description: "selfServe, salesWorking, or existingCustomer."
+                    label: "Status"
+                    is_displayable: False
+                    filter_from_agent: False
+                reason: string
+                    description: "Human-readable reason."
+                    label: "Reason"
+                    is_displayable: False
+                    filter_from_agent: False
+                accountId: string
+                    description: "Account Id."
+                    label: "Account Id"
+                    is_displayable: False
+                    filter_from_agent: False
+                contactId: string
+                    description: "Contact Id."
+                    label: "Contact Id"
+                    is_displayable: False
+                    filter_from_agent: False
+                signInUrl: string
+                    description: "Sign-in URL when existing customer."
+                    label: "Sign-in URL"
+                    is_displayable: True
+                    filter_from_agent: False
+                committed: string
+                    description: "true only when SelfServe stamp succeeded."
+                    label: "Committed"
+                    is_displayable: False
+                    filter_from_agent: False
+                responseJson: string
+                    description: "Raw BFF JSON."
+                    label: "Response JSON"
+                    is_displayable: False
+                    filter_from_agent: True
+
+        Handoff_Qualify_To_Sales:
+            description: "Capture Payroll/Elite/size/geo bounce for sales. Never SelfServe. Never Quote."
+            label: "Handoff Qualify To Sales"
+            require_user_confirmation: False
+            include_in_progress_indicator: True
+            progress_indicator_message: "Connecting you with a person…"
+            target: "apex://RLM_BambooAgentHandoffQualifyToSales"
+            inputs:
+                company: string
+                    description: "Company name."
+                    label: "Company"
+                    is_required: True
+                    is_user_input: True
+                email: string
+                    description: "Work email."
+                    label: "Work email"
+                    is_required: True
+                    is_user_input: True
+                headcount: object
+                    description: "Employee count."
+                    label: "Headcount"
+                    is_required: False
+                    is_user_input: True
+                    complex_data_type_name: "lightning__integerType"
+                country: string
+                    description: "US, CA, or UK."
+                    label: "Country"
+                    is_required: False
+                    is_user_input: True
+                needsCsv: string
+                    description: "Comma-separated needs."
+                    label: "Needs CSV"
+                    is_required: False
+                    is_user_input: True
+                dmRole: string
+                    description: "Decision-maker role."
+                    label: "Decision-maker role"
+                    is_required: False
+                    is_user_input: True
+                firstName: string
+                    description: "First name."
+                    label: "First name"
+                    is_required: False
+                    is_user_input: True
+                lastName: string
+                    description: "Last name."
+                    label: "Last name"
+                    is_required: False
+                    is_user_input: True
+                bounceType: string
+                    description: "size, geo, payroll, or elite."
+                    label: "Bounce type"
+                    is_required: True
+                    is_user_input: True
+                bounceReason: string
+                    description: "Why they talk to a person."
+                    label: "Bounce reason"
+                    is_required: False
+                    is_user_input: True
+            outputs:
+                isSuccess: boolean
+                    description: "True when captured for sales."
+                    label: "Is Success"
+                    is_displayable: False
+                    filter_from_agent: False
+                errorMessage: string
+                    description: "Error if failed."
+                    label: "Error Message"
+                    is_displayable: False
+                    filter_from_agent: False
+                summary: string
+                    description: "Speak this to the buyer."
+                    label: "Summary"
+                    is_displayable: True
+                    filter_from_agent: False
+                status: string
+                    description: "salesWorking or existingCustomer."
+                    label: "Status"
+                    is_displayable: False
+                    filter_from_agent: False
+                reason: string
+                    description: "Handoff reason."
+                    label: "Reason"
+                    is_displayable: False
+                    filter_from_agent: False
+                accountId: string
+                    description: "Account Id."
+                    label: "Account Id"
+                    is_displayable: False
+                    filter_from_agent: False
+                contactId: string
+                    description: "Contact Id."
+                    label: "Contact Id"
+                    is_displayable: False
+                    filter_from_agent: False
+                taskId: string
+                    description: "Sales Task Id."
+                    label: "Task Id"
+                    is_displayable: False
+                    filter_from_agent: False
+                signInUrl: string
+                    description: "Sign-in URL when existing customer."
+                    label: "Sign-in URL"
+                    is_displayable: True
+                    filter_from_agent: False
+                alreadyWorking: boolean
+                    description: "True when sales was already on the account."
+                    label: "Already working"
+                    is_displayable: False
+                    filter_from_agent: False
+                responseJson: string
+                    description: "Raw BFF JSON."
+                    label: "Response JSON"
+                    is_displayable: False
+                    filter_from_agent: True
+
 subagent get_a_price_or_quote:
     label: "Get a price or quote"
     description: "Help new buyers choose plan/add-ons/headcount/term, run Pricing API estimates (no Quote), then create a Revenue Cloud Quote after collecting company and work email. Return the branded summary URL. Do not invent PEPM. #DisableURLRedaction#"
@@ -132,13 +773,32 @@ subagent get_a_price_or_quote:
     reasoning:
         instructions: ->
             | Help a new buyer get a PEPM estimate and optionally a Quote.
-              Collect: plan (Core/Pro/Elite → BAMBOO-CORE / BAMBOO-PRO / BAMBOO-ELITE), add-ons as CSV SKUs, headcount, start date, term (12/24/36).
+              Collect: plan (Core or Pro → BAMBOO-CORE / BAMBOO-PRO), headcount, start date, term (12/24/36).
+              Acquisition Quotes have no add-on SKUs — leave addonSkusCsv empty. Time & Attendance is Licenses-only.
+              Elite and Payroll are sales — never Quote BAMBOO-ELITE or BAMBOO-ADD-PAYROLL; those buyers belong on Qualify → Handoff.
               Call Estimate_Get_Pricing for PEPM — never invent numbers; speak the Summary output (use its PEPM and monthly).
-              Guests may estimate. To create a Quote, collect company name and work email, then call Create_Get_Pricing_Quote.
+              Guests may estimate without an account.
+              Do NOT call Create_Get_Pricing_Quote unless qualifyCommitted is true OR lastQuoteId / pageQuoteId is already set.
+              If the Create Quote action returns commitRequired / “Create your self-serve account”, transition to Qualify and commit — do not retry Place or invent a Quote.
+              If qualifyCommitted is empty AND lastQuoteId and pageQuoteId are empty, transition to Qualify to lookup + commit first.
+              If qualifyLookupStatus is existingCustomer, transition to Change my licenses. If salesWorking, do not Create Quote.
               After Quote create: speak Summary PEPM/monthly, then paste the full https quoteUrl on its own line exactly as returned. Never omit the URL or paraphrase it away.
-              Do not place the order — Place order is the summary CTA.
-              Map common add-on names: Payroll→BAMBOO-ADD-PAYROLL, Benefits→BAMBOO-ADD-BENEFITS, Time→BAMBOO-ADD-TIME.
+              Call Get Page Context first (pass current Quote/Account/session/committed) so sticky Ids are not wiped.
+              Pass previewQuoteId=lastQuoteId and pageQuoteId so the BFF updates the same Draft. Do not create a second Quote for the same buyer.
+              Place is Purchase — recite totals then Place Get Pricing Order only after confirmation.
+              “Where am I?” / “what page is this” / “what’s next on this page” → go_to_help_with_this_page. Do not invent a product description.
         actions:
+            Get_Page_Context: @actions.Get_Page_Context
+                with messagingSessionId=@variables.RoutableId
+                with currentQuoteId=@variables.lastQuoteId
+                with currentAccountId=@variables.activeAccountId
+                with currentQualifySessionId=@variables.qualifySessionId
+                with currentCommitted=@variables.qualifyCommitted
+                set @variables.lastQuoteId = @outputs.quoteId
+                set @variables.activeAccountId = @outputs.accountId
+                set @variables.qualifySessionId = @outputs.qualifySessionId
+                set @variables.lastQuoteUrl = @outputs.quoteUrl
+                set @variables.qualifyCommitted = @outputs.qualifyCommitted
             Estimate_Get_Pricing: @actions.Estimate_Get_Pricing
                 with headcount=...
                 with country=...
@@ -159,10 +819,143 @@ subagent get_a_price_or_quote:
                 with email=...
                 with firstName=...
                 with lastName=...
+                with previewQuoteId=@variables.lastQuoteId
+                with pageQuoteId=@variables.pageQuoteId
+                with accountId=@variables.activeAccountId
                 set @variables.lastQuoteUrl = @outputs.quoteUrl
+                set @variables.lastQuoteId = @outputs.quoteId
                 set @variables.activeAccountId = @outputs.accountId
+                set @variables.lastStartDate = @outputs.startDate
+                set @variables.lastPlanSku = @outputs.planSku
+                set @variables.lastHeadcount = @outputs.headcountText
+                set @variables.lastTermMonths = @outputs.termMonthsText
+                set @variables.lastMonthlyTotal = @outputs.monthlyTotalText
+            go_to_qualify: @utils.transition to @subagent.qualify
+            go_to_purchase: @utils.transition to @subagent.purchase
+            go_to_change_my_licenses: @utils.transition to @subagent.change_my_licenses
+            go_to_help_with_this_page: @utils.transition to @subagent.help_with_this_page
 
     actions:
+        Get_Page_Context:
+            description: "Read the buyer's current self-serve wizard beat, employee count, surface, and sales bounce from the Messaging Session. Call before answering any orientation question."
+            label: "Get Page Context"
+            require_user_confirmation: False
+            include_in_progress_indicator: True
+            progress_indicator_message: "Checking where you are…"
+            target: "apex://RLM_BambooAgentGetPageContext"
+            inputs:
+                messagingSessionId: string
+                    description: "Messaging Session Id. Always pass the RoutableId variable."
+                    label: "Messaging Session Id"
+                    is_required: True
+                    is_user_input: False
+                currentQuoteId: string
+                    description: "lastQuoteId so a blank page does not wipe session."
+                    label: "Current Quote Id"
+                    is_required: False
+                    is_user_input: False
+                currentAccountId: string
+                    description: "activeAccountId so a blank page does not wipe session."
+                    label: "Current Account Id"
+                    is_required: False
+                    is_user_input: False
+                currentQualifySessionId: string
+                    description: "qualifySessionId so a blank page does not wipe session."
+                    label: "Current qualify session Id"
+                    is_required: False
+                    is_user_input: False
+                currentCommitted: string
+                    description: "qualifyCommitted so a blank page does not wipe it."
+                    label: "Current committed"
+                    is_required: False
+                    is_user_input: False
+            outputs:
+                isSuccess: boolean
+                    description: "Success flag."
+                    label: "Is Success"
+                    is_displayable: False
+                    filter_from_agent: False
+                errorMessage: string
+                    description: "Error if the session could not be read."
+                    label: "Error Message"
+                    is_displayable: False
+                    filter_from_agent: False
+                summary: string
+                    description: "Page context in one sentence — state this beat to the buyer."
+                    label: "Summary"
+                    is_displayable: True
+                    filter_from_agent: False
+                hasContext: boolean
+                    description: "False when the buyer opened chat with no wizard context."
+                    label: "Has Context"
+                    is_displayable: False
+                    filter_from_agent: False
+                qualifyStep: string
+                    description: "Wizard beat 1-5, blank when unknown."
+                    label: "Qualify Step"
+                    is_displayable: False
+                    filter_from_agent: False
+                qualifyStepLabel: string
+                    description: "Plain-language name of the current beat."
+                    label: "Qualify Step Label"
+                    is_displayable: False
+                    filter_from_agent: False
+                bounceType: string
+                    description: "size, geo, payroll, elite, or blank."
+                    label: "Bounce Type"
+                    is_displayable: False
+                    filter_from_agent: False
+                headcount: string
+                    description: "Employee count the buyer entered."
+                    label: "Headcount"
+                    is_displayable: False
+                    filter_from_agent: False
+                page: string
+                    description: "get-pricing, quote, account, or activate."
+                    label: "Page"
+                    is_displayable: False
+                    filter_from_agent: False
+                accountId: string
+                    description: "Account Id from pre-chat when present."
+                    label: "Account Id"
+                    is_displayable: False
+                    filter_from_agent: False
+                quoteId: string
+                    description: "Quote Id when chat opened on the summary."
+                    label: "Quote Id"
+                    is_displayable: False
+                    filter_from_agent: False
+                qualifySessionId: string
+                    description: "BFF qualify wizard session Id from pre-chat."
+                    label: "Qualify session Id"
+                    is_displayable: False
+                    filter_from_agent: False
+                quoteUrl: string
+                    description: "Absolute quote summary URL when a Quote Id is known."
+                    label: "Quote URL"
+                    is_displayable: True
+                    filter_from_agent: False
+                qualifyCommitted: string
+                    description: "true when a Quote Id is present or the session was already committed."
+                    label: "Qualify committed"
+                    is_displayable: False
+                    filter_from_agent: False
+                startDate: string
+                    description: "Quote or line start YYYY-MM-DD when a Quote Id is known."
+                    label: "Start date"
+                    is_displayable: False
+                    filter_from_agent: False
+                monthlyTotal: number
+                    description: "Quote TotalPrice when known."
+                    label: "Monthly total"
+                    is_displayable: False
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__numberType"
+                monthlyTotalText: string
+                    description: "String form of monthlyTotal for lastMonthlyTotal."
+                    label: "Monthly total text"
+                    is_displayable: False
+                    filter_from_agent: False
         Estimate_Get_Pricing:
             description: "Estimate BambooHR PEPM and monthly total via Pricing API. Does not create a Quote. Use when the buyer asks for a price or estimate."
             label: "Estimate Get Pricing"
@@ -329,6 +1122,21 @@ subagent get_a_price_or_quote:
                     label: "Last name"
                     is_required: False
                     is_user_input: True
+                previewQuoteId: string
+                    description: "Sticky Draft Quote Id. Pass lastQuoteId so a later turn updates the same Quote."
+                    label: "Preview Quote Id"
+                    is_required: False
+                    is_user_input: False
+                pageQuoteId: string
+                    description: "Quote Id from page context when lastQuoteId is blank."
+                    label: "Page Quote Id"
+                    is_required: False
+                    is_user_input: False
+                accountId: string
+                    description: "Account Id from Commit or page context."
+                    label: "Account Id"
+                    is_required: False
+                    is_user_input: False
             outputs:
                 isSuccess: boolean
                     description: "True when Quote created."
@@ -377,6 +1185,49 @@ subagent get_a_price_or_quote:
                     is_displayable: False
                     filter_from_agent: False
                     complex_data_type_name: "lightning__numberType"
+                monthlyTotalText: string
+                    description: "String form of monthlyTotal for lastMonthlyTotal."
+                    label: "Monthly total text"
+                    is_displayable: False
+                    filter_from_agent: False
+                termMonths: object
+                    description: "Term length in months."
+                    label: "Term months"
+                    is_displayable: False
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__integerType"
+                termMonthsText: string
+                    description: "String form of termMonths for lastTermMonths."
+                    label: "Term months text"
+                    is_displayable: False
+                    filter_from_agent: False
+                termTotal: number
+                    description: "Term total."
+                    label: "Term total"
+                    is_displayable: False
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__numberType"
+                startDate: string
+                    description: "Quote start YYYY-MM-DD."
+                    label: "Start date"
+                    is_displayable: True
+                    filter_from_agent: False
+                planSku: string
+                    description: "Plan SKU on the Quote."
+                    label: "Plan SKU"
+                    is_displayable: False
+                    filter_from_agent: False
+                headcount: object
+                    description: "Seats on the Quote."
+                    label: "Headcount"
+                    is_displayable: False
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__integerType"
+                headcountText: string
+                    description: "String form of headcount for lastHeadcount."
+                    label: "Headcount text"
+                    is_displayable: False
+                    filter_from_agent: False
                 responseJson: string
                     description: "Raw BFF JSON."
                     label: "Response JSON"
@@ -385,30 +1236,49 @@ subagent get_a_price_or_quote:
 
 subagent change_my_licenses:
     label: "Change my licenses"
-    description: "Help existing customers change seats or add modules. Estimate via Pricing API, then generate or update the sticky Draft amend Quote (same Quote Id on edit). Explain due-today as the prorated amend Quote charge, not ARR. #DisableURLRedaction#"
+    description: "Help existing customers change seats or add modules. Estimate, generate sticky Draft amend Quote, then Place Amend only after confirmation. #DisableURLRedaction#"
 
     reasoning:
         instructions: ->
             | Help an existing customer change seats or add modules on Licenses.
-              Resolve accountId from context or Get_Licenses_Summary (company name / Account Id).
+              Call Get Page Context first so activeAccountId is filled from the page.
+              Resolve accountId from Get Page Context, then Get_Licenses_Summary (company name / Account Id).
               Prefer Estimate_Amend for After monthly MRR, then Generate_Or_Update_Amend_Quote for due-today.
               CRITICAL: always pass stickyAmendQuotesJson and stickyModuleQuoteId into Generate_Or_Update_Amend_Quote on edits so the same Draft Quote Id is reused.
+              Next module: if page context nextModuleSku is BAMBOO-ADD-TIME (or nextModuleAvailable), suggest Time & Attendance on remaining term.
+              After they confirm the amend Quote, call Place_Amend (requires confirmation). Do not call Place_Get_Pricing_Order here.
+              Elite and Payroll stay with a person (eliteIsSales / payrollIsSales). Do not Quote BAMBOO-ELITE or BAMBOO-ADD-PAYROLL.
+              If nextModuleAvailable is false because Time is already owned, say Time is on and Elite/Payroll stay with a person.
               Explain money carefully:
                 - Due today = prorated Quote charge for the change
                 - After = new monthly recurring (not ARR)
-              Direct Place order to the amend summary CTA; do not place orders in chat.
+              Recite due-today before Place_Amend. Never take a card number.
+              “Where am I?” / “what page is this” → go_to_help_with_this_page. Speak Licenses & billing plus Account Id from Get Page Context — never a generic “account page”.
         actions:
+            Get_Page_Context: @actions.Get_Page_Context
+                with messagingSessionId=@variables.RoutableId
+                with currentQuoteId=@variables.lastQuoteId
+                with currentAccountId=@variables.activeAccountId
+                with currentQualifySessionId=@variables.qualifySessionId
+                with currentCommitted=@variables.qualifyCommitted
+                set @variables.lastQuoteId = @outputs.quoteId
+                set @variables.activeAccountId = @outputs.accountId
+                set @variables.qualifySessionId = @outputs.qualifySessionId
+                set @variables.lastQuoteUrl = @outputs.quoteUrl
+                set @variables.qualifyCommitted = @outputs.qualifyCommitted
+                set @variables.lastStartDate = @outputs.startDate
+                set @variables.lastMonthlyTotal = @outputs.monthlyTotalText
             Get_Licenses_Summary: @actions.Get_Licenses_Summary
-                with accountId=...
+                with accountId=@variables.activeAccountId
                 with company=...
                 set @variables.activeAccountId = @outputs.accountId
             Estimate_Amend: @actions.Estimate_Amend
-                with accountId=...
+                with accountId=@variables.activeAccountId
                 with newQty=...
                 with addonSkusCsv=...
                 with startDate=...
             Generate_Or_Update_Amend_Quote: @actions.Generate_Or_Update_Amend_Quote
-                with accountId=...
+                with accountId=@variables.activeAccountId
                 with newQty=...
                 with addonSkusCsv=...
                 with startDate=...
@@ -418,8 +1288,138 @@ subagent change_my_licenses:
                 set @variables.stickyModuleQuoteId = @outputs.moduleQuoteId
                 set @variables.lastAmendQuoteUrl = @outputs.amendQuoteUrl
                 set @variables.activeAccountId = @outputs.accountId
+            Place_Amend: @actions.Place_Amend
+                with accountId=@variables.activeAccountId
+                with newQty=...
+                with addonSkusCsv=...
+                with startDate=...
+                with amendQuotesJson=@variables.stickyAmendQuotesJson
+                with moduleQuoteId=@variables.stickyModuleQuoteId
+                set @variables.lastOrderId = @outputs.amendOrderId
+                set @variables.lastPaymentUrl = @outputs.paymentUrl
+            go_to_help_with_this_page: @utils.transition to @subagent.help_with_this_page
 
     actions:
+        Get_Page_Context:
+            description: "Read the buyer's current self-serve wizard beat, employee count, surface, and sales bounce from the Messaging Session. Call before answering any orientation question."
+            label: "Get Page Context"
+            require_user_confirmation: False
+            include_in_progress_indicator: True
+            progress_indicator_message: "Checking where you are…"
+            target: "apex://RLM_BambooAgentGetPageContext"
+            inputs:
+                messagingSessionId: string
+                    description: "Messaging Session Id. Always pass the RoutableId variable."
+                    label: "Messaging Session Id"
+                    is_required: True
+                    is_user_input: False
+                currentQuoteId: string
+                    description: "lastQuoteId so a blank page does not wipe session."
+                    label: "Current Quote Id"
+                    is_required: False
+                    is_user_input: False
+                currentAccountId: string
+                    description: "activeAccountId so a blank page does not wipe session."
+                    label: "Current Account Id"
+                    is_required: False
+                    is_user_input: False
+                currentQualifySessionId: string
+                    description: "qualifySessionId so a blank page does not wipe session."
+                    label: "Current qualify session Id"
+                    is_required: False
+                    is_user_input: False
+                currentCommitted: string
+                    description: "qualifyCommitted so a blank page does not wipe it."
+                    label: "Current committed"
+                    is_required: False
+                    is_user_input: False
+            outputs:
+                isSuccess: boolean
+                    description: "Success flag."
+                    label: "Is Success"
+                    is_displayable: False
+                    filter_from_agent: False
+                errorMessage: string
+                    description: "Error if the session could not be read."
+                    label: "Error Message"
+                    is_displayable: False
+                    filter_from_agent: False
+                summary: string
+                    description: "Page context in one sentence — state this beat to the buyer."
+                    label: "Summary"
+                    is_displayable: True
+                    filter_from_agent: False
+                hasContext: boolean
+                    description: "False when the buyer opened chat with no wizard context."
+                    label: "Has Context"
+                    is_displayable: False
+                    filter_from_agent: False
+                qualifyStep: string
+                    description: "Wizard beat 1-5, blank when unknown."
+                    label: "Qualify Step"
+                    is_displayable: False
+                    filter_from_agent: False
+                qualifyStepLabel: string
+                    description: "Plain-language name of the current beat."
+                    label: "Qualify Step Label"
+                    is_displayable: False
+                    filter_from_agent: False
+                bounceType: string
+                    description: "size, geo, payroll, elite, or blank."
+                    label: "Bounce Type"
+                    is_displayable: False
+                    filter_from_agent: False
+                headcount: string
+                    description: "Employee count the buyer entered."
+                    label: "Headcount"
+                    is_displayable: False
+                    filter_from_agent: False
+                page: string
+                    description: "get-pricing, quote, account, or activate."
+                    label: "Page"
+                    is_displayable: False
+                    filter_from_agent: False
+                accountId: string
+                    description: "Account Id from pre-chat when present."
+                    label: "Account Id"
+                    is_displayable: False
+                    filter_from_agent: False
+                quoteId: string
+                    description: "Quote Id when chat opened on the summary."
+                    label: "Quote Id"
+                    is_displayable: False
+                    filter_from_agent: False
+                qualifySessionId: string
+                    description: "BFF qualify wizard session Id from pre-chat."
+                    label: "Qualify session Id"
+                    is_displayable: False
+                    filter_from_agent: False
+                quoteUrl: string
+                    description: "Absolute quote summary URL when a Quote Id is known."
+                    label: "Quote URL"
+                    is_displayable: True
+                    filter_from_agent: False
+                qualifyCommitted: string
+                    description: "true when a Quote Id is present or the session was already committed."
+                    label: "Qualify committed"
+                    is_displayable: False
+                    filter_from_agent: False
+                startDate: string
+                    description: "Quote or line start YYYY-MM-DD when a Quote Id is known."
+                    label: "Start date"
+                    is_displayable: False
+                    filter_from_agent: False
+                monthlyTotal: number
+                    description: "Quote TotalPrice when known."
+                    label: "Monthly total"
+                    is_displayable: False
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__numberType"
+                monthlyTotalText: string
+                    description: "String form of monthlyTotal for lastMonthlyTotal."
+                    label: "Monthly total text"
+                    is_displayable: False
+                    filter_from_agent: False
         Get_Licenses_Summary:
             description: "Load Current MRR and seats for an Account via Licenses & billing."
             label: "Get Licenses Summary"
@@ -691,47 +1691,169 @@ subagent change_my_licenses:
                     is_displayable: False
                     filter_from_agent: True
 
-subagent help_with_this_page:
-    label: "Help with this page"
-    description: "Orient the buyer on the 5-beat qualify wizard, Get Pricing, quote summary, Licenses, or amend. Narrate current qualify beat and explain bounces from page context. Steer Place order to the on-page CTA. #DisableURLRedaction#"
+        Place_Amend:
+            description: "Place the confirmed Licenses amend (seats or modules). Not acquisition Place. Returns order and Pay Now URL. Never a card number."
+            label: "Place Amend"
+            require_user_confirmation: True
+            include_in_progress_indicator: True
+            progress_indicator_message: "Placing your license change…"
+            target: "apex://RLM_BambooAgentPlaceAmend"
+            inputs:
+                accountId: string
+                    description: "Account Id."
+                    label: "Account Id"
+                    is_required: True
+                    is_user_input: False
+                newQty: object
+                    description: "Target seat count."
+                    label: "New quantity"
+                    is_required: False
+                    is_user_input: True
+                    complex_data_type_name: "lightning__integerType"
+                addonSkusCsv: string
+                    description: "Modules to add (CSV SKUs)."
+                    label: "Add-on SKUs CSV"
+                    is_required: False
+                    is_user_input: True
+                startDate: string
+                    description: "YYYY-MM-DD amend start."
+                    label: "Start date"
+                    is_required: False
+                    is_user_input: True
+                amendQuotesJson: string
+                    description: "Sticky amendQuotes JSON from Generate Or Update."
+                    label: "Amend Quotes JSON"
+                    is_required: False
+                    is_user_input: False
+                moduleQuoteId: string
+                    description: "Sticky module Quote Id."
+                    label: "Module Quote Id"
+                    is_required: False
+                    is_user_input: False
+            outputs:
+                isSuccess: boolean
+                    description: "True when the amend was placed."
+                    label: "Is Success"
+                    is_displayable: False
+                    filter_from_agent: False
+                errorMessage: string
+                    description: "Error if Place Amend failed."
+                    label: "Error Message"
+                    is_displayable: False
+                    filter_from_agent: False
+                summary: string
+                    description: "Speak this confirmation."
+                    label: "Summary"
+                    is_displayable: True
+                    filter_from_agent: False
+                amendOrderId: string
+                    description: "Amend Order Id."
+                    label: "Amend Order Id"
+                    is_displayable: False
+                    filter_from_agent: False
+                amendOrderNumber: string
+                    description: "Amend order number."
+                    label: "Amend Order Number"
+                    is_displayable: False
+                    filter_from_agent: False
+                paymentUrl: string
+                    description: "Pay Now URL. Never a card number."
+                    label: "Payment URL"
+                    is_displayable: True
+                    filter_from_agent: False
+                accountId: string
+                    description: "Account Id."
+                    label: "Account Id"
+                    is_displayable: False
+                    filter_from_agent: False
+                responseJson: string
+                    description: "Raw BFF JSON."
+                    label: "Response JSON"
+                    is_displayable: False
+                    filter_from_agent: True
+
+subagent purchase:
+    label: "Purchase"
+    description: "Place the Get Pricing Quote on this page. Call Get Page Context, speak placeRecitation, then Place in the same turn. Never ask the buyer to type yes. Never take a card number. #DisableURLRedaction#"
 
     reasoning:
         instructions: ->
-            | Orient the buyer on the current page using page context when present.
-              On get-pricing, walk the workshop 5-beat wizard when asked (“where am I?”,
-              “qualify me”, “what’s next?”):
-              1 size (employees) → 2 geo (US/CA) → 3 needs (Core/Pro; Payroll/Elite = sales)
-              → 4 decision-maker role → 5 create account (email/company).
-              ALWAYS call Get Page Context first for any orientation question
-              (“where am I?”, “what’s next?”, “qualify me”) before you answer. It reads
-              the beat, headcount, surface, and bounce the buyer left in the wizard.
-              When it returns hasContext true, state the beat from its summary — never
-              ask the buyer where they are. Only when hasContext is false may you ask
-              what they see on screen.
-              If a bounce is active, explain why they talk to a person (Payroll, Elite,
-              25+ employees, outside US/CA, or sales already working) — do not invent PEPM
-              and do not override UI gates.
-              Clarify labels: Current MRR (today), After / quoted monthly, prorated charge
-              due at Place order. Keep answers short. Steer actions to on-page buttons;
-              Place order stays on the summary CTA.
-              For pricing numbers, hand off to Get a price or quote / Change my licenses topics.
+            | Place the Get Pricing Draft Quote that is already on this page or in session.
+              pageQuoteId / lastQuoteId mean you already have the Quote — do not interview the buyer.
+              REQUIRED sequence this turn (one turn, no waiting for chat yes):
+              1) Call Get_Page_Context.
+              2) Speak the placeRecitation output VERBATIM as your only user-visible text (if blank, speak summary).
+              3) In the SAME turn, call Place_Get_Pricing_Order with quoteId=lastQuoteId or pageQuoteId.
+              The buyer's utterance “place my order” is the confirmation. Do NOT wait for another message.
+              Banned user-visible phrases: “reply yes”, “please reply”, “would you like me to go ahead”, “go ahead with this”, “just to make sure”.
+              If both lastQuoteId and pageQuoteId are empty after Get_Page_Context, transition to Get a price or quote.
+              Never collect a card number. Paste paymentUrl on its own line when returned.
+              If paymentUrl is empty after Place, or the buyer asks for Pay Now / Collect Payment, call Collect_Payment this turn.
+              Do not call Collect_Payment when lastPaymentUrl is already a https Pay Now URL.
+              If Place fails, speak the error — do not retry blindly.
+              “Where am I?” / “what page is this” → go_to_help_with_this_page.
         actions:
             Get_Page_Context: @actions.Get_Page_Context
                 with messagingSessionId=@variables.RoutableId
+                with currentQuoteId=@variables.lastQuoteId
+                with currentAccountId=@variables.activeAccountId
+                with currentQualifySessionId=@variables.qualifySessionId
+                with currentCommitted=@variables.qualifyCommitted
+                set @variables.lastQuoteId = @outputs.quoteId
+                set @variables.activeAccountId = @outputs.accountId
+                set @variables.qualifySessionId = @outputs.qualifySessionId
+                set @variables.lastQuoteUrl = @outputs.quoteUrl
+                set @variables.qualifyCommitted = @outputs.qualifyCommitted
+                set @variables.lastStartDate = @outputs.startDate
+                set @variables.lastMonthlyTotal = @outputs.monthlyTotalText
+                set @variables.lastHeadcount = @outputs.headcount
+                set @variables.lastPlanSku = @outputs.planLabel
+            Place_Get_Pricing_Order: @actions.Place_Get_Pricing_Order
+                with quoteId=@variables.lastQuoteId
+                with pageQuoteId=@variables.pageQuoteId
+                with accountId=@variables.activeAccountId
+                set @variables.lastOrderId = @outputs.orderId
+                set @variables.lastPaymentUrl = @outputs.paymentUrl
+            Collect_Payment: @actions.Collect_Payment
+                with orderId=...
+                set @variables.lastOrderId = @outputs.orderId
+                set @variables.lastPaymentUrl = @outputs.paymentUrl
+            go_to_get_a_price_or_quote: @utils.transition to @subagent.get_a_price_or_quote
+            go_to_help_with_this_page: @utils.transition to @subagent.help_with_this_page
 
     actions:
         Get_Page_Context:
-            description: "Read the buyer's current self-serve wizard beat, employee count, surface, and sales bounce from the Messaging Session. Call before answering any orientation question."
+            description: "On Place, call first. Returns placeRecitation — speak that verbatim, then Place. Never ask the buyer to type yes."
             label: "Get Page Context"
             require_user_confirmation: False
             include_in_progress_indicator: True
-            progress_indicator_message: "Checking where you are…"
+            progress_indicator_message: "Loading your quote…"
             target: "apex://RLM_BambooAgentGetPageContext"
             inputs:
                 messagingSessionId: string
                     description: "Messaging Session Id. Always pass the RoutableId variable."
                     label: "Messaging Session Id"
                     is_required: True
+                    is_user_input: False
+                currentQuoteId: string
+                    description: "lastQuoteId so a blank page does not wipe session."
+                    label: "Current Quote Id"
+                    is_required: False
+                    is_user_input: False
+                currentAccountId: string
+                    description: "activeAccountId so a blank page does not wipe session."
+                    label: "Current Account Id"
+                    is_required: False
+                    is_user_input: False
+                currentQualifySessionId: string
+                    description: "qualifySessionId so a blank page does not wipe session."
+                    label: "Current qualify session Id"
+                    is_required: False
+                    is_user_input: False
+                currentCommitted: string
+                    description: "qualifyCommitted so a blank page does not wipe it."
+                    label: "Current committed"
+                    is_required: False
                     is_user_input: False
             outputs:
                 isSuccess: boolean
@@ -779,3 +1901,440 @@ subagent help_with_this_page:
                     label: "Page"
                     is_displayable: False
                     filter_from_agent: False
+                accountId: string
+                    description: "Account Id from pre-chat when present."
+                    label: "Account Id"
+                    is_displayable: False
+                    filter_from_agent: False
+                quoteId: string
+                    description: "Quote Id when chat opened on the summary."
+                    label: "Quote Id"
+                    is_displayable: False
+                    filter_from_agent: False
+                qualifySessionId: string
+                    description: "BFF qualify wizard session Id from pre-chat."
+                    label: "Qualify session Id"
+                    is_displayable: False
+                    filter_from_agent: False
+                quoteUrl: string
+                    description: "Absolute quote summary URL when a Quote Id is known."
+                    label: "Quote URL"
+                    is_displayable: True
+                    filter_from_agent: False
+                qualifyCommitted: string
+                    description: "true when a Quote Id is present or the session was already committed."
+                    label: "Qualify committed"
+                    is_displayable: False
+                    filter_from_agent: False
+                startDate: string
+                    description: "Quote or line start YYYY-MM-DD when a Quote Id is known."
+                    label: "Start date"
+                    is_displayable: False
+                    filter_from_agent: False
+                monthlyTotal: number
+                    description: "Quote TotalPrice when known."
+                    label: "Monthly total"
+                    is_displayable: False
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__numberType"
+                monthlyTotalText: string
+                    description: "String form of monthlyTotal for lastMonthlyTotal."
+                    label: "Monthly total text"
+                    is_displayable: False
+                    filter_from_agent: False
+                planLabel: string
+                    description: "Product name from the Quote line."
+                    label: "Plan label"
+                    is_displayable: False
+                    filter_from_agent: False
+                placeRecitation: string
+                    description: "Exact sentence Purchase must speak before Place. Speak this verbatim; never invent a yes/no question."
+                    label: "Place recitation"
+                    is_displayable: True
+                    filter_from_agent: False
+        Place_Get_Pricing_Order:
+            description: "Place the Get Pricing Quote now. Buyer already said place my order — do not ask them to type yes. Returns Order Id and Pay Now URL. Never a card number."
+            label: "Place Get Pricing Order"
+            require_user_confirmation: False
+            include_in_progress_indicator: True
+            progress_indicator_message: "Placing your order…"
+            target: "apex://RLM_BambooAgentPlaceGetPricingOrder"
+            inputs:
+                quoteId: string
+                    description: "Get Pricing Quote Id (lastQuoteId)."
+                    label: "Quote Id"
+                    is_required: False
+                    is_user_input: False
+                pageQuoteId: string
+                    description: "Quote Id from page context when lastQuoteId is blank."
+                    label: "Page Quote Id"
+                    is_required: False
+                    is_user_input: False
+                accountId: string
+                    description: "Session Account Id. Place fails if it does not match the Quote."
+                    label: "Account Id"
+                    is_required: False
+                    is_user_input: False
+            outputs:
+                isSuccess: boolean
+                    description: "True when the order was placed."
+                    label: "Is Success"
+                    is_displayable: False
+                    filter_from_agent: False
+                errorMessage: string
+                    description: "Error if Place failed."
+                    label: "Error Message"
+                    is_displayable: False
+                    filter_from_agent: False
+                summary: string
+                    description: "Speak this confirmation. Paste paymentUrl on its own line."
+                    label: "Summary"
+                    is_displayable: True
+                    filter_from_agent: False
+                orderId: string
+                    description: "Salesforce Order Id."
+                    label: "Order Id"
+                    is_displayable: False
+                    filter_from_agent: False
+                orderNumber: string
+                    description: "Order number."
+                    label: "Order Number"
+                    is_displayable: False
+                    filter_from_agent: False
+                paymentUrl: string
+                    description: "Pay Now URL. Never a card number."
+                    label: "Payment URL"
+                    is_displayable: True
+                    filter_from_agent: False
+                quoteTotal: object
+                    description: "Quote TotalPrice echoed for confirmation."
+                    label: "Quote Total"
+                    is_displayable: False
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__numberType"
+                startDate: string
+                    description: "Quote start date."
+                    label: "Start Date"
+                    is_displayable: False
+                    filter_from_agent: False
+                responseJson: string
+                    description: "Raw BFF JSON."
+                    label: "Response JSON"
+                    is_displayable: False
+                    filter_from_agent: True
+
+        Collect_Payment:
+            description: "Mint or refresh a Pay Now URL for the Order. Never a card number."
+            label: "Collect Payment"
+            require_user_confirmation: False
+            include_in_progress_indicator: True
+            progress_indicator_message: "Getting Pay Now…"
+            target: "apex://RLM_BambooAgentCollectPayment"
+            inputs:
+                orderId: string
+                    description: "Order Id from Place or the buyer. Pass lastOrderId or the 801 Id they typed."
+                    label: "Order Id"
+                    is_required: False
+                    is_user_input: True
+                invoiceId: string
+                    description: "Invoice Id when known."
+                    label: "Invoice Id"
+                    is_required: False
+                    is_user_input: False
+            outputs:
+                isSuccess: boolean
+                    description: "True when a Pay Now URL is ready."
+                    label: "Is Success"
+                    is_displayable: False
+                    filter_from_agent: False
+                errorMessage: string
+                    description: "Error if Collect Payment failed."
+                    label: "Error Message"
+                    is_displayable: False
+                    filter_from_agent: False
+                summary: string
+                    description: "Speak this. Paste paymentUrl on its own line."
+                    label: "Summary"
+                    is_displayable: True
+                    filter_from_agent: False
+                paymentUrl: string
+                    description: "Pay Now URL. Never a card number."
+                    label: "Payment URL"
+                    is_displayable: True
+                    filter_from_agent: False
+                invoiceId: string
+                    description: "Invoice Id."
+                    label: "Invoice Id"
+                    is_displayable: False
+                    filter_from_agent: False
+                orderId: string
+                    description: "Order Id."
+                    label: "Order Id"
+                    is_displayable: False
+                    filter_from_agent: False
+                responseJson: string
+                    description: "Raw BFF JSON."
+                    label: "Response JSON"
+                    is_displayable: False
+                    filter_from_agent: True
+
+subagent help_with_this_page:
+    label: "Help with this page"
+    description: "Orient the buyer on the 5-beat qualify wizard, Get Pricing, quote summary, Licenses, or amend. Narrate current qualify beat and explain bounces from page context. Steer Place order to the on-page CTA. #DisableURLRedaction#"
+
+    reasoning:
+        instructions: ->
+            | Orient the buyer ONLY from Get Page Context — never from general knowledge.
+              On EVERY “where am I?”, “what’s next?”, or page-orientation turn, call Get_Page_Context first.
+              Your first sentence MUST be the summary output (or a close paraphrase that keeps page, beat, headcount, and Account Id).
+              On page=account say “Licenses & billing” and the Account Id from the summary. Never say generic “account settings”.
+              When hasContext is true, never ask what they see. Only when hasContext is false may you ask — and then tell them to close chat, finish the page, and reopen so hidden context can stamp. Never invent a generic self-serve brochure.
+              On get-pricing, wizard beats are: 1 size → 2 geo → 3 needs → 4 role → 5 create account.
+              If a bounce is active, explain why they talk to a person (Payroll, Elite,
+              25+ employees, outside US/CA, or sales already working) — do not invent PEPM
+              and do not override UI gates.
+              On activate, cadenceWhich / cadenceDue is Marketing follow-up in the 14-day
+              aha window. Proof is a CRM Task — not email, not Marketing Cloud.
+              Complete_Activate records people, admin email, or time-off policy — never a card number.
+              On Licenses, use nextModuleCopy when present. Time & Attendance is the
+              in-product next module; Elite and Payroll stay with a person.
+              Seat count / Current MRR: transition to Change my licenses (Get_Licenses_Summary).
+              Clarify labels: Current MRR (today), After / quoted monthly, prorated charge
+              due at Place order. Keep answers short.
+              License amends: Change my licenses (confirmed Place Amend) or the on-page CTA.
+              Place and Pay Now / Collect Payment: transition to Purchase. Do not invent a missing Pay Now URL.
+              Place in chat is the Purchase topic (confirmed Place action). The summary CTA still works.
+              For pricing numbers, hand off to Get a price or quote / Change my licenses topics.
+              To persist qualify beats or stamp the self-serve Account, transition to Qualify — this topic only narrates.
+        actions:
+            Get_Page_Context: @actions.Get_Page_Context
+                with messagingSessionId=@variables.RoutableId
+                with currentQuoteId=@variables.lastQuoteId
+                with currentAccountId=@variables.activeAccountId
+                with currentQualifySessionId=@variables.qualifySessionId
+                with currentCommitted=@variables.qualifyCommitted
+                set @variables.activeAccountId = @outputs.accountId
+                set @variables.lastQuoteId = @outputs.quoteId
+                set @variables.qualifySessionId = @outputs.qualifySessionId
+                set @variables.lastQuoteUrl = @outputs.quoteUrl
+                set @variables.qualifyCommitted = @outputs.qualifyCommitted
+                set @variables.lastHeadcount = @outputs.headcount
+                set @variables.lastStartDate = @outputs.startDate
+                set @variables.lastMonthlyTotal = @outputs.monthlyTotalText
+            Complete_Activate: @actions.Complete_Activate
+                with accountId=@variables.activeAccountId
+                with firstName=...
+                with lastName=...
+                with email=...
+                with adminEmail=...
+                with timeOffPolicy=...
+            go_to_qualify: @utils.transition to @subagent.qualify
+            go_to_purchase: @utils.transition to @subagent.purchase
+            go_to_change_my_licenses: @utils.transition to @subagent.change_my_licenses
+
+    actions:
+        Get_Page_Context:
+            description: "Read the buyer's current self-serve wizard beat, employee count, surface, and sales bounce from the Messaging Session. Call before answering any orientation question."
+            label: "Get Page Context"
+            require_user_confirmation: False
+            include_in_progress_indicator: True
+            progress_indicator_message: "Checking where you are…"
+            target: "apex://RLM_BambooAgentGetPageContext"
+            inputs:
+                messagingSessionId: string
+                    description: "Messaging Session Id. Always pass the RoutableId variable."
+                    label: "Messaging Session Id"
+                    is_required: True
+                    is_user_input: False
+                currentQuoteId: string
+                    description: "lastQuoteId so a blank page does not wipe session."
+                    label: "Current Quote Id"
+                    is_required: False
+                    is_user_input: False
+                currentAccountId: string
+                    description: "activeAccountId so a blank page does not wipe session."
+                    label: "Current Account Id"
+                    is_required: False
+                    is_user_input: False
+                currentQualifySessionId: string
+                    description: "qualifySessionId so a blank page does not wipe session."
+                    label: "Current qualify session Id"
+                    is_required: False
+                    is_user_input: False
+                currentCommitted: string
+                    description: "qualifyCommitted so a blank page does not wipe it."
+                    label: "Current committed"
+                    is_required: False
+                    is_user_input: False
+            outputs:
+                isSuccess: boolean
+                    description: "Success flag."
+                    label: "Is Success"
+                    is_displayable: False
+                    filter_from_agent: False
+                errorMessage: string
+                    description: "Error if the session could not be read."
+                    label: "Error Message"
+                    is_displayable: False
+                    filter_from_agent: False
+                summary: string
+                    description: "Page context in one sentence — state this beat to the buyer."
+                    label: "Summary"
+                    is_displayable: True
+                    filter_from_agent: False
+                hasContext: boolean
+                    description: "False when the buyer opened chat with no wizard context."
+                    label: "Has Context"
+                    is_displayable: False
+                    filter_from_agent: False
+                qualifyStep: string
+                    description: "Wizard beat 1-5, blank when unknown."
+                    label: "Qualify Step"
+                    is_displayable: False
+                    filter_from_agent: False
+                qualifyStepLabel: string
+                    description: "Plain-language name of the current beat."
+                    label: "Qualify Step Label"
+                    is_displayable: False
+                    filter_from_agent: False
+                bounceType: string
+                    description: "size, geo, payroll, elite, or blank."
+                    label: "Bounce Type"
+                    is_displayable: False
+                    filter_from_agent: False
+                headcount: string
+                    description: "Employee count the buyer entered."
+                    label: "Headcount"
+                    is_displayable: False
+                    filter_from_agent: False
+                page: string
+                    description: "get-pricing, quote, account, or activate."
+                    label: "Page"
+                    is_displayable: False
+                    filter_from_agent: False
+                accountId: string
+                    description: "Account Id from pre-chat when present."
+                    label: "Account Id"
+                    is_displayable: False
+                    filter_from_agent: False
+                quoteId: string
+                    description: "Quote Id when chat opened on the summary."
+                    label: "Quote Id"
+                    is_displayable: False
+                    filter_from_agent: False
+                qualifySessionId: string
+                    description: "BFF qualify wizard session Id from pre-chat."
+                    label: "Qualify session Id"
+                    is_displayable: False
+                    filter_from_agent: False
+                quoteUrl: string
+                    description: "Absolute quote summary URL when a Quote Id is known."
+                    label: "Quote URL"
+                    is_displayable: True
+                    filter_from_agent: False
+                qualifyCommitted: string
+                    description: "true when a Quote Id is present or the session was already committed."
+                    label: "Qualify committed"
+                    is_displayable: False
+                    filter_from_agent: False
+                startDate: string
+                    description: "Quote or line start YYYY-MM-DD when a Quote Id is known."
+                    label: "Start date"
+                    is_displayable: False
+                    filter_from_agent: False
+                monthlyTotal: number
+                    description: "Quote TotalPrice when known."
+                    label: "Monthly total"
+                    is_displayable: False
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__numberType"
+                monthlyTotalText: string
+                    description: "String form of monthlyTotal for lastMonthlyTotal."
+                    label: "Monthly total text"
+                    is_displayable: False
+                    filter_from_agent: False
+
+        Complete_Activate:
+            description: "Record Activate people, admin email, or time-off policy. Never a card number."
+            label: "Complete Activate"
+            require_user_confirmation: False
+            include_in_progress_indicator: True
+            progress_indicator_message: "Updating Activate…"
+            target: "apex://RLM_BambooAgentCompleteActivate"
+            inputs:
+                accountId: string
+                    description: "Account Id."
+                    label: "Account Id"
+                    is_required: False
+                    is_user_input: False
+                company: string
+                    description: "Company name when Account Id is unknown."
+                    label: "Company"
+                    is_required: False
+                    is_user_input: True
+                firstName: string
+                    description: "Person first name."
+                    label: "First name"
+                    is_required: False
+                    is_user_input: True
+                lastName: string
+                    description: "Person last name."
+                    label: "Last name"
+                    is_required: False
+                    is_user_input: True
+                email: string
+                    description: "Person email."
+                    label: "Email"
+                    is_required: False
+                    is_user_input: True
+                adminEmail: string
+                    description: "Admin email."
+                    label: "Admin email"
+                    is_required: False
+                    is_user_input: True
+                timeOffPolicy: string
+                    description: "Time-off policy name."
+                    label: "Time-off policy"
+                    is_required: False
+                    is_user_input: True
+            outputs:
+                isSuccess: boolean
+                    description: "True when Activate was updated."
+                    label: "Is Success"
+                    is_displayable: False
+                    filter_from_agent: False
+                errorMessage: string
+                    description: "Error if Activate failed."
+                    label: "Error Message"
+                    is_displayable: False
+                    filter_from_agent: False
+                summary: string
+                    description: "Speak this checklist update."
+                    label: "Summary"
+                    is_displayable: True
+                    filter_from_agent: False
+                accountId: string
+                    description: "Account Id."
+                    label: "Account Id"
+                    is_displayable: False
+                    filter_from_agent: False
+                paid: boolean
+                    description: "True when payment is recorded."
+                    label: "Paid"
+                    is_displayable: False
+                    filter_from_agent: False
+                loginReady: boolean
+                    description: "True when a login user exists."
+                    label: "Login ready"
+                    is_displayable: False
+                    filter_from_agent: False
+                licensesUrl: string
+                    description: "Licenses path."
+                    label: "Licenses URL"
+                    is_displayable: True
+                    filter_from_agent: False
+                responseJson: string
+                    description: "Raw BFF JSON."
+                    label: "Response JSON"
+                    is_displayable: False
+                    filter_from_agent: True

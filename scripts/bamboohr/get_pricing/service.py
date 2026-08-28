@@ -14,13 +14,16 @@ from typing import Any
 
 from qualify_crm import (
     DualMotionBlocked,
+    QuoteReuseBlocked,
     STATUS_EXISTING_CUSTOMER,
     STATUS_SALES_WORKING,
     STATUS_SELF_SERVE,
     _safe_patch,
+    assert_micro_qualify,
     campaign_from_utm,
     find_open_handoff_task,
     format_handoff_brief,
+    is_acquisition_draft_name,
     lookup_email,
     mark_qualify_complete,
     self_serve_opportunity_name,
@@ -34,10 +37,19 @@ API = "v67.0"
 CATALOG_NAME = "BambooHR"
 
 # Buyer-selectable subscription terms on Get Pricing (calendar months).
-# 1 = month-to-month; 12/24/36 = committed terms. All use Term Monthly PBEs (PEPM);
-# Quote line StartDate/EndDate span the selected window.
+# 1 = month-to-month → Evergreen Monthly PSM (no EndDate).
+# 12/24/36 = TermDefined Term Monthly; Quote StartDate/EndDate span the window.
 ALLOWED_TERM_MONTHS = (1, 12, 24, 36)
 DEFAULT_TERM_MONTHS = 1
+EVERGREEN_PSM_NAME = "Evergreen Monthly"
+TERM_MONTHLY_PSM_NAME = "Term Monthly"
+
+
+def is_evergreen_term(term_months: int | None, *, free_trial: bool = False) -> bool:
+    """True when Get Pricing should sell Evergreen (standing month-to-month)."""
+    if free_trial:
+        return False
+    return int(term_months if term_months is not None else DEFAULT_TERM_MONTHS) == 1
 
 
 def add_calendar_months(day: date, months: int) -> date:
@@ -340,12 +352,13 @@ def resolve_subscription_window(
     start_date: date | None = None,
     term_months: int | None = None,
     free_trial: bool = False,
-) -> tuple[date, date, int]:
+) -> tuple[date, date | None, int]:
     """Return (start, end, term_months) for Quote lines / Pricing API windows.
 
+    ``term_months=1`` (paid) is evergreen month-to-month: ``end`` is ``None``
+    (no Quote/Asset end date). ``12/24/36`` are TermDefined commitments.
     Free trial still uses a TRIAL_DAYS end date; term_months is retained for
-    convert-later paid quotes. term_months=1 is month-to-month (Term Monthly PSM
-    window); 12/24/36 are committed terms with the same PEPM PBEs.
+    convert-later paid quotes.
     """
     start = start_date or date.today()
     months = int(term_months if term_months is not None else DEFAULT_TERM_MONTHS)
@@ -354,10 +367,35 @@ def resolve_subscription_window(
             f"termMonths must be one of {', '.join(str(m) for m in ALLOWED_TERM_MONTHS)}"
         )
     if free_trial:
-        end = start + timedelta(days=TRIAL_DAYS)
+        end: date | None = start + timedelta(days=TRIAL_DAYS)
+    elif is_evergreen_term(months, free_trial=False):
+        end = None
     else:
         end = add_calendar_months(start, months)
     return start, end, months
+
+
+def pricing_window_end(start: date, end: date | None) -> date:
+    """EffectiveTo for Pricing API synth when commercial end is open (evergreen)."""
+    return end if end is not None else add_calendar_months(start, 1)
+
+
+def quote_line_term_fields(
+    start_iso: str, end_iso: str | None
+) -> dict[str, str]:
+    """QuoteLineItem date / billing fields for TermDefined vs Evergreen.
+
+    Evergreen omits EndDate but still requires PeriodBoundary=Anniversary
+    (createOrderFromQuote rejects evergreen lines without it).
+    """
+    fields = {
+        "StartDate": start_iso,
+        "BillingFrequency": "Monthly",
+        "PeriodBoundary": "Anniversary",
+    }
+    if end_iso:
+        fields["EndDate"] = end_iso
+    return fields
 
 
 def _as_iso_date(value: date | datetime | str | None) -> date | None:
@@ -380,14 +418,18 @@ def _as_iso_date(value: date | datetime | str | None) -> date | None:
 def commercial_term_from_window(
     start: date | datetime | str | None,
     end: date | datetime | str | None,
+    *,
+    selling_model_type: str | None = None,
 ) -> dict[str, Any]:
     """Classify month-to-month vs 12/24/36 from an Asset/Quote lifecycle window.
 
-    Get Pricing uses the same Term Monthly PBEs for every option; ``termMonths=1``
-    is a 1-month window (month-to-month) and 12/24/36 are committed terms.
-    Do **not** use ``Asset.RenewalTerm`` — that is the billing cadence (always
-    1 Month on this catalog), not the commercial commitment.
+    Evergreen Assets (``SellingModelType=Evergreen`` or blank end with no
+    term fill) are month-to-month. Dated ~1-month TermDefined windows (legacy
+    demos) also classify as month-to-month. ``12/24/36`` are committed terms.
+    Do **not** use ``Asset.RenewalTerm`` — that is the billing cadence, not the
+    commercial commitment.
     """
+    smt = (selling_model_type or "").strip()
     start_d = _as_iso_date(start)
     end_d = _as_iso_date(end)
     empty = {
@@ -396,6 +438,13 @@ def commercial_term_from_window(
         "termLabel": "Term unknown",
         "termExact": False,
     }
+    if smt == "Evergreen" or (start_d is not None and end_d is None and smt != "TermDefined"):
+        return {
+            "termMonths": 1,
+            "termKind": "month_to_month",
+            "termLabel": "Month-to-month",
+            "termExact": True,
+        }
     if start_d is None or end_d is None or end_d <= start_d:
         return empty
 
@@ -748,6 +797,7 @@ class GetPricingResult:
     end_date: str | None = None
     term_months: int = DEFAULT_TERM_MONTHS
     term_total: float | None = None
+    reused_quote: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -784,6 +834,7 @@ class GetPricingResult:
             "pathBBundleSave": self.path_b_bundle_save,
             "warnings": self.warnings,
             "quoteId": self.quote_id,
+            "reusedQuote": self.reused_quote,
             "orgAlias": self.org_alias,
             "error": self.error,
             "currency": self.currency,
@@ -1023,6 +1074,12 @@ def commit_qualify_identity(
     country = (country or "US").upper().strip()
     if country not in COUNTRY_ACCOUNT:
         country = "US"
+    try:
+        assert_micro_qualify(
+            headcount=headcount, country=country, needs=buyer.needs
+        )
+    except ValueError:
+        raise
     currency = COUNTRY_CURRENCY[country]
     looked = lookup_email(session, buyer.email)
     if looked.get("status") in (STATUS_SALES_WORKING, STATUS_EXISTING_CUSTOMER):
@@ -1202,18 +1259,27 @@ def handoff_qualify_to_sales(
     }
 
 
-def _pbe_for_sku(session: OrgSession, sku: str, currency: str = "USD") -> dict:
+def _pbe_for_sku(
+    session: OrgSession,
+    sku: str,
+    currency: str = "USD",
+    *,
+    selling_model_type: str = "TermDefined",
+) -> dict:
+    smt = (selling_model_type or "TermDefined").strip() or "TermDefined"
     rows = session.soql(
-        "SELECT Id, Product2Id, UnitPrice, CurrencyIsoCode, ProductSellingModelId "
+        "SELECT Id, Product2Id, UnitPrice, CurrencyIsoCode, ProductSellingModelId, "
+        "ProductSellingModel.SellingModelType, ProductSellingModel.Name "
         "FROM PricebookEntry "
         "WHERE Pricebook2.IsStandard = true "
         f"AND Product2.StockKeepingUnit = '{sku}' "
         f"AND CurrencyIsoCode = '{currency}' "
-        "AND ProductSellingModel.SellingModelType = 'TermDefined' "
+        f"AND ProductSellingModel.SellingModelType = '{smt}' "
         "AND ProductSellingModel.PricingTermUnit = 'Months' LIMIT 1"
     )
+    label = "Evergreen Monthly" if smt == "Evergreen" else "Term Monthly"
     if not rows:
-        raise RuntimeError(f"No Term Monthly {currency} PBE for {sku}")
+        raise RuntimeError(f"No {label} {currency} PBE for {sku}")
     return rows[0]
 
 
@@ -1282,6 +1348,31 @@ def sync_quote_to_opportunity(
     except Exception:
         pass
     return synced
+
+
+def stamp_quote_start_date(session: OrgSession, quote_id: str, start_iso: str) -> None:
+    """Stamp header Quote.StartDate (place graph often leaves it null)."""
+    if not quote_id or not start_iso:
+        return
+    try:
+        session.patch("Quote", quote_id, {"StartDate": str(start_iso)[:10]})
+    except Exception:
+        pass
+
+
+def _acquisition_quote_name(
+    *,
+    plan_sku: str,
+    addon_skus: list[str],
+    free_trial: bool,
+    has_new_customer: bool,
+) -> str:
+    extra = f" + {len(addon_skus)} add-on(s)" if addon_skus else ""
+    if free_trial:
+        return f"{TRIAL_DAYS}-day trial — {PLAN_LABELS[plan_sku]}{extra}"
+    if has_new_customer:
+        return self_serve_quote_name(PLAN_LABELS[plan_sku], len(addon_skus))
+    return f"Get Pricing — {PLAN_LABELS[plan_sku]}{extra}"
 
 
 def _system_reprice_quote(
@@ -1456,7 +1547,9 @@ def get_pricing(session: OrgSession, req: GetPricingRequest) -> GetPricingResult
         free_trial=bool(req.free_trial),
     )
     start_iso = start_day.isoformat()
-    end_iso = end_day.isoformat()
+    end_iso = end_day.isoformat() if end_day else None
+    evergreen = is_evergreen_term(term_months, free_trial=bool(req.free_trial))
+    pbe_smt = "Evergreen" if evergreen else "TermDefined"
 
     addon_skus = normalize_addons(req.addon_skus)
     if country in NON_US_COUNTRIES:
@@ -1557,7 +1650,14 @@ def get_pricing(session: OrgSession, req: GetPricingRequest) -> GetPricingResult
     pb = session.soql("SELECT Id FROM Pricebook2 WHERE IsStandard = true LIMIT 1")[0]
 
     skus_needed = [sell_plan_sku, *addon_skus]
-    pbes = {sku: _pbe_for_sku(session, sku, currency) for sku in skus_needed}
+    pbes = {
+        sku: _pbe_for_sku(session, sku, currency, selling_model_type=pbe_smt)
+        for sku in skus_needed
+    }
+    if evergreen:
+        warnings.append(
+            "Month-to-month: Evergreen Monthly selling model (bills monthly until cancel)."
+        )
 
     # Discover
     payload = session.post(
@@ -1630,181 +1730,263 @@ def get_pricing(session: OrgSession, req: GetPricingRequest) -> GetPricingResult
     path_b_flag = False
     trial_flag = False
     monthly = 0.0 if free_trial else round(expected_plan_paid * plan_qty, 2)
+    reused_quote = False
+    quantity_by_sku: dict[str, int] | None = None
+    opp_id: str | None = None
+    quote_name = _acquisition_quote_name(
+        plan_sku=plan_sku,
+        addon_skus=addon_skus,
+        free_trial=free_trial,
+        has_new_customer=bool(req.buyer and req.buyer.has_new_customer),
+    )
 
-    # Phase 3: promote sticky preview Quote when Account + config match.
+    # Sticky preview promote, or in-place update of the same SelfServe Draft.
     if req.place_quote and req.preview_quote_id:
         try:
-            from pricing_preview import discard_preview_quote, promote_preview_quote
+            from pricing_preview import (
+                _is_preview_quote,
+                _quote_line_skus,
+                _replace_sticky_lines_via_pst,
+                discard_preview_quote,
+                promote_preview_quote,
+            )
 
-            promoted = promote_preview_quote(
-                session,
-                req.preview_quote_id,
-                headcount=req.headcount,
-                country=country,
-                plan_sku=plan_sku,
-                addon_skus=addon_skus,
-                free_trial=free_trial,
-                account_id=acct["Id"],
+            sticky_id = req.preview_quote_id.strip()
+            rows = session.soql(
+                "SELECT Id, OpportunityId, AccountId, QuoteAccountId, Status, "
+                "Name, Description FROM Quote "
+                f"WHERE Id = '{_soql_escape(sticky_id)}' LIMIT 1"
             )
-            if promoted:
-                quote_id = promoted["quoteId"]
-                line_items = list(promoted.get("lineItems") or [])
-                monthly = float(promoted.get("monthlyTotal") or 0)
-                net_pepm = float(promoted.get("netPepm") or 0)
-                path_b_flag = bool(promoted.get("pathBBundleSave"))
-                trial_flag = bool(promoted.get("freeTrial"))
-                use_flat = bool(promoted.get("smallBizFlat"))
-                sell_plan_sku = promoted.get("sellPlanSku") or sell_plan_sku
-                list_pepm = float(promoted.get("listPepm") or list_pepm)
-                vol_pct = float(promoted.get("volumePercent") or vol_pct)
-                vol = vol_pct / 100.0
+            if not rows:
                 warnings.append(
-                    "Promoted sticky Revenue Cloud preview Quote (no second Quote created)."
+                    "Previous Quote Id was not found — creating a new Quote."
                 )
-                return GetPricingResult(
-                    ok=True,
-                    country=country,
-                    account_name=account_name,
-                    account_id=acct["Id"],
-                    plan_sku=plan_sku,
-                    plan_name=PLAN_LABELS[plan_sku],
-                    headcount=req.headcount,
-                    list_pepm=list_pepm,
-                    volume_percent=round(vol * 100, 1),
-                    net_pepm=net_pepm,
-                    monthly_total=monthly,
-                    annual_total=round(monthly * 12, 2),
-                    start_date=start_iso,
-                    end_date=end_iso,
-                    term_months=term_months,
-                    term_total=round(monthly * term_months, 2),
-                    discovered_skus=sorted(set(discovered)),
-                    addon_skus=addon_skus,
-                    line_items=line_items,
-                    path_b_bundle_save=path_b_flag,
-                    small_biz_flat=use_flat,
-                    sell_plan_sku=sell_plan_sku,
-                    free_trial=free_trial,
-                    trial_days=TRIAL_DAYS if free_trial else 0,
-                    paid_monthly_estimate=paid_monthly if free_trial else None,
-                    paid_line_items=paid_line_items if free_trial else [],
-                    currency=currency,
-                    warnings=warnings,
-                    quote_id=quote_id,
-                    org_alias=session.alias,
-                    contact_id=contact_id,
-                    contact_name=str(buyer_meta.get("contactName") or ""),
-                    contact_email=str(buyer_meta.get("contactEmail") or ""),
-                    account_created=bool(buyer_meta.get("accountCreated")),
-                    contact_created=bool(buyer_meta.get("contactCreated")),
-                )
-            # Preview was on a different Account (usually demo) — discard and place fresh.
-            discard_preview_quote(session, req.preview_quote_id)
-            warnings.append(
-                "Preview Quote was on a different Account — created the buyer Quote fresh."
-            )
+            else:
+                row = rows[0]
+                row_acct = row.get("QuoteAccountId") or row.get("AccountId")
+                if _is_preview_quote(row):
+                    promoted = promote_preview_quote(
+                        session,
+                        sticky_id,
+                        headcount=req.headcount,
+                        country=country,
+                        plan_sku=plan_sku,
+                        addon_skus=addon_skus,
+                        free_trial=free_trial,
+                        account_id=acct["Id"],
+                    )
+                    if promoted:
+                        quote_id = promoted["quoteId"]
+                        line_items = list(promoted.get("lineItems") or [])
+                        monthly = float(promoted.get("monthlyTotal") or 0)
+                        net_pepm = float(promoted.get("netPepm") or 0)
+                        path_b_flag = bool(promoted.get("pathBBundleSave"))
+                        trial_flag = bool(promoted.get("freeTrial"))
+                        use_flat = bool(promoted.get("smallBizFlat"))
+                        sell_plan_sku = promoted.get("sellPlanSku") or sell_plan_sku
+                        list_pepm = float(promoted.get("listPepm") or list_pepm)
+                        vol_pct = float(promoted.get("volumePercent") or vol_pct)
+                        vol = vol_pct / 100.0
+                        warnings.append(
+                            "Promoted sticky Revenue Cloud preview Quote "
+                            "(no second Quote created)."
+                        )
+                        return GetPricingResult(
+                            ok=True,
+                            country=country,
+                            account_name=account_name,
+                            account_id=acct["Id"],
+                            plan_sku=plan_sku,
+                            plan_name=PLAN_LABELS[plan_sku],
+                            headcount=req.headcount,
+                            list_pepm=list_pepm,
+                            volume_percent=round(vol * 100, 1),
+                            net_pepm=net_pepm,
+                            monthly_total=monthly,
+                            annual_total=round(monthly * 12, 2),
+                            start_date=start_iso,
+                            end_date=end_iso,
+                            term_months=term_months,
+                            term_total=round(monthly * term_months, 2),
+                            discovered_skus=sorted(set(discovered)),
+                            addon_skus=addon_skus,
+                            line_items=line_items,
+                            path_b_bundle_save=path_b_flag,
+                            small_biz_flat=use_flat,
+                            sell_plan_sku=sell_plan_sku,
+                            free_trial=free_trial,
+                            trial_days=TRIAL_DAYS if free_trial else 0,
+                            paid_monthly_estimate=paid_monthly if free_trial else None,
+                            paid_line_items=paid_line_items if free_trial else [],
+                            currency=currency,
+                            warnings=warnings,
+                            quote_id=quote_id,
+                            reused_quote=True,
+                            org_alias=session.alias,
+                            contact_id=contact_id,
+                            contact_name=str(buyer_meta.get("contactName") or ""),
+                            contact_email=str(buyer_meta.get("contactEmail") or ""),
+                            account_created=bool(buyer_meta.get("accountCreated")),
+                            contact_created=bool(buyer_meta.get("contactCreated")),
+                        )
+                    discard_preview_quote(session, sticky_id)
+                    warnings.append(
+                        "Preview Quote was on a different Account — "
+                        "created the buyer Quote fresh."
+                    )
+                elif str(row.get("Status") or "") != "Draft":
+                    raise QuoteReuseBlocked(
+                        f"Quote {sticky_id} is {row.get('Status')}, not Draft — "
+                        "will not replace or delete it.",
+                        sticky_id,
+                    )
+                elif row_acct and str(row_acct) != str(acct["Id"]):
+                    raise QuoteReuseBlocked(
+                        "That Quote belongs to a different Account. "
+                        "Will not delete it or create a second Quote.",
+                        sticky_id,
+                    )
+                elif not is_acquisition_draft_name(str(row.get("Name") or "")):
+                    raise QuoteReuseBlocked(
+                        "That Quote is not a Get Pricing self-serve Draft. "
+                        "Will not update or delete it.",
+                        sticky_id,
+                    )
+                else:
+                    quote_id = row["Id"]
+                    opp_id = row.get("OpportunityId")
+                    reused_quote = True
+                    existing_skus = [
+                        s.upper() for s in _quote_line_skus(session, quote_id)
+                    ]
+                    needed = [s.upper() for s in skus_needed]
+                    if sorted(existing_skus) != sorted(needed):
+                        _replace_sticky_lines_via_pst(
+                            session,
+                            quote_id=quote_id,
+                            quote_name=quote_name,
+                            cfg="",
+                            skus_needed=skus_needed,
+                            pbes=pbes,
+                            sell_plan_sku=sell_plan_sku,
+                            plan_qty=plan_qty,
+                            headcount=req.headcount,
+                            start=start_iso,
+                            end=end_iso,
+                            stamp_preview_description=False,
+                        )
+                    else:
+                        quantity_by_sku = {sell_plan_sku.upper(): int(plan_qty)}
+                        for sku in addon_skus:
+                            quantity_by_sku[str(sku).upper()] = int(req.headcount)
+                    warnings.append(
+                        "Updated the same Draft Quote (no second Quote created)."
+                    )
+        except QuoteReuseBlocked:
+            raise
         except Exception as exc:  # noqa: BLE001
             warnings.append(f"Preview promote skipped: {exc}")
 
     if req.place_quote:
         trial_tag = " trial" if free_trial else ""
-        opp_id = session.create(
-            "Opportunity",
-            {
-                "Name": (
-                    self_serve_opportunity_name(
-                        account_name,
-                        PLAN_LABELS[plan_sku],
-                        req.headcount,
-                        country,
-                    )
-                    if (req.buyer and req.buyer.has_new_customer)
-                    else (
-                        f"Get Pricing{trial_tag} {plan_sku} "
-                        f"{'+'.join(addon_skus) if addon_skus else 'plan'} "
-                        f"{req.headcount} {country}"
-                    )
-                )[:120],
-                "AccountId": acct["Id"],
-                "StageName": "Prospecting",
-                "CloseDate": (start_day + timedelta(days=30)).isoformat(),
-                "Pricebook2Id": pb["Id"],
-                "CurrencyIsoCode": currency,
-            },
-        )
-        quote_name = (
-            self_serve_quote_name(PLAN_LABELS[plan_sku], len(addon_skus))
-            if (req.buyer and req.buyer.has_new_customer)
-            else (
-                f"Get Pricing — {PLAN_LABELS[plan_sku]}"
-                + (f" + {len(addon_skus)} add-on(s)" if addon_skus else "")
-            )
-        )
-        if free_trial:
-            quote_name = f"{TRIAL_DAYS}-day trial — {PLAN_LABELS[plan_sku]}" + (
-                f" + {len(addon_skus)} add-on(s)" if addon_skus else ""
-            )
-        records: list[dict[str, Any]] = [
-            {
-                "referenceId": "refQuote",
-                "record": {
-                    "attributes": {"method": "POST", "type": "Quote"},
-                    "Name": quote_name,
-                    "OpportunityId": opp_id,
+        if not reused_quote:
+            opp_id = session.create(
+                "Opportunity",
+                {
+                    "Name": (
+                        self_serve_opportunity_name(
+                            account_name,
+                            PLAN_LABELS[plan_sku],
+                            req.headcount,
+                            country,
+                        )
+                        if (req.buyer and req.buyer.has_new_customer)
+                        else (
+                            f"Get Pricing{trial_tag} {plan_sku} "
+                            f"{'+'.join(addon_skus) if addon_skus else 'plan'} "
+                            f"{req.headcount} {country}"
+                        )
+                    )[:120],
+                    "AccountId": acct["Id"],
+                    "StageName": "Prospecting",
+                    "CloseDate": (start_day + timedelta(days=30)).isoformat(),
                     "Pricebook2Id": pb["Id"],
-                    "QuoteAccountId": acct["Id"],
                     "CurrencyIsoCode": currency,
                 },
-            }
-        ]
-        for i, sku in enumerate(skus_needed):
-            pbe = pbes[sku]
-            line_qty = plan_qty if sku == sell_plan_sku else req.headcount
-            records.append(
+            )
+            records: list[dict[str, Any]] = [
                 {
-                    "referenceId": f"refL{i}",
+                    "referenceId": "refQuote",
                     "record": {
-                        "attributes": {
-                            "type": "QuoteLineItem",
-                            "method": "POST",
-                        },
-                        "QuoteId": "@{refQuote.id}",
-                        "Product2Id": pbe["Product2Id"],
-                        "PricebookEntryId": pbe["Id"],
-                        "Quantity": str(line_qty),
+                        "attributes": {"method": "POST", "type": "Quote"},
+                        "Name": quote_name,
+                        "OpportunityId": opp_id,
+                        "Pricebook2Id": pb["Id"],
+                        "QuoteAccountId": acct["Id"],
+                        "CurrencyIsoCode": currency,
                         "StartDate": start_iso,
-                        "EndDate": end_iso,
-                        "PeriodBoundary": "Anniversary",
-                        "BillingFrequency": "Monthly",
                     },
                 }
-            )
-        placed = session.post(
-            f"/services/data/{API}/connect/rev/sales-transaction/actions/place",
-            {
-                "pricingPref": "Skip",
-                "catalogRatesPref": "Skip",
-                "taxPref": "Skip",
-                "configurationPref": {
-                    "configurationMethod": "Skip",
-                    "configurationOptions": {
-                        "validateProductCatalog": True,
-                        "validateAmendRenewCancel": True,
-                        "executeConfigurationRules": False,
-                        "addDefaultConfiguration": False,
+            ]
+            for i, sku in enumerate(skus_needed):
+                pbe = pbes[sku]
+                line_qty = plan_qty if sku == sell_plan_sku else req.headcount
+                line_rec: dict[str, Any] = {
+                    "QuoteId": "@{refQuote.id}",
+                    "Product2Id": pbe["Product2Id"],
+                    "PricebookEntryId": pbe["Id"],
+                    "Quantity": str(line_qty),
+                    **quote_line_term_fields(start_iso, end_iso),
+                }
+                records.append(
+                    {
+                        "referenceId": f"refL{i}",
+                        "record": {
+                            "attributes": {
+                                "type": "QuoteLineItem",
+                                "method": "POST",
+                            },
+                            **line_rec,
+                        },
+                    }
+                )
+            placed = session.post(
+                f"/services/data/{API}/connect/rev/sales-transaction/actions/place",
+                {
+                    "pricingPref": "Skip",
+                    "catalogRatesPref": "Skip",
+                    "taxPref": "Skip",
+                    "configurationPref": {
+                        "configurationMethod": "Skip",
+                        "configurationOptions": {
+                            "validateProductCatalog": True,
+                            "validateAmendRenewCancel": True,
+                            "executeConfigurationRules": False,
+                            "addDefaultConfiguration": False,
+                        },
+                    },
+                    "graph": {
+                        "graphId": f"gp{uuid.uuid4().hex[:8]}",
+                        "records": records,
                     },
                 },
-                "graph": {
-                    "graphId": f"gp{uuid.uuid4().hex[:8]}",
-                    "records": records,
-                },
-            },
-        )
-        if isinstance(placed, list):
-            placed = placed[0]
-        if not placed.get("isSuccess"):
-            raise RuntimeError(f"Place quote failed: {placed}")
-        quote_id = placed["salesTransactionId"]
+            )
+            if isinstance(placed, list):
+                placed = placed[0]
+            if not placed.get("isSuccess"):
+                raise RuntimeError(f"Place quote failed: {placed}")
+            quote_id = placed["salesTransactionId"]
+        elif quote_id:
+            try:
+                session.patch(
+                    "Quote",
+                    quote_id,
+                    {"Name": quote_name, "StartDate": start_iso},
+                )
+            except Exception:
+                pass
+
+        stamp_quote_start_date(session, quote_id, start_iso)
 
         # Ensure trial flag is persisted before System reprice (place graph may
         # ignore unknown custom fields on some orgs; PATCH is authoritative).
@@ -1815,7 +1997,9 @@ def get_pricing(session: OrgSession, req: GetPricingRequest) -> GetPricingResult
 
         # Apex Path B flag stamps on line DML; System reprice applies volume +
         # Path B / free-trial ManualDiscount.
-        _system_reprice_quote(session, quote_id)
+        _system_reprice_quote(
+            session, quote_id, quantity_by_sku=quantity_by_sku
+        )
 
         # Non-USD: System volume can stamp corporate-USD UnitPrice/Net on lines
         # (PBE stays local). Re-stamp native currency amounts via Custom.
@@ -2000,6 +2184,7 @@ def get_pricing(session: OrgSession, req: GetPricingRequest) -> GetPricingResult
         currency=currency,
         warnings=warnings,
         quote_id=quote_id,
+        reused_quote=reused_quote,
         org_alias=session.alias,
         contact_id=contact_id,
         contact_name=str(buyer_meta.get("contactName") or ""),

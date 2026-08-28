@@ -1,0 +1,25 @@
+<template>
+    <lightning-card title="BambooHR Revenue Suite" icon-name="standard:quotes">
+        <div class="slds-p-around_medium">
+            <p class="slds-m-bottom_small">
+                Create a Draft Quote (Option A) and open the AE quoting suite.
+            </p>
+            <template if:true={error}>
+                <div class="slds-text-color_error slds-m-bottom_small" role="alert">{error}</div>
+            </template>
+            <div class="slds-grid slds-grid_align-end slds-gutters_small">
+                <div class="slds-col">
+                    <lightning-button label="Cancel" onclick={handleCancel} disabled={busy}></lightning-button>
+                </div>
+                <div class="slds-col">
+                    <lightning-button
+                        variant="brand"
+                        label="Create Quote"
+                        onclick={handleCreate}
+                        disabled={disabled}
+                    ></lightning-button>
+                </div>
+            </div>
+        </div>
+    </lightning-card>
+</template>

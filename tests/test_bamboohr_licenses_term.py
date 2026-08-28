@@ -31,6 +31,10 @@ def test_commercial_term() -> None:
     check("m2m months", m2m["termMonths"] == 1)
     check("m2m exact", m2m["termExact"] is True)
 
+    eg = commercial_term_from_window(start, None, selling_model_type="Evergreen")
+    check("evergreen blank end", eg["termKind"] == "month_to_month")
+    check("evergreen label", eg["termLabel"] == "Month-to-month")
+
     y12 = commercial_term_from_window(start, add_calendar_months(start, 12))
     check("12mo kind", y12["termKind"] == "committed")
     check("12mo label", y12["termLabel"] == "12-month term")

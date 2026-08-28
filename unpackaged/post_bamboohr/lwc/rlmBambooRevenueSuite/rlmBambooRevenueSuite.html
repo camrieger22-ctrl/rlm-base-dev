@@ -1,0 +1,969 @@
+<template>
+    <div class="suite">
+        <header class="suite-header">
+            <div class="header-left">
+                <button class="linkish" type="button" onclick={handleBackToOpp}>
+                    ← Back to opportunity
+                </button>
+                <div class="titles">
+                    <h1 class="title" title={headerPrimary}>{headerPrimary}</h1>
+                    <p class="subtitle" if:true={headerSecondary} title={headerSecondary}>
+                        {headerSecondary}
+                    </p>
+                </div>
+            </div>
+            <div class="header-brand">
+                <img class="wordmark" src={wordmarkUrl} alt="BambooHR" />
+                <span class="suite-name">Revenue Suite</span>
+            </div>
+            <div class="header-actions">
+                <button
+                    class="btn ghost"
+                    type="button"
+                    onclick={handleToggleCompare}
+                    disabled={compareDisabled}
+                    title="Full-width side-by-side compare"
+                >
+                    {compareToggleLabel}
+                </button>
+                <button
+                    class="btn ghost"
+                    type="button"
+                    onclick={handlePreview}
+                    disabled={previewDisabled}
+                    title="Generate proposal PDF for the active option"
+                >
+                    {previewButtonLabel}
+                </button>
+                <button
+                    class="btn ghost"
+                    type="button"
+                    onclick={handleToggleSend}
+                    disabled={sendDisabled}
+                    title="Email this option to an Opportunity contact (PDF optional)"
+                >
+                    {sendButtonLabel}
+                </button>
+                <span class="save-chip">{saveLabel}</span>
+                <button
+                    class="btn agent"
+                    type="button"
+                    onclick={handleToggleAgent}
+                    aria-pressed={agentOpen}
+                >
+                    Agent
+                </button>
+            </div>
+        </header>
+        <div class="error header-error" role="alert" if:true={previewError}>{previewError}</div>
+        <div class="error header-error" role="alert" if:true={sendError}>{sendError}</div>
+        <p class="agent-status" if:true={sendStatusMsg} aria-live="polite">{sendStatusMsg}</p>
+        <div class="send-panel" if:true={sendOpen}>
+            <div class="send-row">
+                <label class="ribbon-label" for="send-contact">Contact</label>
+                <select
+                    id="send-contact"
+                    class="send-select"
+                    value={sendContactId}
+                    onchange={handleSendContactChange}
+                    disabled={sendBusy}
+                >
+                    <option value="">Select a contact…</option>
+                    <template for:each={sendContactOptions} for:item="c">
+                        <option key={c.contactId} value={c.contactId}>{c.label}</option>
+                    </template>
+                </select>
+            </div>
+            <div class="send-row">
+                <label class="ribbon-label" for="send-to">To override</label>
+                <input
+                    id="send-to"
+                    class="send-input"
+                    type="email"
+                    placeholder="optional@email.com"
+                    value={sendToAddress}
+                    onchange={handleSendToAddressChange}
+                    disabled={sendBusy}
+                />
+            </div>
+            <label class="send-check">
+                <input
+                    type="checkbox"
+                    checked={sendAttachPdf}
+                    onchange={handleSendAttachPdfChange}
+                    disabled={sendBusy}
+                />
+                Attach proposal PDF
+            </label>
+            <button
+                class="btn add small"
+                type="button"
+                onclick={handleSendToCustomer}
+                disabled={sendBusy}
+            >
+                {sendBusy ? 'Sending…' : 'Send email'}
+            </button>
+        </div>
+
+        <div class="term-ribbon">
+            <div class="term-block term-start">
+                <label class="ribbon-label" for="term-start">Term start</label>
+                <input
+                    id="term-start"
+                    class="term-date"
+                    type="date"
+                    value={termStartDate}
+                    onchange={handleTermStartChange}
+                    disabled={termControlsDisabled}
+                />
+            </div>
+            <div class="pill-row" role="group" aria-label="Term length">
+                <template for:each={termPills} for:item="t">
+                    <button
+                        key={t.value}
+                        type="button"
+                        class={t.className}
+                        data-value={t.value}
+                        onclick={handleTerm}
+                        disabled={t.disabled}
+                    >
+                        {t.label}
+                    </button>
+                </template>
+            </div>
+            <div class="term-block term-end">
+                <span class="ribbon-label">End</span>
+                <span class="ribbon-value ribbon-end">{termEndDisplay}</span>
+            </div>
+            <div class="term-block ribbon-hint-block">
+                <span class="ribbon-label ribbon-label-spacer" aria-hidden="true">&nbsp;</span>
+                <p class="ribbon-hint">{ribbonHintLabel}</p>
+            </div>
+            <div class="billing-block">
+                <span class="ribbon-label">Billing</span>
+                <div class="pill-row" role="group" aria-label="Billing frequency">
+                    <template for:each={billingPills} for:item="b">
+                        <button
+                            key={b.value}
+                            type="button"
+                            class={b.className}
+                            data-value={b.value}
+                            onclick={handleBilling}
+                            disabled={b.disabled}
+                        >
+                            {b.label}
+                        </button>
+                    </template>
+                </div>
+            </div>
+        </div>
+
+        <!-- Full-bleed compare: replaces the 3-column workspace -->
+        <section class="compare-stage" if:true={showCompare}>
+            <div class="compare-toolbar">
+                <div>
+                    <h2 class="compare-title">Compare options</h2>
+                    <p class="hint">Side-by-side term, billing, grand total, and run-rate metrics. Open an option to edit lines.</p>
+                </div>
+                <div class="options-bar-actions">
+                    <button
+                        class="btn ghost"
+                        type="button"
+                        onclick={handleToggleCompare}
+                    >
+                        ← Back to edit
+                    </button>
+                    <button
+                        class="btn ghost"
+                        type="button"
+                        onclick={handleAddOption}
+                        disabled={addOptionDisabled}
+                    >
+                        + Add option
+                    </button>
+                </div>
+            </div>
+
+            <template if:true={compareLoading}>
+                <p class="hint compare-loading">Loading option details…</p>
+            </template>
+            <template if:true={compareError}>
+                <div class="error" role="alert">{compareError}</div>
+            </template>
+
+            <div class={compareBoardClass} if:false={compareLoading}>
+                <template for:each={compareColumns} for:item="col">
+                    <article key={col.quoteId} class={col.panelClass}>
+                        <header class="compare-panel-head">
+                            <div>
+                                <h3>{col.optionLabel}</h3>
+                                <div class="chips">
+                                    <span class={col.approvalClass}>{col.approvalLabel}</span>
+                                    <span class={col.pricedClass}>{col.pricedLabel}</span>
+                                    <span class="chip chip-synced" if:true={col.syncedToOpportunity}
+                                        >On Opportunity</span
+                                    >
+                                </div>
+                            </div>
+                            <button
+                                class="btn add compare-edit"
+                                type="button"
+                                data-quote-id={col.quoteId}
+                                onclick={handleSelectOption}
+                            >
+                                Open
+                            </button>
+                        </header>
+
+                        <div class="compare-terms">
+                            <div>
+                                <span class="metric-label">Term</span>
+                                <span class="compare-term-value">{col.termLabel}</span>
+                                <span class="compare-term-dates muted" if:true={col.hasTermDates}
+                                    >{col.termDatesLabel}</span
+                                >
+                            </div>
+                            <div>
+                                <span class="metric-label">Billing</span>
+                                <span class="compare-term-value">{col.billingLabel}</span>
+                            </div>
+                            <div>
+                                <span class="metric-label">Grand total</span>
+                                <span class="compare-term-value compare-grand-total"
+                                    >{col.grandTotalLabel}</span
+                                >
+                            </div>
+                        </div>
+
+                        <div class="compare-metrics">
+                            <div>
+                                <span class="metric-label">MRR</span>
+                                <span class="compare-metric-value">{col.mrrLabel}</span>
+                            </div>
+                            <div>
+                                <span class="metric-label">ARR</span>
+                                <span class="compare-metric-value">{col.arrLabel}</span>
+                            </div>
+                        </div>
+
+                        <p class="compare-line-count">{col.lineCount} products</p>
+
+                        <template if:false={col.hasLines}>
+                            <p class="empty-lines">No lines yet.</p>
+                        </template>
+                        <ul class="compare-lines" if:true={col.hasLines}>
+                            <template for:each={col.lines} for:item="line">
+                                <li key={line.lineId} class={line.rowClass}>
+                                    <div class="compare-line-name">
+                                        <strong>{line.name}</strong>
+                                        <span class="muted">{line.sku}</span>
+                                    </div>
+                                    <div class="compare-line-meta">
+                                        <span>{line.qtyLabel} × {line.unitLabel}</span>
+                                        <span class="line-net">{line.netLabel}</span>
+                                    </div>
+                                </li>
+                            </template>
+                        </ul>
+
+                        <footer class="compare-foot">
+                            <span class="compare-foot-grand">{col.grandTotalLabel}</span>
+                            <span class="compare-foot-meta"
+                                >{col.termLabel} · {col.billingLabel} · {col.mrrLabel}/mo MRR</span
+                            >
+                        </footer>
+                    </article>
+                </template>
+            </div>
+        </section>
+
+        <div class={bodyClass} if:true={showEditWorkspace}>
+            <aside class="col catalog">
+                <h2 class="col-title">Products</h2>
+                <input
+                    class="search"
+                    type="search"
+                    placeholder="Search products"
+                    value={searchText}
+                    oninput={handleSearch}
+                />
+                <div class="catalog-queue" if:true={hasCatalogQueue}>
+                    <div class="catalog-queue-head">
+                        <span class="catalog-queue-title"
+                            >Queued for add ({catalogSelectionCount})</span
+                        >
+                        <button
+                            class="linkish catalog-queue-clear"
+                            type="button"
+                            onclick={handleClearSelection}
+                        >
+                            Clear all
+                        </button>
+                    </div>
+                    <ul class="catalog-queue-list" aria-label="Products queued to add">
+                        <template for:each={catalogQueuedProducts} for:item="item">
+                            <li key={item.sku} class="catalog-queue-item">
+                                <div class="catalog-queue-main">
+                                    <span class="catalog-queue-name">{item.name}</span>
+                                    <span class="catalog-queue-meta muted">{item.badge}</span>
+                                </div>
+                                <div class="catalog-queue-qty" role="group" aria-label="Quantity">
+                                    <button
+                                        class="qty-btn qty-btn-sm"
+                                        type="button"
+                                        data-sku={item.sku}
+                                        data-delta="-1"
+                                        onclick={handleQueueQtyStep}
+                                        disabled={item.qtyLessEqualOne}
+                                        aria-label="Decrease quantity"
+                                    >
+                                        −
+                                    </button>
+                                    <input
+                                        class="catalog-queue-qty-input"
+                                        type="number"
+                                        min="1"
+                                        data-sku={item.sku}
+                                        value={item.quantity}
+                                        onchange={handleQueueQtyInput}
+                                        aria-label="Quantity"
+                                    />
+                                    <button
+                                        class="qty-btn qty-btn-sm"
+                                        type="button"
+                                        data-sku={item.sku}
+                                        data-delta="1"
+                                        onclick={handleQueueQtyStep}
+                                        aria-label="Increase quantity"
+                                    >
+                                        +
+                                    </button>
+                                </div>
+                                <span class="catalog-queue-price">{item.lineListLabel}</span>
+                                <button
+                                    class="catalog-queue-remove"
+                                    type="button"
+                                    data-sku={item.sku}
+                                    title="Remove from queue"
+                                    aria-label="Remove from queue"
+                                    onclick={handleRemoveFromQueue}
+                                >
+                                    ×
+                                </button>
+                            </li>
+                        </template>
+                    </ul>
+                    <div class="catalog-queue-apply" if:true={hasCatalogMultiSelect}>
+                        <span class="catalog-queue-apply-label">Set all to</span>
+                        <template for:each={qtyPresets} for:item="q">
+                            <button
+                                key={q}
+                                type="button"
+                                class="pill pill-sm"
+                                data-qty={q}
+                                onclick={handleApplyQtyToAll}
+                            >
+                                {q}
+                            </button>
+                        </template>
+                    </div>
+                </div>
+                <template if:true={catalogError}>
+                    <div class="error" role="alert">{catalogError}</div>
+                </template>
+                <template if:true={frequentProducts.length}>
+                    <p class="section-label">Frequent</p>
+                    <div class="frequent-grid">
+                        <template for:each={frequentProducts} for:item="fp">
+                            <button
+                                key={fp.sku}
+                                type="button"
+                                class={fp.className}
+                                data-sku={fp.sku}
+                                onclick={handleSelectProduct}
+                            >
+                                {fp.name}
+                            </button>
+                        </template>
+                    </div>
+                </template>
+                <p class="section-label">All products</p>
+                <ul class="prod-list">
+                    <template for:each={filteredProducts} for:item="p">
+                        <li key={p.sku} class={p.rowClass}>
+                            <label class="prod-check">
+                                <input
+                                    type="checkbox"
+                                    checked={p.checked}
+                                    data-sku={p.sku}
+                                    onchange={handleToggleCatalogSku}
+                                />
+                                <span class="sr-only">Select {p.name}</span>
+                            </label>
+                            <button
+                                type="button"
+                                class={p.className}
+                                data-sku={p.sku}
+                                onclick={handleSelectProduct}
+                            >
+                                <span class="prod-name">{p.name}</span>
+                                <span class="badge">{p.badge}</span>
+                                <span class="prod-price">{p.priceLabel}</span>
+                            </button>
+                        </li>
+                    </template>
+                </ul>
+            </aside>
+
+            <main class="col configure" if:true={hasSelection}>
+                <button
+                    class="config-dismiss"
+                    type="button"
+                    title="Close configuration"
+                    aria-label="Close configuration"
+                    onclick={handleClearSelection}
+                >
+                    ×
+                </button>
+                <h2 class="config-product-name">{configureHeading}</h2>
+                <p class="hint" if:true={configureHint}>{configureHint}</p>
+                <div class="config-queue" if:true={hasCatalogMultiSelect}>
+                    <p class="field-label">Queued products</p>
+                    <ul class="config-queue-list config-queue-rows" aria-label="Products to add">
+                        <template for:each={catalogQueuedProducts} for:item="item">
+                            <li key={item.sku} class="config-queue-row">
+                                <div class="config-queue-row-id">
+                                    <span class="config-queue-chip-name">{item.name}</span>
+                                    <span class="config-queue-chip-sku muted">{item.sku}</span>
+                                </div>
+                                <div class="catalog-queue-qty" role="group" aria-label="Quantity">
+                                    <button
+                                        class="qty-btn qty-btn-sm"
+                                        type="button"
+                                        data-sku={item.sku}
+                                        data-delta="-1"
+                                        onclick={handleQueueQtyStep}
+                                        disabled={item.qtyLessEqualOne}
+                                        aria-label="Decrease quantity"
+                                    >
+                                        −
+                                    </button>
+                                    <input
+                                        class="catalog-queue-qty-input"
+                                        type="number"
+                                        min="1"
+                                        data-sku={item.sku}
+                                        value={item.quantity}
+                                        onchange={handleQueueQtyInput}
+                                        aria-label="Quantity"
+                                    />
+                                    <button
+                                        class="qty-btn qty-btn-sm"
+                                        type="button"
+                                        data-sku={item.sku}
+                                        data-delta="1"
+                                        onclick={handleQueueQtyStep}
+                                        aria-label="Increase quantity"
+                                    >
+                                        +
+                                    </button>
+                                </div>
+                                <span class="config-queue-row-list">{item.lineListLabel}</span>
+                                <button
+                                    class="config-queue-chip-remove"
+                                    type="button"
+                                    data-sku={item.sku}
+                                    title="Remove from queue"
+                                    aria-label="Remove from queue"
+                                    onclick={handleRemoveFromQueue}
+                                >
+                                    ×
+                                </button>
+                            </li>
+                        </template>
+                    </ul>
+                    <div class="catalog-queue-apply">
+                        <span class="catalog-queue-apply-label">Set all to</span>
+                        <template for:each={qtyPresets} for:item="q">
+                            <button
+                                key={q}
+                                type="button"
+                                class="pill pill-sm"
+                                data-qty={q}
+                                onclick={handleApplyQtyToAll}
+                            >
+                                {q}
+                            </button>
+                        </template>
+                    </div>
+                </div>
+                <template if:false={hasCatalogMultiSelect}>
+                    <template if:true={selectedProduct.description}>
+                        <p class="config-desc">{selectedProduct.description}</p>
+                    </template>
+                </template>
+                <template if:true={isWorkforcePackageSelected}>
+                    <p class="field-label">Base plan</p>
+                    <div class="pill-row" role="group" aria-label="Workforce base plan">
+                        <template for:each={workforcePlanPills} for:item="p">
+                            <button
+                                key={p.value}
+                                type="button"
+                                class={p.className}
+                                data-value={p.value}
+                                title={p.title}
+                                onclick={handlePackagePlan}
+                                disabled={p.disabled}
+                            >
+                                {p.label}
+                            </button>
+                        </template>
+                    </div>
+                    <p class="hint package-addons-hint">
+                        Includes Payroll + Benefits (required). Bundle &amp; Save
+                        applies on add-ons. Base plan expands as Pro (catalog
+                        default); Core/Elite under this package need configurator
+                        selection next.
+                    </p>
+                </template>
+                <template if:true={showSharedQuantity}>
+                    <label class="field-label" for="qty">Quantity</label>
+                    <div class="qty-stepper">
+                        <button
+                            class="qty-btn"
+                            type="button"
+                            data-delta="-1"
+                            onclick={handleQtyStep}
+                            disabled={quantityLessEqualOne}
+                        >
+                            −
+                        </button>
+                        <input
+                            id="qty"
+                            class="qty"
+                            type="number"
+                            min="1"
+                            value={quantity}
+                            onchange={handleQtyInput}
+                        />
+                        <button class="qty-btn" type="button" data-delta="1" onclick={handleQtyStep}>
+                            +
+                        </button>
+                    </div>
+                    <div class="pill-row qty-presets">
+                        <template for:each={qtyPresets} for:item="q">
+                            <button
+                                key={q}
+                                type="button"
+                                class="pill"
+                                data-qty={q}
+                                onclick={handleQtyPreset}
+                            >
+                                {q}
+                            </button>
+                        </template>
+                    </div>
+                </template>
+                <p class="price-line">{configPriceLabel}</p>
+                <template if:true={addError}>
+                    <div class="error" role="alert">{addError}</div>
+                </template>
+                <button
+                    class="btn add"
+                    type="button"
+                    onclick={handleAddToOption}
+                    disabled={addDisabled}
+                >
+                    {addButtonLabel}
+                </button>
+            </main>
+
+            <section class="col options">
+                <div class="options-bar">
+                    <h2 class="col-title">Quote options</h2>
+                    <div class="options-bar-actions">
+                        <button
+                            class="btn ghost small"
+                            type="button"
+                            onclick={handleAddOption}
+                            disabled={addOptionDisabled}
+                        >
+                            + Add option
+                        </button>
+                    </div>
+                </div>
+                <template if:true={optionsError}>
+                    <div class="error" role="alert">{optionsError}</div>
+                </template>
+
+                <div class="option-tabs" if:true={optionCards.length}>
+                    <template for:each={optionCards} for:item="tab">
+                        <button
+                            key={tab.quoteId}
+                            type="button"
+                            class={tab.cardClass}
+                            data-quote-id={tab.quoteId}
+                            onclick={handleSelectOption}
+                        >
+                            <span class="tab-label">{tab.optionLabel}</span>
+                            <span class={tab.approvalClass}>{tab.approvalLabel}</span>
+                            <span class="tab-mrr">{tab.mrrLabel}</span>
+                            <span class="tab-grand-total">{tab.grandTotalLabel}</span>
+                            <span class="tab-synced" if:true={tab.syncedToOpportunity}
+                                >On Opportunity</span
+                            >
+                        </button>
+                    </template>
+                </div>
+
+                <article class="option-card option-card-detail">
+                    <header class="option-head">
+                        <div class="option-head-main">
+                            <h3>{optionLabel}</h3>
+                            <div class="chips">
+                                <span class={approvalChipClass}>{approvalChipLabel}</span>
+                                <span class={pricingChipClass}>{pricingChipLabel}</span>
+                                <span class="chip chip-synced" if:true={activeOptionSynced}
+                                    >On Opportunity</span
+                                >
+                            </div>
+                        </div>
+                        <div class="option-sync-actions">
+                            <button
+                                class="btn ghost small"
+                                type="button"
+                                onclick={handleSubmitForApproval}
+                                disabled={submitApprovalDisabled}
+                                title="Submit this option to Smart Approval"
+                            >
+                                {submitApprovalLabel}
+                            </button>
+                            <button
+                                class="btn ghost small"
+                                type="button"
+                                onclick={handleUnsyncOpportunity}
+                                disabled={syncDisabled}
+                                title={syncButtonTitle}
+                                if:true={showStopSync}
+                            >
+                                Stop sync
+                            </button>
+                            <button
+                                class="btn add small"
+                                type="button"
+                                onclick={handleSyncToOpportunity}
+                                disabled={syncDisabled}
+                                title={syncButtonTitle}
+                                if:false={showStopSync}
+                            >
+                                Use for Opportunity
+                            </button>
+                        </div>
+                    </header>
+                    <div class="error" role="alert" if:true={syncError}>{syncError}</div>
+                    <div class="error" role="alert" if:true={approvalError}>{approvalError}</div>
+                    <p class="agent-status" if:true={approvalStatusMsg} aria-live="polite">
+                        {approvalStatusMsg}
+                    </p>
+                    <div class="metrics">
+                        <div><span class="metric-label">MRR</span> {mrrLabel}</div>
+                        <div><span class="metric-label">ARR</span> {arrLabel}</div>
+                        <div><span class="metric-label">Grand total</span> {grandTotalLabel}</div>
+                    </div>
+                    <div class="option-term-block">
+                        <div class="option-term-row">
+                            <span class="option-term-label">Term</span>
+                            <span class={optionTermScopeClass}>{optionTermScopeLabel}</span>
+                            <span class="option-term-range">{optionTermRangeLabel}</span>
+                            <button
+                                class="btn-term-action"
+                                type="button"
+                                onclick={handleOverrideTerm}
+                                disabled={termControlsDisabled}
+                                if:true={isActiveTermShared}
+                                title="Set a custom term for this option only"
+                            >
+                                Customize term
+                            </button>
+                            <button
+                                class="btn-term-action btn-term-action-muted"
+                                type="button"
+                                onclick={handleUseSharedTerm}
+                                disabled={termControlsDisabled}
+                                if:true={isActiveTermCustom}
+                                title="Reset this option to the shared ribbon term"
+                            >
+                                Use shared term
+                            </button>
+                        </div>
+                        <p class="option-term-hint" if:true={isActiveTermShared}>
+                            Matches the ribbon. Customize to give this option its own dates.
+                        </p>
+                        <div class="option-local-term" if:true={isActiveTermCustom}>
+                            <div class="term-block term-start">
+                                <label class="ribbon-label" for="option-term-start">Start</label>
+                                <input
+                                    id="option-term-start"
+                                    class="term-date"
+                                    type="date"
+                                    value={effectiveTermStart}
+                                    onchange={handleOptionLocalTermStartChange}
+                                    disabled={termControlsDisabled}
+                                />
+                            </div>
+                            <div class="pill-row" role="group" aria-label="Option term length">
+                                <template for:each={optionLocalTermPills} for:item="t">
+                                    <button
+                                        key={t.value}
+                                        type="button"
+                                        class={t.className}
+                                        data-value={t.value}
+                                        onclick={handleOptionLocalTerm}
+                                        disabled={t.disabled}
+                                    >
+                                        {t.label}
+                                    </button>
+                                </template>
+                            </div>
+                            <div class="term-block term-end">
+                                <span class="ribbon-label">End</span>
+                                <span class="ribbon-value ribbon-end">{optionLocalTermEndDisplay}</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="option-term-block">
+                        <div class="option-term-row">
+                            <span class="option-term-label">Billing</span>
+                            <span class={optionBillingScopeClass}>{optionBillingScopeLabel}</span>
+                            <span class="option-term-range">{effectiveBillingFrequency}</span>
+                            <button
+                                class="btn-term-action"
+                                type="button"
+                                onclick={handleOverrideBilling}
+                                disabled={termControlsDisabled}
+                                if:true={isActiveBillingShared}
+                                title="Set a custom billing frequency for this option only"
+                            >
+                                Customize billing
+                            </button>
+                            <button
+                                class="btn-term-action btn-term-action-muted"
+                                type="button"
+                                onclick={handleUseSharedBilling}
+                                disabled={termControlsDisabled}
+                                if:true={isActiveBillingCustom}
+                                title="Reset this option to the shared ribbon billing"
+                            >
+                                Use shared billing
+                            </button>
+                        </div>
+                        <p class="option-term-hint" if:true={isActiveBillingShared}>
+                            Matches the ribbon. Customize to bill this option on a different cadence.
+                        </p>
+                        <div class="option-local-term" if:true={isActiveBillingCustom}>
+                            <div class="pill-row" role="group" aria-label="Option billing frequency">
+                                <template for:each={optionLocalBillingPills} for:item="b">
+                                    <button
+                                        key={b.value}
+                                        type="button"
+                                        class={b.className}
+                                        data-value={b.value}
+                                        onclick={handleOptionLocalBilling}
+                                        disabled={b.disabled}
+                                    >
+                                        {b.label}
+                                    </button>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="option-actions">
+                        <button
+                            class="btn ghost small"
+                            type="button"
+                            onclick={handleReprice}
+                            disabled={repriceDisabled}
+                            title="Re-run Revenue Cloud FORCE pricing on this option"
+                        >
+                            Reprice
+                        </button>
+                        <button
+                            class="btn-delete-pill"
+                            type="button"
+                            onclick={handleDeleteOption}
+                            disabled={deleteOptionDisabled}
+                            title={deleteOptionTitle}
+                        >
+                            Delete option
+                        </button>
+                    </div>
+                    <template if:true={optionError}>
+                        <div class="error" role="alert">{optionError}</div>
+                    </template>
+                    <template if:false={hasLines}>
+                        <p class="empty-lines">
+                            No lines yet. Pick a product from the catalog on the left.
+                        </p>
+                    </template>
+                    <div class="line-toolbar" if:true={hasLines}>
+                        <label class="line-select-all">
+                            <input
+                                type="checkbox"
+                                checked={allLinesSelected}
+                                onchange={handleToggleSelectAllLines}
+                                disabled={pricingBusy}
+                            />
+                            <span>Select all</span>
+                        </label>
+                        <button
+                            class="btn-delete-pill"
+                            type="button"
+                            onclick={handleDeleteSelectedLines}
+                            disabled={deleteSelectedDisabled}
+                            title="Delete selected lines"
+                        >
+                            {deleteSelectedLabel}
+                        </button>
+                    </div>
+                    <ul class="line-list" if:true={hasLines}>
+                        <template for:each={lineDisplayRows} for:item="line">
+                            <li key={line.lineId} class={line.cardClass}>
+                                <div class="line-top">
+                                    <label class="line-check">
+                                        <input
+                                            type="checkbox"
+                                            data-line-id={line.lineId}
+                                            data-bundle-line-ids={line.bundleLineIds}
+                                            checked={line.selected}
+                                            onchange={handleToggleLineSelect}
+                                            disabled={pricingBusy}
+                                            aria-label="Select line"
+                                        />
+                                    </label>
+                                    <div class="line-identity">
+                                        <div class="line-title-row">
+                                            <strong class="line-name">{line.name}</strong>
+                                            <span
+                                                class="bundle-chip"
+                                                if:true={line.isBundleHead}
+                                            >
+                                                Bundle · {line.childCountLabel}
+                                            </span>
+                                        </div>
+                                        <p class="line-subtitle">
+                                            <template if:true={line.hideQtyInput}>
+                                                <span class="line-qty-readonly"
+                                                    >{line.quantity}</span
+                                                >
+                                            </template>
+                                            <template if:false={line.hideQtyInput}>
+                                                <input
+                                                    class="line-qty"
+                                                    type="number"
+                                                    min="1"
+                                                    aria-label="Users"
+                                                    data-line-id={line.lineId}
+                                                    value={line.quantity}
+                                                    oninput={handleLineQtyInput}
+                                                    disabled={pricingBusy}
+                                                />
+                                            </template>
+                                            <span>users</span>
+                                            <span
+                                                class="muted"
+                                                if:true={line.unitLabel}
+                                                >· {line.unitLabel}/user/mo</span
+                                            >
+                                        </p>
+                                    </div>
+                                    <div class="line-list-price">
+                                        <span class="line-list-label">List</span>
+                                        <span class="line-list-value">{line.listLabel}</span>
+                                        <span class="line-net-head" if:true={line.isBundleHead}
+                                            >{line.netLabel}</span
+                                        >
+                                    </div>
+                                </div>
+
+                                <div class="line-controls" if:false={line.hideLineControls}>
+                                    <label class="line-disc">
+                                        <span class="line-control-label">Disc %</span>
+                                        <input
+                                            class="line-disc-input"
+                                            type="number"
+                                            min="0"
+                                            max="100"
+                                            step="0.1"
+                                            aria-label="Discount percent"
+                                            data-line-id={line.lineId}
+                                            value={line.discountPercent}
+                                            oninput={handleLineDiscountInput}
+                                            disabled={pricingBusy}
+                                        />
+                                    </label>
+                                    <span class="line-inherited-chip">Inherited</span>
+                                    <div class="line-dates">
+                                        <span>{line.dateRangeLabel}</span>
+                                        <span class="line-days" if:true={line.dayCountLabel}
+                                            >{line.dayCountLabel}</span
+                                        >
+                                    </div>
+                                    <span class="line-net">{line.netLabel}</span>
+                                </div>
+                            </li>
+                        </template>
+                    </ul>
+                    <footer class="option-foot">
+                        <div class="option-foot-row">
+                            <div>
+                                <span class="option-foot-label">Subscription (term)</span>
+                                <span class="option-foot-meta">{subscriptionTermLabel}</span>
+                            </div>
+                            <span class="option-foot-amount">{subscriptionTotalLabel}</span>
+                        </div>
+                        <div class="option-foot-discount">
+                            <span class="option-foot-label">Apply discount at</span>
+                            <span class="discount-scope discount-scope-active">Line</span>
+                            <span class="discount-scope" title="Coming soon">Option</span>
+                        </div>
+                        <div class="option-foot-row option-foot-total">
+                            <span class="option-foot-label">Grand total</span>
+                            <span class="option-foot-amount">{grandTotalLabel}</span>
+                        </div>
+                    </footer>
+                </article>
+            </section>
+
+            <aside class="col agent" if:true={agentOpen}>
+                <h2 class="col-title">Quoting Assistant</h2>
+                <p class="hint">
+                    Chat with Quinn in Agentforce. Opening from this suite seeds the current
+                    Opportunity so you do not need to paste the Id for Good / Better / Best.
+                </p>
+                <button
+                    class="btn agent agent-open-btn"
+                    type="button"
+                    onclick={handleOpenAgentforce}
+                    disabled={agentChatBusy}
+                >
+                    {agentOpenLabel}
+                </button>
+                <button
+                    class="btn ghost agent-open-btn"
+                    type="button"
+                    onclick={handleAgentRefreshOptions}
+                    disabled={agentRefreshDisabled}
+                >
+                    Refresh options
+                </button>
+                <p class="agent-status" if:true={agentStatus} aria-live="polite">{agentStatus}</p>
+                <div class="error" role="alert" if:true={agentError}>{agentError}</div>
+            </aside>
+        </div>
+
+        <div class="boot-panel" if:true={showBootPanel}>
+            <p class="hint" if:true={loading}>Opening suite…</p>
+            <div class="error" role="alert" if:true={error}>{error}</div>
+        </div>
+    </div>
+</template>

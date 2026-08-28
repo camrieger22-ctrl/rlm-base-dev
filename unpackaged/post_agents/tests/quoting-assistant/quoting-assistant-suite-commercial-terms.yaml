@@ -1,0 +1,22 @@
+# Description: BambooHR Revenue Suite commercial terms routing — term/billing on Options A/B/C
+# must use Apply Commercial Terms (BambooSuiteTiers), not LineManagement Update_Record_Fields.
+name: "Quinn — Suite Commercial Terms"
+subjectType: AGENT
+subjectName: RLM_Quoting_Assistant
+
+testCases:
+  - utterance: "Set a 3 year term with annual billing on all suite options — keep the same seat count"
+    expectedTopic: BambooSuiteTiers
+    expectedActions:
+      - BambooHR_Suite_Apply_Commercial_Terms
+    conversationHistory:
+      - role: user
+        message: "I am in the BambooHR Revenue Suite working on opportunity 006gL00000VvVEvQAN. Remember this as activeOpportunityId; do not build tiers yet."
+      - role: agent
+        topic: BambooSuiteTiers
+        message: "Got it — I'll use that Opportunity for suite quoting."
+
+  - utterance: "Change billing to annual on Option A, B, and C"
+    expectedTopic: BambooSuiteTiers
+    expectedActions:
+      - BambooHR_Suite_Apply_Commercial_Terms

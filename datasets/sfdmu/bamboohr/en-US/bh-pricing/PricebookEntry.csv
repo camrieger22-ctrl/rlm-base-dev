@@ -53,3 +53,30 @@ BAMBOO-ADD-GLOBAL;Term Monthly;GBP;Standard Price Book,GBP,true,false,Global Emp
 BAMBOO-ADD-GLOBAL;Term Annual;GBP;Standard Price Book,GBP,true,false,Global Employment,Standard Price Book;true,BAMBOO-ADD-GLOBAL,Term Annual;TermDefined,113.76
 BAMBOO-PKG-WORKFORCE;Term Monthly;GBP;Standard Price Book,GBP,true,false,Workforce Package,Standard Price Book;true,BAMBOO-PKG-WORKFORCE,Term Monthly;TermDefined,0.00
 BAMBOO-PKG-WORKFORCE;Term Annual;GBP;Standard Price Book,GBP,true,false,Workforce Package,Standard Price Book;true,BAMBOO-PKG-WORKFORCE,Term Annual;TermDefined,0.00
+BAMBOO-CORE;Evergreen Monthly;USD;Standard Price Book,USD,true,false,BambooHR Core,Standard Price Book;true,BAMBOO-CORE,Evergreen Monthly;Evergreen,10.0
+BAMBOO-CORE-FLAT-SM;Evergreen Monthly;USD;Standard Price Book,USD,true,false,BambooHR Core Small Business Flat,Standard Price Book;true,BAMBOO-CORE-FLAT-SM,Evergreen Monthly;Evergreen,250.0
+BAMBOO-PRO;Evergreen Monthly;USD;Standard Price Book,USD,true,false,BambooHR Pro,Standard Price Book;true,BAMBOO-PRO,Evergreen Monthly;Evergreen,17.0
+BAMBOO-ELITE;Evergreen Monthly;USD;Standard Price Book,USD,true,false,BambooHR Elite,Standard Price Book;true,BAMBOO-ELITE,Evergreen Monthly;Evergreen,25.0
+BAMBOO-ADD-PAYROLL;Evergreen Monthly;USD;Standard Price Book,USD,true,false,Payroll,Standard Price Book;true,BAMBOO-ADD-PAYROLL,Evergreen Monthly;Evergreen,8.0
+BAMBOO-ADD-BENEFITS;Evergreen Monthly;USD;Standard Price Book,USD,true,false,Benefits,Standard Price Book;true,BAMBOO-ADD-BENEFITS,Evergreen Monthly;Evergreen,6.0
+BAMBOO-ADD-TIME;Evergreen Monthly;USD;Standard Price Book,USD,true,false,Time & Attendance,Standard Price Book;true,BAMBOO-ADD-TIME,Evergreen Monthly;Evergreen,4.0
+BAMBOO-ADD-GLOBAL;Evergreen Monthly;USD;Standard Price Book,USD,true,false,Global Employment,Standard Price Book;true,BAMBOO-ADD-GLOBAL,Evergreen Monthly;Evergreen,12.0
+BAMBOO-PKG-WORKFORCE;Evergreen Monthly;USD;Standard Price Book,USD,true,false,Workforce Package,Standard Price Book;true,BAMBOO-PKG-WORKFORCE,Evergreen Monthly;Evergreen,0.0
+BAMBOO-CORE;Evergreen Monthly;CAD;Standard Price Book,CAD,true,false,BambooHR Core,Standard Price Book;true,BAMBOO-CORE,Evergreen Monthly;Evergreen,13.50
+BAMBOO-CORE-FLAT-SM;Evergreen Monthly;CAD;Standard Price Book,CAD,true,false,BambooHR Core Small Business Flat,Standard Price Book;true,BAMBOO-CORE-FLAT-SM,Evergreen Monthly;Evergreen,337.50
+BAMBOO-PRO;Evergreen Monthly;CAD;Standard Price Book,CAD,true,false,BambooHR Pro,Standard Price Book;true,BAMBOO-PRO,Evergreen Monthly;Evergreen,22.95
+BAMBOO-ELITE;Evergreen Monthly;CAD;Standard Price Book,CAD,true,false,BambooHR Elite,Standard Price Book;true,BAMBOO-ELITE,Evergreen Monthly;Evergreen,33.75
+BAMBOO-ADD-PAYROLL;Evergreen Monthly;CAD;Standard Price Book,CAD,true,false,Payroll,Standard Price Book;true,BAMBOO-ADD-PAYROLL,Evergreen Monthly;Evergreen,10.80
+BAMBOO-ADD-BENEFITS;Evergreen Monthly;CAD;Standard Price Book,CAD,true,false,Benefits,Standard Price Book;true,BAMBOO-ADD-BENEFITS,Evergreen Monthly;Evergreen,8.10
+BAMBOO-ADD-TIME;Evergreen Monthly;CAD;Standard Price Book,CAD,true,false,Time & Attendance,Standard Price Book;true,BAMBOO-ADD-TIME,Evergreen Monthly;Evergreen,5.40
+BAMBOO-ADD-GLOBAL;Evergreen Monthly;CAD;Standard Price Book,CAD,true,false,Global Employment,Standard Price Book;true,BAMBOO-ADD-GLOBAL,Evergreen Monthly;Evergreen,16.20
+BAMBOO-PKG-WORKFORCE;Evergreen Monthly;CAD;Standard Price Book,CAD,true,false,Workforce Package,Standard Price Book;true,BAMBOO-PKG-WORKFORCE,Evergreen Monthly;Evergreen,0.00
+BAMBOO-CORE;Evergreen Monthly;GBP;Standard Price Book,GBP,true,false,BambooHR Core,Standard Price Book;true,BAMBOO-CORE,Evergreen Monthly;Evergreen,7.90
+BAMBOO-CORE-FLAT-SM;Evergreen Monthly;GBP;Standard Price Book,GBP,true,false,BambooHR Core Small Business Flat,Standard Price Book;true,BAMBOO-CORE-FLAT-SM,Evergreen Monthly;Evergreen,197.50
+BAMBOO-PRO;Evergreen Monthly;GBP;Standard Price Book,GBP,true,false,BambooHR Pro,Standard Price Book;true,BAMBOO-PRO,Evergreen Monthly;Evergreen,13.43
+BAMBOO-ELITE;Evergreen Monthly;GBP;Standard Price Book,GBP,true,false,BambooHR Elite,Standard Price Book;true,BAMBOO-ELITE,Evergreen Monthly;Evergreen,19.75
+BAMBOO-ADD-PAYROLL;Evergreen Monthly;GBP;Standard Price Book,GBP,true,false,Payroll,Standard Price Book;true,BAMBOO-ADD-PAYROLL,Evergreen Monthly;Evergreen,6.32
+BAMBOO-ADD-BENEFITS;Evergreen Monthly;GBP;Standard Price Book,GBP,true,false,Benefits,Standard Price Book;true,BAMBOO-ADD-BENEFITS,Evergreen Monthly;Evergreen,4.74
+BAMBOO-ADD-TIME;Evergreen Monthly;GBP;Standard Price Book,GBP,true,false,Time & Attendance,Standard Price Book;true,BAMBOO-ADD-TIME,Evergreen Monthly;Evergreen,3.16
+BAMBOO-ADD-GLOBAL;Evergreen Monthly;GBP;Standard Price Book,GBP,true,false,Global Employment,Standard Price Book;true,BAMBOO-ADD-GLOBAL,Evergreen Monthly;Evergreen,9.48
+BAMBOO-PKG-WORKFORCE;Evergreen Monthly;GBP;Standard Price Book,GBP,true,false,Workforce Package,Standard Price Book;true,BAMBOO-PKG-WORKFORCE,Evergreen Monthly;Evergreen,0.00

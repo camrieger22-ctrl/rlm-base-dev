@@ -94,16 +94,33 @@ private class RLM_BambooAgentGetPageContextTest {
         res.qualifyStep = '4';
         res.qualifyStepLabel = 'decision-maker role';
         res.headcount = '12';
-        res.page = 'get-pricing';
+        res.page = 'quote';
         res.bounceType = 'payroll';
+        res.quoteId = '0Q0TEST000000001AAA';
+        res.accountId = '001TEST000000001AAA';
+        res.qualifySessionId = 'sess-abc';
 
         String summary = RLM_BambooAgentGetPageContext.buildSummary(res);
 
         System.assert(summary.contains('beat 4 of 5'), 'States the beat: ' + summary);
         System.assert(summary.contains('decision-maker role'), 'Names the beat: ' + summary);
         System.assert(summary.contains('12 employees'), 'Reports headcount: ' + summary);
-        System.assert(summary.contains('get-pricing'), 'Reports surface: ' + summary);
+        System.assert(summary.contains('the quote summary'), 'Reports surface: ' + summary);
         System.assert(summary.contains('Payroll'), 'Explains the bounce: ' + summary);
+        System.assert(summary.contains('0Q0TEST000000001AAA'), 'Sticky Quote: ' + summary);
+        System.assert(summary.contains('001TEST000000001AAA'), 'Account: ' + summary);
+        System.assert(summary.contains('sess-abc'), 'Qualify session: ' + summary);
+    }
+
+    @isTest
+    static void summaryRendersLicensesAccount() {
+        RLM_BambooAgentGetPageContext.Result res = new RLM_BambooAgentGetPageContext.Result();
+        res.hasContext = true;
+        res.page = 'account';
+        res.accountId = '001TEST000000001AAA';
+        String summary = RLM_BambooAgentGetPageContext.buildSummary(res);
+        System.assert(summary.contains('Licenses & billing'), 'Names Licenses: ' + summary);
+        System.assert(summary.contains('001TEST000000001AAA'), 'Includes Account Id: ' + summary);
     }
 
     @isTest
@@ -133,9 +150,85 @@ private class RLM_BambooAgentGetPageContextTest {
     }
 
     @isTest
+    static void preferQuoteAccountOverridesStalePin() {
+        RLM_BambooAgentGetPageContext.Result res = new RLM_BambooAgentGetPageContext.Result();
+        res.accountId = '001STALE00000000AAA';
+        RLM_BambooAgentGetPageContext.preferQuoteAccount(res, '001QUOTE00000000AAA');
+        System.assertEquals('001QUOTE00000000AAA', res.accountId);
+    }
+
+    @isTest
+    static void summaryIncludesQuoteSnapshot() {
+        RLM_BambooAgentGetPageContext.Result res = new RLM_BambooAgentGetPageContext.Result();
+        res.hasContext = true;
+        res.page = 'quote';
+        res.planLabel = 'BambooHR Core';
+        res.headcount = '12';
+        res.startDate = '2026-08-19';
+        res.monthlyTotalText = '124';
+        String summary = RLM_BambooAgentGetPageContext.buildSummary(res);
+        System.assert(summary.contains('BambooHR Core'), summary);
+        System.assert(summary.contains('start 2026-08-19'), summary);
+        System.assert(summary.contains('term total 124'), summary);
+        System.assert(summary.contains('the quote summary'), summary);
+    }
+
+    @isTest
+    static void placeRecitationIncludesQuoteFacts() {
+        RLM_BambooAgentGetPageContext.Result res = new RLM_BambooAgentGetPageContext.Result();
+        res.quoteId = '0Q0TEST000000001AAA';
+        res.planLabel = 'BambooHR Core';
+        res.headcount = '12';
+        res.startDate = '2026-08-19';
+        res.monthlyTotalText = '1443.87';
+        String line = RLM_BambooAgentGetPageContext.buildPlaceRecitation(res);
+        System.assert(line.contains('0Q0TEST000000001AAA'), line);
+        System.assert(line.contains('BambooHR Core'), line);
+        System.assert(line.contains('12 seats'), line);
+        System.assert(line.contains('2026-08-19'), line);
+        System.assert(line.contains('1443.87'), line);
+        System.assert(line.contains('never ask the buyer to type yes'), line);
+        System.assertEquals(null, RLM_BambooAgentGetPageContext.buildPlaceRecitation(new RLM_BambooAgentGetPageContext.Result()));
+    }
+
+    @isTest
     static void blankToNullNormalizes() {
         System.assertEquals(null, RLM_BambooAgentGetPageContext.blankToNull(null));
         System.assertEquals(null, RLM_BambooAgentGetPageContext.blankToNull('  '));
         System.assertEquals('4', RLM_BambooAgentGetPageContext.blankToNull(' 4 '));
+    }
+
+    @isTest
+    static void mergeStickyKeepsCurrentWhenPageBlank() {
+        RLM_BambooAgentGetPageContext.Request req = new RLM_BambooAgentGetPageContext.Request();
+        req.currentQuoteId = '0Q0CURRENT000000AAA';
+        req.currentAccountId = '001CURRENT000000AAA';
+        req.currentQualifySessionId = 'sess-current';
+        req.currentCommitted = 'true';
+        RLM_BambooAgentGetPageContext.Result res = new RLM_BambooAgentGetPageContext.Result();
+        RLM_BambooAgentGetPageContext.mergeSticky(res, null, null, null, req);
+        System.assertEquals('0Q0CURRENT000000AAA', res.quoteId);
+        System.assertEquals('001CURRENT000000AAA', res.accountId);
+        System.assertEquals('sess-current', res.qualifySessionId);
+        System.assertEquals('true', res.qualifyCommitted);
+        System.assert(res.quoteUrl.contains('0Q0CURRENT000000AAA'));
+    }
+
+    @isTest
+    static void mergeStickyPageWinsOverCurrent() {
+        RLM_BambooAgentGetPageContext.Request req = new RLM_BambooAgentGetPageContext.Request();
+        req.currentQuoteId = '0Q0OLD0000000000AAA';
+        RLM_BambooAgentGetPageContext.Result res = new RLM_BambooAgentGetPageContext.Result();
+        RLM_BambooAgentGetPageContext.mergeSticky(
+            res,
+            '001PAGE0000000000AAA',
+            '0Q0PAGE0000000000AAA',
+            'sess-page',
+            req
+        );
+        System.assertEquals('0Q0PAGE0000000000AAA', res.quoteId);
+        System.assertEquals('001PAGE0000000000AAA', res.accountId);
+        System.assertEquals('sess-page', res.qualifySessionId);
+        System.assertEquals('true', res.qualifyCommitted);
     }
 }

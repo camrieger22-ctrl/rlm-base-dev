@@ -105,8 +105,37 @@ public inherited sharing class RLM_BambooAgentBffClient {
         return ok == true || ok == 'true';
     }
 
+    public static Boolean http2xx(Response http) {
+        return http != null &&
+            http.transportOk == true &&
+            http.statusCode != null &&
+            http.statusCode >= 200 &&
+            http.statusCode < 300;
+    }
+
+    public static Boolean isConflict(Response http) {
+        return http != null && http.statusCode == 409;
+    }
+
+    public static Map<String, Object> asMap(Object value) {
+        if (value instanceof Map<String, Object>) {
+            return (Map<String, Object>) value;
+        }
+        return null;
+    }
+
     public static String asString(Object value) {
         return value == null ? null : String.valueOf(value);
+    }
+
+    public static String firstNonBlank(String a, String b) {
+        if (String.isNotBlank(a)) {
+            return a.trim();
+        }
+        if (String.isNotBlank(b)) {
+            return b.trim();
+        }
+        return null;
     }
 
     public static Decimal asDecimal(Object value) {
@@ -162,6 +191,21 @@ public inherited sharing class RLM_BambooAgentBffClient {
             }
         }
         return bits.isEmpty() ? null : String.join(bits, ' ');
+    }
+
+    public static Boolean isAcquisitionDraftName(String name) {
+        if (String.isBlank(name)) {
+            return false;
+        }
+        String low = name.trim().toLowerCase();
+        String compact = low.replace(' ', '').replace('_', '').replace('-', '');
+        if (compact.contains('selfserve')) {
+            return true;
+        }
+        if (low.startsWith('get pricing')) {
+            return true;
+        }
+        return Pattern.compile('(?i)\\d+-day trial').matcher(name).find();
     }
 
     public static String money(String currencyCode, Decimal amount) {

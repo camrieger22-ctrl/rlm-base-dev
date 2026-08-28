@@ -558,7 +558,10 @@
 
   const loadCatalog = async () => {
     try {
-      const resp = await fetch(`/api/catalog?country=${encodeURIComponent(country.value)}`);
+      const resp = await fetch(
+        `/api/catalog?country=${encodeURIComponent(country.value)}` +
+          (MICRO ? "" : "&fullCatalog=1")
+      );
       const data = await resp.json();
       if (!resp.ok || !data.ok) throw new Error(data.error || "catalog failed");
       applyCatalog(data);
@@ -644,7 +647,7 @@
     if (trial) {
       hint.textContent = `Starts ${start} · free trial ends 30 days later (term selection applies after convert).`;
     } else if (months === 1) {
-      hint.textContent = `Starts ${start} · month-to-month (PEPM) · Quote lines use a 1-month Term Monthly window.`;
+      hint.textContent = `Starts ${start} · month-to-month (Evergreen) · bills monthly until cancel.`;
     } else {
       hint.textContent = `Starts ${start} · ${months}-month commitment (PEPM billed monthly) · Quote EndDate = start + ${months} months.`;
     }

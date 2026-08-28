@@ -14,10 +14,10 @@ Two modes:
 
 Examples::
 
-  # Terminal A: BFF with JWT (already running on :8765 is fine)
-  # Terminal B:
+  # Terminal A: BFF with JWT (HTTP :8765 or HTTPS :8443)
+  # Terminal B (HTTPS local certs: publish_bff auto-detects + --no-tls-verify):
   ~/.local/pipx/venvs/cumulusci/bin/python \\
-    scripts/bamboohr/get_pricing/publish_bff.py --org master-demo
+    scripts/bamboohr/get_pricing/publish_bff.py --org master-demo --port 8443
 
   # Stable named tunnel (after one-time Cloudflare setup — see HOSTED.md)
   BFF_PUBLIC_URL='https://gp.example.com' CLOUDFLARE_TUNNEL_NAME='bamboohr-gp' \\
@@ -31,6 +31,7 @@ import argparse
 import os
 import re
 import shutil
+import ssl
 import subprocess
 import sys
 import time
@@ -47,14 +48,25 @@ QUICK_URL_RE = re.compile(
 )
 
 
-def _health(port: int, timeout: float = 2.0) -> bool:
+def _health_url(url: str, timeout: float = 2.0, *, insecure: bool = False) -> bool:
+    ctx = ssl._create_unverified_context() if insecure else None  # noqa: SLF001
     try:
-        with urllib.request.urlopen(
-            f"http://127.0.0.1:{port}/api/health", timeout=timeout
-        ) as resp:
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
             return resp.status == 200
     except (urllib.error.URLError, TimeoutError, OSError):
         return False
+
+
+def _detect_origin(port: int) -> tuple[str, bool]:
+    """Return (origin_url, use_tls_verify_skip) for the local BFF."""
+    https = f"https://127.0.0.1:{port}"
+    http = f"http://127.0.0.1:{port}"
+    if _health_url(f"{https}/api/health", insecure=True):
+        return https, True
+    if _health_url(f"{http}/api/health"):
+        return http, False
+    return "", False
 
 
 def _set_label(org: str, url: str) -> None:
@@ -75,14 +87,17 @@ def _require_cloudflared() -> str:
 
 def run_quick(org: str, port: int, sync_label: bool) -> int:
     cf = _require_cloudflared()
-    if not _health(port):
+    origin, skip_tls = _detect_origin(port)
+    if not origin:
         raise SystemExit(
-            f"BFF not healthy on http://127.0.0.1:{port}/api/health — "
-            "start server.py first (JWT/.env or --org)."
+            f"BFF not healthy on http(s)://127.0.0.1:{port}/api/health — "
+            "start server.py first (JWT/.env or --org). HTTPS 8443 is detected automatically."
         )
 
-    cmd = [cf, "tunnel", "--url", f"http://127.0.0.1:{port}"]
-    print(f"Starting Cloudflare quick tunnel → http://127.0.0.1:{port}")
+    cmd = [cf, "tunnel", "--url", origin]
+    if skip_tls:
+        cmd.append("--no-tls-verify")
+    print(f"Starting Cloudflare quick tunnel → {origin}")
     print("(URL changes each run; use --named + BFF_PUBLIC_URL for a stable host)")
     proc = subprocess.Popen(
         cmd,
@@ -137,9 +152,10 @@ def run_named(org: str, port: int, sync_label: bool) -> int:
     if not public.startswith("https://"):
         raise SystemExit("BFF_PUBLIC_URL must be https://…")
 
-    if not _health(port):
+    origin, _skip_tls = _detect_origin(port)
+    if not origin:
         raise SystemExit(
-            f"BFF not healthy on http://127.0.0.1:{port}/api/health — start server.py first."
+            f"BFF not healthy on http(s)://127.0.0.1:{port}/api/health — start server.py first."
         )
 
     if sync_label:

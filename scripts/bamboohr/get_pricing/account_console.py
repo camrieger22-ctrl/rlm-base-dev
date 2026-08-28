@@ -136,6 +136,19 @@ SELF_SERVE_NEXT_PLAN = {
     "BAMBOO-CORE": "BAMBOO-PRO",
     "BAMBOO-CORE-FLAT-SM": "BAMBOO-PRO",
 }
+# Post-buy add-modules: Time is unassisted; Payroll/Benefits/Global stay sales.
+SELF_SERVE_ADDON_SKUS = frozenset({"BAMBOO-ADD-TIME"})
+
+
+def filter_self_serve_addons(catalog: dict[str, Any] | None) -> dict[str, Any]:
+    """Unassisted buyers only see Time & Attendance as a module."""
+    out = dict(catalog or {})
+    out["addons"] = [
+        dict(row)
+        for row in (out.get("addons") or [])
+        if str(row.get("sku") or "").upper() in SELF_SERVE_ADDON_SKUS
+    ]
+    return out
 
 
 def _sku_label(sku: str) -> str:
@@ -148,8 +161,10 @@ def _need_keys(raw: Any) -> list[str]:
     out: list[str] = []
     for part in text.split(","):
         key = part.strip().lower().replace(" ", "").replace("-", "")
-        if key == "time_off":
+        if key in ("time_off", "timeoff"):
             key = "timeoff"
+        if key in ("time_tracking", "timetracking"):
+            key = "timetracking"
         if key:
             out.append(key)
     return out
@@ -251,6 +266,21 @@ def _plan_in_effect_from_assets(
     return current_plan_from_assets(assets, quantity_field="quantityAsOf")
 
 
+def plan_display_status(
+    *,
+    live_plan: dict[str, Any] | None,
+    upcoming_plan: dict[str, Any] | None,
+    current_qty: int,
+) -> dict[str, Any]:
+    """Live plan vs future start — pill should not look live at qty 0."""
+    live = bool(live_plan) and int(current_qty or 0) > 0
+    if live:
+        return {"live": True, "startsOn": None}
+    src = upcoming_plan or live_plan
+    start = str((src or {}).get("lifecycleStartDate") or "")[:10] or None
+    return {"live": False, "startsOn": start}
+
+
 def plan_expansion_offer(
     *,
     plan_sku: str | None,
@@ -317,6 +347,72 @@ def plan_expansion_offer(
         "copy": hook,
         "needs": need_list,
     }
+
+
+def next_module_offer(
+    *,
+    needs: Any = None,
+    owned_skus: list[str] | None = None,
+) -> dict[str, Any]:
+    """In-product next module. Time & Attendance is self-serve; Elite/Payroll stay sales."""
+    owned = {str(s or "").upper() for s in (owned_skus or []) if s}
+    need_list = _need_keys(needs)
+    time_sku = "BAMBOO-ADD-TIME"
+    sales_copy = "Elite and Payroll stay with a person."
+    if time_sku not in owned:
+        from_needs = "timetracking" in need_list
+        hook = (
+            "You cared about time tracking — add Time & Attendance on remaining term."
+            if from_needs
+            else "Next habit: Time & Attendance on remaining term — no sales call."
+        )
+        return {
+            "available": True,
+            "sku": time_sku,
+            "label": ADDON_LABELS.get(time_sku, "Time & Attendance"),
+            "reason": "needs" if from_needs else "habit",
+            "copy": f"{hook} {sales_copy}",
+            "eliteIsSales": True,
+            "payrollIsSales": True,
+        }
+    return {
+        "available": False,
+        "sku": None,
+        "label": None,
+        "reason": "owned",
+        "copy": f"Time & Attendance is on. {sales_copy}",
+        "eliteIsSales": True,
+        "payrollIsSales": True,
+    }
+
+
+def tag_licenses_addons(catalog: dict[str, Any] | None) -> dict[str, Any]:
+    """Licenses module grid: Time only. Payroll/Elite stay off this rail."""
+    out = filter_self_serve_addons(catalog)
+    tagged: list[dict[str, Any]] = []
+    for raw in out.get("addons") or []:
+        row = dict(raw)
+        sku = str(row.get("sku") or "").upper()
+        self_serve = sku in SELF_SERVE_ADDON_SKUS
+        row["selfServe"] = self_serve
+        row["salesAssisted"] = not self_serve
+        tagged.append(row)
+    out["addons"] = tagged
+    return out
+
+
+def assert_self_serve_addons(skus: list[str]) -> None:
+    """Time & Attendance is the only in-product module; Payroll/Elite stay sales."""
+    blocked = [
+        s.upper()
+        for s in skus
+        if s and str(s).upper() not in SELF_SERVE_ADDON_SKUS
+    ]
+    if blocked:
+        raise ValueError(
+            "Time & Attendance is the in-product module. "
+            "Elite and Payroll stay with a person."
+        )
 
 
 def resolve_upgrade(
@@ -495,6 +591,10 @@ def load_account_console(
         else:
             recurring_complete = False
         is_flat = not _is_headcount_sku(sku)
+        # Asset has no ProductSellingModel relationship — blank LifecycleEndDate
+        # is the evergreen signal (TermDefined always stamps an end).
+        end = row.get("LifecycleEndDate")
+        selling_model_type = "Evergreen" if not end else "TermDefined"
         assets.append(
             {
                 "id": row["Id"],
@@ -508,7 +608,8 @@ def load_account_console(
                 "status": row.get("Status"),
                 "productName": product.get("Name"),
                 "lifecycleStartDate": row.get("LifecycleStartDate"),
-                "lifecycleEndDate": row.get("LifecycleEndDate"),
+                "lifecycleEndDate": end,
+                "sellingModelType": selling_model_type,
                 "createdDate": row.get("CreatedDate"),
             }
         )
@@ -589,8 +690,17 @@ def load_account_console(
     current_qty = int(_asset_qty(live_plan or {}))
     term_start = (primary or {}).get("lifecycleStartDate")
     term_end = (primary or {}).get("lifecycleEndDate")
-    term_info = commercial_term_from_window(term_start, term_end)
+    term_info = commercial_term_from_window(
+        term_start,
+        term_end,
+        selling_model_type=(primary or {}).get("sellingModelType"),
+    )
     plan_asset = live_plan or upcoming_plan
+    plan_status = plan_display_status(
+        live_plan=live_plan,
+        upcoming_plan=upcoming_plan,
+        current_qty=current_qty,
+    )
     plan_for_pepm = live_plan or primary
     plan_pepm = paid_pepm(
         quantity=(plan_for_pepm or {}).get("quantity"),
@@ -688,8 +798,15 @@ def load_account_console(
             "assetId": (plan_asset or {}).get("id"),
             "productName": (plan_asset or {}).get("productName")
             or (plan_asset or {}).get("name"),
+            "live": plan_status["live"],
+            "quantity": current_qty,
+            "startsOn": plan_status["startsOn"],
         },
         "expansion": expansion,
+        "nextModule": next_module_offer(
+            needs=needs_raw,
+            owned_skus=[a.get("sku") for a in assets],
+        ),
         "subscription": {
             "assets": assets,
             "primaryAssetId": primary["id"] if primary else None,
@@ -714,7 +831,7 @@ def load_account_console(
         "pendingBalanceApply": pay_sig.get("pendingBalanceApply"),
         "recentPayments": pay_sig.get("recentPayments") or [],
         "paymentHint": pay_sig.get("hint"),
-        "catalog": catalog,
+        "catalog": tag_licenses_addons(catalog),
         "volumeBands": [
             {"lo": 25, "hi": 75, "rate": 0.05},
             {"lo": 76, "hi": 150, "rate": 0.10},
@@ -1575,6 +1692,7 @@ def _place_addon_quote(
         raise ValueError("addonSkus is required")
     if quantity < 1:
         raise ValueError("quantity must be >= 1")
+    assert_self_serve_addons(skus)
     for sku in skus:
         if sku in PLAN_LIST_USD:
             raise ValueError(
@@ -2064,7 +2182,13 @@ def _fill_missing_lifecycle_ends(
     Add-module remaining term must not invent +1 month while an annual ASP exists.
     One batched query — skip when every asset already has an end.
     """
-    missing = [a for a in assets if a.get("id") and not a.get("lifecycleEndDate")]
+    missing = [
+        a
+        for a in assets
+        if a.get("id")
+        and not a.get("lifecycleEndDate")
+        and (a.get("sellingModelType") or "") != "Evergreen"
+    ]
     if not missing:
         return
     ids = ",".join(f"'{_soql_escape(str(a['id']))}'" for a in missing)
@@ -2545,6 +2669,10 @@ def _amend_change_setup(
 
     owned_skus = {a["sku"] for a in owned_assets}
     add_skus = [s for s in addon_skus if s not in owned_skus]
+    try:
+        assert_self_serve_addons(add_skus)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc), "warnings": warnings}
     for s in addon_skus:
         if s in owned_skus:
             warnings.append(f"{s} already owned — skipped.")
@@ -2663,6 +2791,189 @@ def _amend_change_setup(
     }
 
 
+def _estimate_upgrade_from_quote(
+    session: OrgSession,
+    *,
+    setup: dict[str, Any],
+    preferred_upgrade_quote_id: str | None,
+    warnings: list[str],
+) -> dict[str, Any] | None:
+    """Core→Pro rail via sticky Initiate Upgrade (exact Quote.TotalPrice).
+
+    Same path as Generate quote — avoids Pricing API × month-fraction drift.
+    Returns None to fall back to the provisional Pricing API estimate.
+    """
+    upgrade_to = str(setup.get("upgrade_sku") or "").strip().upper()
+    replace_asset_ids = [str(a) for a in (setup.get("replace_asset_ids") or []) if a]
+    if not upgrade_to or not replace_asset_ids:
+        return None
+    account_id = str(setup["account_id"])
+    currency = str(setup.get("currency") or "USD")
+    baseline_qty = int(setup["baseline_qty"])
+    target_qty = int(setup["target_qty"])
+    amend_start = setup.get("amend_start")
+    try:
+        upgrade_quote_id = upgrade_assets_to_quote(
+            session,
+            account_id=account_id,
+            asset_ids=replace_asset_ids,
+            to_sku=upgrade_to,
+            out_quantity=baseline_qty,
+            in_quantity=target_qty,
+            start=amend_start,
+            currency=currency,
+            preferred_quote_id=preferred_upgrade_quote_id,
+        )
+        sync_quote_to_opportunity(session, upgrade_quote_id)
+        snap = _quote_pricing_snapshot(session, upgrade_quote_id)
+    except Exception as exc:  # noqa: BLE001
+        warnings.append(
+            f"Upgrade Quote unavailable for exact estimate ({exc}); "
+            "falling back to Pricing API prorate."
+        )
+        return None
+
+    owned_assets = setup["owned_assets"]
+    replace_skus = list(setup.get("replace_skus") or [])
+    replace_set = set(replace_skus)
+    before_lines = list(setup.get("before_lines") or [])
+    for line in before_lines:
+        line.setdefault("isNew", False)
+
+    # Recurring after: drop replaced plan SKUs; Pro PEPM from Upgrade Quote.
+    after_lines: list[dict[str, Any]] = []
+    for line in before_lines:
+        if (line.get("sku") or "").upper() in replace_set:
+            continue
+        after_lines.append(dict(line))
+
+    net_from_quote: dict[str, float] = {}
+    change_lines: list[dict[str, Any]] = []
+    for ql in snap.get("lines") or []:
+        sku = (ql.get("sku") or "").upper()
+        name = ql.get("name") or sku
+        qty = float(ql.get("quantity") or 0)
+        net = float(ql.get("netUnitPrice") or 0)
+        total = float(ql.get("totalPrice") or 0)
+        is_flat = bool(ql.get("isFlat"))
+        if sku and _is_headcount_sku(sku) and net > 0:
+            net_from_quote[sku] = net
+        if abs(total) < 0.005:
+            continue
+        change_lines.append(
+            {
+                "sku": sku,
+                "name": name,
+                "qtyDelta": int(round(qty)) if qty else 0,
+                "qtyBefore": baseline_qty if sku == upgrade_to else None,
+                "qtyAfter": target_qty if sku == upgrade_to else int(round(qty)),
+                "netPepm": net if not is_flat else None,
+                "monthlyDiff": None,
+                "chargeMonthly": None,
+                "prorated": round(total, 2),
+                "isFlat": is_flat,
+                "isPepm": not is_flat,
+                "isNew": sku == upgrade_to,
+                "source": "upgradeQuote",
+            }
+        )
+
+    if upgrade_to in net_from_quote:
+        pro_line = _pepm_line_from_net(
+            session,
+            sku=upgrade_to,
+            name=_sku_label(upgrade_to),
+            headcount=target_qty,
+            currency=currency,
+            path_b=bool(setup.get("path_b")),
+            net=net_from_quote[upgrade_to],
+            is_new=True,
+            source="upgradeQuote",
+        )
+        if pro_line:
+            after_lines.append(pro_line)
+
+    monthly_before = round(sum(float(l.get("monthly") or 0) for l in before_lines), 2)
+    monthly_after = round(sum(float(l.get("monthly") or 0) for l in after_lines), 2)
+    monthly_diff = round(monthly_after - monthly_before, 2)
+    annual_before = round(monthly_before * 12, 2)
+    annual_after = round(monthly_after * 12, 2)
+    annual_diff = round(annual_after - annual_before, 2)
+    term_end = _term_end_from_assets(owned_assets)
+    _months, days_remaining = _proration_months(
+        amend_start=amend_start,
+        term_end=term_end,
+    )
+    due_today = round(float(snap.get("totalPrice") or 0), 2)
+    acct = setup["acct"]
+    opp_rows = session.soql(
+        "SELECT OpportunityId FROM Quote "
+        f"WHERE Id = '{_soql_escape(upgrade_quote_id)}' LIMIT 1"
+    )
+    opportunity_id = (opp_rows[0].get("OpportunityId") if opp_rows else None) or None
+    return {
+        "ok": True,
+        "accountId": account_id,
+        "accountName": acct.get("Name"),
+        "currency": currency,
+        "currentQty": int(setup["today_qty"]),
+        "baselineQty": baseline_qty,
+        "quantityChange": (
+            target_qty - baseline_qty if setup.get("qty_changing") else 0
+        ),
+        "newQty": target_qty,
+        "upgradeSku": upgrade_to,
+        "amendStartDate": setup.get("amend_start_iso"),
+        "earliestAmendStartDate": setup.get("earliest_amend_start_iso"),
+        "requestedAmendStartDate": setup.get("requested_amend_start_iso"),
+        "amendStartBumped": bool(setup.get("amend_start_bumped")),
+        "termEndDate": term_end.isoformat() if term_end else None,
+        "daysRemaining": days_remaining,
+        "opportunityId": opportunity_id,
+        "pricingSource": "revenueCloud",
+        "pathBBundleSave": bool(setup.get("path_b")),
+        "monthly": {
+            "today": monthly_before,
+            "after": monthly_after,
+            "difference": monthly_diff,
+        },
+        "annual": {
+            "today": annual_before,
+            "after": annual_after,
+            "difference": annual_diff,
+        },
+        "dueToday": due_today,
+        "dueTodayProvisional": False,
+        "dueParts": [
+            {
+                "kind": "planUpgrade",
+                "quoteId": upgrade_quote_id,
+                "quoteNumber": snap.get("quoteNumber"),
+                "totalPrice": due_today,
+                "lines": snap.get("lines") or [],
+            }
+        ],
+        "lines": change_lines,
+        "linesAfter": after_lines,
+        "linesToday": before_lines,
+        "amendQuotes": [],
+        "sticky": True,
+        "moduleQuoteId": None,
+        "moduleQuote": None,
+        "upgradeQuoteId": upgrade_quote_id,
+        "upgradeQuote": {
+            "quoteId": upgrade_quote_id,
+            "quoteNumber": snap.get("quoteNumber"),
+            "totalPrice": due_today,
+        },
+        "warnings": warnings,
+        "note": (
+            "Charged today is Quote TotalPrice from sticky Initiate Upgrade "
+            "(System reprice) — same figure as Generate quote."
+        ),
+    }
+
+
 def estimate_account_amend(
     session: OrgSession,
     *,
@@ -2672,11 +2983,15 @@ def estimate_account_amend(
     upgrade_sku: str | None = None,
     start_date: date | None = None,
     current_qty: int | None = None,
+    preferred_upgrade_quote_id: str | None = None,
 ) -> dict[str, Any]:
-    """Phase 2 rail: Pricing API before/after → estimated prorated change lines.
+    """Phase 2 rail: price the pending change for the amend console.
 
-    Hero/lines are monthly delta × remaining term (avg month).
-    Exact charged-today is Quote TotalPrice after System reprice.
+    Core→Pro (no add-modules): sticky Initiate Upgrade + System reprice —
+    ``dueToday`` is Quote TotalPrice (exact; same as Generate quote).
+
+    Seat/module-only: Pricing API before/after × remaining term
+    (``dueTodayProvisional``) until Generate quote.
     """
     setup = _amend_change_setup(
         session,
@@ -2691,6 +3006,23 @@ def estimate_account_amend(
         return setup
 
     warnings: list[str] = list(setup["warnings"])
+    priced_add_skus_early = list(
+        setup.get("priced_add_skus") or setup.get("add_skus") or []
+    )
+    if (
+        setup.get("upgrade_sku")
+        and setup.get("replace_asset_ids")
+        and not priced_add_skus_early
+    ):
+        exact = _estimate_upgrade_from_quote(
+            session,
+            setup=setup,
+            preferred_upgrade_quote_id=preferred_upgrade_quote_id,
+            warnings=warnings,
+        )
+        if exact is not None:
+            return exact
+
     currency = setup["currency"]
     owned_assets = setup["owned_assets"]
     baseline_qty = int(setup["baseline_qty"])
@@ -2924,6 +3256,8 @@ def estimate_account_amend(
         "sticky": False,
         "moduleQuoteId": None,
         "moduleQuote": None,
+        "upgradeQuoteId": None,
+        "upgradeQuote": None,
         "warnings": warnings,
         "note": (
             "Est. prorated from Salesforce Pricing API monthly delta × remaining term. "
@@ -3455,6 +3789,15 @@ def place_account_changes(
         asset_id = str(in_effect.get("id") or "") or None
     owned = {a["sku"] for a in owned_assets if a.get("sku")}
     add_skus = [s for s in addon_skus if s not in owned]
+    try:
+        assert_self_serve_addons(add_skus)
+    except ValueError as exc:
+        return AccountChangeResult(
+            ok=False,
+            account_id=account_id,
+            error=str(exc),
+            warnings=warnings,
+        )
     for s in addon_skus:
         if s in owned:
             warnings.append(f"{s} already owned — skipped.")

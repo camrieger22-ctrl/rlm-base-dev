@@ -23,11 +23,53 @@ ADMIN_TASK_SUBJECT = "Invited as BambooHR admin"
 TIMEOFF_TASK_SUBJECT = "Set time-off policy"
 SETUP_WINDOW_DAYS = 14
 
-NEED_KEYS = ("hiring", "onboarding", "timeoff", "performance", "reporting")
+# Marketing-owned aha nudges (CRM Task proof — not Marketing Cloud / email send).
+AHA_CADENCE = (
+    {
+        "id": "day3",
+        "day": 3,
+        "subject": "BambooHR Marketing: Day 3 — add your people",
+        "title": "Day 3 — add the people you hired",
+        "body": (
+            "Marketing follow-up. Add 2–3 teammates on Activate so this is not "
+            "an empty org next week. This writes a CRM Task — we do not send email."
+        ),
+    },
+    {
+        "id": "day7",
+        "day": 7,
+        "subject": "BambooHR Marketing: Day 7 — invite your admin",
+        "title": "Day 7 — invite an admin and set time off",
+        "body": (
+            "Marketing follow-up. Invite the person who will run BambooHR and pick "
+            "a starting time-off policy. CRM Task only — not Marketing Cloud."
+        ),
+    },
+    {
+        "id": "day14",
+        "day": 14,
+        "subject": "BambooHR Marketing: Day 14 — Licenses is home",
+        "title": "Day 14 — make Licenses home",
+        "body": (
+            "The two-week aha window is here. Finish setup, then manage seats and "
+            "modules on Licenses. Elite and Payroll stay with a person."
+        ),
+    },
+)
+
+NEED_KEYS = (
+    "hiring",
+    "onboarding",
+    "timeoff",
+    "timetracking",
+    "performance",
+    "reporting",
+)
 NEED_LABELS = {
     "hiring": "Hiring",
     "onboarding": "Onboarding",
     "timeoff": "Time off",
+    "timetracking": "Time tracking",
     "performance": "Performance",
     "reporting": "Reporting",
 }
@@ -395,6 +437,138 @@ def setup_clock(
     }
 
 
+def aha_cadence(
+    *,
+    clock: dict[str, Any] | None,
+    sent: dict[str, str] | None = None,
+    aha_complete: bool = False,
+) -> dict[str, Any]:
+    """Which Marketing follow-up is due in the 14-day aha window."""
+    sent = sent or {}
+    if aha_complete:
+        return {
+            "owner": "Marketing",
+            "which": None,
+            "due": False,
+            "sent": True,
+            "complete": True,
+            "label": "Aha complete — Marketing cadence done",
+        }
+    if not clock:
+        return {
+            "owner": "Marketing",
+            "which": None,
+            "due": False,
+            "sent": False,
+            "complete": False,
+            "label": "Marketing follows up during the 14-day setup window",
+        }
+    day_n = int(clock.get("day") or 0)
+    due_step = None
+    for step in AHA_CADENCE:
+        if day_n >= int(step["day"]) and step["id"] not in sent:
+            due_step = step
+            break
+    if due_step is None:
+        next_step = next(
+            (s for s in AHA_CADENCE if s["id"] not in sent),
+            None,
+        )
+        label = (
+            f"Marketing follows up on day {next_step['day']}"
+            if next_step
+            else "Marketing cadence sent"
+        )
+        return {
+            "owner": "Marketing",
+            "which": None,
+            "due": False,
+            "sent": bool(sent),
+            "complete": not next_step,
+            "label": label,
+        }
+    return {
+        "owner": "Marketing",
+        "which": due_step["id"],
+        "due": True,
+        "sent": False,
+        "complete": False,
+        "day": due_step["day"],
+        "subject": due_step["subject"],
+        "title": due_step["title"],
+        "body": due_step["body"],
+        "label": f"Day {due_step['day']} of {SETUP_WINDOW_DAYS} — Marketing follow-up",
+        "taskId": None,
+    }
+
+
+def _cadence_sent_map(
+    session: OrgSession, account_id: str | None
+) -> dict[str, str]:
+    out: dict[str, str] = {}
+    if not account_id:
+        return out
+    for step in AHA_CADENCE:
+        tid = _find_task(
+            session, account_id=account_id, subject_prefix=step["subject"]
+        )
+        if tid:
+            out[step["id"]] = tid
+    return out
+
+
+def _ensure_cadence_task(
+    session: OrgSession, account_id: str, which: str
+) -> str | None:
+    """Insert the Marketing cadence Task if missing (no email send)."""
+    step = next((s for s in AHA_CADENCE if s["id"] == which), None)
+    if not step or not account_id:
+        return None
+    existing = _find_task(
+        session, account_id=account_id, subject_prefix=step["subject"]
+    )
+    if existing:
+        return existing
+    return session.create(
+        "Task",
+        {
+            "Subject": step["subject"],
+            "Description": (
+                f"{step['title']}\n\n{step['body']}\n"
+                "Owner: Marketing. Demo proof — not Marketing Cloud."
+            )[:32000],
+            "Status": "Completed",
+            "Priority": "Normal",
+            "ActivityDate": date.today().isoformat(),
+            "WhatId": account_id,
+        },
+    )
+
+
+def mark_aha_cadence_sent(
+    session: OrgSession,
+    *,
+    account_id: str | None = None,
+    company: str | None = None,
+    which: str,
+) -> dict[str, Any]:
+    """Create the Marketing cadence Task (no email send)."""
+    wanted = str(which or "").strip().lower()
+    step = next((s for s in AHA_CADENCE if s["id"] == wanted), None)
+    if step is None:
+        raise ValueError("which must be day3, day7, or day14")
+    checklist = build_activate_checklist(
+        session, account_id=account_id, company=company
+    )
+    aid = checklist.get("accountId")
+    if not aid:
+        raise ValueError("accountId is required")
+    _ensure_cadence_task(session, str(aid), wanted)
+    return build_activate_checklist(
+        session, account_id=account_id, company=company
+    )
+
+
 def parse_needs(raw: Any) -> list[str]:
     text = str(raw or "").lower()
     found: list[str] = []
@@ -402,6 +576,7 @@ def parse_needs(raw: Any) -> list[str]:
         "hiring": ("hiring",),
         "onboarding": ("onboarding",),
         "timeoff": ("timeoff", "time off", "time-off"),
+        "timetracking": ("timetracking", "time tracking", "time-tracking"),
         "performance": ("performance",),
         "reporting": ("reporting",),
     }
@@ -735,6 +910,34 @@ def build_activate_checklist(
     clock = setup_clock(
         paid=paid, payment=payment, acct=acct, aha_complete=aha_complete
     )
+    cadence_sent = _cadence_sent_map(session, account_id)
+    cadence = aha_cadence(
+        clock=clock, sent=cadence_sent, aha_complete=aha_complete
+    )
+    if account_id and cadence.get("due") and cadence.get("which"):
+        for _ in range(len(AHA_CADENCE)):
+            if not (cadence.get("due") and cadence.get("which")):
+                break
+            _ensure_cadence_task(session, str(account_id), str(cadence["which"]))
+            cadence_sent = _cadence_sent_map(session, account_id)
+            cadence = aha_cadence(
+                clock=clock, sent=cadence_sent, aha_complete=aha_complete
+            )
+    if cadence.get("which") and cadence["which"] in cadence_sent:
+        cadence["taskId"] = cadence_sent[cadence["which"]]
+    elif not cadence.get("due") and cadence_sent:
+        last = next(
+            (s["id"] for s in reversed(AHA_CADENCE) if s["id"] in cadence_sent),
+            None,
+        )
+        if last:
+            cadence["taskId"] = cadence_sent[last]
+    if cadence.get("taskId"):
+        cadence["taskUrl"] = lightning_record_url(
+            getattr(session, "_instance", None) or "",
+            "Task",
+            cadence["taskId"],
+        )
 
     if "hiring" in needs or "onboarding" in needs:
         emp_label = "Add the people you hired"
@@ -780,12 +983,14 @@ def build_activate_checklist(
     elif clock:
         finish = (
             f"Welcome to BambooHR, {name} — get value by {clock['deadlineLabel']} "
-            f"({clock['label']})."
+            f"({clock['label']}). This is first-week setup on your Salesforce "
+            "Account, not the BambooHR app."
         )
     elif account_id:
         finish = (
             f"Welcome to BambooHR, {name} — add people, invite an admin, "
-            "and pick a time-off policy to get value this week."
+            "and pick a time-off policy. Setup writes to Salesforce, not a "
+            "product dashboard."
         )
     else:
         finish = "Pay your invoice, create a login, then return here to activate."
@@ -893,6 +1098,7 @@ def build_activate_checklist(
         "needs": needs,
         "needsLabel": ", ".join(NEED_LABELS[k] for k in needs if k in NEED_LABELS),
         "setup": clock,
+        "cadence": cadence,
         "progress": {
             "done": aha_done,
             "total": len(aha_steps),

@@ -9,7 +9,7 @@ This bundle deploys three Agentforce **Employee Agents** plus their settings and
 | Settings | `settings/` | `AgentPlatform`, `EinsteinCopilot`, `EinsteinGpt`. Deployed first by `deploy_agents_settings`. |
 | Product Configuration & quote-line services | `classes/` | Apex invocable services behind the agent flows: `RLM_AI_QuoteLineItemLookupService` (scored product-name matching; blank product name lists every line for selection — used by both Product Configuration and Revenue Quote Management's discount flow), `RLM_AI_ProductAttributeService`, `RLM_AI_ProductAttributeSaveService`, `RLM_AI_ProductAttributeReadService`, plus the shared `inherited sharing` helper `RLM_AI_ConfigServiceUtils` (Id/prefix validation, null-safe JSON, SOQL LIKE escaping). |
 | Revenue Quote Management agent | `legacy/bots/Revenue_Quote_Management/` + `legacy/genAiPlannerBundles/Revenue_Quote_Management/` | Legacy-format agent (developer name `Revenue_Quote_Management`; label "Revenue Quote Management"). Deployed as standard metadata (Bot + BotVersion + GenAiPlannerBundle). Does not require publish step — activated via `sf agent activate` after deploy. |
-| Quoting Assistant agent | `aiAuthoringBundles/RLM_Quoting_Assistant/` | Builder Script `.agent` authoring bundle (developer name `RLM_Quoting_Assistant`; label "Quoting Assistant"). A ground-up, scoped demo quoting agent — tight arc (find products → create/identify quote → add line → discount → configure → totals), unified no-redundant-confirmation policy (`require_user_confirmation: False` everywhere), and a names-not-IDs presentation contract (native record cards; Id outputs flagged `is_used_by_planner: false`). Backed by the three `RLM_AI_*` helper services/flows below. Intentionally excludes asset lifecycle and usage/consumption. |
+| Quoting Assistant agent | `aiAuthoringBundles/RLM_Quoting_Assistant/` | Builder Script `.agent` authoring bundle (developer name `RLM_Quoting_Assistant`; label "Quoting Assistant"). A ground-up, scoped demo quoting agent — tight arc (find products → create/identify quote → add line → discount → configure → totals), plus **BambooHR Revenue Suite Good/Better/Best** (`BambooSuiteTiers` → `apex://RLM_BambooSuiteBuildTiers`), unified no-redundant-confirmation policy (`require_user_confirmation: False` everywhere), and a names-not-IDs presentation contract (native record cards; Id outputs flagged `is_used_by_planner: false`). Backed by the three `RLM_AI_*` helper services/flows below. Intentionally excludes asset lifecycle and usage/consumption. |
 | Billing Employee Assistance agent | `aiAuthoringBundles/RLM_Billing_Employee_Assistance/` | Builder Script `.agent` authoring bundle (developer name `RLM_Billing_Employee_Assistance`; label "Billing Assistant"). |
 | Quoting Assistant helper services | `classes/RLM_AI_AddProductToQuoteService`, `RLM_AI_ApplyQuoteLineDiscountsService`, `RLM_AI_QuoteDemoSummaryService` (+ tests) | Apex invocable services behind the Quoting Assistant's three helper flows (`flows/RLM_AI_Add_Product_To_Quote`, `RLM_AI_Apply_Quote_Line_Discounts`, `RLM_AI_Get_Quote_Demo_Summary`): one-call add-product (resolves product + default selling model, then the managed add-line), one-call bulk line discount (high-level targeting: applyToAll / productName / display-ordinals; percent, target-price, percent-of-list modes), and a read-only names-only quote recap. Each isolates the managed `quotingAI__*` invocation behind a `@TestVisible` invoker seam. |
 | Permission sets | `permissionsets/RLM_QuotingAgent.permissionset-meta.xml`, `permissionsets/RLM_QuotingAssistant.permissionset-meta.xml`, `permissionsets/RLM_BillingEmployeeAgent.permissionset-meta.xml` | Each contains `<agentAccesses>` so Lightning users can see the agent. |
@@ -225,6 +225,8 @@ tests/
     quoting-assistant-actions.yaml       # one-turn add (Helper A), one-call discount (Helper B), precedence, general-tool reachability
     quoting-assistant-regression.yaml    # discount precedence + names-not-IDs guards
     quoting-assistant-guardrail.yaml     # off-topic, out-of-scope (assets/usage), ambiguous (demo posture: no adversarial assertions)
+  bamboohr-self-service/     # BambooHR_Self_Service_Assistant specs
+    bamboohr-self-service-qualify.yaml   # qualify gates, reuse, Place confirmation
 ```
 
 Each `*.yaml` is an Agentforce test spec (`name`, `subjectType: AGENT`,
@@ -240,6 +242,7 @@ cci task run test_agents --org <alias>
 # Run one specific agent suite.
 cci task run test_agents --org <alias> -o agent billing
 cci task run test_agents --org <alias> -o agent quoting-assistant
+cci task run test_agents --org <alias> -o agent bamboohr-self-service
 
 # Run one spec or a comma-separated subset within an agent suite.
 cci task run test_agents --org <alias> -o agent quoting-assistant -o test_files quoting-assistant-routing,quoting-assistant-actions
@@ -270,6 +273,7 @@ checked-in suite directories:
 | --- | --- | --- |
 | `billing` | `RLM_Billing_Employee_Assistance` | `unpackaged/post_agents/tests/billing` |
 | `quoting-assistant` | `RLM_Quoting_Assistant` | `unpackaged/post_agents/tests/quoting-assistant` |
+| `bamboohr-self-service` | `BambooHR_Self_Service_Assistant` | `unpackaged/post_agents/tests/bamboohr-self-service` |
 | `all` | all of the above | every checked-in suite, run sequentially |
 
 Use `test_files` to narrow the selected suite(s). Values are comma-separated

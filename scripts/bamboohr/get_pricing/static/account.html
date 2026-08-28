@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/app.css?v=wizard37" />
+  <link rel="stylesheet" href="/static/app.css?v=wizard42" />
   <link rel="stylesheet" href="/static/agent-chat.css?v=wizard21" />
 </head>
 <body class="account-page">
@@ -30,7 +30,7 @@
         <p class="account-kicker">Manage account</p>
         <h1>Licenses &amp; billing</h1>
         <p class="account-sub" id="accountSub">
-          See what you own, recent orders, and the effect of changes before you place them.
+          See what you own, change seats or plan, and pay invoices in one place.
         </p>
       </div>
       <a class="demo-btn demo-btn-secondary" id="openSfAccount" href="#" target="_blank" rel="noopener" hidden>
@@ -97,7 +97,7 @@
         </p>
         <div class="quote-actions-secondary success-actions">
           <a class="button-link" id="changeOpenSfAccountBtn" href="#" target="_blank" rel="noopener" hidden>Open Account in Salesforce</a>
-          <button type="button" class="secondary" id="changeSuccessDismiss">Back to licenses</button>
+          <button type="button" class="secondary" id="changeSuccessDismiss">Back to billing</button>
         </div>
         <details class="success-raw">
           <summary>Technical details</summary>
@@ -105,207 +105,261 @@
         </details>
       </section>
 
-      <div class="account-grid" id="accountGrid">
-        <div class="account-main">
-          <section class="card-panel sub-card">
-            <div class="panel-head">
-              <div>
-                <h2>Your subscription</h2>
-                <p class="muted" id="subMeta"></p>
-              </div>
-              <span class="pill-live" id="subLivePill">Live in Salesforce</span>
-            </div>
-            <div class="sub-facts" id="subFacts">
-              <div class="sub-fact">
-                <span>Term</span>
-                <strong id="subTermValue">—</strong>
-                <em id="subTermHint"></em>
-              </div>
-              <div class="sub-fact">
-                <span id="subPepmLabel">Your PEPM</span>
-                <strong id="subPepmValue">—</strong>
-                <em id="subPepmHint"></em>
-              </div>
-              <div class="sub-fact">
-                <span>Recurring total</span>
-                <strong id="subFactRecurring">—</strong>
-                <em>per month</em>
-              </div>
-            </div>
-            <ul class="sub-lines" id="subLines"></ul>
-            <div class="sub-total-row">
-              <span>Account recurring total</span>
-              <strong id="subRecurring">—</strong>
-            </div>
-            <div class="sub-timeline" id="subscriptionTimeline" hidden>
-              <div class="panel-head panel-head--compact">
+      <div id="accountWorkspace">
+        <nav class="account-tabs" id="accountTabs" role="tablist" aria-label="Account sections">
+          <button
+            type="button"
+            class="account-tab"
+            role="tab"
+            id="tabBtnOverview"
+            data-tab="overview"
+            aria-controls="tabOverview"
+            aria-selected="true"
+          >
+            Overview
+          </button>
+          <button
+            type="button"
+            class="account-tab"
+            role="tab"
+            id="tabBtnBilling"
+            data-tab="billing"
+            aria-controls="tabBilling"
+            aria-selected="false"
+          >
+            Billing
+          </button>
+          <button
+            type="button"
+            class="account-tab"
+            role="tab"
+            id="tabBtnPeople"
+            data-tab="people"
+            aria-controls="tabPeople"
+            aria-selected="false"
+          >
+            People
+          </button>
+        </nav>
+
+        <div class="account-grid account-grid--single" id="accountGrid">
+          <div
+            class="account-main account-tab-panel"
+            id="tabOverview"
+            role="tabpanel"
+            aria-labelledby="tabBtnOverview"
+          >
+            <section class="card-panel sub-card">
+              <div class="panel-head">
                 <div>
-                  <h3 class="sub-timeline-title">Upcoming changes</h3>
-                  <p class="muted sub-timeline-lede">
-                    Scheduled in Salesforce — updates when changes activate.
-                  </p>
+                  <h2>Your subscription</h2>
+                  <p class="muted" id="subMeta"></p>
+                </div>
+                <span class="pill-live" id="subLivePill">Live in Salesforce</span>
+              </div>
+              <div class="sub-facts" id="subFacts">
+                <div class="sub-fact">
+                  <span>Term</span>
+                  <strong id="subTermValue">—</strong>
+                  <em id="subTermHint"></em>
+                </div>
+                <div class="sub-fact">
+                  <span id="subPepmLabel">Your PEPM</span>
+                  <strong id="subPepmValue">—</strong>
+                  <em id="subPepmHint"></em>
+                </div>
+                <div class="sub-fact">
+                  <span>Recurring total</span>
+                  <strong id="subFactRecurring">—</strong>
+                  <em>per month</em>
                 </div>
               </div>
-              <ul class="timeline-list" id="timelineList"></ul>
-            </div>
-          </section>
-
-          <section class="card-panel" id="planUpgradeCard">
-            <div class="panel-head">
-              <div>
-                <h2>Your plan</h2>
-                <p class="muted" id="planUpgradeMeta">
-                  Upgrade in-product — Core to Pro, no sales call.
-                </p>
+              <ul class="sub-lines" id="subLines"></ul>
+              <div class="sub-total-row">
+                <span>Account recurring total</span>
+                <strong id="subRecurring">—</strong>
               </div>
-              <span class="count-pill" id="planUpgradePill">—</span>
-            </div>
-            <div id="planUpgradeBody"></div>
-          </section>
-
-          <section class="card-panel" id="teamCard">
-            <div class="panel-head">
-              <div>
-                <h2>Your team</h2>
-                <p class="muted" id="teamMeta">
-                  People on this account. Licensed seats are billed below — adding a
-                  name does not buy a seat.
-                </p>
+              <div class="sub-timeline" id="subscriptionTimeline" hidden>
+                <div class="panel-head panel-head--compact">
+                  <div>
+                    <h3 class="sub-timeline-title">Upcoming changes</h3>
+                    <p class="muted sub-timeline-lede">
+                      Scheduled in Salesforce — updates when changes activate.
+                    </p>
+                  </div>
+                </div>
+                <ul class="timeline-list" id="timelineList"></ul>
               </div>
-              <span class="count-pill" id="teamCount">0 of —</span>
-            </div>
-            <p class="status" id="teamStatus" role="status"></p>
-            <ul class="team-list" id="teamList"></ul>
-            <form class="activate-form activate-form-person" id="teamAddForm" hidden>
-              <label class="sr-only" for="teamFirst">First name</label>
-              <input id="teamFirst" name="firstName" type="text" maxlength="40" placeholder="First name" required />
-              <label class="sr-only" for="teamLast">Last name</label>
-              <input id="teamLast" name="lastName" type="text" maxlength="80" placeholder="Last name" required />
-              <label class="sr-only" for="teamEmail">Work email</label>
-              <input id="teamEmail" name="email" type="email" maxlength="80" placeholder="work@company.com" required />
-              <button type="submit">Add teammate</button>
-            </form>
-            <p class="muted" id="teamSeatHint" hidden></p>
-            <p class="team-setup" id="teamSetupNote">
-              <a id="teamSetupLink" href="/activate">Finish setup</a>
-            </p>
-          </section>
+            </section>
 
-          <section class="card-panel" id="expandPlan">
-            <h2>Expand your plan</h2>
-            <p class="muted">
-              Pick when the change starts, then enter the total seats you want.
-              Add/remove count is vs seats already scheduled for that start date
-              (including upcoming changes), matching Revenue Cloud.
-            </p>
-            <div class="expand-block">
-              <label class="start-date-field">
-                <span>Change starts</span>
-                <input type="date" id="startDateInput" />
-              </label>
-              <p class="muted start-date-hint" id="termHint"></p>
-              <div class="expand-label-row">
-                <span>Employees</span>
-                <strong id="qtyDeltaLabel">No change</strong>
+            <section class="card-panel" id="planUpgradeCard">
+              <div class="panel-head">
+                <div>
+                  <h2>Your plan</h2>
+                  <p class="muted" id="planUpgradeMeta">
+                    Upgrade in-product — Core to Pro, no sales call.
+                  </p>
+                </div>
+                <span class="count-pill" id="planUpgradePill">—</span>
               </div>
-              <div class="expand-row">
-                <button type="button" class="hc-step" data-qty-delta="-10">−10</button>
-                <button type="button" class="hc-step" id="qtyMinus" aria-label="Decrease">−</button>
-                <input type="number" id="qtyInput" min="1" max="100000" inputmode="numeric" />
-                <button type="button" class="hc-step" id="qtyPlus" aria-label="Increase">+</button>
-                <button type="button" class="hc-step" data-qty-delta="10">+10</button>
-              </div>
-              <input type="range" id="qtyRange" min="1" max="600" />
-            </div>
-          </section>
+              <div id="planUpgradeBody"></div>
+            </section>
 
-          <section class="card-panel">
-            <div class="panel-head">
-              <h2>Add modules</h2>
-              <span class="count-pill" id="moduleCount">0 available</span>
+            <section class="card-panel" id="nextModuleCard">
+              <div class="panel-head">
+                <div>
+                  <h2>Next module</h2>
+                  <p class="muted" id="nextModuleMeta">
+                    Time &amp; Attendance is self-serve on remaining term. Elite and
+                    Payroll stay with a person.
+                  </p>
+                </div>
+                <span class="count-pill" id="nextModulePill">—</span>
+              </div>
+              <div id="nextModuleBody"></div>
+            </section>
+
+            <section class="card-panel" id="expandPlan">
+              <h2>Change employees</h2>
+              <p class="muted">
+                Pick when the change starts, then enter the total seats you want.
+                Add/remove count is vs seats already scheduled for that start date
+                (including upcoming changes), matching Revenue Cloud.
+              </p>
+              <div class="expand-block">
+                <label class="start-date-field">
+                  <span>Change starts</span>
+                  <input type="date" id="startDateInput" />
+                </label>
+                <p class="muted start-date-hint" id="termHint"></p>
+                <div class="expand-label-row">
+                  <span>Employees</span>
+                  <strong id="qtyDeltaLabel">No change</strong>
+                </div>
+                <div class="expand-row">
+                  <button type="button" class="hc-step" data-qty-delta="-10">−10</button>
+                  <button type="button" class="hc-step" id="qtyMinus" aria-label="Decrease">−</button>
+                  <input type="number" id="qtyInput" min="1" max="100000" inputmode="numeric" />
+                  <button type="button" class="hc-step" id="qtyPlus" aria-label="Increase">+</button>
+                  <button type="button" class="hc-step" data-qty-delta="10">+10</button>
+                </div>
+                <input type="range" id="qtyRange" min="1" max="600" />
+              </div>
+            </section>
+
+            <!-- Hidden: Next module / sticky amend still select via selectedAddons. -->
+            <div id="modulesHidden" hidden aria-hidden="true">
+              <span id="moduleCount">0</span>
+              <div class="module-grid module-grid--compact" id="moduleGrid"></div>
             </div>
-            <p class="muted">
-              Toggle modules you don’t own. Place order creates a supplemental Quote → Order → Assets in Salesforce.
-            </p>
-            <div class="module-grid module-grid--compact" id="moduleGrid"></div>
-          </section>
+          </div>
+
+          <div
+            class="account-tab-panel"
+            id="tabBilling"
+            role="tabpanel"
+            aria-labelledby="tabBtnBilling"
+            hidden
+          >
+            <section class="card-panel" id="invoicesCard" hidden>
+              <div class="panel-head">
+                <div>
+                  <h2>Invoices</h2>
+                  <p class="muted" id="invoicePanelLede">
+                    Posted invoices from Salesforce Billing — open balances can be paid
+                    with Salesforce Payments; settled invoices stay listed for history.
+                  </p>
+                </div>
+                <button type="button" class="demo-btn demo-btn-secondary" id="refreshInvoicesBtn">
+                  Refresh
+                </button>
+              </div>
+              <ul class="activity-list invoice-list" id="invoiceList"></ul>
+              <p class="muted invoice-pay-hint" id="invoicePayHint" hidden>
+                If the pay page errors while you’re logged into Salesforce, open
+                <strong>Pay</strong> in a private / incognito window.
+              </p>
+              <p class="status" id="invoiceStatus" role="status"></p>
+            </section>
+
+            <section class="card-panel" id="ordersCard">
+              <h2>Orders</h2>
+              <p class="muted">
+                Recent orders in Salesforce Revenue Cloud — click a number to open the record.
+              </p>
+              <ul class="activity-list" id="orderList"></ul>
+            </section>
+          </div>
+
+          <div
+            class="account-tab-panel"
+            id="tabPeople"
+            role="tabpanel"
+            aria-labelledby="tabBtnPeople"
+            hidden
+          >
+            <section class="card-panel" id="teamCard">
+              <div class="panel-head">
+                <div>
+                  <h2>Your team</h2>
+                  <p class="muted" id="teamMeta">
+                    People on this account. Licensed seats are billed on Overview —
+                    adding a name does not buy a seat.
+                  </p>
+                </div>
+                <span class="count-pill" id="teamCount">0 of —</span>
+              </div>
+              <p class="status" id="teamStatus" role="status"></p>
+              <ul class="team-list" id="teamList"></ul>
+              <form class="activate-form activate-form-person" id="teamAddForm" hidden>
+                <label class="sr-only" for="teamFirst">First name</label>
+                <input id="teamFirst" name="firstName" type="text" maxlength="40" placeholder="First name" required />
+                <label class="sr-only" for="teamLast">Last name</label>
+                <input id="teamLast" name="lastName" type="text" maxlength="80" placeholder="Last name" required />
+                <label class="sr-only" for="teamEmail">Work email</label>
+                <input id="teamEmail" name="email" type="email" maxlength="80" placeholder="work@company.com" required />
+                <button type="submit">Add teammate</button>
+              </form>
+              <p class="muted" id="teamSeatHint" hidden></p>
+              <p class="team-setup" id="teamSetupNote">
+                <a id="teamSetupLink" href="/activate">Finish setup</a>
+              </p>
+            </section>
+          </div>
         </div>
 
-        <aside class="account-aside">
-          <section class="card-panel card-panel--dark unlock-card" id="unlockCard">
-            <p class="unlock-kicker">Volume discount</p>
-            <h2 id="unlockTitle">Select a volume band</h2>
-            <p id="unlockBody">Increase headcount to unlock deeper PEPM discounts on your plan.</p>
-          </section>
-          <section class="card-panel">
-            <h2>Volume levels</h2>
-            <table class="acct-table" id="volumeTable">
-              <thead>
-                <tr><th>Employees</th><th>Off list</th></tr>
-              </thead>
-              <tbody></tbody>
-            </table>
-          </section>
-          <section class="card-panel card-panel--rc">
-            <h2>Connected to Revenue Cloud</h2>
-            <p>Assets, Orders, and amends sync to Salesforce — this page is the branded shell.</p>
-          </section>
-          <section class="card-panel" id="invoicesCard" hidden>
-            <div class="panel-head">
-              <div>
-                <h2>Invoices</h2>
-                <p class="muted" id="invoicePanelLede">This bill from Salesforce Billing — Pay Now is the first invoice, which can differ from the remaining-term Quote total. Click a number to open the Invoice; pay with Salesforce Payments.</p>
-              </div>
-              <button type="button" class="demo-btn demo-btn-secondary" id="refreshInvoicesBtn">
-                Refresh
-              </button>
+        <aside class="account-plan-rail" id="orderSummaryCard" hidden aria-label="Quoted remaining term">
+          <div class="rail-card" id="amendRailCard">
+            <div class="rail-head">
+              <h2>This change</h2>
+              <span class="rail-bill" id="railBill">Est. quoted</span>
             </div>
-            <ul class="activity-list invoice-list" id="invoiceList"></ul>
-            <p class="muted invoice-pay-hint" id="invoicePayHint" hidden>
-              If the pay page errors while you’re logged into Salesforce, open
-              <strong>Pay</strong> in a private / incognito window.
+            <p class="seat-change-badge" id="seatChangeBadge" hidden></p>
+            <p class="rail-pepm"><strong id="railPepm">—</strong></p>
+            <p class="rail-pepm-unit" id="railPepmUnit">until Generate quote for exact remaining-term total</p>
+            <ul class="rail-lines" id="railLines"></ul>
+            <div class="rail-totals">
+              <div class="rail-row total">
+                <span id="railTotalLabel">Est. remaining term</span>
+                <span id="railTotal">—</span>
+              </div>
+            </div>
+            <button type="button" class="rail-cta" id="generateAmendQuoteBtn" disabled>
+              Generate quote
+            </button>
+            <p class="rail-source muted" id="pricingSourceNote">
+              Change seats or plan — Pricing API estimates the prorated charge.
             </p>
-            <p class="status" id="invoiceStatus" role="status"></p>
-          </section>
-          <section class="card-panel">
-            <h2>Recent activity</h2>
-            <p class="muted">Orders written to Salesforce Revenue Cloud — click a number to open the record.</p>
-            <ul class="activity-list" id="orderList"></ul>
-          </section>
+            <p class="status" id="amendStatus" role="status"></p>
+            <p class="rail-foot">Live pricing via Revenue Cloud · BambooHR demo catalog</p>
+          </div>
         </aside>
       </div>
-
-      <aside class="account-plan-rail" id="orderSummaryCard" hidden aria-label="Quoted remaining term">
-        <div class="rail-card" id="amendRailCard">
-          <div class="rail-head">
-            <h2>This change</h2>
-            <span class="rail-bill" id="railBill">Est. quoted</span>
-          </div>
-          <p class="seat-change-badge" id="seatChangeBadge" hidden></p>
-          <p class="rail-pepm"><strong id="railPepm">—</strong></p>
-          <p class="rail-pepm-unit" id="railPepmUnit">until Generate quote for exact remaining-term total</p>
-          <ul class="rail-lines" id="railLines"></ul>
-          <div class="rail-totals">
-            <div class="rail-row total">
-              <span id="railTotalLabel">Est. remaining term</span>
-              <span id="railTotal">—</span>
-            </div>
-          </div>
-          <button type="button" class="rail-cta" id="generateAmendQuoteBtn" disabled>
-            Generate quote
-          </button>
-          <p class="rail-source muted" id="pricingSourceNote">
-            Change seats or modules — Pricing API estimates the prorated charge.
-          </p>
-          <p class="status" id="amendStatus" role="status"></p>
-          <p class="rail-foot">Live pricing via Revenue Cloud · BambooHR demo catalog</p>
-        </div>
-      </aside>
     </div>
   </main>
 
   <script src="/static/pay-now.js?v=wizard37"></script>
-  <script src="/static/account.js?v=wizard37"></script>
-  <script src="/static/agent-chat.js?v=wizard37"></script>
+  <script src="/static/account.js?v=wizard42"></script>
+  <script src="/static/agent-chat.js?v=wizard41"></script>
 </body>
 </html>

@@ -3,7 +3,7 @@
 > **Auto-generated** by `scripts/ai/generate_cci_reference.py` from `cumulusci.yml`.  
 > Do not edit manually — re-run the script after changing `cumulusci.yml`.
 
-**300 tasks** across **10 groups**.
+**301 tasks** across **10 groups**.
 
 ---
 
@@ -1062,7 +1062,7 @@
 
 ## Revenue Lifecycle Management
 
-*190 task(s)*
+*191 task(s)*
 
 ### `activate_agents`
 
@@ -2666,6 +2666,18 @@
 
 ---
 
+### `insert_bamboohr_billing_data`
+
+**Description:** Assign Billing Policy - Advance to BambooHR Product2 SKUs so Term Monthly 12/24/36 deals invoice monthly (PEPM × seats), not full-term OrderAmount upfront. Run after insert_bamboohr_pcm_data and after qb-billing policies exist (prepare_billing).
+
+**Class:** `tasks.rlm_sfdmu.LoadSFDMUData`
+
+**Options:**
+
+- `pathtoexportjson`: `datasets/sfdmu/bamboohr/en-US/bh-billing`
+
+---
+
 ### `insert_bamboohr_pcm_data`
 
 **Description:** Insert BambooHR PCM (product catalog) Data
@@ -3432,7 +3444,7 @@
 
 ### `test_agents`
 
-**Description:** Run Agentforce CLI Testing Center specs against published+activated agents. Use the agent option to run one suite (billing or quoting-assistant) or all suites in one explicit invocation; use test_files to run a comma-separated subset of YAML specs. Deploys each selected spec as an AiEvaluationDefinition (`sf agent test create`) and runs it (`sf agent test run`), failing if any topic/action assertion — or any output validation on a case that set an expectedOutcome — does not pass. Requires the target agent to be published and activated first (see prepare_agents). Not part of prepare_agents; run only on demand or in CI after activation.
+**Description:** Run Agentforce CLI Testing Center specs against published+activated agents. Use the agent option to run one suite (billing, quoting-assistant, or bamboohr-self-service) or all suites in one explicit invocation; use test_files to run a comma-separated subset of YAML specs. Deploys each selected spec as an AiEvaluationDefinition (`sf agent test create`) and runs it (`sf agent test run`), failing if any topic/action assertion — or any output validation on a case that set an expectedOutcome — does not pass. Requires the target agent to be published and activated first (see prepare_agents). Not part of prepare_agents; run only on demand or in CI after activation.
 
 **Class:** `tasks.rlm_test_agents.TestAgents`
 

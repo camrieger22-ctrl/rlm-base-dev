@@ -33,10 +33,63 @@
   let estimateNeedsRerun = false;
   let pricingBusy = false;
   const changeSuccess = document.getElementById("changeSuccess");
+  const accountWorkspace = document.getElementById("accountWorkspace");
   const accountGrid = document.getElementById("accountGrid");
   const orderSummaryCard = document.getElementById("orderSummaryCard");
   const generateAmendQuoteBtn = document.getElementById("generateAmendQuoteBtn");
   const amendRailCard = document.getElementById("amendRailCard");
+  /** @type {"overview"|"billing"|"people"} */
+  let currentTab = "overview";
+  let railWanted = false;
+
+  const setAccountTab = (tab, { updateUrl = true, scroll = false } = {}) => {
+    const name = ["overview", "billing", "people"].includes(tab)
+      ? tab
+      : "overview";
+    currentTab = name;
+    document.querySelectorAll(".account-tab").forEach((btn) => {
+      const on = btn.dataset.tab === name;
+      btn.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    const overview = document.getElementById("tabOverview");
+    const billing = document.getElementById("tabBilling");
+    const people = document.getElementById("tabPeople");
+    if (overview) overview.hidden = name !== "overview";
+    if (billing) billing.hidden = name !== "billing";
+    if (people) people.hidden = name !== "people";
+    if (orderSummaryCard) {
+      orderSummaryCard.hidden = name !== "overview" || !railWanted;
+    }
+    accountWorkspace?.classList.toggle(
+      "has-change-rail",
+      name === "overview" && railWanted
+    );
+    if (updateUrl && window.history?.replaceState) {
+      const u = new URL(window.location.href);
+      if (name === "overview") u.searchParams.delete("tab");
+      else u.searchParams.set("tab", name);
+      window.history.replaceState({}, "", u.pathname + u.search);
+    }
+    if (scroll) {
+      const panel =
+        name === "billing"
+          ? document.getElementById("invoicesCard") || billing
+          : name === "people"
+            ? people
+            : overview;
+      panel?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  };
+
+  const gotoChangeEmployees = () => {
+    setAccountTab("overview", { updateUrl: true });
+    window.setTimeout(() => {
+      document.getElementById("expandPlan")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 50);
+  };
 
   const STICKY_KEY = "bhAmendSticky";
 
@@ -250,7 +303,7 @@
       openAcctBtn.hidden = false;
     }
     if (rawEl) rawEl.textContent = JSON.stringify(data, null, 2);
-    if (accountGrid) accountGrid.hidden = true;
+    if (accountWorkspace) accountWorkspace.hidden = true;
     if (orderSummaryCard) orderSummaryCard.hidden = true;
     changeSuccess.hidden = false;
     amendStatus.textContent = "";
@@ -265,8 +318,8 @@
     if (changeSuccess) changeSuccess.hidden = true;
     const payCard = document.getElementById("changePayNowCard");
     if (payCard) payCard.hidden = true;
-    if (accountGrid) accountGrid.hidden = false;
-    if (orderSummaryCard) orderSummaryCard.hidden = false;
+    if (accountWorkspace) accountWorkspace.hidden = false;
+    setAccountTab("billing", { updateUrl: true, scroll: true });
   };
 
   const money = (n, cur = "USD") => {
@@ -323,11 +376,11 @@
       if (t.overSeats) {
         hint.hidden = false;
         hint.innerHTML =
-          'You have more people than licensed seats. <a href="#expandPlan">Increase Employees</a> below to match.';
+          'You have more people than licensed seats. <a href="#expandPlan" data-goto-expand>Change employees</a> on Overview to match.';
       } else if (!t.canAdd && filled > 0) {
         hint.hidden = false;
         hint.innerHTML =
-          'All licensed seats have a person. <a href="#expandPlan">Increase Employees</a> below to add more teammates.';
+          'All licensed seats have a person. <a href="#expandPlan" data-goto-expand>Change employees</a> on Overview to add seats.';
       } else {
         hint.hidden = true;
         hint.textContent = "";
@@ -612,6 +665,14 @@
     el.classList.toggle("error", !!isError && !!msg);
   };
 
+  const invoiceIsSettled = (inv) =>
+    !!inv?.settled ||
+    Number(inv?.balance) <= 0 ||
+    inv?.settlementStatus === "Settled";
+
+  const invoiceNeedsPay = (inv) =>
+    !invoiceIsSettled(inv) && !inv?.paidApplying;
+
   const renderInvoices = (invoices, currency = "USD") => {
     const card = document.getElementById("invoicesCard");
     const list = document.getElementById("invoiceList");
@@ -619,52 +680,65 @@
     if (!card || !list) return;
     const rows = Array.isArray(invoices) ? invoices : [];
     if (!rows.length) {
-      card.hidden = true;
-      list.innerHTML = "";
+      card.hidden = false;
+      list.innerHTML = "<li class='muted'>No invoices yet.</li>";
       if (hint) hint.hidden = true;
+      const ledeEmpty = document.getElementById("invoicePanelLede");
+      if (ledeEmpty) {
+        ledeEmpty.textContent =
+          "Posted invoices from Salesforce Billing appear here after Pay Now or generate.";
+      }
       return;
     }
     card.hidden = false;
-    if (hint) hint.hidden = false;
+    const anyDue = rows.some(invoiceNeedsPay);
+    if (hint) hint.hidden = !anyDue;
     const thisBill = rows.filter((inv) => inv.bucket !== "earlier");
     const earlier = rows.filter((inv) => inv.bucket === "earlier");
     const lede = document.getElementById("invoicePanelLede");
     if (lede) {
       lede.textContent = earlier.length
-        ? "This bill vs earlier invoices from prior changes. Pay Now on this bill is the first invoice (not the remaining-term Quote). Earlier rows stay payable separately."
-        : "This bill from Salesforce Billing — Pay Now is the first invoice, which can differ from the remaining-term Quote total. Click a number to open the Invoice; pay with Salesforce Payments.";
+        ? "This bill vs earlier invoices. Pay open balances with Salesforce Payments; settled invoices stay listed for history."
+        : "Posted invoices from Salesforce Billing — pay open balances with Salesforce Payments; settled invoices stay listed for history.";
     }
     const rowHtml = (inv) => {
         const when = (inv.createdDate || "").slice(0, 10);
         const bal = money(inv.balance, currency);
+        const total = money(inv.totalAmountWithTax ?? inv.balance, currency);
         const applying = !!inv.paidApplying;
-        const ready = !!inv.paymentUrl && !applying;
+        const settled = invoiceIsSettled(inv);
+        const ready = !!inv.paymentUrl && !applying && !settled;
         const label = inv.invoiceNumber || inv.id;
         const earlierBill = inv.bucket === "earlier";
         const badge = applying
           ? "Paid — applying"
-          : inv.status || "Posted";
-        const payBtn = applying
-          ? ""
-          : `<button type="button" class="demo-btn demo-btn-primary invoice-pay-btn"
+          : settled
+            ? "Settled"
+            : inv.status || "Posted";
+        const payBtn =
+          applying || settled
+            ? ""
+            : `<button type="button" class="demo-btn demo-btn-primary invoice-pay-btn"
               data-invoice-id="${esc(inv.id)}"
               data-payment-url="${ready ? esc(inv.paymentUrl) : ""}">
               Pay
             </button>`;
         const dueBit = applying
           ? "paid, applying"
-          : earlierBill
-            ? `earlier invoice ${esc(bal)}`
-            : `this bill ${esc(bal)}`;
+          : settled
+            ? `settled ${esc(total)}`
+            : earlierBill
+              ? `earlier invoice ${esc(bal)} due`
+              : `this bill ${esc(bal)} due`;
         return `<li class="invoice-row" data-invoice-id="${esc(inv.id)}">
           <div>
             ${sfRecordLink(inv.invoiceUrl, label, "Invoice")}
             <span>${esc(when)} · ${dueBit}</span>
           </div>
           <div class="invoice-row-actions">
-            <span class="activity-badge${applying ? " is-paid" : ""}">${esc(
-              badge
-            )}</span>
+            <span class="activity-badge${
+              applying || settled ? " is-paid" : ""
+            }">${esc(badge)}</span>
             ${payBtn}
           </div>
         </li>`;
@@ -702,7 +776,10 @@
       state.paymentHint = data.hint || null;
       renderInvoices(state.invoices, state.account.currency || "USD");
       const applying = (state.invoices || []).filter((i) => i.paidApplying);
-      const stillDue = (state.invoices || []).filter((i) => !i.paidApplying);
+      const stillDue = (state.invoices || []).filter(invoiceNeedsPay);
+      const settled = (state.invoices || []).filter(
+        (i) => invoiceIsSettled(i) && !i.paidApplying
+      );
       const earlierDue = stillDue.filter((i) => i.bucket === "earlier");
       const thisDue = stillDue.filter((i) => i.bucket !== "earlier");
       if (applying.length && earlierDue.length) {
@@ -721,13 +798,19 @@
             "Payment received — invoice balance may take a moment to update."
         );
         scheduleInvoicePoll();
+      } else if (stillDue.length) {
+        setInvoiceStatus(
+          `${stillDue.length} open invoice(s)` +
+            (settled.length ? ` · ${settled.length} settled.` : ".")
+        );
+        clearInvoicePoll();
       } else {
         setInvoiceStatus(
           state.invoices.length
-            ? `${state.invoices.length} open invoice(s).`
+            ? `${state.invoices.length} settled invoice(s).`
             : data.paymentReceived
-              ? "Payment received — no open balances."
-              : "No open balances."
+              ? "Payment received — no invoices yet."
+              : "No invoices yet."
         );
         clearInvoicePoll();
       }
@@ -1323,7 +1406,12 @@
     pricingBusy = true;
     syncAmendActions();
     const src = document.getElementById("pricingSourceNote");
-    if (src) src.textContent = "Pricing with Salesforce Pricing API…";
+    if (src) {
+      src.textContent =
+        upgradeSelected && state.expansion?.toSku
+          ? "Quoting plan upgrade in Revenue Cloud (Initiate Upgrade)…"
+          : "Pricing with Salesforce Pricing API…";
+    }
     const cur = state.account.currency || "USD";
 
     try {
@@ -1336,6 +1424,8 @@
       if (upgradeSelected && state.expansion?.toSku) {
         body.upgradeSku = state.expansion.toSku;
       }
+      const sticky = activeStickyForAccount();
+      if (sticky?.upgradeQuoteId) body.upgradeQuoteId = sticky.upgradeQuoteId;
       const resp = await fetch("/api/account-amend-estimate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1348,6 +1438,14 @@
       }
       pricedEstimate = data;
       pricedPreview = null;
+      if (data.upgradeQuoteId || data.sticky) {
+        writeStickyAmend(stickyFromPreview(data, state.account.id));
+        try {
+          document.dispatchEvent(new CustomEvent("bh-agent-context-refresh"));
+        } catch (_) {
+          /* ignore */
+        }
+      }
       const startEl = document.getElementById("startDateInput");
       if (data.earliestAmendStartDate && state?.subscription) {
         state.subscription.earliestAmendStartDate = String(
@@ -1392,8 +1490,10 @@
       }));
       const apiDays =
         data.daysRemaining != null ? Number(data.daysRemaining) : daysLeft;
-      const srcLabel =
-        data.pricingSource === "localFallback"
+      const exactUpgrade = !data.dueTodayProvisional && data.pricingSource === "revenueCloud";
+      const srcLabel = exactUpgrade
+        ? "Quote TotalPrice from sticky Initiate Upgrade (System reprice) — matches Generate quote"
+        : data.pricingSource === "localFallback"
           ? "Local schedule estimate — Generate quote for exact Salesforce prorated charge"
           : "Est. prorated from Salesforce Pricing API · Generate quote for exact charge · MRR/ARR on summary";
       renderOrderMath({
@@ -1407,8 +1507,9 @@
         sourceNote: srcLabel,
       });
       if (amendStatus && !amendStatus.classList.contains("error")) {
-        amendStatus.textContent =
-          "Estimate ready — Generate quote for the precise Salesforce prorated charge.";
+        amendStatus.textContent = exactUpgrade
+          ? "Exact upgrade total from Revenue Cloud — Generate quote to open the summary."
+          : "Estimate ready — Generate quote for the precise Salesforce prorated charge.";
       }
     } catch (err) {
       if (seq !== estimateSeq) return;
@@ -1624,7 +1725,14 @@
       awaitingPrice: hasChange,
     });
 
-    if (orderSummaryCard) orderSummaryCard.hidden = false;
+    railWanted = !!hasChange;
+    if (orderSummaryCard) {
+      orderSummaryCard.hidden = currentTab !== "overview" || !railWanted;
+    }
+    accountWorkspace?.classList.toggle(
+      "has-change-rail",
+      currentTab === "overview" && railWanted
+    );
 
     if (estimateTimer) {
       clearTimeout(estimateTimer);
@@ -1638,7 +1746,7 @@
       const src = document.getElementById("pricingSourceNote");
       if (src) {
         src.textContent =
-          "Change seats or select a module — live pricing updates this change impact.";
+          "Change seats or upgrade your plan — live pricing updates this change impact.";
       }
       if (amendStatus && !amendStatus.classList.contains("error")) {
         amendStatus.textContent = "";
@@ -1727,8 +1835,10 @@
       subTermValue.textContent = data.subscription.termLabel || "—";
     }
     if (subTermHint) {
-      if (data.subscription.termKind === "month_to_month" && termEnd) {
-        subTermHint.textContent = `Current period through ${termEnd}`;
+      if (data.subscription.termKind === "month_to_month") {
+        subTermHint.textContent = termEnd
+          ? `Current period through ${termEnd}`
+          : "Bills monthly until you cancel";
       } else if (data.subscription.termKind === "committed" && termEnd) {
         subTermHint.textContent = `Ends ${termEnd}`;
       } else {
@@ -1822,7 +1932,10 @@
     state.paymentHint = data.paymentHint || null;
     renderTeam(data.team);
     const applying = (data.invoices || []).filter((i) => i.paidApplying);
-    const stillDue = (data.invoices || []).filter((i) => !i.paidApplying);
+    const stillDue = (data.invoices || []).filter(invoiceNeedsPay);
+    const settledN = (data.invoices || []).filter(
+      (i) => invoiceIsSettled(i) && !i.paidApplying
+    ).length;
     const earlierDue = stillDue.filter((i) => i.bucket === "earlier");
     const thisDue = stillDue.filter((i) => i.bucket !== "earlier");
     if (applying.length && earlierDue.length) {
@@ -1841,26 +1954,44 @@
           "Payment received — invoice balance may take a moment to update."
       );
       scheduleInvoicePoll();
+    } else if (stillDue.length) {
+      setInvoiceStatus(
+        `${stillDue.length} open invoice(s)` +
+          (settledN ? ` · ${settledN} settled.` : ".")
+      );
+    } else if ((data.invoices || []).length) {
+      setInvoiceStatus(`${(data.invoices || []).length} settled invoice(s).`);
     }
 
     const ownedSkus = new Set(
       (data.subscription.assets || []).map((a) => a.sku).filter(Boolean)
     );
-    // Drop selections that are already owned after a refresh.
+    const addons = (data.catalog?.addons || []).filter(
+      (a) => a.selfServe !== false || ownedSkus.has(a.sku)
+    );
+    // Drop selections that are already owned or sales-assisted after a refresh.
     [...selectedAddons].forEach((sku) => {
       if (ownedSkus.has(sku)) selectedAddons.delete(sku);
+      const row = addons.find((a) => a.sku === sku);
+      if (row && row.selfServe === false) selectedAddons.delete(sku);
     });
-    const addons = data.catalog?.addons || [];
-    const available = addons.filter((a) => a.available && !ownedSkus.has(a.sku));
-    document.getElementById("moduleCount").textContent =
-      `${available.length} available · ${ownedSkus.size} owned · ${selectedAddons.size} selected`;
+    const available = addons.filter(
+      (a) => a.available && !ownedSkus.has(a.sku) && a.selfServe !== false
+    );
+    document.getElementById("moduleCount") &&
+      (document.getElementById("moduleCount").textContent =
+        `${available.length} available · ${ownedSkus.size} owned · ${selectedAddons.size} selected`);
 
     const mods = document.getElementById("moduleGrid");
+    if (!mods) {
+      // modules UI removed — Next module CTA still uses selectedAddons
+    } else {
     mods.innerHTML = addons
       .map((a) => {
         const owned = ownedSkus.has(a.sku);
         const selected = selectedAddons.has(a.sku);
-        const disabled = owned || !a.available;
+        const sales = a.salesAssisted || a.selfServe === false;
+        const disabled = owned || !a.available || sales;
         return `<button type="button" class="module-card ${owned ? "owned" : ""} ${
           selected ? "selected" : ""
         } ${disabled ? "disabled" : ""}" data-sku="${a.sku}" ${
@@ -1874,11 +2005,13 @@
           <p class="mod-note">${
             owned
               ? "Already owned"
-              : !a.available
-                ? "Unavailable for this country"
-                : selected
-                  ? "Selected · will add on Place order"
-                  : "Click to add"
+              : sales
+                ? esc(a.salesNote || "Talk to a person to add this module.")
+                : !a.available
+                  ? "Unavailable for this country"
+                  : selected
+                    ? "Selected · will add on Place order"
+                    : "Click to add"
           }</p>
         </button>`;
       })
@@ -1901,23 +2034,28 @@
         syncPreview();
       });
     });
+    } // end moduleGrid
 
     const startQty = data.subscription.currentQuantity || 50;
     setQty(startQty);
     savePin(data.account.id, data.account.name);
     applyAccountFocus();
     renderPlanUpgrade(data);
+    renderNextModule(data);
     publishAccountAgentContext(data);
     restoreStickyAmendEditor(data);
   };
 
   const publishAccountAgentContext = (data) => {
     const exp = data?.expansion || {};
+    const next = data?.nextModule || {};
     window.BH_ACCOUNT_CONTEXT = {
       page: "account",
       accountId: data?.account?.id || null,
       currentPlan: data?.plan?.sku || null,
       currentPlanLabel: data?.plan?.label || null,
+      planLive: data?.plan?.live !== false,
+      planStartsOn: data?.plan?.startsOn || null,
       termKind: data?.subscription?.termKind || null,
       termLabel: data?.subscription?.termLabel || null,
       planPepm: data?.subscription?.planPepm ?? null,
@@ -1925,12 +2063,65 @@
       upgradeAvailable: !!exp.available,
       upgradeTo: exp.toSku || null,
       upgradeSelected: !!upgradeSelected,
+      nextModuleAvailable: !!next.available,
+      nextModuleSku: next.sku || null,
+      nextModuleLabel: next.label || null,
+      nextModuleCopy: next.copy || null,
+      nextModuleReason: next.reason || null,
+      eliteIsSales: next.eliteIsSales !== false,
+      payrollIsSales: next.payrollIsSales !== false,
     };
     try {
       document.dispatchEvent(new CustomEvent("bh-agent-context-refresh"));
     } catch (_) {
       /* ignore */
     }
+  };
+
+  const renderNextModule = (data) => {
+    const card = document.getElementById("nextModuleCard");
+    const meta = document.getElementById("nextModuleMeta");
+    const pill = document.getElementById("nextModulePill");
+    const body = document.getElementById("nextModuleBody");
+    if (!card || !body) return;
+    const offer = data?.nextModule || {};
+    card.hidden = false;
+    if (pill) {
+      pill.textContent = offer.available
+        ? offer.label || "Time & Attendance"
+        : "Sales";
+    }
+    if (meta) {
+      meta.textContent =
+        offer.copy || "Elite and Payroll stay with a person.";
+    }
+    if (!offer.available) {
+      body.innerHTML =
+        '<p class="muted">' +
+        esc(offer.copy || "Elite and Payroll stay with a person.") +
+        "</p>";
+      return;
+    }
+    const already = selectedAddons.has(offer.sku);
+    body.innerHTML =
+      '<p class="muted">' +
+      esc(offer.copy) +
+      "</p>" +
+      '<button type="button" class="demo-btn demo-btn-primary next-module-cta" id="nextModuleBtn">' +
+      (already
+        ? "Selected · review Change employees"
+        : "Add " + esc(offer.label || "Time & Attendance")) +
+      "</button>";
+    document.getElementById("nextModuleBtn")?.addEventListener("click", () => {
+      const sku = offer.sku;
+      if (sku && !selectedAddons.has(sku)) {
+        selectedAddons.add(sku);
+        syncPreview();
+      }
+      gotoChangeEmployees();
+      renderNextModule(data);
+      publishAccountAgentContext(data);
+    });
   };
 
   const renderPlanUpgrade = (data) => {
@@ -1941,7 +2132,21 @@
     if (!card || !body) return;
     const exp = data?.expansion || {};
     const plan = data?.plan || {};
-    if (pill) pill.textContent = plan.label || exp.fromLabel || "—";
+    if (pill) {
+      if (plan.live === false && plan.startsOn) {
+        const start = parseDate(plan.startsOn);
+        const short = start
+          ? start.toLocaleDateString("en-US", {
+              month: "short",
+              day: "numeric",
+              timeZone: "UTC",
+            })
+          : null;
+        pill.textContent = short ? "Starts " + short : plan.label || "—";
+      } else {
+        pill.textContent = plan.label || exp.fromLabel || "—";
+      }
+    }
     if (!plan.sku && !exp.fromSku) {
       card.hidden = true;
       return;
@@ -2064,7 +2269,7 @@
         }
       });
       const available = (data.catalog?.addons || []).filter(
-        (a) => a.available && !ownedSkus.has(a.sku)
+        (a) => a.available && !ownedSkus.has(a.sku) && a.selfServe !== false
       );
       const modCount = document.getElementById("moduleCount");
       if (modCount) {
@@ -2094,10 +2299,15 @@
     const params = new URLSearchParams(location.search);
     const focus = (params.get("focus") || "").toLowerCase();
     const paid = params.get("paid") === "1" || params.get("paid") === "true";
+    const tabParam = (params.get("tab") || "").toLowerCase();
+    if (tabParam === "billing" || tabParam === "people" || tabParam === "overview") {
+      setAccountTab(tabParam, { updateUrl: false });
+    }
     if (!focus && !paid) {
       if (banner) banner.hidden = true;
       return;
     }
+    setAccountTab("billing", { updateUrl: true });
     if (banner) {
       banner.hidden = false;
       banner.classList.remove("error");
@@ -2357,6 +2567,19 @@
 
   document.getElementById("changeSuccessDismiss")?.addEventListener("click", () => {
     hideChangeSuccess();
+  });
+
+  document.getElementById("accountTabs")?.addEventListener("click", (ev) => {
+    const btn = ev.target?.closest?.(".account-tab");
+    if (!btn?.dataset?.tab) return;
+    setAccountTab(btn.dataset.tab, { updateUrl: true });
+  });
+
+  document.getElementById("consoleRoot")?.addEventListener("click", (ev) => {
+    const link = ev.target?.closest?.("[data-goto-expand]");
+    if (!link) return;
+    ev.preventDefault();
+    gotoChangeEmployees();
   });
 
   const params = new URLSearchParams(location.search);

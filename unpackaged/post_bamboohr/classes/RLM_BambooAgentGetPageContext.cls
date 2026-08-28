@@ -24,6 +24,15 @@ public with sharing class RLM_BambooAgentGetPageContext {
         'elite' => 'Elite'
     };
 
+    @TestVisible
+    static final Map<String, String> PAGE_LABELS = new Map<String, String>{
+        'get-pricing' => 'Get Pricing (qualify wizard)',
+        'quote' => 'the quote summary',
+        'account' => 'Licenses & billing',
+        'activate' => 'Activate',
+        'amend-quote' => 'the amend quote summary'
+    };
+
     public class Request {
         @InvocableVariable(
             label='Messaging Session Id'
@@ -31,6 +40,24 @@ public with sharing class RLM_BambooAgentGetPageContext {
             required=true
         )
         public String messagingSessionId;
+
+        @InvocableVariable(label='Current Quote Id' description='lastQuoteId so a blank page does not wipe session.')
+        public String currentQuoteId;
+
+        @InvocableVariable(label='Current Account Id' description='activeAccountId so a blank page does not wipe session.')
+        public String currentAccountId;
+
+        @InvocableVariable(
+            label='Current qualify session Id'
+            description='qualifySessionId so a blank page does not wipe session.'
+        )
+        public String currentQualifySessionId;
+
+        @InvocableVariable(
+            label='Current committed'
+            description='qualifyCommitted (true) so a blank page does not wipe it.'
+        )
+        public String currentCommitted;
     }
 
     public class Result {
@@ -66,6 +93,42 @@ public with sharing class RLM_BambooAgentGetPageContext {
 
         @InvocableVariable(label='Page' description='get-pricing, quote, account, or activate.')
         public String page;
+
+        @InvocableVariable(label='Account Id' description='Account from pre-chat when chat opened on Licenses / quote / Activate.')
+        public String accountId;
+
+        @InvocableVariable(label='Quote Id' description='Get Pricing Quote Id when chat opened on /quote/{id}.')
+        public String quoteId;
+
+        @InvocableVariable(label='Qualify session Id' description='BFF qualify wizard session Id from pre-chat.')
+        public String qualifySessionId;
+
+        @InvocableVariable(label='Quote URL' description='Absolute summary URL when a Quote Id is known.')
+        public String quoteUrl;
+
+        @InvocableVariable(label='Qualify committed')
+        public String qualifyCommitted;
+
+        @InvocableVariable(label='Quote start date' description='YYYY-MM-DD from Quote or first line.')
+        public String startDate;
+
+        @InvocableVariable(label='Quote monthly / total')
+        public Decimal monthlyTotal;
+
+        @InvocableVariable(
+            label='Monthly total (text)'
+            description='String form of monthlyTotal for Agent Script session variables.'
+        )
+        public String monthlyTotalText;
+
+        @InvocableVariable(label='Plan label' description='Product name from the Quote line when a Quote Id is known.')
+        public String planLabel;
+
+        @InvocableVariable(
+            label='Place recitation'
+            description='Exact sentence the Purchase topic must speak before Place. Empty when no Quote Id.'
+        )
+        public String placeRecitation;
     }
 
     @InvocableMethod(
@@ -115,7 +178,10 @@ public with sharing class RLM_BambooAgentGetPageContext {
                     RLM_Bamboo_QualifyStep__c,
                     RLM_Bamboo_BounceType__c,
                     RLM_Bamboo_Headcount__c,
-                    RLM_Bamboo_Page__c
+                    RLM_Bamboo_Page__c,
+                    RLM_Bamboo_AccountId__c,
+                    RLM_Bamboo_QuoteId__c,
+                    RLM_Bamboo_QualifySessionId__c
                 FROM MessagingSession
                 WHERE Id = :sessionId
                 WITH USER_MODE
@@ -136,14 +202,49 @@ public with sharing class RLM_BambooAgentGetPageContext {
         res.bounceType = blankToNull(ms.RLM_Bamboo_BounceType__c);
         res.headcount = blankToNull(ms.RLM_Bamboo_Headcount__c);
         res.page = blankToNull(ms.RLM_Bamboo_Page__c);
+        mergeSticky(
+            res,
+            blankToNull(ms.RLM_Bamboo_AccountId__c),
+            blankToNull(ms.RLM_Bamboo_QuoteId__c),
+            blankToNull(ms.RLM_Bamboo_QualifySessionId__c),
+            req
+        );
         res.qualifyStepLabel = res.qualifyStep == null ? null : BEAT_LABELS.get(res.qualifyStep);
         res.hasContext =
             res.qualifyStep != null ||
             res.bounceType != null ||
             res.headcount != null ||
-            res.page != null;
+            res.page != null ||
+            res.accountId != null ||
+            res.quoteId != null ||
+            res.qualifySessionId != null;
+        res.placeRecitation = buildPlaceRecitation(res);
         res.summary = buildSummary(res);
         return res;
+    }
+
+    @TestVisible
+    static String buildPlaceRecitation(Result res) {
+        if (res == null || String.isBlank(res.quoteId)) {
+            return null;
+        }
+        List<String> bits = new List<String>{
+            'Ready to Place Get Pricing Quote ' + res.quoteId
+        };
+        if (res.planLabel != null) {
+            bits.add('plan ' + res.planLabel);
+        }
+        if (res.headcount != null) {
+            bits.add(res.headcount + ' seats');
+        }
+        if (res.startDate != null) {
+            bits.add('start ' + res.startDate);
+        }
+        if (res.monthlyTotalText != null) {
+            bits.add('term total ' + res.monthlyTotalText);
+        }
+        bits.add('Calling Place now — never ask the buyer to type yes in chat');
+        return String.join(bits, '; ') + '.';
     }
 
     @TestVisible
@@ -167,8 +268,30 @@ public with sharing class RLM_BambooAgentGetPageContext {
         if (res.headcount != null) {
             parts.add('entered ' + res.headcount + ' employees');
         }
+        if (res.planLabel != null) {
+            parts.add(res.planLabel);
+        }
+        if (res.startDate != null) {
+            parts.add('start ' + res.startDate);
+        }
+        if (res.monthlyTotalText != null) {
+            parts.add('term total ' + res.monthlyTotalText);
+        }
         if (res.page != null) {
-            parts.add('on the ' + res.page + ' surface');
+            String pageLabel = PAGE_LABELS.get(res.page);
+            parts.add(pageLabel == null ? 'on the ' + res.page + ' surface' : 'on ' + pageLabel);
+        }
+        if (res.quoteId != null) {
+            parts.add('sticky Quote ' + res.quoteId);
+        }
+        if (res.quoteUrl != null) {
+            parts.add('quote URL ' + res.quoteUrl);
+        }
+        if (res.accountId != null) {
+            parts.add('Account Id ' + res.accountId);
+        }
+        if (res.qualifySessionId != null) {
+            parts.add('qualify session ' + res.qualifySessionId);
         }
         if (res.bounceType != null) {
             String why = BOUNCE_LABELS.get(res.bounceType);
@@ -178,6 +301,111 @@ public with sharing class RLM_BambooAgentGetPageContext {
             );
         }
         return String.join(parts, '; ') + '.';
+    }
+
+    @TestVisible
+    static void mergeSticky(
+        Result res,
+        String pageAccountId,
+        String pageQuoteId,
+        String pageQualifySessionId,
+        Request req
+    ) {
+        String currentQuote = req == null ? null : req.currentQuoteId;
+        String currentAccount = req == null ? null : req.currentAccountId;
+        String currentSession = req == null ? null : req.currentQualifySessionId;
+        String currentCommitted = req == null ? null : req.currentCommitted;
+        res.accountId = RLM_BambooAgentBffClient.firstNonBlank(pageAccountId, currentAccount);
+        res.quoteId = RLM_BambooAgentBffClient.firstNonBlank(pageQuoteId, currentQuote);
+        res.qualifySessionId = RLM_BambooAgentBffClient.firstNonBlank(
+            pageQualifySessionId,
+            currentSession
+        );
+        if (String.isNotBlank(res.quoteId)) {
+            res.qualifyCommitted = 'true';
+            try {
+                res.quoteUrl = RLM_BambooAgentBffClient.baseUrl() + '/quote/' + res.quoteId;
+            } catch (Exception e) {
+                res.quoteUrl = '/quote/' + res.quoteId;
+            }
+            fillQuoteSnapshot(res);
+        } else {
+            res.qualifyCommitted = blankToNull(currentCommitted);
+            res.quoteUrl = null;
+        }
+    }
+
+    @TestVisible
+    static void preferQuoteAccount(Result res, String quoteAccountId) {
+        if (res == null || String.isBlank(quoteAccountId)) {
+            return;
+        }
+        res.accountId = quoteAccountId.trim();
+    }
+
+    @TestVisible
+    static void fillQuoteSnapshot(Result res) {
+        if (res == null || String.isBlank(res.quoteId) || Test.isRunningTest()) {
+            return;
+        }
+        Id qid;
+        try {
+            qid = Id.valueOf(res.quoteId.trim());
+        } catch (Exception e) {
+            return;
+        }
+        if (qid.getSObjectType() != Quote.SObjectType) {
+            return;
+        }
+        try {
+            List<Quote> quotes = [
+                SELECT StartDate, TotalPrice, QuoteAccountId
+                FROM Quote
+                WHERE Id = :qid
+                WITH USER_MODE
+                LIMIT 1
+            ];
+            if (quotes.isEmpty()) {
+                return;
+            }
+            Quote q = quotes[0];
+            preferQuoteAccount(res, q.QuoteAccountId);
+            res.monthlyTotal = q.TotalPrice;
+            if (res.monthlyTotal != null) {
+                res.monthlyTotalText = String.valueOf(res.monthlyTotal);
+            }
+            if (q.StartDate != null) {
+                res.startDate = String.valueOf(q.StartDate);
+            }
+        } catch (QueryException e) {
+            // Agent user missing Quote FLS — still return page Quote Id for Place.
+            return;
+        }
+        try {
+            List<QuoteLineItem> lines = [
+                SELECT Quantity, StartDate, EndDate, Product2.Name
+                FROM QuoteLineItem
+                WHERE QuoteId = :qid
+                WITH USER_MODE
+                ORDER BY CreatedDate ASC
+                LIMIT 1
+            ];
+            if (lines.isEmpty()) {
+                return;
+            }
+            QuoteLineItem line = lines[0];
+            if (line.Product2 != null && String.isNotBlank(line.Product2.Name)) {
+                res.planLabel = line.Product2.Name;
+            }
+            if (line.Quantity != null) {
+                res.headcount = String.valueOf(line.Quantity.intValue());
+            }
+            if (res.startDate == null && line.StartDate != null) {
+                res.startDate = String.valueOf(line.StartDate);
+            }
+        } catch (QueryException e) {
+            // Line FLS missing — header snapshot is enough to Place.
+        }
     }
 
     @TestVisible

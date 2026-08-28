@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomTab xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description>BambooHR AE Revenue Suite (Neocol-like quoting workspace). Lightning Component Tab — no App Page header chrome.</description>
+    <lwcComponent>rlmBambooRevenueSuite</lwcComponent>
+    <label>BambooHR Revenue Suite</label>
+    <motif>Custom70: Handsaw</motif>
+</CustomTab>

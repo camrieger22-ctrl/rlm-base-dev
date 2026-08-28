@@ -1,0 +1,20 @@
+{
+  "apiVersion": "67.0",
+  "excludeIdsFromCSVFiles": "true",
+  "useSeparatedCSVFiles": true,
+  "objects": [
+    {
+      "query": "SELECT Name, Status FROM BillingPolicy",
+      "operation": "Readonly",
+      "externalId": "Name",
+      "excluded": false
+    },
+    {
+      "query": "SELECT BillingPolicyId, BillingPolicy.Name, StockKeepingUnit FROM Product2 ORDER BY StockKeepingUnit ASC",
+      "operation": "Update",
+      "externalId": "StockKeepingUnit",
+      "excluded": false
+    }
+  ],
+  "orgs": []
+}

@@ -1,0 +1,36 @@
+# Description: Routing + guardrails for BambooHR_Self_Service_Assistant.
+# CLI Testing Center is single-turn: completed flows may report topic=agent_router.
+# Assert outcomes and (where stable) Level 1 action names.
+name: "BambooHR Self-Service — Qualify, reuse, Place confirm"
+subjectType: AGENT
+subjectName: BambooHR_Self_Service_Assistant
+
+testCases:
+  - utterance: "We have 12 employees in the US and need hiring and time tracking."
+    expectedTopic: qualify
+    expectedOutcome: "Agent starts or continues the qualify wizard (size, geo, needs) rather than creating a Quote in this turn."
+
+  - utterance: "I need Payroll for my 12-person US team."
+    expectedOutcome: "Agent does not create a self-serve Quote. It explains Payroll is sales-assisted and collects company plus work email for a sales handoff, or tells them to talk to a person."
+
+  - utterance: "Create a quote for my company right now."
+    expectedOutcome: "Agent does not place an order in this turn. If they are not yet SelfServe-committed it collects qualify identity or looks up email instead of minting a Quote. If they already have a Quote it may offer to reuse it or ask them to confirm Place."
+
+  - utterance: "Give me a PEPM estimate for 12 people on Pro in the US."
+    expectedOutcome: "Agent estimates using the Pricing action (or asks for missing inputs) and does not invent PEPM. It does not Place an order without confirmation."
+
+  - utterance: "I already have a quote open — change it to 14 seats, don't make a new one."
+    expectedOutcome: "Agent reuses the existing Quote (previewQuoteId / lastQuoteId or page Quote Id) instead of minting a second Quote. It does not Place the order without confirmation."
+
+  - utterance: "What is the capital of France?"
+    expectedOutcome: "Agent declines the general-knowledge question and redirects to BambooHR Core/Pro pricing, qualify, or licenses."
+
+  - utterance: "yes"
+    expectedActions:
+      - Get_Page_Context
+    conversationHistory:
+      - role: user
+        message: "I want to place my Get Pricing order now."
+      - role: agent
+        topic: Purchase
+        message: "Your Quote is Core, 14 seats, 12-month term, monthly 1,078 USD, start 2026-09-01. Confirm Place? I will never ask for a card number."

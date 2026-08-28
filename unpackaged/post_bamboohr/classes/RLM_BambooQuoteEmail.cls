@@ -38,7 +38,7 @@ public with sharing class RLM_BambooQuoteEmail {
     }
 
     @TestVisible
-    static Result sendOne(Request req) {
+    public static Result sendOne(Request req) {
         Result res = new Result();
         res.success = false;
         res.quoteId = req == null ? null : req.quoteId;

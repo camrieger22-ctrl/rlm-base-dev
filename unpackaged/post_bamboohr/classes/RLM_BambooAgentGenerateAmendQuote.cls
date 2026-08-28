@@ -225,8 +225,7 @@ public with sharing class RLM_BambooAgentGenerateAmendQuote {
         return null;
     }
 
-    @TestVisible
-    static List<Object> parseAmendQuotes(String raw) {
+    public static List<Object> parseAmendQuotes(String raw) {
         List<Object> out = new List<Object>();
         if (String.isBlank(raw)) {
             return out;

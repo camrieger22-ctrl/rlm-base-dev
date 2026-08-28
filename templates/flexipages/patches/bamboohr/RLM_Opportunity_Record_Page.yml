@@ -1,0 +1,14 @@
+feature: bamboohr
+feature_flag: bamboohr
+# AE Revenue Suite entry point on Opportunity (Phase 0).
+patches:
+  - type: insert_action
+    after: Opportunity.RLM_New_Quote
+    actions:
+      - Opportunity.RLM_Bamboo_Create_Quote
+
+  - type: add_component
+    region: main
+    component: rlmBambooOppSuiteCta
+    identifier: rlm_bamboo_opp_suite_cta
+    before_identifier: flexipage_tabset

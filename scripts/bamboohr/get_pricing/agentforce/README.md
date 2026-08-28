@@ -28,12 +28,35 @@ The chat widget bootstraps **on launcher click, not page load** — eager
 a plain metadata deploy updates the draft without creating a live version. Details
 in `.agents/artifacts/bamboohr-under25-esw-setup.md`.
 
+## Slice A — Qualify writes CRM
+
+The **Qualify** subagent persists wizard beats (`Save Qualify Session`), classifies
+work email (`Lookup Qualify Email`), stamps SelfServe (`Commit Qualify Identity`),
+or captures sales bounces (`Handoff Qualify To Sales`). Apex:
+`RLM_BambooAgentSaveQualifySession`, `RLM_BambooAgentLookupQualifyEmail`,
+`RLM_BambooAgentCommitQualifyIdentity`, `RLM_BambooAgentHandoffQualifyToSales`.
+**Get a price or quote** must not Create Quote until `qualifyCommitted` is true.
+Place still stays on the summary CTA.
+
+## Slice B — Session memory
+
+Sticky ids live on the Agent Script session:
+
+| Variable | Source |
+|----------|--------|
+| `qualifySessionId` | Save Qualify Session, or Get Page Context / pre-chat |
+| `activeAccountId` | Commit / Lookup / Create Quote / Licenses / Get Page Context |
+| `lastQuoteId` + `lastQuoteUrl` | Create Quote or Get Page Context (page Quote Id merged; blank page does not wipe) |
+| `lastOrderId` / `lastPaymentUrl` | Place Get Pricing Order (confirmed Purchase topic) |
+
+Create Quote passes `lastQuoteId` and `pageQuoteId`. Get Page Context merges page + current session Ids. Place is a confirmed action on Purchase.
+
 **ESW Setup (under-25 gap #7):** add matching Hidden/Custom attributes on
 deployment **BambooHR Self Service** — names and verify steps in
 `.agents/artifacts/bamboohr-under25-esw-setup.md`.
 
 **Messaging layer is captured in the repo:** `unpackaged/post_bamboohr_messaging/`
-holds the routing flow (stamps the 4 context fields), the `BambooHR_Web`
+holds the routing flow (stamps wizard + Account/Quote/qualify-session context), the `BambooHR_Web`
 MessagingChannel (10 pre-chat parameters), and both `EmbeddedServiceConfig`
 records (pre-chat form active). Deploy with
 `cci task run deploy_post_bamboohr_messaging --org <alias>` — it is deliberately
@@ -46,7 +69,7 @@ records (pre-chat form active). Deploy with
 
 Apex Invocables in `unpackaged/post_bamboohr/classes/RLM_BambooAgent*.cls` call the
 Get Pricing BFF. The Agent Script above wires them as `apex://…` targets on the
-Get a price or quote / Change my licenses subagents.
+Qualify / Get a price or quote / Purchase / Change my licenses / Help with this page subagents.
 
 Deploy + public HTTPS URL + smoke:
 `.agents/artifacts/bamboohr-agentforce-phase2-checklist.md`.

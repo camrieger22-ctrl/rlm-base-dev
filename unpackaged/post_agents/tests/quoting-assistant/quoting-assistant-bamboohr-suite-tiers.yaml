@@ -1,0 +1,22 @@
+# Description: BambooHR Revenue Suite Good/Better/Best routing on RLM_Quoting_Assistant.
+# Asserts GBB intent routes to BambooSuiteTiers (or completes Build Tier actions) and
+# does not steal ordinary catalog/find-product requests.
+name: "Quinn — BambooHR Suite Tiers"
+subjectType: AGENT
+subjectName: RLM_Quoting_Assistant
+
+testCases:
+  - utterance: "Build Good, Better, and Best for this opportunity at 50 seats for 12 months"
+    expectedOutcome: "Agent routes to Bamboo suite tiers (BambooSuiteTiers) and/or calls BambooHR Suite Build Tier to ensure and fill Good/Better/Best — it does not invent MRR or dump raw JSON."
+    conversationHistory:
+      - role: user
+        message: "Hi Quinn"
+      - role: agent
+        topic: agent_router
+        message: "Hi, I'm Quinn. What are we working on?"
+
+  - utterance: "Create Good Better Best options on the BambooHR Revenue Suite for opportunity 006000000000000AAA at 80 seats"
+    expectedTopic: BambooSuiteTiers
+
+  - utterance: "Find me products for 32GB RAM"
+    expectedTopic: ProductSelection
