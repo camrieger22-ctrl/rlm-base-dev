@@ -1,0 +1,18 @@
+# Description: Per-option combined seat + term + billing — PATH A3 must call
+# Update Seats once per named option, not Apply Commercial Terms to all options.
+name: "Quinn — Suite Combined Per Option"
+subjectType: AGENT
+subjectName: RLM_Quoting_Assistant
+
+testCases:
+  - utterance: "Update option B to reflect 5,000 users, annual billing and a 2 year term. Update option C to 7,000 users, quarterly billing and a 3 year term"
+    expectedTopic: BambooSuiteTiers
+    expectedActions:
+      - BambooHR_Suite_Update_Seats
+      - BambooHR_Suite_Update_Seats
+    conversationHistory:
+      - role: user
+        message: "I am in the BambooHR Revenue Suite working on opportunity 006gL00000VvVEvQAN. Remember this as activeOpportunityId; do not build tiers yet."
+      - role: agent
+        topic: BambooSuiteTiers
+        message: "Got it — I'll use that Opportunity for suite quoting."

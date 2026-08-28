@@ -80,4 +80,37 @@ private class RLM_BambooSuiteUpdateSeatsTest {
         System.assertEquals(1, detail.lines.size());
         System.assertEquals(75, detail.lines[0].quantity);
     }
+
+    @IsTest(SeeAllData=true)
+    static void updateSeats_withTermAndBilling() {
+        List<RLM_BambooRevenueSuite.CatalogProductDTO> catalog = RLM_BambooRevenueSuite.getCatalog(
+            'USD'
+        );
+        if (catalog.isEmpty()) {
+            return;
+        }
+        String sku = catalog[0].sku;
+        Opportunity opp = makeOpp();
+        RLM_BambooRevenueSuite.SessionDTO session = RLM_BambooRevenueSuite.openFromOpportunity(
+            opp.Id
+        );
+        RLM_BambooRevenueSuite.addProductLine(session.quoteId, sku, 10, 12, null, null);
+        RLM_BambooRevenueSuite.addOption(opp.Id);
+
+        RLM_BambooSuiteUpdateSeats.Request req = new RLM_BambooSuiteUpdateSeats.Request();
+        req.opportunityId = opp.Id;
+        req.optionLabel = 'Option B';
+        req.seatCount = 5000;
+        req.termMonths = 24;
+        req.billingFrequency = 'Annual';
+
+        Test.startTest();
+        RLM_BambooSuiteUpdateSeats.Result res = RLM_BambooSuiteUpdateSeats.updateOne(req);
+        Test.stopTest();
+
+        System.assertEquals(true, res.isSuccess, res.errorMessage);
+        System.assert(res.summary.contains('5000 seats'));
+        System.assert(res.summary.contains('24 months'));
+        System.assert(res.summary.contains('Annual'));
+    }
 }

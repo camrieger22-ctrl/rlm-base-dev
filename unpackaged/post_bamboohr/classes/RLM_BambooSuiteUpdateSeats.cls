@@ -31,6 +31,24 @@ public with sharing class RLM_BambooSuiteUpdateSeats {
             description='Employee / seat quantity applied to every line on the targeted option.'
         )
         public Integer seatCount;
+
+        @InvocableVariable(
+            label='Term months'
+            description='Optional. 1 (M2M), 12, 24, or 36. When set, restamps term (and billing when provided) after seat update.'
+        )
+        public Integer termMonths;
+
+        @InvocableVariable(
+            label='Billing frequency'
+            description='Optional. Monthly, Quarterly, or Annual. Applied with termMonths when either is set.'
+        )
+        public String billingFrequency;
+
+        @InvocableVariable(
+            label='Start date'
+            description='Optional subscription start YYYY-MM-DD. Defaults to the option current start or today.'
+        )
+        public String startDate;
     }
 
     public class Result {
@@ -84,14 +102,44 @@ public with sharing class RLM_BambooSuiteUpdateSeats {
                     String.valueOf(qId),
                     req.seatCount
                 );
+            Boolean hasTerm = req.termMonths != null;
+            Boolean hasBilling = String.isNotBlank(req.billingFrequency);
+            if (hasTerm || hasBilling) {
+                Integer months = hasTerm
+                    ? req.termMonths
+                    : detail.termMonths;
+                String billing = hasBilling
+                    ? req.billingFrequency.trim()
+                    : detail.billingFrequency;
+                String startIso = String.isNotBlank(req.startDate)
+                    ? req.startDate.trim()
+                    : (String.isNotBlank(detail.startDate)
+                          ? detail.startDate
+                          : String.valueOf(Date.today()));
+                detail = RLM_BambooRevenueSuite.applyTermToOption(
+                    String.valueOf(qId),
+                    months,
+                    startIso,
+                    billing
+                );
+            }
             res.isSuccess = true;
             res.quoteId = detail.quoteId;
             res.filledMrr = detail.mrr;
+            List<String> parts = new List<String>{
+                String.valueOf(req.seatCount) + ' seats'
+            };
+            if (hasTerm) {
+                parts.add('term ' + String.valueOf(req.termMonths) + ' months');
+            }
+            if (hasBilling) {
+                parts.add('billing ' + req.billingFrequency.trim());
+            }
             res.summary =
                 detail.optionLabel +
-                ' updated to ' +
-                String.valueOf(req.seatCount) +
-                ' seats — MRR ' +
+                ' updated — ' +
+                String.join(parts, ', ') +
+                ' — MRR ' +
                 formatMoney(detail.mrr) +
                 '. Refresh options in Revenue Suite. If the Quote record line editor still shows the old qty, hard-refresh that tab.';
         } catch (Exception e) {

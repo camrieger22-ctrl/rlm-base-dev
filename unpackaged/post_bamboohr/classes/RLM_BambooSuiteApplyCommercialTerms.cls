@@ -44,6 +44,12 @@ public with sharing class RLM_BambooSuiteApplyCommercialTerms {
             description='Optional subset of suite option quote Ids. When blank, all Options A–C on the Opportunity are updated.'
         )
         public List<String> quoteIds;
+
+        @InvocableVariable(
+            label='Option label'
+            description='Optional. Good, Better, Best, or Option A/B/C — updates only that option. Prefer this over quoteIds when the user names one option.'
+        )
+        public String optionLabel;
     }
 
     public class Result {
@@ -104,7 +110,7 @@ public with sharing class RLM_BambooSuiteApplyCommercialTerms {
                 return res;
             }
 
-            Set<Id> targetIds = resolveTargetQuoteIds(options, req.quoteIds);
+            Set<Id> targetIds = resolveTargetQuoteIds(options, req);
             if (targetIds.isEmpty()) {
                 res.errorMessage = 'No matching suite option quotes to update.';
                 return res;
@@ -192,11 +198,19 @@ public with sharing class RLM_BambooSuiteApplyCommercialTerms {
 
     private static Set<Id> resolveTargetQuoteIds(
         List<RLM_BambooRevenueSuite.OptionSummaryDTO> options,
-        List<String> quoteIds
+        Request req
     ) {
         Set<Id> targets = new Set<Id>();
-        if (quoteIds != null && !quoteIds.isEmpty()) {
-            for (String raw : quoteIds) {
+        if (String.isNotBlank(req.optionLabel)) {
+            Id qid = RLM_BambooRevenueSuite.resolveSuiteOptionQuoteId(
+                req.opportunityId.trim(),
+                req.optionLabel.trim()
+            );
+            targets.add(qid);
+            return targets;
+        }
+        if (req.quoteIds != null && !req.quoteIds.isEmpty()) {
+            for (String raw : req.quoteIds) {
                 if (String.isBlank(raw)) {
                     continue;
                 }

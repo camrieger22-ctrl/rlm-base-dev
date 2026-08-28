@@ -140,10 +140,21 @@ After agent changes: **Refresh options** or **Compare** in the suite.
 ### Agent — seat count on existing options
 
 When Quinn changes **seat count / headcount** on one Option A/B/C (without
-rebuilding tiers or changing term/billing), it must call **`BambooHR Suite
-Update Seats`** (`RLM_BambooSuiteUpdateSeats`) — Place + FORCE on **all lines**
-of that option. Do **not** use LineManagement `Update_Record_Fields` for
-`Quantity` on suite option quotes (`… — Option A/B/C`).
+rebuilding tiers), it must call **`BambooHR Suite Update Seats`**
+(`RLM_BambooSuiteUpdateSeats`) — Place + FORCE on **all lines** of that option.
+Do **not** use LineManagement `Update_Record_Fields` for `Quantity` on suite
+option quotes (`… — Option A/B/C`).
+
+When the utterance also changes **term and/or billing** on the same option, or
+names **two or more options with different settings each** (e.g. Option B 5,000
+seats / 2-year / Annual; Option C 7,000 / 3-year / Quarterly), Quinn uses
+**PATH A3**: one **Update Seats** call per named option with `seatCount`,
+`termMonths`, and `billingFrequency` together. Do **not** call Apply Commercial
+Terms to all options in that scenario — the second global apply would overwrite
+the first option’s terms.
+
+Apply Commercial Terms supports `optionLabel` when only one option should change
+term/billing with **unchanged** seat count.
 
 After agent seat changes: **Refresh options** in the suite. If the native Quote
 **line editor** still shows the old qty, hard-refresh that Quote tab (the TLE

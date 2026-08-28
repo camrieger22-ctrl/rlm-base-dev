@@ -114,4 +114,34 @@ private class RLM_BambooSuiteApplyCommercialTermsTest {
             System.assertEquals(seats, a.lines[0].quantity);
         }
     }
+
+    @IsTest(SeeAllData=true)
+    static void apply_singleOptionByLabel() {
+        List<RLM_BambooRevenueSuite.CatalogProductDTO> catalog =
+            RLM_BambooRevenueSuite.getCatalog('USD');
+        if (catalog.isEmpty()) {
+            return;
+        }
+        String sku = catalog[0].sku;
+        Opportunity opp = makeOpp();
+        RLM_BambooRevenueSuite.openFromOpportunity(opp.Id);
+        RLM_BambooRevenueSuite.addOption(opp.Id);
+
+        RLM_BambooSuiteApplyCommercialTerms.Request req =
+            new RLM_BambooSuiteApplyCommercialTerms.Request();
+        req.opportunityId = opp.Id;
+        req.optionLabel = 'Option A';
+        req.termMonths = 24;
+        req.billingFrequency = 'Annual';
+
+        Test.startTest();
+        List<RLM_BambooSuiteApplyCommercialTerms.Result> results =
+            RLM_BambooSuiteApplyCommercialTerms.apply(
+                new List<RLM_BambooSuiteApplyCommercialTerms.Request>{ req }
+            );
+        Test.stopTest();
+
+        System.assertEquals(true, results[0].isSuccess, results[0].errorMessage);
+        System.assertEquals(1, results[0].optionsUpdated);
+    }
 }
