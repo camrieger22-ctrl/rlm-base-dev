@@ -237,7 +237,7 @@ public with sharing class RLM_BambooSuiteTxnOrchestrator {
     }
 
     @TestVisible
-    static RLM_Bamboo_Suite_Txn__c nextQueuedJob(Id opportunityId) {
+    public static RLM_Bamboo_Suite_Txn__c nextQueuedJob(Id opportunityId) {
         List<RLM_Bamboo_Suite_Txn__c> rows = [
             SELECT
                 Id,

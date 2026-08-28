@@ -88,7 +88,7 @@ public with sharing class RLM_BambooSuiteUpdateSeats {
     }
 
     @TestVisible
-    static Result updateOne(Request req) {
+    public static Result updateOne(Request req) {
         Result res = new Result();
         res.isSuccess = false;
         if (req == null || req.seatCount == null || req.seatCount <= 0) {
