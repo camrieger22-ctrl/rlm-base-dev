@@ -16,7 +16,11 @@
         <apexClass>RLM_BambooSuiteBuildTiers</apexClass>
         <enabled>true</enabled>
     </classAccesses>
-    <description>Agentforce access to Quoting Assistant (Quinn), including BambooHR Suite Build Tier and Apply Commercial Terms Apex.</description>
+    <classAccesses>
+        <apexClass>RLM_BambooSuiteUpdateSeats</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <description>Agentforce access to Quoting Assistant (Quinn), including BambooHR Suite Build Tier, Apply Commercial Terms, and Update Seats Apex.</description>
     <hasActivationRequired>false</hasActivationRequired>
     <label>RLM Quoting Assistant</label>
 </PermissionSet>

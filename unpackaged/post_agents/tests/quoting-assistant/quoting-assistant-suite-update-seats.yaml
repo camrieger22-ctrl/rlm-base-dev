@@ -1,0 +1,22 @@
+# Description: BambooHR Revenue Suite seat count — qty/headcount on Option A/B/C
+# must use Update Seats (PST+FORCE), not LineManagement Update_Record_Fields.
+name: "Quinn — Suite Update Seats"
+subjectType: AGENT
+subjectName: RLM_Quoting_Assistant
+
+testCases:
+  - utterance: "Change Option B to 1000 seats — keep the same products and term"
+    expectedTopic: BambooSuiteTiers
+    expectedActions:
+      - BambooHR_Suite_Update_Seats
+    conversationHistory:
+      - role: user
+        message: "I am in the BambooHR Revenue Suite working on opportunity 006gL00000VvVEvQAN. Remember this as activeOpportunityId; do not build tiers yet."
+      - role: agent
+        topic: BambooSuiteTiers
+        message: "Got it — I'll use that Opportunity for suite quoting."
+
+  - utterance: "Set Good to 250 employees"
+    expectedTopic: BambooSuiteTiers
+    expectedActions:
+      - BambooHR_Suite_Update_Seats

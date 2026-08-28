@@ -104,6 +104,10 @@
         <apexClass>RLM_BambooSuiteBuildTiers</apexClass>
         <enabled>true</enabled>
     </classAccesses>
+    <classAccesses>
+        <apexClass>RLM_BambooSuiteUpdateSeats</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
     <description>BambooHR demo: volume tiers, Path B, free trial, EC handoff, Pay Now, Agentforce BFF actions, micro self-serve CRM, and AE Revenue Suite.</description>
     <fieldPermissions>
         <editable>true</editable>

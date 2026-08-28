@@ -137,6 +137,19 @@ to 50).
 
 After agent changes: **Refresh options** or **Compare** in the suite.
 
+### Agent — seat count on existing options
+
+When Quinn changes **seat count / headcount** on one Option A/B/C (without
+rebuilding tiers or changing term/billing), it must call **`BambooHR Suite
+Update Seats`** (`RLM_BambooSuiteUpdateSeats`) — Place + FORCE on **all lines**
+of that option. Do **not** use LineManagement `Update_Record_Fields` for
+`Quantity` on suite option quotes (`… — Option A/B/C`).
+
+After agent seat changes: **Refresh options** in the suite. If the native Quote
+**line editor** still shows the old qty, hard-refresh that Quote tab (the TLE
+client cache is platform-owned; suite Refresh and `Quote.GrandTotal` are
+authoritative).
+
 ## Sync winning option to Opportunity
 
 After pricing an option, **Use for Opportunity** sets `Opportunity.SyncedQuoteId`
@@ -199,5 +212,8 @@ is **priced** and **not Pending**.
 
 ## Next
 
-Instant Pricing headless (Slice 6) and agent/TLE polish (Slice 7) remain deferred.
+Instant Pricing headless (Slice 6) remains deferred.
 4d Phase B (orchestrator + Edit/Commit sync) remains deferred.
+
+Slice 7 (agent/TLE polish) ships Update Seats invocable, Quinn routing away
+from LineManagement Quantity DML on suite options, and suite hard-refresh hints.

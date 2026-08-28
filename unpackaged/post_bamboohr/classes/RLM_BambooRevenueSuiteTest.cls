@@ -611,6 +611,38 @@ private class RLM_BambooRevenueSuiteTest {
         System.assertEquals(10, at24.lines[0].quantity);
     }
 
+    @IsTest(SeeAllData=true)
+    static void updateOptionSeatCount_restampsAllLinesWhenCatalogPresent() {
+        List<RLM_BambooRevenueSuite.CatalogProductDTO> catalog = RLM_BambooRevenueSuite.getCatalog(
+            'USD'
+        );
+        if (catalog.isEmpty()) {
+            return;
+        }
+        String sku = catalog[0].sku;
+        for (RLM_BambooRevenueSuite.CatalogProductDTO p : catalog) {
+            if (p.sku == 'BAMBOO-CORE') {
+                sku = p.sku;
+                break;
+            }
+        }
+        Opportunity opp = makeOpp();
+        RLM_BambooRevenueSuite.SessionDTO session = RLM_BambooRevenueSuite.openFromOpportunity(
+            opp.Id
+        );
+        RLM_BambooRevenueSuite.addProductLine(session.quoteId, sku, 10, 12, null, null);
+
+        Test.startTest();
+        RLM_BambooRevenueSuite.OptionDetailDTO updated =
+            RLM_BambooRevenueSuite.updateOptionSeatCount(session.quoteId, 250);
+        Test.stopTest();
+
+        System.assert(updated.lines.size() >= 1);
+        for (RLM_BambooRevenueSuite.OptionLineDTO line : updated.lines) {
+            System.assertEquals(250, line.quantity, 'Expected 250 on ' + line.sku);
+        }
+    }
+
     @IsTest
     static void applyTermToOption_emptyQuoteNoops() {
         Opportunity opp = makeOpp();

@@ -1701,6 +1701,95 @@ public with sharing class RLM_BambooRevenueSuite {
         return buildOptionDetail(qId);
     }
 
+    /**
+     * Set the same seat count on every line of a suite option quote via PST + FORCE.
+     * Use for Agentforce seat-only changes (not tier rebuilds). Preserves bundle
+     * hierarchy and reprices volume tiers.
+     */
+    @AuraEnabled
+    public static OptionDetailDTO updateOptionSeatCount(
+        String quoteId,
+        Decimal seats
+    ) {
+        Id qId = parseId(quoteId, 'Quote');
+        Decimal qty = seats == null || seats <= 0 ? null : seats;
+        if (qty == null) {
+            throw new SuiteException('Seat count must be greater than zero.');
+        }
+
+        Quote q = [
+            SELECT Id, Name
+            FROM Quote
+            WHERE Id = :qId
+            WITH USER_MODE
+            LIMIT 1
+        ];
+        if (optionLetterFromName(q.Name) == null) {
+            throw new SuiteException(
+                'Only Bamboo Revenue Suite option quotes (… — Option A/B/C) support bulk seat updates.'
+            );
+        }
+
+        List<QuoteLineItem> lines = [
+            SELECT Id
+            FROM QuoteLineItem
+            WHERE QuoteId = :qId
+            WITH USER_MODE
+        ];
+        if (lines.isEmpty()) {
+            throw new SuiteException('Add products before changing seat count.');
+        }
+
+        List<RevSalesTrxn.RecordWithReferenceRequest> nodes =
+            new List<RevSalesTrxn.RecordWithReferenceRequest>();
+        nodes.add(
+            new RevSalesTrxn.RecordWithReferenceRequest(
+                'refQuote',
+                new RevSalesTrxn.RecordResource(Quote.getSObjectType(), 'PATCH', qId)
+            )
+        );
+        Integer i = 0;
+        for (QuoteLineItem qi : lines) {
+            RevSalesTrxn.RecordResource lineNode = new RevSalesTrxn.RecordResource(
+                QuoteLineItem.getSObjectType(),
+                'PATCH',
+                qi.Id
+            );
+            lineNode.fieldValues = new Map<String, Object>{ 'Quantity' => qty };
+            nodes.add(
+                new RevSalesTrxn.RecordWithReferenceRequest('refSeat' + i++, lineNode)
+            );
+        }
+        executePlaceForce(qId, nodes);
+        return buildOptionDetail(qId);
+    }
+
+    /**
+     * Resolve a suite option Quote Id from an Opportunity plus Good/Better/Best
+     * or Option A/B/C label. Used by Agentforce seat-update invocable.
+     */
+    @AuraEnabled
+    public static Id resolveSuiteOptionQuoteId(
+        String opportunityId,
+        String optionLabel
+    ) {
+        Id oppId = parseId(opportunityId, 'Opportunity');
+        String letter = suiteOptionLetterFromLabel(optionLabel);
+        if (String.isBlank(letter)) {
+            throw new SuiteException(
+                'optionLabel must be Good, Better, Best, or Option A/B/C.'
+            );
+        }
+        List<OptionSummaryDTO> options = buildOptionSummaries(oppId, null);
+        Id qId = quoteIdForLetter(options, letter);
+        if (qId == null) {
+            throw new SuiteException(
+                'No Option ' + letter + ' quote found on this Opportunity.'
+            );
+        }
+        return qId;
+    }
+
     /** Re-run System pricing on the option quote (FORCE) without structural changes. */
     @AuraEnabled
     public static OptionDetailDTO repriceOption(String quoteId) {
@@ -2731,6 +2820,24 @@ public with sharing class RLM_BambooRevenueSuite {
             return null;
         }
         return ch;
+    }
+
+    /** Map Good/Better/Best or Option A/B/C to option letter A/B/C. */
+    private static String suiteOptionLetterFromLabel(String optionLabel) {
+        if (String.isBlank(optionLabel)) {
+            return null;
+        }
+        String key = optionLabel.trim().toLowerCase();
+        if (key == 'good' || key == 'a' || key == 'option a') {
+            return 'A';
+        }
+        if (key == 'better' || key == 'b' || key == 'option b') {
+            return 'B';
+        }
+        if (key == 'best' || key == 'c' || key == 'option c') {
+            return 'C';
+        }
+        return optionLetter(optionLabel);
     }
 
     /**

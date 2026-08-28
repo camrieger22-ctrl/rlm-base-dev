@@ -956,6 +956,10 @@
                 >
                     Refresh options
                 </button>
+                <p class="hint agent-tle-hint">
+                    After Agentforce changes, Refresh options here. The Quote record line
+                    editor may show stale qty or dates until you hard-refresh that tab.
+                </p>
                 <p class="agent-status" if:true={agentStatus} aria-live="polite">{agentStatus}</p>
                 <div class="error" role="alert" if:true={agentError}>{agentError}</div>
             </aside>

@@ -40,6 +40,7 @@ system:
         - Scope: don't delete quotes; discounts are line-level only.
         - BambooHR Revenue Suite: when the user asks for Good/Better/Best, tiered options, or Bamboo Revenue Suite multi-option packages on an Opportunity, use BambooSuiteTiers (not LineManagement add-product). Speak only summaries and MRR returned by BambooHR Suite Build Tier — never invent prices.
         - Suite commercial terms (HIGHEST PRIORITY when activeOpportunityId is set or Options A/B/C exist): changing term length and/or billing frequency on existing suite options without changing seat count or rebuilding tiers → BambooSuiteTiers + BambooHR Suite Apply Commercial Terms only. Never Update_Record_Fields, never BambooHR Suite Build Tier with tierKey (that rebuilds lines and defaults seats to 50).
+        - Suite seat count (HIGHEST PRIORITY when activeOpportunityId is set or Options A/B/C exist): changing headcount/seats/qty on one suite option without rebuilding tiers → BambooSuiteTiers + BambooHR Suite Update Seats only. Never LineManagement Update_Record_Fields for Quantity on suite option quotes (Quote.Name contains " — Option ").
         - Suite context seed: when the user says they are in the BambooHR Revenue Suite working on opportunity <Id> (or asks to remember that Opportunity Id as activeOpportunityId) and says not to build tiers yet, set activeOpportunityId from that Id, confirm the opportunity in one short line, and do not call BambooHR Suite Build Tier. Later BambooSuiteTiers turns use that activeOpportunityId unless a different Opportunity is named.
     messages:
         welcome:|
@@ -138,8 +139,10 @@ start_agent agent_router:
             | Select the best subagent based on conversation history and the user's intent.
               Routing rules (evaluate top to bottom; first match wins):
               - HIGHEST PRIORITY — Bamboo Revenue Suite commercial terms: When {!@variables.activeOpportunityId} is set OR the user mentions Bamboo Revenue Suite / Option A/B/C / Good/Better/Best suite options AND wants to change term length and/or billing frequency (e.g. 3-year, 36 months, annual, quarterly, monthly billing, M2M) without changing seat count or rebuilding tiers, route to BambooSuiteTiers — NEVER LineManagement or Update_Record_Fields, even if they mention dates or term on quote lines.
+              - HIGHEST PRIORITY — Bamboo Revenue Suite seat count: When {!@variables.activeOpportunityId} is set OR the user mentions Option A/B/C / Good/Better/Best / suite options AND wants to change seat count, headcount, or quantity (e.g. "change Option B to 1000 seats") without rebuilding tiers or changing term/billing, route to BambooSuiteTiers — NEVER LineManagement Update_Record_Fields for Quantity.
               - If the user wants Good / Better / Best, BambooHR Revenue Suite tiered options, multi-option packages (Option A/B/C), or to build suite tiers for an Opportunity, route to BambooSuiteTiers. Do NOT route those to LineManagement or ProductSelection.
               - If the user wants to change term length and/or billing frequency on existing Bamboo Revenue Suite options (Option A/B/C) without changing seat count or rebuilding tiers, route to BambooSuiteTiers — NOT LineManagement Update_Record_Fields.
+              - If the user wants to change seat count / headcount / quantity on a Bamboo Revenue Suite option (Option A/B/C or Good/Better/Best) without rebuilding tiers or changing term/billing, route to BambooSuiteTiers — NOT LineManagement Update_Record_Fields.
               - If the user only seeds suite context (in BambooHR Revenue Suite, remember opportunity Id, confirm, do not build tiers yet), route to BambooSuiteTiers for acknowledgment only.
               - If the user wants to find, search, browse, compare, or get details about products in the catalog, route to ProductSelection.
               - If the user wants to create a quote, see a quote summary / totals, show the quote card, or edit a quote HEADER field (the quote's name / status / expiration), route to QuoteManagement.
@@ -742,11 +745,13 @@ subagent LineManagement:
 
               Suite commercial terms guard (check BEFORE any line date/term/billing edit):
               - If the user wants to change term length or billing frequency on Bamboo Revenue Suite options (Quote.Name contains " — Option ", they mention Option A/B/C / Good/Better/Best / all suite options, or {!@variables.activeOpportunityId} is set for a multi-option deal), hand off to BambooSuiteTiers with go_to_BambooSuiteTiers immediately — do NOT use Update_Record_Fields. That path preserves seat counts and updates all options via Place+FORCE.
+              - If the user wants to change seat count / headcount / quantity on a Bamboo Revenue Suite option quote (Quote.Name contains " — Option ", Option A/B/C, Good/Better/Best, or activeOpportunityId for a multi-option deal), hand off to BambooSuiteTiers immediately — do NOT use Update_Record_Fields for Quantity. Suite seat changes must use Place+FORCE via BambooHR Suite Update Seats.
 
               Action precedence (never use a general action for a workflow that has a dedicated one):
               - Add a product to the quote -> Add_Product_To_Quote (one call: it resolves the product, the default selling model, and any disambiguation, then adds the line). Do NOT chain identify -> selling-model -> add. It picks the product's DEFAULT selling model — don't ask "which selling model?"; only pass one when the USER names it ("add it as Term Monthly"). Mention the selling model used (sellingModelName) as a statement. If the product has multiple options and NO default, it returns a message asking the user to choose — only then ask.
               - Discount one, several, or all lines -> Apply_Discount_To_Quote_Lines. Worked example: "discount all lines 10%" -> applyToAll=true, discountMode="percent", discountPercentage=10. Do NOT use UpdateQuoteLineItemDetails or Update_Record_Fields for discounts.
               - Plain LINE field edits (dates/term/description/quantity) -> Update_Record_Fields with sObjectType=QuoteLineItem, targeting (quoteLineItemIds / productName / applyToAll), and fieldUpdatesJson (dates as yyyy-MM-dd). This writes directly so values stick. Do NOT use UpdateQuoteLineItemDetails for plain field edits — it reprices through PST and silently discards proration-owned values like EndDate.
+              - EXCEPTION — Quantity on Bamboo Revenue Suite option quotes: if the parent Quote.Name contains " — Option " OR the user mentions Option A/B/C / Good/Better/Best on a multi-option Opportunity, do NOT use Update_Record_Fields for Quantity — hand off to BambooSuiteTiers / BambooHR Suite Update Seats instead.
               - Resolve a specific quote line by product -> Get_QuoteLineItem_from_Quote (handles disambiguation). Prefer this over QueryQuoteLineRecords for discount/edit targeting.
               - Just list / show the lines (no change requested yet) -> QueryQuoteLineRecords, and present its native list card only. Do NOT also paste a text list of the same lines, and do NOT append a "select the line(s) to update" prompt — there is no pending action to target. A one-line lead-in (count and product names) is fine. Only offer a selection once the user asks to change, discount, or configure something.
               - Last-resort fallbacks ONLY when no dedicated action covers the workflow: UpdateQuoteLineItemDetails (if a field edit must reprice through PST for some reason), QueryQuoteLineRecords (open-ended "show me the lines"), GetRecordDetails (read a line's current StartDate/EndDate for date math when no other action returned it).
@@ -1742,7 +1747,14 @@ subagent BambooSuiteTiers:
               - Resolve opportunityId (same rules as PATH C step 1).
               - Call BambooHR_Suite_Apply_Commercial_Terms ONCE with opportunityId plus termMonths and/or billingFrequency from the utterance. Do NOT pass seatCount or tierKey. Do NOT call BambooHR_Suite_Build_Tier.
               - Apply to ALL suite options unless the user names one option only (Option A/B/C or Good/Better/Best).
-              - After success, tell the AE to click Refresh options or Compare in Revenue Suite. STOP.
+              - After success, tell the AE to click Refresh options or Compare in Revenue Suite. If they have the Quote record open, hard-refresh that tab if the line editor still shows stale qty or dates. STOP.
+
+              PATH A2 — Seat count only (existing Options A/B/C with lines; no tier rebuild):
+              - Triggers: user asks to change seat count, headcount, employees, or quantity on one suite option (Option A/B/C or Good/Better/Best) — and does NOT ask to rebuild tiers, change term/billing, or add/remove products.
+              - Resolve opportunityId (same rules as PATH C step 1).
+              - Resolve which option: Good/Option A, Better/Option B, Best/Option C from the utterance (default to Option A / Good when ambiguous on a single-option change).
+              - Call BambooHR_Suite_Update_Seats ONCE with opportunityId + optionLabel (or quoteId when known) and seatCount from the utterance. Do NOT call BambooHR_Suite_Build_Tier or Update_Record_Fields.
+              - After success, tell the AE to click Refresh options in Revenue Suite. If the native Quote line editor still shows the old qty, hard-refresh that Quote tab (Cmd+Shift+R). STOP.
 
               PATH B — Context-only seed (no Build yet):
               - If the user says they are in the BambooHR Revenue Suite, provides an Opportunity Id, asks to remember it as activeOpportunityId, and says do not build tiers yet: extract the Id, set activeOpportunityId (and activeOpportunityName if known), confirm in one short line, and STOP — do not call BambooHR_Suite_Build_Tier.
@@ -1762,7 +1774,7 @@ subagent BambooSuiteTiers:
                  c) tierKey Better
                  d) tierKey Best
               4. After each call, check isSuccess. On failure, speak errorMessage / summary and stop.
-              5. Speak only the action summary / filledMrr values returned — never invent MRR or PEPM. Then say: open BambooHR Revenue Suite for this Opportunity, click Refresh / Compare to see Options A–C.
+              5. Speak only the action summary / filledMrr values returned — never invent MRR or PEPM. Then say: open BambooHR Revenue Suite for this Opportunity, click Refresh / Compare to see Options A–C. If the Quote record line editor looks stale, hard-refresh that tab.
               6. Do not use LineManagement add-product, ProductSelection, Update_Record_Fields, or any Get Pricing BFF actions for this flow.
               Hand-offs:
               - Find/browse catalog products (not suite tiers) -> go_to_ProductSelection
@@ -1785,6 +1797,11 @@ subagent BambooSuiteTiers:
                 with termMonths=...
                 with billingFrequency=...
                 with startDate=...
+            BambooHR_Suite_Update_Seats: @actions.BambooHR_Suite_Update_Seats
+                with opportunityId=...
+                with quoteId=...
+                with optionLabel=...
+                with seatCount=...
             go_to_ProductSelection: @utils.transition to @subagent.ProductSelection
             go_to_QuoteManagement: @utils.transition to @subagent.QuoteManagement
             go_to_LineManagement: @utils.transition to @subagent.LineManagement
@@ -1967,6 +1984,63 @@ subagent BambooSuiteTiers:
                     is_displayable: True
                     filter_from_agent: False
                     complex_data_type_name: "lightning__integerType"
+        BambooHR_Suite_Update_Seats:
+            description: "Set seat count on all lines of one Bamboo Revenue Suite option quote via Place + FORCE. Use when the AE changes headcount/seats on Option A/B/C or Good/Better/Best without rebuilding tiers. Do NOT use LineManagement Update_Record_Fields for Quantity on suite options."
+            label: "BambooHR Suite Update Seats"
+            require_user_confirmation: False
+            include_in_progress_indicator: True
+            progress_indicator_message: "Updating suite seat count…"
+            target: "apex://RLM_BambooSuiteUpdateSeats"
+            inputs:
+                quoteId: string
+                    description: "Suite option Quote Id when known. Otherwise pass opportunityId + optionLabel."
+                    label: "Quote Id"
+                    is_required: False
+                    is_user_input: True
+                opportunityId: string
+                    description: "Opportunity Id that owns Option A/B/C. Required when quoteId is blank."
+                    label: "Opportunity Id"
+                    is_required: False
+                    is_user_input: True
+                optionLabel: string
+                    description: "Good, Better, Best, or Option A/B/C. Required when quoteId is blank."
+                    label: "Option label"
+                    is_required: False
+                    is_user_input: True
+                seatCount: object
+                    description: "Seat / headcount applied to every line on the targeted option."
+                    label: "Seat count"
+                    is_required: True
+                    is_user_input: True
+                    complex_data_type_name: "lightning__integerType"
+            outputs:
+                isSuccess: boolean
+                    description: "True when update succeeded."
+                    label: "Is Success"
+                    is_displayable: False
+                    filter_from_agent: False
+                errorMessage: string
+                    description: "Error when isSuccess is false."
+                    label: "Error Message"
+                    is_displayable: False
+                    filter_from_agent: False
+                summary: string
+                    description: "Human-readable result. Speak this to the AE; do not invent MRR."
+                    label: "Summary"
+                    is_displayable: True
+                    filter_from_agent: False
+                quoteId: object
+                    description: "Updated option Quote Id."
+                    label: "Quote Id"
+                    is_displayable: False
+                    is_used_by_planner: True
+                    complex_data_type_name: "lightning__recordIdType"
+                filledMrr: number
+                    description: "MRR after seat update."
+                    label: "Filled MRR"
+                    is_displayable: True
+                    filter_from_agent: False
+                    complex_data_type_name: "lightning__numberType"
 
 
 

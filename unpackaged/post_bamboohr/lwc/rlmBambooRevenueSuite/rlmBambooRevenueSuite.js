@@ -1831,7 +1831,8 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
                 this.compareMode = true;
                 await this.loadCompareDetails();
             }
-            this.agentStatus = 'Options refreshed.';
+            this.agentStatus =
+                'Options refreshed. Hard-refresh any open Quote tab if the line editor still looks stale.';
         } catch (e) {
             this.agentError = this.reduceError(e);
             this.agentStatus = undefined;

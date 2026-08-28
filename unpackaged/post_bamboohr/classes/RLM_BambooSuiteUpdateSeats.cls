@@ -1,0 +1,131 @@
+/**
+ * Agentforce Invocable: set seat count on all lines of one Bamboo Revenue Suite
+ * option quote via PST + FORCE (not direct DML).
+ *
+ * Use when the AE changes headcount/seats on Option A/B/C without rebuilding
+ * Good/Better/Best tiers. Do NOT use LineManagement Update_Record_Fields.
+ */
+public with sharing class RLM_BambooSuiteUpdateSeats {
+    public class Request {
+        @InvocableVariable(
+            label='Quote Id'
+            description='Suite option Quote Id (0Q0…). When blank, pass opportunityId + optionLabel.'
+        )
+        public String quoteId;
+
+        @InvocableVariable(
+            label='Opportunity Id'
+            description='Opportunity that owns Option A/B/C. Required when quoteId is blank.'
+        )
+        public String opportunityId;
+
+        @InvocableVariable(
+            label='Option label'
+            description='Good, Better, Best, or Option A/B/C. Required when quoteId is blank.'
+        )
+        public String optionLabel;
+
+        @InvocableVariable(
+            required=true
+            label='Seat count'
+            description='Employee / seat quantity applied to every line on the targeted option.'
+        )
+        public Integer seatCount;
+    }
+
+    public class Result {
+        @InvocableVariable(label='Is Success')
+        public Boolean isSuccess;
+
+        @InvocableVariable(label='Error Message')
+        public String errorMessage;
+
+        @InvocableVariable(
+            label='Summary'
+            description='Human-readable result. Speak verbatim; do not invent MRR.'
+        )
+        public String summary;
+
+        @InvocableVariable(label='Quote Id')
+        public Id quoteId;
+
+        @InvocableVariable(label='Filled MRR')
+        public Decimal filledMrr;
+    }
+
+    @InvocableMethod(
+        label='BambooHR Suite Update Seats'
+        description='Set seat count on all lines of one Bamboo Revenue Suite option quote via Place + FORCE. Preserves bundle hierarchy and reprices volume tiers. Not for Good/Better/Best tier rebuilds.'
+        category='BambooHR'
+    )
+    public static List<Result> updateSeats(List<Request> requests) {
+        List<Result> out = new List<Result>();
+        if (requests == null) {
+            return out;
+        }
+        for (Request req : requests) {
+            out.add(updateOne(req));
+        }
+        return out;
+    }
+
+    @TestVisible
+    static Result updateOne(Request req) {
+        Result res = new Result();
+        res.isSuccess = false;
+        if (req == null || req.seatCount == null || req.seatCount <= 0) {
+            res.errorMessage = 'seatCount is required and must be > 0';
+            return res;
+        }
+        try {
+            Id qId = resolveQuoteId(req);
+            RLM_BambooRevenueSuite.OptionDetailDTO detail =
+                RLM_BambooRevenueSuite.updateOptionSeatCount(
+                    String.valueOf(qId),
+                    req.seatCount
+                );
+            res.isSuccess = true;
+            res.quoteId = detail.quoteId;
+            res.filledMrr = detail.mrr;
+            res.summary =
+                detail.optionLabel +
+                ' updated to ' +
+                String.valueOf(req.seatCount) +
+                ' seats — MRR ' +
+                formatMoney(detail.mrr) +
+                '. Refresh options in Revenue Suite. If the Quote record line editor still shows the old qty, hard-refresh that tab.';
+        } catch (Exception e) {
+            String msg = e.getMessage();
+            if (String.isBlank(msg)) {
+                msg = e.getTypeName();
+            }
+            res.errorMessage = msg;
+            res.summary = 'Could not update seats: ' + msg;
+        }
+        return res;
+    }
+
+    private static Id resolveQuoteId(Request req) {
+        if (req != null && String.isNotBlank(req.quoteId)) {
+            return Id.valueOf(req.quoteId.trim());
+        }
+        if (
+            req == null ||
+            String.isBlank(req.opportunityId) ||
+            String.isBlank(req.optionLabel)
+        ) {
+            throw new AuraHandledException(
+                'Provide quoteId or both opportunityId and optionLabel (Good/Better/Best or Option A/B/C).'
+            );
+        }
+        return RLM_BambooRevenueSuite.resolveSuiteOptionQuoteId(
+            req.opportunityId.trim(),
+            req.optionLabel.trim()
+        );
+    }
+
+    private static String formatMoney(Decimal amount) {
+        Decimal n = amount == null ? 0 : amount.setScale(2);
+        return '$' + String.valueOf(n);
+    }
+}
