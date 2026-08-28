@@ -97,6 +97,12 @@ public with sharing class RLM_BambooSuiteUpdateSeats {
         }
         try {
             Id qId = resolveQuoteId(req);
+            if (
+                RLM_BambooRevenueSuite.isTxnOrchestratorEnabled() &&
+                !RLM_BambooRevenueSuite.isTxnJobInProgressPublic()
+            ) {
+                return enqueueUpdateSeatsViaOrchestrator(req, qId);
+            }
             RLM_BambooRevenueSuite.OptionDetailDTO detail =
                 RLM_BambooRevenueSuite.updateOptionSeatCount(
                     String.valueOf(qId),
@@ -150,6 +156,68 @@ public with sharing class RLM_BambooSuiteUpdateSeats {
             res.errorMessage = msg;
             res.summary = 'Could not update seats: ' + msg;
         }
+        return res;
+    }
+
+    private static Result enqueueUpdateSeatsViaOrchestrator(Request req, Id qId) {
+        Result res = new Result();
+        res.isSuccess = false;
+        Quote q = [
+            SELECT OpportunityId
+            FROM Quote
+            WHERE Id = :qId
+            WITH USER_MODE
+            LIMIT 1
+        ];
+        Map<String, Object> fields = new Map<String, Object>{
+            'quoteId' => String.valueOf(qId),
+            'opportunityId' => String.valueOf(q.OpportunityId),
+            'optionLabel' => req.optionLabel,
+            'seatCount' => req.seatCount,
+            'termMonths' => req.termMonths,
+            'billingFrequency' => req.billingFrequency,
+            'startDate' => req.startDate
+        };
+        RLM_BambooSuiteTxnOrchestrator.EnqueueRequest enq =
+            new RLM_BambooSuiteTxnOrchestrator.EnqueueRequest();
+        enq.opportunityId = q.OpportunityId;
+        enq.quoteId = qId;
+        enq.requestType = 'Place';
+        enq.payloadJson = RLM_BambooSuiteTxnOrchestrator.buildPayload(
+            'UpdateSeats',
+            fields
+        );
+        enq.restoreSync = false;
+        RLM_BambooSuiteTxnOrchestrator.JobStatusDTO status =
+            RLM_BambooSuiteTxnOrchestrator.enqueueAndRunSync(enq);
+        if (status == null || status.status != 'Succeeded') {
+            res.errorMessage = status != null && String.isNotBlank(status.errorMessage)
+                ? status.errorMessage
+                : 'Suite transaction failed.';
+            res.summary = 'Could not update seats: ' + res.errorMessage;
+            return res;
+        }
+        RLM_BambooRevenueSuite.OptionDetailDTO detail =
+            RLM_BambooRevenueSuite.getOptionDetail(String.valueOf(qId));
+        res.isSuccess = true;
+        res.quoteId = detail.quoteId;
+        res.filledMrr = detail.mrr;
+        List<String> parts = new List<String>{
+            String.valueOf(req.seatCount) + ' seats'
+        };
+        if (req.termMonths != null) {
+            parts.add('term ' + String.valueOf(req.termMonths) + ' months');
+        }
+        if (String.isNotBlank(req.billingFrequency)) {
+            parts.add('billing ' + req.billingFrequency.trim());
+        }
+        res.summary =
+            detail.optionLabel +
+            ' updated — ' +
+            String.join(parts, ', ') +
+            ' — MRR ' +
+            formatMoney(detail.mrr) +
+            '. Refresh options in Revenue Suite. If the Quote record line editor still shows the old qty, hard-refresh that tab.';
         return res;
     }
 

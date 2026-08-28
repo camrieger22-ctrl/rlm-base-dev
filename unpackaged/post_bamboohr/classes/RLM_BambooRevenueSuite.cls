@@ -39,6 +39,18 @@ public with sharing class RLM_BambooRevenueSuite {
         /** Opportunity.SyncedQuoteId when set (winning option for forecasting). */
         @AuraEnabled
         public Id syncedQuoteId;
+        /** 4d Phase B — Editing | Committed. */
+        @AuraEnabled
+        public String syncMode;
+        /** Intended winner while Editing (SyncedQuoteId cleared). */
+        @AuraEnabled
+        public Id stagedSyncQuoteId;
+        /** True when openFromOpportunity just paused forecast sync. */
+        @AuraEnabled
+        public Boolean syncPausedToast;
+        /** 4d Phase B — suite mutators may enqueue via txn orchestrator. */
+        @AuraEnabled
+        public Boolean txnOrchestratorEnabled;
     }
 
     public class CatalogProductDTO {
@@ -192,6 +204,10 @@ public with sharing class RLM_BambooRevenueSuite {
         public Id syncedQuoteId;
         @AuraEnabled
         public List<OptionSummaryDTO> options;
+        @AuraEnabled
+        public String syncMode;
+        @AuraEnabled
+        public Id stagedSyncQuoteId;
     }
 
     public class AddOptionResultDTO {
@@ -304,18 +320,50 @@ public with sharing class RLM_BambooRevenueSuite {
                 CloseDate,
                 Pricebook2Id,
                 CurrencyIsoCode,
-                SyncedQuoteId
+                SyncedQuoteId,
+                RLM_Bamboo_Staged_Sync_Quote_Id__c,
+                RLM_Bamboo_Sync_Mode__c
             FROM Opportunity
             WHERE Id = :oppId
             WITH USER_MODE
             LIMIT 1
         ];
 
+        Boolean pausedToast = false;
+        // Edit mode: keep SyncedQuoteId clear while AE compares/edits options.
+        if (opp.SyncedQuoteId != null) {
+            Id staged = opp.RLM_Bamboo_Staged_Sync_Quote_Id__c != null
+                ? opp.RLM_Bamboo_Staged_Sync_Quote_Id__c
+                : opp.SyncedQuoteId;
+            try {
+                setOpportunitySyncedQuote(opp.Id, null);
+                Database.update(
+                    new Opportunity(
+                        Id = opp.Id,
+                        RLM_Bamboo_Staged_Sync_Quote_Id__c = staged,
+                        RLM_Bamboo_Sync_Mode__c = 'Editing'
+                    ),
+                    false,
+                    AccessLevel.USER_MODE
+                );
+                opp.RLM_Bamboo_Staged_Sync_Quote_Id__c = staged;
+                opp.RLM_Bamboo_Sync_Mode__c = 'Editing';
+                opp.SyncedQuoteId = null;
+                pausedToast = true;
+            } catch (Exception e) {
+                // Fall through — suite still opens; AE can Stop sync manually.
+            }
+        } else if (String.isBlank(opp.RLM_Bamboo_Sync_Mode__c)) {
+            opp.RLM_Bamboo_Sync_Mode__c = 'Editing';
+        }
+
         Quote draft = findOptionADraft(opp.Id);
         if (draft == null) {
             draft = createOptionAQuote(opp);
         }
-        return toSession(opp, draft);
+        SessionDTO session = toSession(opp, draft);
+        session.syncPausedToast = pausedToast;
+        return session;
     }
 
     @AuraEnabled(cacheable=true)
@@ -333,6 +381,8 @@ public with sharing class RLM_BambooRevenueSuite {
                 Opportunity.CloseDate,
                 Opportunity.CurrencyIsoCode,
                 Opportunity.SyncedQuoteId,
+                Opportunity.RLM_Bamboo_Staged_Sync_Quote_Id__c,
+                Opportunity.RLM_Bamboo_Sync_Mode__c,
                 CurrencyIsoCode,
                 Status
             FROM Quote
@@ -358,6 +408,12 @@ public with sharing class RLM_BambooRevenueSuite {
         dto.evergreen = isEvergreen(months);
         dto.optionLabel = optionLabelFromName(q.Name);
         dto.syncedQuoteId = q.Opportunity.SyncedQuoteId;
+        dto.stagedSyncQuoteId = q.Opportunity.RLM_Bamboo_Staged_Sync_Quote_Id__c;
+        dto.syncMode = String.isNotBlank(q.Opportunity.RLM_Bamboo_Sync_Mode__c)
+            ? q.Opportunity.RLM_Bamboo_Sync_Mode__c
+            : (q.Opportunity.SyncedQuoteId != null ? 'Committed' : 'Editing');
+        dto.syncPausedToast = false;
+        dto.txnOrchestratorEnabled = isTxnOrchestratorEnabled();
         return dto;
     }
 
@@ -535,7 +591,7 @@ public with sharing class RLM_BambooRevenueSuite {
         }
 
         Opportunity opp = [
-            SELECT Id, Amount, SyncedQuoteId
+            SELECT Id, Amount, SyncedQuoteId, RLM_Bamboo_Staged_Sync_Quote_Id__c
             FROM Opportunity
             WHERE Id = :q.OpportunityId
             WITH USER_MODE
@@ -548,6 +604,15 @@ public with sharing class RLM_BambooRevenueSuite {
                 throw wrapLockException(e);
             }
         }
+        Database.update(
+            new Opportunity(
+                Id = opp.Id,
+                RLM_Bamboo_Staged_Sync_Quote_Id__c = q.Id,
+                RLM_Bamboo_Sync_Mode__c = 'Committed'
+            ),
+            false,
+            AccessLevel.USER_MODE
+        );
 
         Opportunity afterSync = [
             SELECT Id, Amount, SyncedQuoteId
@@ -569,6 +634,8 @@ public with sharing class RLM_BambooRevenueSuite {
 
         SyncOpportunityResultDTO result = new SyncOpportunityResultDTO();
         result.syncedQuoteId = q.Id;
+        result.stagedSyncQuoteId = q.Id;
+        result.syncMode = 'Committed';
         result.options = buildOptionSummaries(q.OpportunityId, q.Id);
         return result;
     }
@@ -580,12 +647,15 @@ public with sharing class RLM_BambooRevenueSuite {
     public static SyncOpportunityResultDTO unsyncOpportunity(String opportunityId) {
         Id oppId = parseId(opportunityId, 'Opportunity');
         Opportunity opp = [
-            SELECT Id, SyncedQuoteId
+            SELECT Id, SyncedQuoteId, RLM_Bamboo_Staged_Sync_Quote_Id__c
             FROM Opportunity
             WHERE Id = :oppId
             WITH USER_MODE
             LIMIT 1
         ];
+        Id staged = opp.SyncedQuoteId != null
+            ? opp.SyncedQuoteId
+            : opp.RLM_Bamboo_Staged_Sync_Quote_Id__c;
         if (opp.SyncedQuoteId != null) {
             try {
                 setOpportunitySyncedQuote(opp.Id, null);
@@ -593,8 +663,19 @@ public with sharing class RLM_BambooRevenueSuite {
                 throw wrapLockException(e);
             }
         }
+        Database.update(
+            new Opportunity(
+                Id = opp.Id,
+                RLM_Bamboo_Staged_Sync_Quote_Id__c = staged,
+                RLM_Bamboo_Sync_Mode__c = 'Editing'
+            ),
+            false,
+            AccessLevel.USER_MODE
+        );
         SyncOpportunityResultDTO result = new SyncOpportunityResultDTO();
         result.syncedQuoteId = null;
+        result.stagedSyncQuoteId = staged;
+        result.syncMode = 'Editing';
         result.options = buildOptionSummaries(oppId, null);
         return result;
     }
@@ -2264,7 +2345,7 @@ public with sharing class RLM_BambooRevenueSuite {
 
     /** Slice 4d Phase B — route commercial mutations through txn orchestrator when true. */
     @TestVisible
-    private static Boolean USE_TXN_ORCHESTRATOR = false;
+    private static Boolean USE_TXN_ORCHESTRATOR = true;
 
     /** When true, Place runs without nested suspend/restore (orchestrator owns sync lifecycle). */
     @TestVisible
@@ -2277,6 +2358,10 @@ public with sharing class RLM_BambooRevenueSuite {
     @TestVisible
     public static void setTxnJobInProgress(Boolean value) {
         TXN_JOB_IN_PROGRESS = value == true;
+    }
+
+    public static Boolean isTxnJobInProgressPublic() {
+        return TXN_JOB_IN_PROGRESS == true;
     }
 
     public static Id syncedQuoteIdForOpportunityPublic(Id opportunityId) {
@@ -3160,6 +3245,12 @@ public with sharing class RLM_BambooRevenueSuite {
         dto.evergreen = isEvergreen(months);
         dto.optionLabel = optionLabelFromName(q.Name);
         dto.syncedQuoteId = opp.SyncedQuoteId;
+        dto.stagedSyncQuoteId = opp.RLM_Bamboo_Staged_Sync_Quote_Id__c;
+        dto.syncMode = String.isNotBlank(opp.RLM_Bamboo_Sync_Mode__c)
+            ? opp.RLM_Bamboo_Sync_Mode__c
+            : (opp.SyncedQuoteId != null ? 'Committed' : 'Editing');
+        dto.syncPausedToast = false;
+        dto.txnOrchestratorEnabled = isTxnOrchestratorEnabled();
         return dto;
     }
 

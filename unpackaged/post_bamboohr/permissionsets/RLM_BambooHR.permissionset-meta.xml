@@ -386,6 +386,16 @@
         <field>Contact.RLM_Bamboo_OnboardEmployee__c</field>
         <readable>true</readable>
     </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>Opportunity.RLM_Bamboo_Staged_Sync_Quote_Id__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>Opportunity.RLM_Bamboo_Sync_Mode__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
     <hasActivationRequired>false</hasActivationRequired>
     <label>RLM BambooHR</label>
     <objectPermissions>

@@ -231,7 +231,13 @@ back to list pricing if headless is unavailable.
 
 ## Next
 
-4d Phase B (orchestrator + Edit/Commit sync) remains deferred.
+4d Phase B (orchestrator + Edit/Commit sync) — **PR1+PR2 implemented**:
+
+- `RLM_Bamboo_Suite_Txn__c` + `RLM_BambooSuiteTxnOrchestrator` / `TxnJob`
+- Opening the suite enters **Edit** mode (clears `SyncedQuoteId`, stages winner)
+- **Use for Opportunity** commits sync (`Committed` mode)
+- Approvals / Send require Commit mode
+- Suite mutators enqueue+poll when orchestrator flag is on (default on)
 
 Slice 7 ships Update Seats invocable, Quinn routing away from LineManagement
 Quantity DML on suite options, and suite hard-refresh hints for stale Quote TLE.

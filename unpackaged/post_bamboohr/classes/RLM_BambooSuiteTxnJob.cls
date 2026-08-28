@@ -102,6 +102,73 @@ public with sharing class RLM_BambooSuiteTxnJob implements Queueable {
             runUpdateSeats(payload);
             return;
         }
+        if (handler == 'UpdateLineQuantity') {
+            RLM_BambooRevenueSuite.updateLineQuantity(
+                stringVal(payload, 'quoteId'),
+                stringVal(payload, 'lineId'),
+                decVal(payload, 'quantity')
+            );
+            return;
+        }
+        if (handler == 'UpdateLineDiscount') {
+            RLM_BambooRevenueSuite.updateLineDiscount(
+                stringVal(payload, 'quoteId'),
+                stringVal(payload, 'lineId'),
+                decVal(payload, 'discountPercent')
+            );
+            return;
+        }
+        if (handler == 'ApplyTermToOption') {
+            RLM_BambooRevenueSuite.applyTermToOption(
+                stringVal(payload, 'quoteId'),
+                intVal(payload, 'termMonths'),
+                stringVal(payload, 'startDateIso'),
+                stringVal(payload, 'billingFrequency')
+            );
+            return;
+        }
+        if (handler == 'ApplyTermToAllOptions') {
+            RLM_BambooRevenueSuite.applyTermToAllOptions(
+                stringVal(payload, 'opportunityId'),
+                stringVal(payload, 'selectedQuoteId'),
+                intVal(payload, 'termMonths'),
+                stringVal(payload, 'startDateIso'),
+                stringListVal(payload, 'quoteIds')
+            );
+            return;
+        }
+        if (handler == 'ApplyBillingToAllOptions') {
+            RLM_BambooRevenueSuite.applyBillingToAllOptions(
+                stringVal(payload, 'opportunityId'),
+                stringVal(payload, 'selectedQuoteId'),
+                stringVal(payload, 'billingFrequency'),
+                null,
+                null,
+                stringListVal(payload, 'quoteIds')
+            );
+            return;
+        }
+        if (handler == 'RemoveLine') {
+            RLM_BambooRevenueSuite.removeLine(
+                stringVal(payload, 'quoteId'),
+                stringVal(payload, 'lineId')
+            );
+            return;
+        }
+        if (handler == 'RemoveLines') {
+            List<Object> rawIds = (List<Object>) payload.get('lineIds');
+            List<String> lineIds = new List<String>();
+            if (rawIds != null) {
+                for (Object o : rawIds) {
+                    lineIds.add(String.valueOf(o));
+                }
+            }
+            RLM_BambooRevenueSuite.removeLines(
+                stringVal(payload, 'quoteId'),
+                lineIds
+            );
+            return;
+        }
         if (handler == 'Reprice' || job.Request_Type__c == 'Reprice') {
             String quoteRaw = stringVal(payload, 'quoteId');
             RLM_BambooRevenueSuite.repriceOption(quoteRaw);
@@ -181,5 +248,35 @@ public with sharing class RLM_BambooSuiteTxnJob implements Queueable {
             return ((Decimal) raw).intValue();
         }
         return Integer.valueOf(String.valueOf(raw));
+    }
+
+    private static List<String> stringListVal(Map<String, Object> payload, String key) {
+        if (payload == null || !payload.containsKey(key) || payload.get(key) == null) {
+            return null;
+        }
+        List<String> out = new List<String>();
+        Object raw = payload.get(key);
+        if (raw instanceof List<Object>) {
+            for (Object o : (List<Object>) raw) {
+                if (o != null) {
+                    out.add(String.valueOf(o));
+                }
+            }
+        }
+        return out;
+    }
+
+    private static Decimal decVal(Map<String, Object> payload, String key) {
+        if (payload == null || !payload.containsKey(key) || payload.get(key) == null) {
+            return null;
+        }
+        Object raw = payload.get(key);
+        if (raw instanceof Decimal) {
+            return (Decimal) raw;
+        }
+        if (raw instanceof Integer) {
+            return Decimal.valueOf((Integer) raw);
+        }
+        return Decimal.valueOf(String.valueOf(raw));
     }
 }

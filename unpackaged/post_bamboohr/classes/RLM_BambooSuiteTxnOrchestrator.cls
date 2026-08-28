@@ -25,6 +25,69 @@ public with sharing class RLM_BambooSuiteTxnOrchestrator {
     }
 
     /**
+     * Enqueue a suite commercial mutation. LWC polls getJobStatus(jobId).
+     * When orchestrator is disabled, throws — caller should use direct Apex.
+     */
+    @AuraEnabled
+    public static String enqueueSuiteMutation(
+        String opportunityId,
+        String quoteId,
+        String requestType,
+        String handler,
+        String payloadJson,
+        Boolean restoreSync
+    ) {
+        if (!RLM_BambooRevenueSuite.isTxnOrchestratorEnabled()) {
+            throw new RLM_BambooRevenueSuite.SuiteException(
+                'Txn orchestrator is not enabled.'
+            );
+        }
+        Id oppId = Id.valueOf(opportunityId.trim());
+        Id qId = String.isBlank(quoteId) ? null : Id.valueOf(quoteId.trim());
+        Map<String, Object> fields = String.isBlank(payloadJson)
+            ? new Map<String, Object>()
+            : (Map<String, Object>) JSON.deserializeUntyped(payloadJson);
+        if (String.isNotBlank(handler)) {
+            fields.put('handler', handler);
+        }
+        if (qId != null && !fields.containsKey('quoteId')) {
+            fields.put('quoteId', String.valueOf(qId));
+        }
+        if (!fields.containsKey('opportunityId')) {
+            fields.put('opportunityId', String.valueOf(oppId));
+        }
+
+        Boolean restore = restoreSync;
+        if (restore == null) {
+            // Edit mode: do not restore SyncedQuoteId after Place.
+            List<Opportunity> opps = [
+                SELECT RLM_Bamboo_Sync_Mode__c, SyncedQuoteId
+                FROM Opportunity
+                WHERE Id = :oppId
+                WITH USER_MODE
+                LIMIT 1
+            ];
+            restore =
+                !opps.isEmpty() &&
+                opps[0].RLM_Bamboo_Sync_Mode__c == 'Committed' &&
+                opps[0].SyncedQuoteId != null;
+        }
+
+        EnqueueRequest req = new EnqueueRequest();
+        req.opportunityId = oppId;
+        req.quoteId = qId;
+        req.requestType = String.isBlank(requestType) ? 'Place' : requestType;
+        req.payloadJson = JSON.serialize(fields);
+        req.restoreSync = restore;
+        return enqueue(req);
+    }
+
+    @AuraEnabled
+    public static Boolean isOrchestratorEnabled() {
+        return RLM_BambooRevenueSuite.isTxnOrchestratorEnabled();
+    }
+
+    /**
      * Enqueue a commercial mutation job. Returns correlation id for polling.
      */
     public static String enqueue(EnqueueRequest req) {
@@ -57,6 +120,37 @@ public with sharing class RLM_BambooSuiteTxnOrchestrator {
             System.enqueueJob(new RLM_BambooSuiteTxnJob(req.opportunityId));
         }
         return correlationId;
+    }
+
+    /**
+     * Enqueue then drain the Opp queue synchronously (agent invocables / tests).
+     * Does not rely on Queueable delay.
+     */
+    public static JobStatusDTO enqueueAndRunSync(EnqueueRequest req) {
+        if (req == null || req.opportunityId == null) {
+            throw new RLM_BambooRevenueSuite.SuiteException('opportunityId is required.');
+        }
+        if (String.isBlank(req.requestType)) {
+            throw new RLM_BambooRevenueSuite.SuiteException('requestType is required.');
+        }
+        Id stagedSync = RLM_BambooRevenueSuite.syncedQuoteIdForOpportunityPublic(
+            req.opportunityId
+        );
+        String correlationId = generateCorrelationId();
+        RLM_Bamboo_Suite_Txn__c row = new RLM_Bamboo_Suite_Txn__c(
+            Opportunity__c = req.opportunityId,
+            Quote__c = req.quoteId,
+            Status__c = 'Queued',
+            Request_Type__c = req.requestType,
+            Payload__c = req.payloadJson,
+            Staged_Sync_Quote__c = stagedSync,
+            Restore_Sync__c = req.restoreSync != null ? req.restoreSync : true,
+            Attempt__c = 0,
+            Correlation_Id__c = correlationId
+        );
+        insert row;
+        RLM_BambooSuiteTxnJob.processOpportunityQueueSync(req.opportunityId);
+        return getJobStatus(correlationId);
     }
 
     @AuraEnabled

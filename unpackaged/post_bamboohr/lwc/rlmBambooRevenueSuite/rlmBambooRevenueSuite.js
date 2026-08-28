@@ -1,5 +1,6 @@
 import { LightningElement, wire } from 'lwc';
 import { CurrentPageReference, NavigationMixin } from 'lightning/navigation';
+import { ShowToastEvent } from 'lightning/platformShowToastEvent';
 import { open as openAgentforce, execute as executeAgentforce } from 'lightning/accApi';
 import wordmarkUrl from '@salesforce/resourceUrl/RLM_BambooHR_Wordmark';
 import openFromOpportunity from '@salesforce/apex/RLM_BambooRevenueSuite.openFromOpportunity';
@@ -29,6 +30,8 @@ import unsyncOpportunity from '@salesforce/apex/RLM_BambooRevenueSuite.unsyncOpp
 import submitOptionForApproval from '@salesforce/apex/RLM_BambooRevenueSuite.submitOptionForApproval';
 import listOpportunityContacts from '@salesforce/apex/RLM_BambooRevenueSuite.listOpportunityContacts';
 import sendOptionToCustomer from '@salesforce/apex/RLM_BambooRevenueSuite.sendOptionToCustomer';
+import enqueueSuiteMutation from '@salesforce/apex/RLM_BambooSuiteTxnOrchestrator.enqueueSuiteMutation';
+import getJobStatus from '@salesforce/apex/RLM_BambooSuiteTxnOrchestrator.getJobStatus';
 
 const TERM_CHOICES = [
     { value: 1, label: 'M2M' },
@@ -513,6 +516,7 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
             this.pricingBusy ||
             !this.session?.quoteId ||
             !priced ||
+            !this.isSyncCommitted ||
             status === 'pending' ||
             status === 'approved'
         );
@@ -542,6 +546,7 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
             this.pricingBusy ||
             !this.session?.quoteId ||
             !priced ||
+            !this.isSyncCommitted ||
             status === 'pending'
         );
     }
@@ -1218,6 +1223,17 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
             if (this.session?.quoteId) {
                 this.opportunityId =
                     this.opportunityId || this.session.opportunityId;
+                if (this.session.syncPausedToast) {
+                    this.dispatchEvent(
+                        new ShowToastEvent({
+                            title: 'Forecast sync paused',
+                            message:
+                                'Opportunity sync is paused while you edit options. Click Use for Opportunity when ready to commit.',
+                            variant: 'info',
+                            mode: 'dismissable'
+                        })
+                    );
+                }
                 await Promise.all([
                     this.loadCatalog(),
                     this.loadOption(),
@@ -1420,12 +1436,22 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
         this.optionError = undefined;
         this.pricingStatus = 'pending';
         try {
-            this.optionDetail = await applyTermToOption({
-                quoteId: qid,
-                termMonths: months,
-                startDateIso: start,
-                billingFrequency: this.effectiveBillingFrequency || 'Monthly'
-            });
+            if (this.usesTxnOrchestrator) {
+                await this.enqueueAndPoll('Place', 'ApplyTermToOption', {
+                    quoteId: qid,
+                    termMonths: months,
+                    startDateIso: start,
+                    billingFrequency: this.effectiveBillingFrequency || 'Monthly'
+                });
+                this.optionDetail = await getOptionDetail({ quoteId: qid });
+            } else {
+                this.optionDetail = await applyTermToOption({
+                    quoteId: qid,
+                    termMonths: months,
+                    startDateIso: start,
+                    billingFrequency: this.effectiveBillingFrequency || 'Monthly'
+                });
+            }
             this.syncRibbonFromOption(this.optionDetail);
             this.pricingStatus = 'priced';
             this.refreshOptionsQuietly();
@@ -2056,11 +2082,22 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
         this.pricingBusy = true;
         this.optionError = undefined;
         try {
-            this.optionDetail = await updateLineQuantity({
-                quoteId: this.session.quoteId,
-                lineId,
-                quantity: qty
-            });
+            if (this.usesTxnOrchestrator) {
+                await this.enqueueAndPoll('Place', 'UpdateLineQuantity', {
+                    quoteId: this.session.quoteId,
+                    lineId,
+                    quantity: qty
+                });
+                this.optionDetail = await getOptionDetail({
+                    quoteId: this.session.quoteId
+                });
+            } else {
+                this.optionDetail = await updateLineQuantity({
+                    quoteId: this.session.quoteId,
+                    lineId,
+                    quantity: qty
+                });
+            }
             this.pricingStatus = this.optionDetail?.priced ? 'priced' : 'priced';
             this.refreshOptionsQuietly();
         } catch (e) {
@@ -2085,11 +2122,22 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
         this.pricingBusy = true;
         this.optionError = undefined;
         try {
-            this.optionDetail = await updateLineDiscount({
-                quoteId: this.session.quoteId,
-                lineId,
-                discountPercent: pct
-            });
+            if (this.usesTxnOrchestrator) {
+                await this.enqueueAndPoll('Place', 'UpdateLineDiscount', {
+                    quoteId: this.session.quoteId,
+                    lineId,
+                    discountPercent: pct
+                });
+                this.optionDetail = await getOptionDetail({
+                    quoteId: this.session.quoteId
+                });
+            } else {
+                this.optionDetail = await updateLineDiscount({
+                    quoteId: this.session.quoteId,
+                    lineId,
+                    discountPercent: pct
+                });
+            }
             this.pricingStatus = 'priced';
             this.refreshOptionsQuietly();
         } catch (e) {
@@ -2103,6 +2151,52 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
                 this._discQueued = null;
                 this.runDiscUpdate(next.lineId, next.pct);
             }
+        }
+    }
+
+    get usesTxnOrchestrator() {
+        return this.session?.txnOrchestratorEnabled === true;
+    }
+
+    get isSyncCommitted() {
+        return (
+            this.session?.syncMode === 'Committed' &&
+            !!this.session?.syncedQuoteId
+        );
+    }
+
+    async enqueueAndPoll(requestType, handler, payload) {
+        const jobId = await enqueueSuiteMutation({
+            opportunityId: this.session.opportunityId,
+            quoteId: this.session.quoteId,
+            requestType,
+            handler,
+            payloadJson: JSON.stringify(payload || {}),
+            restoreSync: null
+        });
+        const maxMs = 120000;
+        const intervalMs = 500;
+        const started = Date.now();
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+            const status = await getJobStatus({ jobId });
+            if (status?.isTerminal) {
+                if (status.status === 'Succeeded') {
+                    return status;
+                }
+                const msg =
+                    status.errorMessage ||
+                    status.errorCode ||
+                    'Suite transaction failed.';
+                throw new Error(msg);
+            }
+            if (Date.now() - started > maxMs) {
+                throw new Error(
+                    'Pricing is taking longer than expected. Refresh options and try again.'
+                );
+            }
+            // eslint-disable-next-line no-await-in-loop
+            await new Promise((r) => setTimeout(r, intervalMs));
         }
     }
 
@@ -2382,7 +2476,18 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
         this.optionError = undefined;
         this.pricingStatus = 'pending';
         try {
-            this.optionDetail = await repriceOption({ quoteId: this.session.quoteId });
+            if (this.usesTxnOrchestrator) {
+                await this.enqueueAndPoll('Reprice', 'Reprice', {
+                    quoteId: this.session.quoteId
+                });
+                this.optionDetail = await getOptionDetail({
+                    quoteId: this.session.quoteId
+                });
+            } else {
+                this.optionDetail = await repriceOption({
+                    quoteId: this.session.quoteId
+                });
+            }
             this.pricingStatus = 'priced';
             this.refreshOptionsQuietly();
         } catch (e) {
@@ -2515,7 +2620,10 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
         if (this.session) {
             this.session = {
                 ...this.session,
-                syncedQuoteId: result?.syncedQuoteId || null
+                syncedQuoteId: result?.syncedQuoteId || null,
+                stagedSyncQuoteId:
+                    result?.stagedSyncQuoteId ?? this.session.stagedSyncQuoteId,
+                syncMode: result?.syncMode || this.session.syncMode
             };
         }
     }
