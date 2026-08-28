@@ -210,10 +210,17 @@ override) through `RLM_BambooQuoteEmail`, optionally attaching a DocGen proposal
 PDF (generates via Preview when Attach PDF is checked). Allowed when the option
 is **priced** and **not Pending**.
 
+## Instant Pricing estimate (Slice 6)
+
+Catalog **Estimate** runs `runSalesforceHeadlessPricing` via
+`RLM_BambooHeadlessPricing` before **Add to option** — ephemeral RC pricing
+through `RLM_SalesTransactionContext` / `QuoteEntitiesMapping` without creating
+Quote lines. Workforce package still requires Add (configurator expand). Falls
+back to list pricing if headless is unavailable.
+
 ## Next
 
-Instant Pricing headless (Slice 6) remains deferred.
 4d Phase B (orchestrator + Edit/Commit sync) remains deferred.
 
-Slice 7 (agent/TLE polish) ships Update Seats invocable, Quinn routing away
-from LineManagement Quantity DML on suite options, and suite hard-refresh hints.
+Slice 7 ships Update Seats invocable, Quinn routing away from LineManagement
+Quantity DML on suite options, and suite hard-refresh hints for stale Quote TLE.

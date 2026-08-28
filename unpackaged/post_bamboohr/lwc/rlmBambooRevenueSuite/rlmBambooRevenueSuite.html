@@ -565,17 +565,47 @@
                     </div>
                 </template>
                 <p class="price-line">{configPriceLabel}</p>
+                <template if:true={estimateSummaryLabel}>
+                    <p class="price-line estimate-summary">{estimateSummaryLabel}</p>
+                </template>
+                <template if:true={hasEstimateLines}>
+                    <ul class="estimate-lines">
+                        <template for:each={estimateLineRows} for:item="est">
+                            <li key={est.sku} class="estimate-line">
+                                <span class="estimate-name">{est.name}</span>
+                                <span class="estimate-net"
+                                    >{est.netUnitLabel} × {est.quantity} =
+                                    {est.netTotalLabel}/mo</span
+                                >
+                            </li>
+                        </template>
+                    </ul>
+                </template>
+                <template if:true={estimateError}>
+                    <div class="error" role="alert">{estimateError}</div>
+                </template>
                 <template if:true={addError}>
                     <div class="error" role="alert">{addError}</div>
                 </template>
-                <button
-                    class="btn add"
-                    type="button"
-                    onclick={handleAddToOption}
-                    disabled={addDisabled}
-                >
-                    {addButtonLabel}
-                </button>
+                <div class="catalog-actions">
+                    <button
+                        class="btn ghost"
+                        type="button"
+                        onclick={handleEstimateCatalog}
+                        disabled={estimateDisabled}
+                        title="Preview RC headless pricing before adding lines"
+                    >
+                        Estimate
+                    </button>
+                    <button
+                        class="btn add"
+                        type="button"
+                        onclick={handleAddToOption}
+                        disabled={addDisabled}
+                    >
+                        {addButtonLabel}
+                    </button>
+                </div>
             </main>
 
             <section class="col options">

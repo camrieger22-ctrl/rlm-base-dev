@@ -12,6 +12,7 @@ import addWorkforcePackage from '@salesforce/apex/RLM_BambooRevenueSuite.addWork
 import updateLineQuantity from '@salesforce/apex/RLM_BambooRevenueSuite.updateLineQuantity';
 import updateLineDiscount from '@salesforce/apex/RLM_BambooRevenueSuite.updateLineDiscount';
 import repriceOption from '@salesforce/apex/RLM_BambooRevenueSuite.repriceOption';
+import estimateCatalogAdd from '@salesforce/apex/RLM_BambooRevenueSuite.estimateCatalogAdd';
 import listOptions from '@salesforce/apex/RLM_BambooRevenueSuite.listOptions';
 import addOption from '@salesforce/apex/RLM_BambooRevenueSuite.addOption';
 import deleteOption from '@salesforce/apex/RLM_BambooRevenueSuite.deleteOption';
@@ -300,6 +301,9 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
     agentOpen = false;
     agentChatBusy = false;
     agentStatus;
+    estimateBusy = false;
+    estimateResult;
+    estimateError;
     agentError;
     quotingAssistantBotId;
     termMonths = 12;
@@ -1108,6 +1112,39 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
         return this.adding || this.pricingBusy || !hasTargets || !this.session?.quoteId;
     }
 
+    get estimateDisabled() {
+        return (
+            this.estimateBusy ||
+            this.adding ||
+            this.pricingBusy ||
+            this.isWorkforcePackageSelected ||
+            !(this.hasCatalogQueue || this.selectedSku)
+        );
+    }
+
+    get estimateSummaryLabel() {
+        if (!this.estimateResult?.ok) {
+            return '';
+        }
+        const src =
+            this.estimateResult.pricingSource === 'pricingApi'
+                ? 'RC estimate'
+                : 'List estimate';
+        return `${src}: ${this.formatMoney(this.estimateResult.mrr)}/mo`;
+    }
+
+    get hasEstimateLines() {
+        return (this.estimateResult?.lines || []).length > 0;
+    }
+
+    get estimateLineRows() {
+        return (this.estimateResult?.lines || []).map((line) => ({
+            ...line,
+            netUnitLabel: this.formatMoney(line.netUnitPrice),
+            netTotalLabel: this.formatMoney(line.netTotal)
+        }));
+    }
+
     get addButtonLabel() {
         if (this.isWorkforcePackageSelected) {
             return `Add package to ${this.optionLabel}`;
@@ -1529,6 +1566,7 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
             return;
         }
         this.catalogQueue = [...(this.catalogQueue || []), { sku, quantity: qty }];
+        this.clearEstimate();
     }
 
     handleOverrideTerm() {
@@ -2068,6 +2106,56 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
         }
     }
 
+    clearEstimate() {
+        this.estimateResult = undefined;
+        this.estimateError = undefined;
+    }
+
+    buildEstimateLines() {
+        let queue = (this.catalogQueue || []).filter((e) => e?.sku);
+        if (!queue.length && this.selectedSku) {
+            queue = [
+                {
+                    sku: this.selectedSku,
+                    quantity: Number(this.quantity) > 0 ? Number(this.quantity) : 10
+                }
+            ];
+        }
+        return queue.map((entry) => ({
+            sku: entry.sku,
+            quantity: Number(entry.quantity) > 0 ? Number(entry.quantity) : 1
+        }));
+    }
+
+    async handleEstimateCatalog() {
+        if (this.estimateDisabled) {
+            return;
+        }
+        const lines = this.buildEstimateLines();
+        if (!lines.length) {
+            return;
+        }
+        this.estimateBusy = true;
+        this.estimateError = undefined;
+        try {
+            this.estimateResult = await estimateCatalogAdd({
+                currencyIsoCode: this.session?.currencyIsoCode || 'USD',
+                termMonths: this.effectiveTermMonths,
+                startDateIso: this.effectiveTermStart,
+                lines
+            });
+            if (!this.estimateResult?.ok) {
+                this.estimateError =
+                    this.estimateResult?.errorMessage || 'Estimate unavailable.';
+            }
+        } catch (e) {
+            this.estimateError = this.reduceError(e);
+            this.estimateResult = undefined;
+        } finally {
+            this.estimateBusy = false;
+        }
+    }
+
     async handleAddToOption() {
         if (this.addDisabled) {
             return;
@@ -2135,6 +2223,7 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
             this.pricingStatus = result.option?.priced ? 'priced' : 'priced';
             this.catalogQueue = [];
             this.selectedSku = undefined;
+            this.clearEstimate();
             this.refreshOptionsQuietly();
         } catch (e) {
             this.addError = this.reduceError(e);

@@ -653,6 +653,25 @@ public with sharing class RLM_BambooRevenueSuite {
         return buildOptionDetail(qId);
     }
 
+    /**
+     * Headless Instant Pricing estimate for the catalog queue before Place add.
+     * Does not create Quote lines — returns RC-priced nets when available.
+     */
+    @AuraEnabled
+    public static RLM_BambooHeadlessPricing.EstimateResultDTO estimateCatalogAdd(
+        String currencyIsoCode,
+        Integer termMonths,
+        String startDateIso,
+        List<LineInputDTO> lines
+    ) {
+        return RLM_BambooHeadlessPricing.estimateLines(
+            currencyIsoCode,
+            termMonths,
+            startDateIso,
+            lines
+        );
+    }
+
     @AuraEnabled
     public static AddLineResultDTO addProductLine(
         String quoteId,
