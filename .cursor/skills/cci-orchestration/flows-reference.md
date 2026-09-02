@@ -198,12 +198,13 @@ Extract rating and rates data from an org into CSV files
 3. **task** `assign_permission_sets`  `when: project_config.project__custom__quantumbit and project_config.project__custom__approvals`
    - `api_names`: `['RLM_Approvals']`
 4. **task** `insert_qb_approvals_data`  `when: project_config.project__custom__qb and project_config.project__custom__approvals`
+5. **task** `apply_context_approvals`  `when: project_config.project__custom__quantumbit and project_config.project__custom__approvals`
 
 ---
 
 ### `prepare_bamboohr`
 
-Deploy BambooHR volume-tier coach + US-only category qualification wiring (PCQ fields, Product Discovery BillingCountry context, category qualification DT + procedure overlay), nonprofit 15% list discount (Account flag → SalesTransaction context → Default pricing overlay), Path B Bundle & Save 15% (a la carte plan+Payroll+Benefits eligibility → ManualDiscount), amend Volume Discount for LastTransaction lines (RLM_Amend_Volume_Qty__c context + overlay), and plan-exclusivity CML when constraints_data is on. Catalog/pricing data still loads via insert_bamboohr_* tasks. Quote page coach + TLE side-panel fields ship via the bamboohr flexipage patch during prepare_ux when bamboohr=true.
+Deploy BambooHR volume-tier coach + US-only category qualification wiring (PCQ fields, Product Discovery BillingCountry context, category qualification DT + procedure overlay), nonprofit 15% list discount (Account flag → SalesTransaction context → Default pricing overlay), Path B Bundle & Save 15% (a la carte plan+Payroll+Benefits eligibility → ManualDiscount), amend Volume Discount for LastTransaction lines (RLM_Amend_Volume_Qty__c context + overlay), and plan-exclusivity CML when constraints_data is on. Catalog/pricing data still loads via insert_bamboohr_* tasks; after pcm + qb-billing, run insert_bamboohr_billing_data (also step 28 here when billing=true) so Term Monthly deals invoice monthly. Quote page coach + TLE side-panel fields ship via the bamboohr flexipage patch during prepare_ux when bamboohr=true.
 
 **Steps:**
 
@@ -270,18 +271,26 @@ Deploy BambooHR volume-tier coach + US-only category qualification wiring (PCQ f
 12. **task** `assign_permission_sets`  `when: project_config.project__custom__billing_ui`
    - `api_names`: `['RLM_BillingUI']`
 13. **task** `apply_context_billing_order`  `when: project_config.project__custom__billing and project_config.project__custom__billing_ui`
+14. **flow** `prepare_billing_portal`
 
 ---
 
 ### `prepare_billing_portal`
 
-Create Self-Service Billing Portal community and optionally deploy site content. When billing_portal is true, creates the community; when billing_portal_deploy is also true, deploys unpackaged/post_billing_portal and publishes.
+Create Self-Service Billing Portal community and optionally deploy site content. When billing and billing_portal are true, creates and publishes the community. When billing_portal_deploy is also true, patches the network email placeholder, deploys unpackaged/post_billing_portal, and reverts the placeholder before publishing.
 
 **Steps:**
 
-1. **task** `create_billing_portal`  `when: project_config.project__custom__billing_portal`
-2. **task** `deploy_post_billing_portal`  `when: project_config.project__custom__billing_portal and project_config.project__custom__billing_portal_deploy`
-3. **task** `publish_community`  `when: project_config.project__custom__billing_portal`
+1. **task** `create_billing_portal`  `when: project_config.project__custom__billing and project_config.project__custom__billing_portal`
+2. **task** `patch_network_email_for_deploy`  `when: project_config.project__custom__billing and project_config.project__custom__billing_portal and project_config.project__custom__billing_portal_deploy`
+   - `network_name`: `Billing Portal`
+   - `network_meta_xml_path`: `unpackaged/post_billing_portal/force-app/main/default/networks/Billing Portal.network-meta.xml`
+   - `placeholder_email`: `billing-portal-sender@example.com`
+3. **task** `deploy_post_billing_portal`  `when: project_config.project__custom__billing and project_config.project__custom__billing_portal and project_config.project__custom__billing_portal_deploy`
+4. **task** `revert_network_email_after_deploy`  `when: project_config.project__custom__billing and project_config.project__custom__billing_portal and project_config.project__custom__billing_portal_deploy`
+   - `network_meta_xml_path`: `unpackaged/post_billing_portal/force-app/main/default/networks/Billing Portal.network-meta.xml`
+   - `placeholder_email`: `billing-portal-sender@example.com`
+5. **task** `publish_community`  `when: project_config.project__custom__billing and project_config.project__custom__billing_portal`
    - `name`: `Billing Portal`
 
 ---

@@ -28,6 +28,8 @@ The `main` branch targets Salesforce Release 262 (Summer '26), promoted from the
 - [Contributing](#contributing)
 - [Branch Information](#branch-information)
 - [Additional Resources](#additional-resources)
+- [Project Governance & Support](#project-governance--support)
+- [License](#license)
 
 ## Docker build environment (no local toolchain)
 
@@ -560,6 +562,8 @@ The project uses custom flags in `cumulusci.yml` under `project.custom` to contr
 | `calmdelete` | `true` | Use CALM Delete |
 | `tax` | `true` | Use Tax engine |
 | `billing` | `true` | Use Billing |
+| `billing_portal` | `true` | Create Self-Service Billing Portal community via `prepare_billing_portal` (requires `billing`) |
+| `billing_portal_deploy` | `true` | Deploy `unpackaged/post_billing_portal` site content (requires `billing` and `billing_portal`) |
 | `payments` | `true` | Use Payments |
 | `approvals` | `true` | Use Approvals |
 | `clm` | `true` | Use Contract Lifecycle Management |
@@ -707,8 +711,8 @@ means.
 | `exclude_active_decision_tables` | `rlm_exclude_active_decision_tables.py` | Move active decision tables to `.skip` dir before deploy |
 | `assign_permission_set_groups_tolerant` | `rlm_assign_permission_set_groups.py` | Assign PSGs with tolerance for missing permissions |
 | `recalculate_permission_set_groups` | `rlm_recalculate_permission_set_groups.py` | Recalculate PSGs and wait for Updated status (retries, delays) |
-| `patch_network_email_for_deploy` | `rlm_community.py` | Replace placeholder `emailSenderAddress` in `rlm.network-meta.xml` with the Network's actual current `EmailSenderAddress` (immutable after creation) before `deploy_post_prm`. Repo stores non-PII placeholder; run `revert_network_email_after_deploy` after deploy. |
-| `revert_network_email_after_deploy` | `rlm_community.py` | Restore placeholder `emailSenderAddress` in `rlm.network-meta.xml` after `deploy_post_prm` so the repo never persists the org email. |
+| `patch_network_email_for_deploy` | `rlm_community.py` | Replace the configured placeholder `emailSenderAddress` in a Network metadata file with the target Network's actual current value before deploying community metadata. |
+| `revert_network_email_after_deploy` | `rlm_community.py` | Restore the configured placeholder `emailSenderAddress` after a community metadata deploy so the repo never persists the target org's email. |
 
 ### Activation Tasks
 
@@ -947,7 +951,8 @@ See [Data Management Tasks](#data-management-tasks) for per-task details and gro
 | `prepare_dro` | Load DRO data (dynamic user resolution), PFDR update (260 bug fix) | `dro`, `qb`, `q3` |
 | `prepare_clm` | Load CLM data | `clm`, `clm_data` |
 | `prepare_docgen` | Create docgen library, enable Document Builder + Document Templates Export + Design Document Templates toggles, deploy metadata | `docgen` |
-| `prepare_billing` | Load billing data, activate flows/records, deploy ID-based settings via XPath transforms, trigger default template auto-creation (3-step cycle) | `billing`, `qb`, `q3`, `refresh` |
+| `prepare_billing` | Load billing data, activate flows/records, deploy ID-based settings via XPath transforms, trigger default template auto-creation (3-step cycle); invokes `prepare_billing_portal` | `billing`, `qb`, `q3`, `refresh`, `billing_portal`, `billing_portal_deploy` |
+| `prepare_billing_portal` | Create and publish the Self-Service Billing Portal community; optionally patch Network email, deploy `unpackaged/post_billing_portal` site content, and revert Network email before publishing | `billing`, `billing_portal`, `billing_portal_deploy` |
 | `prepare_prm` | Create community, patch Network email, deploy PRM metadata, revert Network email, publish community, assign RLM_PRM permission set, load PRM data; optionally invokes `prepare_prm_pricing` when `prm_pricing=true` | `prm`, `prm_exp_bundle`, `prm_pricing`, `qb` |
 | `prepare_tax` | Create tax engine, load data, activate records | `tax`, `qb`, `q3`, `refresh` |
 | `prepare_rating` | Load rating + rates data, activate | `rating`, `rates`, `qb`, `q3`, `refresh` |
@@ -1548,6 +1553,11 @@ due to differences in how composite `externalId` definitions are processed. See
 
 ## Contributing
 
+Contributions go through a fork and a pull request — see
+**[CONTRIBUTING.md](CONTRIBUTING.md)** for the full workflow: environment setup,
+the validation commands to run before pushing, commit/PR conventions, and how
+review rounds are handled.
+
 When contributing to this project:
 
 1. Follow the existing code structure and patterns
@@ -1556,6 +1566,10 @@ When contributing to this project:
 4. Update this README if adding new prerequisites or workflows
 5. Add detailed READMEs for new data plans
 6. Register new tasks and flows in `cumulusci.yml`
+
+Participation is governed by the [Code of Conduct](CODE_OF_CONDUCT.md). Report
+security vulnerabilities privately through the process in
+[SECURITY.md](SECURITY.md) — never through a public GitHub issue.
 
 ## Branch Information
 
@@ -1575,6 +1589,22 @@ When contributing to this project:
 
 **Note:** This project works with the Revenue Cloud capabilities documented for Release 262 (Summer '26). Release 260 (Spring '26) is the prior GA reference.
 
+## Project Governance & Support
+
+- [License](LICENSE.txt) — Apache License, Version 2.0
+- [Code of Conduct](CODE_OF_CONDUCT.md) — Salesforce Open Source Community Code of Conduct
+- [Contributing](CONTRIBUTING.md) — fork, branch, validate, pull request
+- [Security](SECURITY.md) — report vulnerabilities privately, never through a public issue
+- [Review Guide](REVIEW.md) — how pull requests are reviewed in this repository
+
+For questions or problems, open an issue or a pull request in this repository.
+
 ## License
 
-[Add your license information here]
+This project is licensed under the **Apache License, Version 2.0** — see
+[`LICENSE.txt`](LICENSE.txt) for the full text.
+
+```
+Copyright (c) 2026 Salesforce, Inc.
+All rights reserved.
+```
