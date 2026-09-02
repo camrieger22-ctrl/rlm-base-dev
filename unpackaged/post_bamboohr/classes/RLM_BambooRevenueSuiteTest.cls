@@ -142,6 +142,21 @@ private class RLM_BambooRevenueSuiteTest {
         System.assert(threw, 'Expected SuiteException');
     }
 
+    @IsTest
+    static void getSession_missingQuote_throwsFriendlyMessage() {
+        Boolean threw = false;
+        try {
+            RLM_BambooRevenueSuite.getSession('0Q0gL000002jxvdSAA');
+        } catch (RLM_BambooRevenueSuite.SuiteException e) {
+            threw = true;
+            System.assert(
+                e.getMessage().contains('Quote not found'),
+                e.getMessage()
+            );
+        }
+        System.assert(threw, 'Expected SuiteException for missing quote');
+    }
+
     @IsTest(SeeAllData=true)
     static void getCatalog_returnsBambooProductsWhenPresent() {
         List<RLM_BambooRevenueSuite.CatalogProductDTO> catalog = RLM_BambooRevenueSuite.getCatalog(
@@ -576,6 +591,63 @@ private class RLM_BambooRevenueSuiteTest {
     }
 
     @IsTest(SeeAllData=true)
+    static void updateOptionDiscount_fansOutWhenCatalogPresent() {
+        List<RLM_BambooRevenueSuite.CatalogProductDTO> catalog = RLM_BambooRevenueSuite.getCatalog(
+            'USD'
+        );
+        if (catalog.isEmpty()) {
+            return;
+        }
+        String sku = catalog[0].sku;
+        for (RLM_BambooRevenueSuite.CatalogProductDTO p : catalog) {
+            if (p.sku == 'BAMBOO-CORE') {
+                sku = p.sku;
+                break;
+            }
+        }
+        Opportunity opp = makeOpp();
+        RLM_BambooRevenueSuite.SessionDTO session = RLM_BambooRevenueSuite.openFromOpportunity(
+            opp.Id
+        );
+        RLM_BambooRevenueSuite.addProductLine(
+            session.quoteId,
+            sku,
+            10,
+            12,
+            null,
+            null
+        );
+
+        Test.startTest();
+        RLM_BambooRevenueSuite.OptionDetailDTO updated = RLM_BambooRevenueSuite.updateOptionDiscount(
+            session.quoteId,
+            15
+        );
+        Test.stopTest();
+
+        System.assert(!updated.lines.isEmpty(), 'Expected lines after option discount');
+        for (RLM_BambooRevenueSuite.OptionLineDTO line : updated.lines) {
+            System.assertEquals(
+                15,
+                line.discountPercent,
+                'Option discount should fan out to every line'
+            );
+        }
+
+        RLM_BambooRevenueSuite.OptionDetailDTO cleared = RLM_BambooRevenueSuite.updateOptionDiscount(
+            session.quoteId,
+            0
+        );
+        for (RLM_BambooRevenueSuite.OptionLineDTO line : cleared.lines) {
+            System.assertEquals(
+                0,
+                line.discountPercent,
+                'Clearing option discount should set every line to 0'
+            );
+        }
+    }
+
+    @IsTest(SeeAllData=true)
     static void applyTermToOption_restampsWhenCatalogPresent() {
         List<RLM_BambooRevenueSuite.CatalogProductDTO> catalog = RLM_BambooRevenueSuite.getCatalog(
             'USD'
@@ -807,6 +879,33 @@ private class RLM_BambooRevenueSuiteTest {
         System.assertEquals(1, after.options.size());
         System.assertEquals(a.quoteId, after.session.quoteId);
         System.assertEquals('Option A', after.options[0].optionLabel);
+    }
+
+    @IsTest
+    static void deleteOption_zerosAmountWhenStagedWinnerDeleted() {
+        Opportunity opp = makeOpp();
+        RLM_BambooRevenueSuite.SessionDTO a = RLM_BambooRevenueSuite.openFromOpportunity(opp.Id);
+        RLM_BambooRevenueSuite.AddOptionResultDTO b = RLM_BambooRevenueSuite.addOption(opp.Id);
+        update new Opportunity(
+            Id = opp.Id,
+            Amount = 65010,
+            RLM_Bamboo_Staged_Sync_Quote_Id__c = b.created.quoteId,
+            RLM_Bamboo_Sync_Mode__c = 'Editing'
+        );
+
+        Test.startTest();
+        RLM_BambooRevenueSuite.deleteOption(b.created.quoteId);
+        Test.stopTest();
+
+        Opportunity refreshed = [
+            SELECT Amount, SyncedQuoteId, RLM_Bamboo_Staged_Sync_Quote_Id__c
+            FROM Opportunity
+            WHERE Id = :opp.Id
+        ];
+        System.assertEquals(0, refreshed.Amount);
+        System.assertEquals(null, refreshed.SyncedQuoteId);
+        System.assertEquals(null, refreshed.RLM_Bamboo_Staged_Sync_Quote_Id__c);
+        System.assertNotEquals(null, a.quoteId);
     }
 
     @IsTest
@@ -1166,6 +1265,144 @@ private class RLM_BambooRevenueSuiteTest {
     }
 
     @IsTest
+    static void approvalRequiredLabelFor_ladder() {
+        System.assertEquals('None', RLM_BambooRevenueSuite.approvalRequiredLabelFor(0));
+        System.assertEquals('Manager', RLM_BambooRevenueSuite.approvalRequiredLabelFor(1));
+        System.assertEquals(
+            'Manager → Director',
+            RLM_BambooRevenueSuite.approvalRequiredLabelFor(2)
+        );
+        System.assertEquals(
+            'Manager → Director → VP',
+            RLM_BambooRevenueSuite.approvalRequiredLabelFor(3)
+        );
+    }
+
+    @IsTest(SeeAllData=true)
+    static void updateLineDiscount_setsApprovalLevelAndDetailLabel() {
+        List<RLM_BambooRevenueSuite.CatalogProductDTO> catalog = RLM_BambooRevenueSuite.getCatalog(
+            'USD'
+        );
+        if (catalog.isEmpty()) {
+            return;
+        }
+        String sku = catalog[0].sku;
+        for (RLM_BambooRevenueSuite.CatalogProductDTO p : catalog) {
+            if (p.sku == 'BAMBOO-CORE') {
+                sku = p.sku;
+                break;
+            }
+        }
+        Opportunity opp = makeOpp();
+        RLM_BambooRevenueSuite.SessionDTO session = RLM_BambooRevenueSuite.openFromOpportunity(
+            opp.Id
+        );
+        RLM_BambooRevenueSuite.AddLineResultDTO added = RLM_BambooRevenueSuite.addProductLine(
+            session.quoteId,
+            sku,
+            10,
+            12,
+            null,
+            null
+        );
+
+        Test.startTest();
+        RLM_BambooRevenueSuite.OptionDetailDTO updated = RLM_BambooRevenueSuite.updateLineDiscount(
+            session.quoteId,
+            added.lineId,
+            20
+        );
+        Test.stopTest();
+
+        System.assert(
+            updated.approvalLevel != null && updated.approvalLevel >= 1,
+            '20% Disc should require at least Manager (level >= 1), got ' +
+                updated.approvalLevel
+        );
+        System.assert(
+            String.isNotBlank(updated.approvalRequiredLabel) &&
+                updated.approvalRequiredLabel.contains('Manager'),
+            updated.approvalRequiredLabel
+        );
+        Quote q = [
+            SELECT RLM_Approval_Level__c
+            FROM Quote
+            WHERE Id = :session.quoteId
+        ];
+        System.assert(
+            q.RLM_Approval_Level__c != null && q.RLM_Approval_Level__c >= 1,
+            'Quote rollup level should be >= 1 after 20% discount'
+        );
+    }
+
+    @IsTest(SeeAllData=true)
+    static void materialPlace_blocksWhenApproved() {
+        List<RLM_BambooRevenueSuite.CatalogProductDTO> catalog = RLM_BambooRevenueSuite.getCatalog(
+            'USD'
+        );
+        if (catalog.isEmpty()) {
+            return;
+        }
+        String sku = catalog[0].sku;
+        for (RLM_BambooRevenueSuite.CatalogProductDTO p : catalog) {
+            if (p.sku == 'BAMBOO-CORE') {
+                sku = p.sku;
+                break;
+            }
+        }
+        Opportunity opp = makeOpp();
+        RLM_BambooRevenueSuite.SessionDTO session = RLM_BambooRevenueSuite.openFromOpportunity(
+            opp.Id
+        );
+        RLM_BambooRevenueSuite.AddLineResultDTO added = RLM_BambooRevenueSuite.addProductLine(
+            session.quoteId,
+            sku,
+            10,
+            12,
+            null,
+            null
+        );
+        update new Quote(
+            Id = session.quoteId,
+            RLM_Approval_Status__c = 'Approved'
+        );
+
+        Boolean threw = false;
+        Test.startTest();
+        try {
+            RLM_BambooRevenueSuite.updateLineQuantity(
+                session.quoteId,
+                added.lineId,
+                12
+            );
+        } catch (RLM_BambooRevenueSuite.SuiteException e) {
+            threw = true;
+            System.assert(
+                e.getMessage().contains('Approved and locked'),
+                e.getMessage()
+            );
+        }
+        Test.stopTest();
+        System.assert(threw, 'Expected SuiteException when editing Approved option');
+    }
+
+    @IsTest
+    static void buildApprovalRequestSummary_includesHeader() {
+        Opportunity opp = makeOpp();
+        RLM_BambooRevenueSuite.SessionDTO session = RLM_BambooRevenueSuite.openFromOpportunity(
+            opp.Id
+        );
+        String summary = RLM_BambooRevenueSuite.buildApprovalRequestSummary(
+            session.quoteId,
+            null
+        );
+        System.assert(
+            summary != null && summary.contains('BambooHR Revenue Suite approval request'),
+            summary
+        );
+    }
+
+    @IsTest
     static void submitOptionForApproval_requiresPricedLines() {
         Opportunity opp = makeOpp();
         RLM_BambooRevenueSuite.SessionDTO session = RLM_BambooRevenueSuite.openFromOpportunity(
@@ -1182,6 +1419,166 @@ private class RLM_BambooRevenueSuiteTest {
             );
         }
         System.assert(threw, 'Expected SuiteException for unpriced option');
+    }
+
+    @IsTest
+    static void listPendingApprovalWorkItems_returnsEmptyForNewOption() {
+        Opportunity opp = makeOpp();
+        RLM_BambooRevenueSuite.SessionDTO session = RLM_BambooRevenueSuite.openFromOpportunity(
+            opp.Id
+        );
+        Test.startTest();
+        RLM_BambooRevenueSuite.PendingApprovalsDTO pending =
+            RLM_BambooRevenueSuite.listPendingApprovalWorkItems(session.quoteId);
+        Test.stopTest();
+        System.assertEquals(session.quoteId, pending.quoteId);
+        System.assertNotEquals(null, pending.items);
+        System.assertEquals(0, pending.items.size());
+        System.assertEquals(0, pending.actionableCount);
+    }
+
+    @IsTest
+    static void normalizeReviewDecision_acceptsApproveReject() {
+        System.assertEquals(
+            'Approve',
+            RLM_BambooRevenueSuite.normalizeReviewDecision('Approve')
+        );
+        System.assertEquals(
+            'Reject',
+            RLM_BambooRevenueSuite.normalizeReviewDecision('rejected')
+        );
+        Boolean threw = false;
+        try {
+            RLM_BambooRevenueSuite.normalizeReviewDecision('maybe');
+        } catch (RLM_BambooRevenueSuite.SuiteException e) {
+            threw = true;
+            System.assert(
+                e.getMessage().contains('Approve or Reject'),
+                e.getMessage()
+            );
+        }
+        System.assert(threw, 'Expected SuiteException for invalid decision');
+    }
+
+    @IsTest
+    static void syncQuoteApprovalStatusFromPlatform_rejectSetsRejected() {
+        Opportunity opp = makeOpp();
+        RLM_BambooRevenueSuite.SessionDTO session = RLM_BambooRevenueSuite.openFromOpportunity(
+            opp.Id
+        );
+        update new Quote(Id = session.quoteId, RLM_Approval_Status__c = 'Pending');
+
+        Test.startTest();
+        String status = RLM_BambooRevenueSuite.syncQuoteApprovalStatusFromPlatform(
+            session.quoteId,
+            'Reject'
+        );
+        Test.stopTest();
+
+        System.assertEquals('Rejected', status);
+        Quote q = [
+            SELECT RLM_Approval_Status__c
+            FROM Quote
+            WHERE Id = :session.quoteId
+        ];
+        System.assertEquals(
+            'Rejected',
+            RLM_BambooRevenueSuite.normalizeApprovalStatus(q.RLM_Approval_Status__c)
+        );
+    }
+
+    @IsTest
+    static void syncQuoteApprovalStatusFromPlatform_approveWithoutSubmissionStaysPending() {
+        // No ApprovalSubmission rows: Approve must not flip to Approved just
+        // because Assigned work items are empty (Director/VP lag race).
+        Opportunity opp = makeOpp();
+        RLM_BambooRevenueSuite.SessionDTO session = RLM_BambooRevenueSuite.openFromOpportunity(
+            opp.Id
+        );
+        update new Quote(Id = session.quoteId, RLM_Approval_Status__c = 'Pending');
+
+        Test.startTest();
+        String status = RLM_BambooRevenueSuite.syncQuoteApprovalStatusFromPlatform(
+            session.quoteId,
+            'Approve'
+        );
+        Test.stopTest();
+
+        System.assertEquals('Pending', status);
+        Quote q = [
+            SELECT RLM_Approval_Status__c
+            FROM Quote
+            WHERE Id = :session.quoteId
+        ];
+        System.assertEquals(
+            'Pending',
+            RLM_BambooRevenueSuite.normalizeApprovalStatus(q.RLM_Approval_Status__c)
+        );
+    }
+
+    @IsTest
+    static void reconcileQuoteApprovalStatusFromPlatform_noSubmissionLeavesDraft() {
+        Opportunity opp = makeOpp();
+        RLM_BambooRevenueSuite.SessionDTO session = RLM_BambooRevenueSuite.openFromOpportunity(
+            opp.Id
+        );
+        update new Quote(Id = session.quoteId, RLM_Approval_Status__c = null);
+
+        Test.startTest();
+        String status = RLM_BambooRevenueSuite.reconcileQuoteApprovalStatusFromPlatform(
+            session.quoteId
+        );
+        Test.stopTest();
+
+        System.assertEquals('Draft', status);
+    }
+
+    @IsTest
+    static void reconcileQuoteApprovalStatusFromPlatform_orphanPendingClearsToDraft() {
+        Opportunity opp = makeOpp();
+        RLM_BambooRevenueSuite.SessionDTO session = RLM_BambooRevenueSuite.openFromOpportunity(
+            opp.Id
+        );
+        update new Quote(Id = session.quoteId, RLM_Approval_Status__c = 'Pending');
+
+        Test.startTest();
+        String status = RLM_BambooRevenueSuite.reconcileQuoteApprovalStatusFromPlatform(
+            session.quoteId
+        );
+        Test.stopTest();
+
+        System.assertEquals('Draft', status);
+        Quote q = [
+            SELECT RLM_Approval_Status__c
+            FROM Quote
+            WHERE Id = :session.quoteId
+        ];
+        System.assertEquals(
+            'Draft',
+            RLM_BambooRevenueSuite.normalizeApprovalStatus(q.RLM_Approval_Status__c)
+        );
+    }
+
+    @IsTest
+    static void rejectedOptionDetail_exposesLastDecisionCommentsField() {
+        Opportunity opp = makeOpp();
+        RLM_BambooRevenueSuite.SessionDTO session = RLM_BambooRevenueSuite.openFromOpportunity(
+            opp.Id
+        );
+        update new Quote(
+            Id = session.quoteId,
+            RLM_Approval_Status__c = 'Rejected'
+        );
+
+        Test.startTest();
+        RLM_BambooRevenueSuite.OptionDetailDTO detail =
+            RLM_BambooRevenueSuite.getOptionDetail(String.valueOf(session.quoteId));
+        Test.stopTest();
+
+        System.assertEquals('Rejected', detail.approvalStatus);
+        // No ApprovalWorkItem history in unit tests → comments stay null; LWC still
+        // shows the Option 2 resubmit banner from status alone.
+        System.assertEquals(null, detail.lastDecisionComments);
     }
 
     @IsTest

@@ -34,7 +34,7 @@ public with sharing class RLM_BambooSuiteTxnJob implements Queueable {
             return;
         }
         job.Status__c = 'Running';
-        update job;
+        update as user job;
 
         try {
             if (
@@ -52,7 +52,7 @@ public with sharing class RLM_BambooSuiteTxnJob implements Queueable {
             job.Status__c = 'Succeeded';
             job.Error_Code__c = null;
             job.Error_Message__c = null;
-            update job;
+            update as user job;
 
             if (job.Restore_Sync__c == true && job.Staged_Sync_Quote__c != null) {
                 RLM_BambooRevenueSuite.enqueueRestoreSyncedQuote(
@@ -75,7 +75,7 @@ public with sharing class RLM_BambooSuiteTxnJob implements Queueable {
                     (job.Attempt__c == null ? 0 : job.Attempt__c) + 1;
                 job.Error_Code__c = 'UNABLE_TO_LOCK_ROW';
                 job.Error_Message__c = msg;
-                update job;
+                update as user job;
                 System.enqueueJob(new RLM_BambooSuiteTxnJob(job.Opportunity__c));
                 return;
             }
@@ -84,7 +84,7 @@ public with sharing class RLM_BambooSuiteTxnJob implements Queueable {
                 ? 'UNABLE_TO_LOCK_ROW'
                 : 'JOB_FAILED';
             job.Error_Message__c = msg;
-            update job;
+            update as user job;
         } finally {
             RLM_BambooRevenueSuite.setTxnJobInProgress(false);
         }
@@ -98,80 +98,24 @@ public with sharing class RLM_BambooSuiteTxnJob implements Queueable {
             ? String.valueOf(payload.get('handler'))
             : job.Request_Type__c;
 
+        // Prefer commercial gateway for Place-style mutators (single dispatch table).
+        String commercialOp = commercialOpForHandler(handler, job.Request_Type__c);
+        if (String.isNotBlank(commercialOp)) {
+            RLM_BambooSuiteCommercial.OperationRequest req =
+                new RLM_BambooSuiteCommercial.OperationRequest();
+            req.operation = commercialOp;
+            req.quoteId = stringVal(payload, 'quoteId');
+            req.opportunityId = stringVal(payload, 'opportunityId');
+            if (String.isBlank(req.opportunityId) && job.Opportunity__c != null) {
+                req.opportunityId = String.valueOf(job.Opportunity__c);
+            }
+            req.payloadJson = JSON.serialize(payload);
+            RLM_BambooSuiteCommercial.run(req);
+            return;
+        }
+
         if (handler == 'UpdateSeats') {
             runUpdateSeats(payload);
-            return;
-        }
-        if (handler == 'UpdateLineQuantity') {
-            RLM_BambooRevenueSuite.updateLineQuantity(
-                stringVal(payload, 'quoteId'),
-                stringVal(payload, 'lineId'),
-                decVal(payload, 'quantity')
-            );
-            return;
-        }
-        if (handler == 'UpdateLineDiscount') {
-            RLM_BambooRevenueSuite.updateLineDiscount(
-                stringVal(payload, 'quoteId'),
-                stringVal(payload, 'lineId'),
-                decVal(payload, 'discountPercent')
-            );
-            return;
-        }
-        if (handler == 'ApplyTermToOption') {
-            RLM_BambooRevenueSuite.applyTermToOption(
-                stringVal(payload, 'quoteId'),
-                intVal(payload, 'termMonths'),
-                stringVal(payload, 'startDateIso'),
-                stringVal(payload, 'billingFrequency')
-            );
-            return;
-        }
-        if (handler == 'ApplyTermToAllOptions') {
-            RLM_BambooRevenueSuite.applyTermToAllOptions(
-                stringVal(payload, 'opportunityId'),
-                stringVal(payload, 'selectedQuoteId'),
-                intVal(payload, 'termMonths'),
-                stringVal(payload, 'startDateIso'),
-                stringListVal(payload, 'quoteIds')
-            );
-            return;
-        }
-        if (handler == 'ApplyBillingToAllOptions') {
-            RLM_BambooRevenueSuite.applyBillingToAllOptions(
-                stringVal(payload, 'opportunityId'),
-                stringVal(payload, 'selectedQuoteId'),
-                stringVal(payload, 'billingFrequency'),
-                null,
-                null,
-                stringListVal(payload, 'quoteIds')
-            );
-            return;
-        }
-        if (handler == 'RemoveLine') {
-            RLM_BambooRevenueSuite.removeLine(
-                stringVal(payload, 'quoteId'),
-                stringVal(payload, 'lineId')
-            );
-            return;
-        }
-        if (handler == 'RemoveLines') {
-            List<Object> rawIds = (List<Object>) payload.get('lineIds');
-            List<String> lineIds = new List<String>();
-            if (rawIds != null) {
-                for (Object o : rawIds) {
-                    lineIds.add(String.valueOf(o));
-                }
-            }
-            RLM_BambooRevenueSuite.removeLines(
-                stringVal(payload, 'quoteId'),
-                lineIds
-            );
-            return;
-        }
-        if (handler == 'Reprice' || job.Request_Type__c == 'Reprice') {
-            String quoteRaw = stringVal(payload, 'quoteId');
-            RLM_BambooRevenueSuite.repriceOption(quoteRaw);
             return;
         }
         if (handler == 'SyncCommit' || job.Request_Type__c == 'SyncCommit') {
@@ -186,6 +130,44 @@ public with sharing class RLM_BambooSuiteTxnJob implements Queueable {
         throw new RLM_BambooRevenueSuite.SuiteException(
             'Unsupported job handler: ' + handler
         );
+    }
+
+    private static String commercialOpForHandler(String handler, String requestType) {
+        String h = String.isBlank(handler) ? requestType : handler;
+        if (String.isBlank(h)) {
+            return null;
+        }
+        if (h == 'UpdateLineQuantity') {
+            return 'UpdateQty';
+        }
+        if (h == 'UpdateLineDiscount') {
+            return 'UpdateDisc';
+        }
+        if (h == 'UpdateOptionDiscount') {
+            return 'UpdateOptionDisc';
+        }
+        if (h == 'ApplyTermToOption') {
+            return 'ApplyTerm';
+        }
+        if (h == 'ApplyTermToAllOptions') {
+            return 'ApplyTermAll';
+        }
+        if (h == 'ApplyBillingToAllOptions') {
+            return 'ApplyBillingAll';
+        }
+        if (h == 'RemoveLine' || h == 'RemoveLines') {
+            return 'RemoveLines';
+        }
+        if (h == 'Reprice' || requestType == 'Reprice') {
+            return 'Reprice';
+        }
+        if (h == 'AddLinesBySku') {
+            return 'AddLinesBySku';
+        }
+        if (h == 'AddWorkforcePackage') {
+            return 'AddWorkforcePackage';
+        }
+        return null;
     }
 
     private static void runUpdateSeats(Map<String, Object> payload) {

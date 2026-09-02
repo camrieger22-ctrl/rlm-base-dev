@@ -1,6 +1,6 @@
 /**
  * Agentforce Invocable: apply term and/or billing to Bamboo Revenue Suite
- * option quotes (A/B/C) via PST + FORCE — preserves line quantities.
+ * option quotes (A/B/C) via RLM_BambooSuitePlace (PST + FORCE) — preserves qty.
  *
  * Use when the AE asks to change term length or billing frequency on existing
  * suite options without rebuilding tiers or changing seat count.
@@ -142,7 +142,7 @@ public with sharing class RLM_BambooSuiteApplyCommercialTerms {
                             ? cur.startDate
                             : String.valueOf(Date.today());
                     }
-                    RLM_BambooRevenueSuite.applyTermToOption(
+                    RLM_BambooSuitePlace.applyTermToOption(
                         String.valueOf(opt.quoteId),
                         months,
                         startForOption,
@@ -151,7 +151,7 @@ public with sharing class RLM_BambooSuiteApplyCommercialTerms {
                     res.optionsUpdated++;
                 }
             } else if (hasTerm) {
-                RLM_BambooRevenueSuite.applyTermToAllOptions(
+                RLM_BambooSuitePlace.applyTermToAllOptions(
                     String.valueOf(oppId),
                     selectedRaw,
                     req.termMonths,
@@ -160,7 +160,7 @@ public with sharing class RLM_BambooSuiteApplyCommercialTerms {
                 );
                 res.optionsUpdated = targetIds.size();
             } else {
-                RLM_BambooRevenueSuite.applyBillingToAllOptions(
+                RLM_BambooSuitePlace.applyBillingToAllOptions(
                     String.valueOf(oppId),
                     selectedRaw,
                     req.billingFrequency,

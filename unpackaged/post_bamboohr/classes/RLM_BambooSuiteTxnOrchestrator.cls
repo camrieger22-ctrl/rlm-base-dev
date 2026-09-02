@@ -114,7 +114,7 @@ public with sharing class RLM_BambooSuiteTxnOrchestrator {
             Attempt__c = 0,
             Correlation_Id__c = correlationId
         );
-        insert row;
+        insert as user row;
 
         if (!isJobAlreadyRunning(req.opportunityId)) {
             System.enqueueJob(new RLM_BambooSuiteTxnJob(req.opportunityId));
@@ -148,7 +148,7 @@ public with sharing class RLM_BambooSuiteTxnOrchestrator {
             Attempt__c = 0,
             Correlation_Id__c = correlationId
         );
-        insert row;
+        insert as user row;
         RLM_BambooSuiteTxnJob.processOpportunityQueueSync(req.opportunityId);
         return getJobStatus(correlationId);
     }

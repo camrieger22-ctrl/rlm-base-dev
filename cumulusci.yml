@@ -1324,6 +1324,21 @@ tasks:
     options:
       path: unpackaged/post_approvals
 
+  apply_context_approvals:
+    group: Revenue Lifecycle Management
+    description: >
+      Maps QuoteLineItem.RLM_Approval_Flag__c into RLM_SalesTransactionContext so the
+      Sales Transaction Line Editor can hydrate and display the Approval column.
+      Required for custom TLE display fields (Salesforce Help: select fields for line editor).
+    class_path: tasks.rlm_context_service.ManageContextDefinition
+    options:
+      developer_name: *sales_transaction_context_name
+      plan_file: datasets/context_plans/Approvals/manifest.json
+      translate_plan: true
+      deactivate_before: false
+      activate: true
+      verify: true
+
   create_approval_email_templates:
     group: Revenue Lifecycle Management
     description: >
@@ -4991,6 +5006,9 @@ flows:
       4:
         task: insert_qb_approvals_data
         when: project_config.project__custom__qb and project_config.project__custom__approvals
+      5:
+        task: apply_context_approvals
+        when: project_config.project__custom__quantumbit and project_config.project__custom__approvals
 
   prepare_guidedselling:
     group: Revenue Lifecycle Management

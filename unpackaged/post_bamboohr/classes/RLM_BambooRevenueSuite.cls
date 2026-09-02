@@ -92,6 +92,11 @@ public with sharing class RLM_BambooRevenueSuite {
         public Decimal netTotal;
         @AuraEnabled
         public Decimal discountPercent;
+        /** Per-line Smart Approval ladder from RLM_Approval_Level_Calc__c. */
+        @AuraEnabled
+        public Decimal approvalLevel;
+        @AuraEnabled
+        public String approvalRequiredLabel;
         @AuraEnabled
         public String startDate;
         @AuraEnabled
@@ -128,6 +133,18 @@ public with sharing class RLM_BambooRevenueSuite {
          */
         @AuraEnabled
         public String approvalStatus;
+        /** Max line discount ladder level (Quote.RLM_Approval_Level__c rollup). */
+        @AuraEnabled
+        public Decimal approvalLevel;
+        /** Human label for who must approve when level &gt; 0 (e.g. Manager → Director). */
+        @AuraEnabled
+        public String approvalRequiredLabel;
+        /**
+         * Latest Reject/Recall reviewer comments (Option 2: name which lines to fix).
+         * Null when none / not Rejected or Recalled.
+         */
+        @AuraEnabled
+        public String lastDecisionComments;
         @AuraEnabled
         public Integer termMonths;
         @AuraEnabled
@@ -196,6 +213,10 @@ public with sharing class RLM_BambooRevenueSuite {
          */
         @AuraEnabled
         public String approvalStatus;
+        @AuraEnabled
+        public Decimal approvalLevel;
+        @AuraEnabled
+        public String approvalRequiredLabel;
     }
 
     /** Result of Start Sync / Stop Sync against the suite Opportunity. */
@@ -244,6 +265,9 @@ public with sharing class RLM_BambooRevenueSuite {
         public String approvalStatus;
         @AuraEnabled
         public String summary;
+        /** True when Smart Approval failed to start and status was demo-forced to Approved. */
+        @AuraEnabled
+        public Boolean usedApprovalFallback;
         @AuraEnabled
         public OptionDetailDTO option;
         @AuraEnabled
@@ -272,6 +296,42 @@ public with sharing class RLM_BambooRevenueSuite {
         public Id quoteId;
         @AuraEnabled
         public Id contentVersionId;
+    }
+
+    /** Advanced Approvals work item row for the in-suite pending-approvals panel. */
+    public class ApprovalWorkItemRowDTO {
+        @AuraEnabled
+        public Id workItemId;
+        @AuraEnabled
+        public String stepName;
+        @AuraEnabled
+        public String chainName;
+        @AuraEnabled
+        public String assignedToLabel;
+        @AuraEnabled
+        public Boolean canAct;
+        @AuraEnabled
+        public String status;
+    }
+
+    /** Pending approval work items on one suite option quote. */
+    public class PendingApprovalsDTO {
+        @AuraEnabled
+        public Id quoteId;
+        @AuraEnabled
+        public String optionLabel;
+        /** Submission comments / deal ask shown to approvers. */
+        @AuraEnabled
+        public String requestSummary;
+        @AuraEnabled
+        public List<ApprovalWorkItemRowDTO> items;
+        @AuraEnabled
+        public Integer actionableCount;
+        /** Deep link to Quote record (Approvals tab / Work Guide). */
+        @AuraEnabled
+        public String quoteApprovalsUrl;
+        @AuraEnabled
+        public String workGuideHint;
     }
 
     /** Good / Better / Best option quotes prepared for the AE agent rail. */
@@ -311,56 +371,22 @@ public with sharing class RLM_BambooRevenueSuite {
     @AuraEnabled
     public static SessionDTO openFromOpportunity(String opportunityId) {
         Id oppId = parseId(opportunityId, 'Opportunity');
-        Opportunity opp = [
-            SELECT
-                Id,
-                Name,
-                AccountId,
-                Account.Name,
-                CloseDate,
-                Pricebook2Id,
-                CurrencyIsoCode,
-                SyncedQuoteId,
-                RLM_Bamboo_Staged_Sync_Quote_Id__c,
-                RLM_Bamboo_Sync_Mode__c
-            FROM Opportunity
-            WHERE Id = :oppId
-            WITH USER_MODE
-            LIMIT 1
-        ];
+        Opportunity opp = RLM_BambooSuiteSession.requireSessionOpportunity(oppId);
 
         Boolean pausedToast = false;
         // Edit mode: keep SyncedQuoteId clear while AE compares/edits options.
-        if (opp.SyncedQuoteId != null) {
-            Id staged = opp.RLM_Bamboo_Staged_Sync_Quote_Id__c != null
-                ? opp.RLM_Bamboo_Staged_Sync_Quote_Id__c
-                : opp.SyncedQuoteId;
-            try {
-                setOpportunitySyncedQuote(opp.Id, null);
-                Database.update(
-                    new Opportunity(
-                        Id = opp.Id,
-                        RLM_Bamboo_Staged_Sync_Quote_Id__c = staged,
-                        RLM_Bamboo_Sync_Mode__c = 'Editing'
-                    ),
-                    false,
-                    AccessLevel.USER_MODE
-                );
-                opp.RLM_Bamboo_Staged_Sync_Quote_Id__c = staged;
-                opp.RLM_Bamboo_Sync_Mode__c = 'Editing';
-                opp.SyncedQuoteId = null;
-                pausedToast = true;
-            } catch (Exception e) {
-                // Fall through — suite still opens; AE can Stop sync manually.
-            }
-        } else if (String.isBlank(opp.RLM_Bamboo_Sync_Mode__c)) {
-            opp.RLM_Bamboo_Sync_Mode__c = 'Editing';
+        try {
+            RLM_BambooSuiteSync.SyncResult paused =
+                RLM_BambooSuiteSession.enterEditMode(opp.Id);
+            pausedToast = paused != null && paused.pausedToast == true;
+            opp = RLM_BambooSuiteSession.requireSessionOpportunity(opp.Id);
+        } catch (Exception e) {
+            // Fall through — suite still opens; AE can Stop sync manually.
         }
 
-        Quote draft = findOptionADraft(opp.Id);
-        if (draft == null) {
-            draft = createOptionAQuote(opp);
-        }
+        Quote draft = resolveSuiteEntryQuote(opp);
+        // Path/TLE and suite share RLM_Approval_Status__c — refresh from AA first.
+        reconcileSuiteOptionApprovals(opp.Id);
         SessionDTO session = toSession(opp, draft);
         session.syncPausedToast = pausedToast;
         return session;
@@ -369,36 +395,35 @@ public with sharing class RLM_BambooRevenueSuite {
     @AuraEnabled(cacheable=true)
     public static SessionDTO getSession(String quoteId) {
         Id qId = parseId(quoteId, 'Quote');
-        Quote q = [
-            SELECT
-                Id,
-                Name,
-                QuoteNumber,
-                OpportunityId,
-                Opportunity.Name,
-                Opportunity.AccountId,
-                Opportunity.Account.Name,
-                Opportunity.CloseDate,
-                Opportunity.CurrencyIsoCode,
-                Opportunity.SyncedQuoteId,
-                Opportunity.RLM_Bamboo_Staged_Sync_Quote_Id__c,
-                Opportunity.RLM_Bamboo_Sync_Mode__c,
-                CurrencyIsoCode,
-                Status
-            FROM Quote
-            WHERE Id = :qId
-            WITH USER_MODE
-            LIMIT 1
-        ];
+        Quote q = requireQuote(
+            qId,
+            new Set<String>{
+                'Id',
+                'Name',
+                'QuoteNumber',
+                'OpportunityId',
+                'CurrencyIsoCode',
+                'Status'
+            }
+        );
+        if (q.OpportunityId == null) {
+            throw new SuiteException(
+                'Quote is not linked to an Opportunity. Re-open the suite from the Opportunity.'
+            );
+        }
+        Opportunity opp = requireOpportunity(
+            q.OpportunityId,
+            RLM_BambooSuiteSync.OPP_SESSION_FIELDS
+        );
         SessionDTO dto = new SessionDTO();
-        dto.opportunityId = q.OpportunityId;
-        dto.opportunityName = q.Opportunity.Name;
-        dto.accountId = q.Opportunity.AccountId;
-        dto.accountName = q.Opportunity.Account.Name;
-        dto.closeDate = q.Opportunity.CloseDate;
+        dto.opportunityId = opp.Id;
+        dto.opportunityName = opp.Name;
+        dto.accountId = opp.AccountId;
+        dto.accountName = opp.Account != null ? opp.Account.Name : null;
+        dto.closeDate = opp.CloseDate;
         dto.currencyIsoCode = String.isNotBlank(q.CurrencyIsoCode)
             ? q.CurrencyIsoCode
-            : q.Opportunity.CurrencyIsoCode;
+            : opp.CurrencyIsoCode;
         dto.quoteId = q.Id;
         dto.quoteName = q.Name;
         dto.quoteNumber = q.QuoteNumber;
@@ -407,11 +432,11 @@ public with sharing class RLM_BambooRevenueSuite {
         dto.billingFrequency = 'Monthly';
         dto.evergreen = isEvergreen(months);
         dto.optionLabel = optionLabelFromName(q.Name);
-        dto.syncedQuoteId = q.Opportunity.SyncedQuoteId;
-        dto.stagedSyncQuoteId = q.Opportunity.RLM_Bamboo_Staged_Sync_Quote_Id__c;
-        dto.syncMode = String.isNotBlank(q.Opportunity.RLM_Bamboo_Sync_Mode__c)
-            ? q.Opportunity.RLM_Bamboo_Sync_Mode__c
-            : (q.Opportunity.SyncedQuoteId != null ? 'Committed' : 'Editing');
+        dto.syncedQuoteId = opp.SyncedQuoteId;
+        dto.stagedSyncQuoteId = opp.RLM_Bamboo_Staged_Sync_Quote_Id__c;
+        dto.syncMode = String.isNotBlank(opp.RLM_Bamboo_Sync_Mode__c)
+            ? opp.RLM_Bamboo_Sync_Mode__c
+            : (opp.SyncedQuoteId != null ? 'Committed' : 'Editing');
         dto.syncPausedToast = false;
         dto.txnOrchestratorEnabled = isTxnOrchestratorEnabled();
         return dto;
@@ -430,6 +455,7 @@ public with sharing class RLM_BambooRevenueSuite {
         Id selectedId = String.isBlank(selectedQuoteId)
             ? null
             : parseId(selectedQuoteId, 'Quote');
+        reconcileSuiteOptionApprovals(oppId);
         return buildOptionSummaries(oppId, selectedId);
     }
 
@@ -440,21 +466,7 @@ public with sharing class RLM_BambooRevenueSuite {
     @AuraEnabled
     public static AddOptionResultDTO addOption(String opportunityId) {
         Id oppId = parseId(opportunityId, 'Opportunity');
-        Opportunity opp = [
-            SELECT
-                Id,
-                Name,
-                AccountId,
-                Account.Name,
-                CloseDate,
-                Pricebook2Id,
-                CurrencyIsoCode,
-                SyncedQuoteId
-            FROM Opportunity
-            WHERE Id = :oppId
-            WITH USER_MODE
-            LIMIT 1
-        ];
+        Opportunity opp = RLM_BambooSuiteSession.requireSessionOpportunity(oppId);
 
         List<OptionSummaryDTO> existing = buildOptionSummaries(oppId, null);
         if (existing.size() >= MAX_OPTIONS) {
@@ -481,6 +493,7 @@ public with sharing class RLM_BambooRevenueSuite {
     /**
      * Delete a suite option Quote (and its lines). Keeps at least one option.
      * If the deleted quote was selected, session switches to another remaining option.
+     * If it was the synced / staged winner, clears sync and sets Opportunity.Amount to 0.
      */
     @AuraEnabled
     public static AddOptionResultDTO deleteOption(String quoteId) {
@@ -498,6 +511,7 @@ public with sharing class RLM_BambooRevenueSuite {
                 Opportunity.Pricebook2Id,
                 Opportunity.CurrencyIsoCode,
                 Opportunity.SyncedQuoteId,
+                Opportunity.RLM_Bamboo_Staged_Sync_Quote_Id__c,
                 CurrencyIsoCode
             FROM Quote
             WHERE Id = :qId
@@ -516,6 +530,9 @@ public with sharing class RLM_BambooRevenueSuite {
         if (existing.size() <= 1) {
             throw new SuiteException('Keep at least one option. Add another before deleting this one.');
         }
+
+        // Clear sync before deleting the Quote so SyncedQuoteId cannot dangle.
+        clearOpportunityForecastForOption(oppId, qId);
 
         List<QuoteLineItem> lines = [
             SELECT Id
@@ -548,7 +565,23 @@ public with sharing class RLM_BambooRevenueSuite {
             WITH USER_MODE
             LIMIT 1
         ];
-        Opportunity opp = q.Opportunity;
+        Opportunity opp = [
+            SELECT
+                Id,
+                Name,
+                AccountId,
+                Account.Name,
+                CloseDate,
+                Pricebook2Id,
+                CurrencyIsoCode,
+                SyncedQuoteId,
+                RLM_Bamboo_Staged_Sync_Quote_Id__c,
+                RLM_Bamboo_Sync_Mode__c
+            FROM Opportunity
+            WHERE Id = :oppId
+            WITH USER_MODE
+            LIMIT 1
+        ];
         AddOptionResultDTO result = new AddOptionResultDTO();
         result.created = null;
         result.options = buildOptionSummaries(oppId, nextQuoteId);
@@ -560,124 +593,32 @@ public with sharing class RLM_BambooRevenueSuite {
      * Start Quote→Opportunity sync for a suite option (sets Opportunity.SyncedQuoteId).
      * Same effect as Quote UI Start Sync — Opp products/Amount track this Quote for forecasting.
      */
-    @AuraEnabled
-    public static SyncOpportunityResultDTO syncOptionToOpportunity(String quoteId) {
+        public static SyncOpportunityResultDTO syncOptionToOpportunity(String quoteId) {
         Id qId = parseId(quoteId, 'Quote');
         Quote q = [
-            SELECT
-                Id,
-                Name,
-                OpportunityId,
-                GrandTotal,
-                TotalPrice
+            SELECT OpportunityId
             FROM Quote
             WHERE Id = :qId
             WITH USER_MODE
             LIMIT 1
         ];
-        if (q.OpportunityId == null) {
-            throw new SuiteException('Quote is not linked to an Opportunity.');
-        }
-        if (optionLetterFromName(q.Name) == null) {
-            throw new SuiteException(
-                'Only Bamboo Revenue Suite option quotes can sync to the Opportunity.'
-            );
-        }
-        OptionDetailDTO detail = buildOptionDetail(q.Id);
-        if (detail == null || detail.priced != true) {
-            throw new SuiteException(
-                'Price the option before syncing it to the Opportunity.'
-            );
-        }
-
-        Opportunity opp = [
-            SELECT Id, Amount, SyncedQuoteId, RLM_Bamboo_Staged_Sync_Quote_Id__c
-            FROM Opportunity
-            WHERE Id = :q.OpportunityId
-            WITH USER_MODE
-            LIMIT 1
-        ];
-        if (opp.SyncedQuoteId != q.Id) {
-            try {
-                setOpportunitySyncedQuote(opp.Id, q.Id);
-            } catch (SuiteException e) {
-                throw wrapLockException(e);
-            }
-        }
-        Database.update(
-            new Opportunity(
-                Id = opp.Id,
-                RLM_Bamboo_Staged_Sync_Quote_Id__c = q.Id,
-                RLM_Bamboo_Sync_Mode__c = 'Committed'
-            ),
-            false,
-            AccessLevel.USER_MODE
+        return RLM_BambooSuiteSync.applySyncAction(
+            'Commit',
+            q.OpportunityId == null ? null : String.valueOf(q.OpportunityId),
+            String.valueOf(qId)
         );
-
-        Opportunity afterSync = [
-            SELECT Id, Amount, SyncedQuoteId
-            FROM Opportunity
-            WHERE Id = :opp.Id
-            WITH USER_MODE
-            LIMIT 1
-        ];
-        if (afterSync.Amount == null) {
-            Decimal total = q.GrandTotal != null ? q.GrandTotal : q.TotalPrice;
-            if (total != null) {
-                Database.update(
-                    new Opportunity(Id = afterSync.Id, Amount = total.setScale(2)),
-                    false,
-                    AccessLevel.USER_MODE
-                );
-            }
-        }
-
-        SyncOpportunityResultDTO result = new SyncOpportunityResultDTO();
-        result.syncedQuoteId = q.Id;
-        result.stagedSyncQuoteId = q.Id;
-        result.syncMode = 'Committed';
-        result.options = buildOptionSummaries(q.OpportunityId, q.Id);
-        return result;
     }
 
     /**
      * Stop Quote→Opportunity sync (clears Opportunity.SyncedQuoteId).
+     * Same path as Flow RLM_Bamboo_Suite_Sync action Clear.
      */
-    @AuraEnabled
-    public static SyncOpportunityResultDTO unsyncOpportunity(String opportunityId) {
-        Id oppId = parseId(opportunityId, 'Opportunity');
-        Opportunity opp = [
-            SELECT Id, SyncedQuoteId, RLM_Bamboo_Staged_Sync_Quote_Id__c
-            FROM Opportunity
-            WHERE Id = :oppId
-            WITH USER_MODE
-            LIMIT 1
-        ];
-        Id staged = opp.SyncedQuoteId != null
-            ? opp.SyncedQuoteId
-            : opp.RLM_Bamboo_Staged_Sync_Quote_Id__c;
-        if (opp.SyncedQuoteId != null) {
-            try {
-                setOpportunitySyncedQuote(opp.Id, null);
-            } catch (SuiteException e) {
-                throw wrapLockException(e);
-            }
-        }
-        Database.update(
-            new Opportunity(
-                Id = opp.Id,
-                RLM_Bamboo_Staged_Sync_Quote_Id__c = staged,
-                RLM_Bamboo_Sync_Mode__c = 'Editing'
-            ),
-            false,
-            AccessLevel.USER_MODE
+        public static SyncOpportunityResultDTO unsyncOpportunity(String opportunityId) {
+        return RLM_BambooSuiteSync.applySyncAction(
+            'Clear',
+            opportunityId,
+            null
         );
-        SyncOpportunityResultDTO result = new SyncOpportunityResultDTO();
-        result.syncedQuoteId = null;
-        result.stagedSyncQuoteId = staged;
-        result.syncMode = 'Editing';
-        result.options = buildOptionSummaries(oppId, null);
-        return result;
     }
 
     @AuraEnabled(cacheable=true)
@@ -731,6 +672,7 @@ public with sharing class RLM_BambooRevenueSuite {
     @AuraEnabled
     public static OptionDetailDTO getOptionDetail(String quoteId) {
         Id qId = parseId(quoteId, 'Quote');
+        reconcileQuoteApprovalStatusFromPlatform(qId);
         return buildOptionDetail(qId);
     }
 
@@ -753,8 +695,7 @@ public with sharing class RLM_BambooRevenueSuite {
         );
     }
 
-    @AuraEnabled
-    public static AddLineResultDTO addProductLine(
+        public static AddLineResultDTO addProductLine(
         String quoteId,
         String sku,
         Decimal quantity,
@@ -779,8 +720,7 @@ public with sharing class RLM_BambooRevenueSuite {
      * DTO deserialization gaps from the client).
      * skus[i] pairs with quantities[i]; missing/blank qty defaults to 1.
      */
-    @AuraEnabled
-    public static AddLineResultDTO addProductLinesBySku(
+        public static AddLineResultDTO addProductLinesBySku(
         String quoteId,
         List<String> skus,
         List<Decimal> quantities,
@@ -788,25 +728,28 @@ public with sharing class RLM_BambooRevenueSuite {
         String startDateIso,
         String billingFrequency
     ) {
-        if (skus == null || skus.isEmpty()) {
-            throw new SuiteException('At least one product line is required.');
-        }
-        List<LineInputDTO> lines = new List<LineInputDTO>();
-        for (Integer i = 0; i < skus.size(); i++) {
-            String sku = skus[i];
-            if (String.isBlank(sku)) {
-                continue;
-            }
-            Decimal qty = 1;
-            if (quantities != null && i < quantities.size() && quantities[i] != null) {
-                qty = quantities[i];
-            }
-            LineInputDTO line = new LineInputDTO();
-            line.sku = sku.trim();
-            line.quantity = qty;
-            lines.add(line);
-        }
-        return addProductLines(
+        return RLM_BambooSuitePlace.addProductLinesBySku(
+            quoteId,
+            skus,
+            quantities,
+            termMonths,
+            startDateIso,
+            billingFrequency
+        );
+    }
+
+    /**
+     * Add one or more catalog lines in a single Place + FORCE. Shared term/billing
+     * apply to every line in the request. Implementation on RLM_BambooSuitePlace.
+     */
+        public static AddLineResultDTO addProductLines(
+        String quoteId,
+        List<LineInputDTO> lines,
+        Integer termMonths,
+        String startDateIso,
+        String billingFrequency
+    ) {
+        return RLM_BambooSuitePlace.addProductLines(
             quoteId,
             lines,
             termMonths,
@@ -816,117 +759,10 @@ public with sharing class RLM_BambooRevenueSuite {
     }
 
     /**
-     * Add one or more catalog lines in a single Place + FORCE. Shared term/billing
-     * apply to every line in the request.
-     */
-    @AuraEnabled
-    public static AddLineResultDTO addProductLines(
-        String quoteId,
-        List<LineInputDTO> lines,
-        Integer termMonths,
-        String startDateIso,
-        String billingFrequency
-    ) {
-        Id qId = parseId(quoteId, 'Quote');
-        if (lines == null || lines.isEmpty()) {
-            throw new SuiteException('At least one product line is required.');
-        }
-
-        Integer months = normalizeTerm(termMonths);
-        Quote q = [
-            SELECT Id, Pricebook2Id, CurrencyIsoCode, Opportunity.CurrencyIsoCode
-            FROM Quote
-            WHERE Id = :qId
-            WITH USER_MODE
-            LIMIT 1
-        ];
-        String ccy = String.isNotBlank(q.CurrencyIsoCode)
-            ? q.CurrencyIsoCode
-            : q.Opportunity.CurrencyIsoCode;
-        if (String.isBlank(ccy)) {
-            ccy = 'USD';
-        }
-
-        Date startDate = parseStartDate(startDateIso);
-        Date endDate = computeEndDate(startDate, months);
-        String billing = normalizeBilling(billingFrequency);
-        Id treatmentId = resolveBillingTreatmentId(ccy);
-
-        Set<Id> beforeIds = existingLineIds(qId);
-
-        List<RevSalesTrxn.RecordWithReferenceRequest> nodes =
-            new List<RevSalesTrxn.RecordWithReferenceRequest>();
-        nodes.add(
-            new RevSalesTrxn.RecordWithReferenceRequest(
-                'refQuote',
-                new RevSalesTrxn.RecordResource(Quote.getSObjectType(), 'PATCH', q.Id)
-            )
-        );
-
-        Integer i = 0;
-        for (LineInputDTO raw : lines) {
-            if (raw == null || String.isBlank(raw.sku)) {
-                throw new SuiteException('SKU is required for every line.');
-            }
-            Decimal qty = raw.quantity == null || raw.quantity <= 0 ? 1 : raw.quantity;
-            PricebookEntry pbe = resolvePbe(raw.sku.trim(), ccy, months);
-            Map<String, Object> lineFields = new Map<String, Object>{
-                'QuoteId' => String.valueOf(q.Id),
-                'Product2Id' => pbe.Product2Id,
-                'PricebookEntryId' => pbe.Id,
-                'Quantity' => qty,
-                'UnitPrice' => pbe.UnitPrice != null ? pbe.UnitPrice : 0,
-                'StartDate' => String.valueOf(startDate),
-                'BillingFrequency' => billing,
-                'BillingTreatmentId' => String.valueOf(treatmentId),
-                'PeriodBoundary' => 'Anniversary'
-            };
-            if (endDate != null) {
-                lineFields.put('EndDate', String.valueOf(endDate));
-            }
-            RevSalesTrxn.RecordResource lineNode = new RevSalesTrxn.RecordResource(
-                QuoteLineItem.getSObjectType(),
-                'POST'
-            );
-            lineNode.fieldValues = lineFields;
-            nodes.add(
-                new RevSalesTrxn.RecordWithReferenceRequest('refLine' + i, lineNode)
-            );
-            i++;
-        }
-
-        executePlaceForce(qId, nodes);
-
-        List<Id> created = new List<Id>();
-        for (QuoteLineItem qi : [
-            SELECT Id
-            FROM QuoteLineItem
-            WHERE QuoteId = :qId
-            WITH USER_MODE
-            ORDER BY CreatedDate ASC
-        ]) {
-            if (beforeIds == null || !beforeIds.contains(qi.Id)) {
-                created.add(qi.Id);
-            }
-        }
-        if (created.isEmpty()) {
-            throw new SuiteException('Lines were priced but could not be resolved on the quote.');
-        }
-
-        AddLineResultDTO result = new AddLineResultDTO();
-        result.lineIds = created;
-        result.lineId = created[created.size() - 1];
-        result.option = buildOptionDetail(qId);
-        return result;
-    }
-
-    /**
      * Path A Workforce package: Place package root with configurator default
-     * expand (System + addDefaultConfiguration), then swap the base-plan child
-     * when the AE picked Core or Elite instead of default Pro.
+     * expand. Implementation on RLM_BambooSuitePlace.
      */
-    @AuraEnabled
-    public static AddLineResultDTO addWorkforcePackage(
+        public static AddLineResultDTO addWorkforcePackage(
         String quoteId,
         String planSku,
         Decimal quantity,
@@ -934,126 +770,27 @@ public with sharing class RLM_BambooRevenueSuite {
         String startDateIso,
         String billingFrequency
     ) {
-        Id qId = parseId(quoteId, 'Quote');
-        String plan = String.isBlank(planSku)
-            ? WORKFORCE_DEFAULT_PLAN
-            : planSku.trim().toUpperCase();
-        if (!WORKFORCE_PLAN_SKUS.contains(plan)) {
-            throw new SuiteException(
-                'Workforce plan must be BAMBOO-CORE, BAMBOO-PRO, or BAMBOO-ELITE.'
-            );
-        }
-        // Default expand always selects Pro (IsDefaultComponent). Place cannot swap
-        // Product2/PBE on configured children or POST ParentQuoteLineItemId — Core/Elite
-        // under the package needs configurator user selection (follow-up).
-        if (plan != WORKFORCE_DEFAULT_PLAN) {
-            throw new SuiteException(
-                'Workforce Path A currently expands with Pro (catalog default). ' +
-                    'Core/Elite under the package needs configurator plan selection — ' +
-                    'add those plans a-la-carte with Payroll + Benefits for Path B, or pick Pro.'
-            );
-        }
-        Decimal qty = quantity == null || quantity <= 0 ? 1 : quantity;
-        Integer months = normalizeTerm(termMonths);
-
-        Quote q = [
-            SELECT Id, Pricebook2Id, CurrencyIsoCode, Opportunity.CurrencyIsoCode
-            FROM Quote
-            WHERE Id = :qId
-            WITH USER_MODE
-            LIMIT 1
-        ];
-        String ccy = String.isNotBlank(q.CurrencyIsoCode)
-            ? q.CurrencyIsoCode
-            : q.Opportunity.CurrencyIsoCode;
-        if (String.isBlank(ccy)) {
-            ccy = 'USD';
-        }
-
-        Date startDate = parseStartDate(startDateIso);
-        Date endDate = computeEndDate(startDate, months);
-        String billing = normalizeBilling(billingFrequency);
-        Id treatmentId = resolveBillingTreatmentId(ccy);
-        PricebookEntry pkgPbe = resolvePbe(WORKFORCE_PKG_SKU, ccy, months);
-
-        Set<Id> beforeIds = existingLineIds(qId);
-
-        List<RevSalesTrxn.RecordWithReferenceRequest> nodes =
-            new List<RevSalesTrxn.RecordWithReferenceRequest>();
-        nodes.add(
-            new RevSalesTrxn.RecordWithReferenceRequest(
-                'refQuote',
-                new RevSalesTrxn.RecordResource(Quote.getSObjectType(), 'PATCH', q.Id)
-            )
+        return RLM_BambooSuitePlace.addWorkforcePackage(
+            quoteId,
+            planSku,
+            quantity,
+            termMonths,
+            startDateIso,
+            billingFrequency
         );
-
-        Map<String, Object> pkgFields = new Map<String, Object>{
-            'QuoteId' => String.valueOf(q.Id),
-            'Product2Id' => pkgPbe.Product2Id,
-            'PricebookEntryId' => pkgPbe.Id,
-            'Quantity' => qty,
-            'UnitPrice' => pkgPbe.UnitPrice != null ? pkgPbe.UnitPrice : 0,
-            'StartDate' => String.valueOf(startDate),
-            'BillingFrequency' => billing,
-            'BillingTreatmentId' => String.valueOf(treatmentId),
-            'PeriodBoundary' => 'Anniversary'
-        };
-        if (endDate != null) {
-            pkgFields.put('EndDate', String.valueOf(endDate));
-        }
-        RevSalesTrxn.RecordResource pkgNode = new RevSalesTrxn.RecordResource(
-            QuoteLineItem.getSObjectType(),
-            'POST'
-        );
-        pkgNode.fieldValues = pkgFields;
-        nodes.add(new RevSalesTrxn.RecordWithReferenceRequest('refPkg', pkgNode));
-
-        executePlaceConfigure(qId, nodes);
-
-        // Configurator expand creates child components with platform defaults
-        // (often Monthly + ~1-month EndDate). Re-stamp commercial terms onto
-        // every line so package children match the parent term/billing.
-        stampCommercialTermsOnAllLines(qId, startDate, endDate, billing, treatmentId);
-
-        Id pkgLineId = null;
-        for (QuoteLineItem qi : [
-            SELECT Id, Product2.StockKeepingUnit, ParentQuoteLineItemId
-            FROM QuoteLineItem
-            WHERE QuoteId = :qId
-            WITH USER_MODE
-            ORDER BY CreatedDate ASC
-        ]) {
-            if (beforeIds != null && beforeIds.contains(qi.Id)) {
-                continue;
-            }
-            if (
-                qi.Product2 != null &&
-                qi.Product2.StockKeepingUnit == WORKFORCE_PKG_SKU &&
-                qi.ParentQuoteLineItemId == null
-            ) {
-                pkgLineId = qi.Id;
-                break;
-            }
-        }
-        if (pkgLineId == null) {
-            throw new SuiteException(
-                'Workforce package line was not created. Check PCM / configurator setup.'
-            );
-        }
-
-        AddLineResultDTO result = new AddLineResultDTO();
-        result.lineId = pkgLineId;
-        result.lineIds = new List<Id>{ pkgLineId };
-        result.option = buildOptionDetail(qId);
-        return result;
     }
 
     /**
      * Start DocGen for the active option Quote using RLM_Bamboo_QuoteProposal.
      * Returns a process Id; poll {@link #getProposalStatus} until Completed.
+     * Same path as Flow RLM_Bamboo_Suite_DocGen_Start / RLM_BambooSuiteDocGen.
      */
-    @AuraEnabled
-    public static PreviewResultDTO previewProposal(String quoteId) {
+        public static PreviewResultDTO previewProposal(String quoteId) {
+        return RLM_BambooSuiteDocGen.startPreview(quoteId);
+    }
+
+    /** Core DocGen start (shared by Aura + Invocable; avoids recursion). */
+    public static PreviewResultDTO previewProposalCore(String quoteId) {
         Id qId = parseId(quoteId, 'Quote');
         Quote q = [
             SELECT Id, Name, QuoteNumber
@@ -1234,7 +971,16 @@ public with sharing class RLM_BambooRevenueSuite {
 
         setQuoteApprovalStatus(qId, 'Pending');
 
+        String requestSummary = buildApprovalRequestSummary(qId, detail);
+        String submitComments;
+        if (String.isBlank(comments)) {
+            submitComments = requestSummary;
+        } else {
+            submitComments = comments.trim() + '\n\n' + requestSummary;
+        }
+
         String summary;
+        Boolean usedFallback = false;
         try {
             RLM_AA_Submit_Approval.svcParameter param =
                 new RLM_AA_Submit_Approval.svcParameter();
@@ -1243,22 +989,29 @@ public with sharing class RLM_BambooRevenueSuite {
             param.approvalLevel = q.RLM_Approval_Level__c == null
                 ? null
                 : String.valueOf(q.RLM_Approval_Level__c);
-            param.comments = String.isBlank(comments)
-                ? 'Submitted from BambooHR Revenue Suite'
-                : comments.trim();
+            param.comments = submitComments;
             RLM_AA_Submit_Approval.callFlow(
                 new List<RLM_AA_Submit_Approval.svcParameter>{ param }
             );
-            summary =
-                'Submitted for Smart Approval. Refresh options if status stays Pending.';
+            Decimal level = q.RLM_Approval_Level__c == null ? 0 : q.RLM_Approval_Level__c;
+            if (level > 0) {
+                summary =
+                    'Submitted for Smart Approval (' +
+                    approvalRequiredLabelFor(level) +
+                    '). Approvers see the line-level ask in submission comments.';
+            } else {
+                summary =
+                    'Submitted for Smart Approval. No discount approval required — refresh if status is not Approved yet.';
+            }
         } catch (Exception e) {
             // Orchestration may be unavailable for the running user — demo fallback.
+            usedFallback = true;
             setQuoteApprovalStatus(qId, 'Approved');
             String detailMsg = e.getMessage();
             summary =
-                'Marked Approved (Smart Approval did not start' +
-                (String.isBlank(detailMsg) ? '' : ': ' + detailMsg) +
-                ').';
+                'DEMO FALLBACK: Marked Approved because Smart Approval did not start' +
+                (String.isBlank(detailMsg) ? '' : ' (' + detailMsg + ')') +
+                '. Fix orchestration/assignees on this org for a real approval path.';
         }
 
         ApprovalResultDTO result = new ApprovalResultDTO();
@@ -1268,7 +1021,251 @@ public with sharing class RLM_BambooRevenueSuite {
             ? result.option.approvalStatus
             : normalizeApprovalStatus(null);
         result.summary = summary;
+        result.usedApprovalFallback = usedFallback;
         result.options = buildOptionSummaries(q.OpportunityId, qId);
+        return result;
+    }
+
+    /**
+     * List Assigned Advanced Approvals work items for a suite option Quote.
+     * Rows the running user can act on (direct assignee or public-group member)
+     * set canAct=true for Approve/Reject in the suite panel.
+     */
+    @AuraEnabled
+    public static PendingApprovalsDTO listPendingApprovalWorkItems(String quoteId) {
+        Id qId = parseId(quoteId, 'Quote');
+        Quote q = [
+            SELECT Id, Name
+            FROM Quote
+            WHERE Id = :qId
+            WITH USER_MODE
+            LIMIT 1
+        ];
+        if (optionLetterFromName(q.Name) == null) {
+            throw new SuiteException(
+                'Only Bamboo Revenue Suite option quotes support in-suite approvals.'
+            );
+        }
+
+        PendingApprovalsDTO out = new PendingApprovalsDTO();
+        out.quoteId = qId;
+        out.optionLabel = 'Option ' + optionLetterFromName(q.Name);
+        out.items = new List<ApprovalWorkItemRowDTO>();
+        out.actionableCount = 0;
+        reconcileQuoteApprovalStatusFromPlatform(qId);
+        out.requestSummary = latestApprovalSubmissionComments(qId);
+        if (String.isBlank(out.requestSummary)) {
+            out.requestSummary = buildApprovalRequestSummary(qId, null);
+        }
+
+        Set<Id> userGroupIds = groupIdsForUser(UserInfo.getUserId());
+        Id currentUserId = UserInfo.getUserId();
+
+        for (ApprovalWorkItem wi : [
+            SELECT
+                Id,
+                Name,
+                Status,
+                AssignedToId,
+                AssignedTo.Name,
+                ApprovalChainName
+            FROM ApprovalWorkItem
+            WHERE RelatedRecordId = :qId AND Status = 'Assigned'
+            WITH USER_MODE
+            ORDER BY CreatedDate ASC
+        ]) {
+            ApprovalWorkItemRowDTO row = new ApprovalWorkItemRowDTO();
+            row.workItemId = wi.Id;
+            row.stepName = wi.Name;
+            row.chainName = wi.ApprovalChainName;
+            row.assignedToLabel = wi.AssignedTo != null ? wi.AssignedTo.Name : null;
+            row.status = wi.Status;
+            row.canAct =
+                wi.AssignedToId == currentUserId ||
+                (wi.AssignedToId != null && userGroupIds.contains(wi.AssignedToId));
+            if (row.canAct == true) {
+                out.actionableCount++;
+            }
+            out.items.add(row);
+        }
+        out.quoteApprovalsUrl = RLM_BambooSuiteApprovals.quoteApprovalsUrl(qId);
+        out.workGuideHint =
+            'Prefer the Quote Approvals tab Work Guide for Manager → Director → VP. ' +
+            'This panel lists Assigned steps for convenience.';
+        return out;
+    }
+
+    /**
+     * Approve or reject one Assigned work item via platform reviewApprovalWorkItem.
+     * Refreshes option approval status after the decision.
+     */
+    @AuraEnabled
+    public static ApprovalResultDTO reviewSuiteApprovalWorkItem(
+        String workItemId,
+        String decision,
+        String comments
+    ) {
+        Id wiId = parseId(workItemId, 'ApprovalWorkItem');
+        String normalizedDecision = normalizeReviewDecision(decision);
+
+        ApprovalWorkItem wi = [
+            SELECT
+                Id,
+                Status,
+                RelatedRecordId,
+                AssignedToId,
+                Name,
+                ApprovalChainName
+            FROM ApprovalWorkItem
+            WHERE Id = :wiId
+            WITH USER_MODE
+            LIMIT 1
+        ];
+        if (wi.Status != 'Assigned') {
+            throw new SuiteException(
+                'This approval step is no longer waiting for a decision.'
+            );
+        }
+        Id qId = wi.RelatedRecordId;
+        Quote q = [
+            SELECT Id, Name, OpportunityId
+            FROM Quote
+            WHERE Id = :qId
+            WITH USER_MODE
+            LIMIT 1
+        ];
+        if (optionLetterFromName(q.Name) == null) {
+            throw new SuiteException(
+                'Only Bamboo Revenue Suite option quotes support in-suite approvals.'
+            );
+        }
+
+        Set<Id> userGroupIds = groupIdsForUser(UserInfo.getUserId());
+        Id currentUserId = UserInfo.getUserId();
+        Boolean canAct =
+            wi.AssignedToId == currentUserId ||
+            (wi.AssignedToId != null && userGroupIds.contains(wi.AssignedToId));
+        if (!canAct) {
+            throw new SuiteException(
+                'You are not the assignee for this approval step. Sign in as the Manager/Director/VP assignee or a group member.'
+            );
+        }
+        if (
+            normalizedDecision == 'Reject' &&
+            String.isBlank(comments)
+        ) {
+            throw new SuiteException(
+                'Reject requires comments naming which line(s) to fix ' +
+                '(e.g. Reject Payroll @ 50%. Keep Core @ 25%.).'
+            );
+        }
+
+        invokeReviewApprovalWorkItem(wiId, normalizedDecision, comments);
+        String syncedStatus = syncQuoteApprovalStatusFromPlatform(
+            qId,
+            normalizedDecision
+        );
+
+        ApprovalResultDTO result = new ApprovalResultDTO();
+        result.quoteId = qId;
+        result.option = buildOptionDetail(qId);
+        result.approvalStatus = result.option != null
+            ? result.option.approvalStatus
+            : syncedStatus;
+        String stepBit =
+            (normalizedDecision == 'Approve' ? 'Approved' : 'Rejected') +
+            ' ' +
+            (String.isBlank(wi.Name) ? 'approval step' : wi.Name) +
+            (String.isBlank(wi.ApprovalChainName)
+                ? ''
+                : ' (' + wi.ApprovalChainName + ')');
+        if (syncedStatus == 'Approved') {
+            result.summary = stepBit + '. Quote approval status is Approved.';
+        } else if (syncedStatus == 'Rejected') {
+            result.summary =
+                stepBit +
+                '. Quote is Rejected — edit the lines named in your comments, ' +
+                'then Commit and Submit again (unchanged conditions may Smart-Approve).';
+        } else {
+            result.summary =
+                stepBit +
+                '. Quote stays Pending until remaining steps finish.';
+        }
+        result.options = buildOptionSummaries(q.OpportunityId, qId);
+        return result;
+    }
+
+    /**
+     * Recall the open Advanced Approvals submission for a suite option and set
+     * Quote.RLM_Approval_Status__c to Recalled (Quote Path / TLE).
+     */
+    @AuraEnabled
+    public static ApprovalResultDTO recallOptionApproval(
+        String quoteId,
+        String comments
+    ) {
+        Id qId = parseId(quoteId, 'Quote');
+        Quote q = [
+            SELECT Id, Name, OpportunityId, RLM_Approval_Status__c
+            FROM Quote
+            WHERE Id = :qId
+            WITH USER_MODE
+            LIMIT 1
+        ];
+        if (optionLetterFromName(q.Name) == null) {
+            throw new SuiteException(
+                'Only Bamboo Revenue Suite option quotes support in-suite approvals.'
+            );
+        }
+        if (normalizeApprovalStatus(q.RLM_Approval_Status__c) != 'Pending') {
+            throw new SuiteException(
+                'Only Pending options can be recalled.'
+            );
+        }
+        List<ApprovalSubmission> subs = [
+            SELECT Id, Status
+            FROM ApprovalSubmission
+            WHERE RelatedRecordId = :qId AND Status IN ('InProgress', 'Suspended')
+            WITH SYSTEM_MODE
+            ORDER BY CreatedDate DESC
+            LIMIT 1
+        ];
+        if (subs.isEmpty()) {
+            setQuoteApprovalStatus(qId, 'Recalled');
+        } else {
+            invokeRecallApprovalSubmission(
+                subs[0].Id,
+                comments
+            );
+            setQuoteApprovalStatus(qId, 'Recalled');
+        }
+
+        ApprovalResultDTO result = new ApprovalResultDTO();
+        result.quoteId = qId;
+        result.option = buildOptionDetail(qId);
+        result.approvalStatus = result.option != null
+            ? result.option.approvalStatus
+            : 'Recalled';
+        result.summary = 'Approval recalled. Quote status is Recalled.';
+        result.options = buildOptionSummaries(q.OpportunityId, qId);
+        try {
+            RLM_BambooSuiteSync.SyncResult sync =
+                RLM_BambooSuiteSync.recommitStagedWinner(q.OpportunityId);
+            if (
+                sync != null &&
+                sync.syncMode == RLM_BambooSuiteSync.MODE_COMMITTED
+            ) {
+                result.summary =
+                    result.summary +
+                    ' Opportunity sync restored (Committed) for resubmit.';
+                result.options = buildOptionSummaries(q.OpportunityId, qId);
+                if (result.option != null) {
+                    // Refresh option so session chips can pick up sync from options list.
+                }
+            }
+        } catch (Exception e) {
+            // Recall succeeded; recommit is best-effort.
+        }
         return result;
     }
 
@@ -1306,11 +1303,26 @@ public with sharing class RLM_BambooRevenueSuite {
 
     /**
      * Email the active option to an Opp Contact (or toAddress override).
-     * Allowed when priced and not Pending. Attaches latest proposal PDF when
-     * present; optionally starts DocGen first when generatePdfIfMissing=true.
+     * Same path as Flow RLM_Bamboo_Suite_Send / RLM_BambooSuiteSend.
      */
-    @AuraEnabled
-    public static SendResultDTO sendOptionToCustomer(
+        public static SendResultDTO sendOptionToCustomer(
+        String quoteId,
+        String contactId,
+        String toAddress,
+        Boolean attachPdf,
+        Boolean generatePdfIfMissing
+    ) {
+        return RLM_BambooSuiteSend.sendOptionToCustomer(
+            quoteId,
+            contactId,
+            toAddress,
+            attachPdf,
+            generatePdfIfMissing
+        );
+    }
+
+    /** Core send (shared by Aura + Invocable; avoids recursion). */
+    public static SendResultDTO sendOptionToCustomerCore(
         String quoteId,
         String contactId,
         String toAddress,
@@ -1350,7 +1362,6 @@ public with sharing class RLM_BambooRevenueSuite {
         if (attachPdf != false) {
             cvId = findLatestProposalContentVersionId(qId);
             if (cvId == null && generatePdfIfMissing == true) {
-                // LWC should call previewProposal + poll first; do not busy-wait here.
                 throw new SuiteException(
                     'No proposal PDF found. Click Preview to generate one, then Send again.'
                 );
@@ -1390,6 +1401,214 @@ public with sharing class RLM_BambooRevenueSuite {
         return out;
     }
 
+    /**
+     * Line-level ask for approvers (submission comments + suite panel).
+     * Example: "90% off · BambooHR Core · 700 users · $0.75/user/mo (list $7.50)".
+     */
+    @TestVisible
+    static String buildApprovalRequestSummary(
+        Id quoteId,
+        OptionDetailDTO detail
+    ) {
+        OptionDetailDTO d = detail != null ? detail : buildOptionDetail(quoteId);
+        List<String> lines = new List<String>();
+        lines.add('BambooHR Revenue Suite approval request');
+        if (d != null) {
+            if (String.isNotBlank(d.optionLabel)) {
+                lines.add('Option: ' + d.optionLabel);
+            }
+            Decimal level = d.approvalLevel == null ? 0 : d.approvalLevel;
+            lines.add(
+                'Approval ladder: ' +
+                approvalRequiredLabelFor(level) +
+                ' (level ' +
+                String.valueOf(level) +
+                ')'
+            );
+            if (d.grandTotal != null) {
+                lines.add('Grand total: ' + formatApprovalMoney(d.grandTotal));
+            }
+            if (d.mrr != null) {
+                lines.add('MRR: ' + formatApprovalMoney(d.mrr));
+            }
+        }
+
+        List<QuoteLineItem> qlis = [
+            SELECT
+                Id,
+                Quantity,
+                Discount,
+                UnitPrice,
+                NetUnitPrice,
+                ParentQuoteLineItemId,
+                Product2.Name,
+                Product2.StockKeepingUnit,
+                RLM_Approval_Level_Calc__c
+            FROM QuoteLineItem
+            WHERE QuoteId = :quoteId
+            WITH USER_MODE
+            ORDER BY CreatedDate ASC
+            LIMIT 50
+        ];
+        List<String> needsApproval = new List<String>();
+        List<String> otherLines = new List<String>();
+        for (QuoteLineItem qi : qlis) {
+            if (qi.ParentQuoteLineItemId != null) {
+                continue;
+            }
+            String row = formatApprovalLineAsk(qi);
+            Decimal lvl = qi.RLM_Approval_Level_Calc__c == null
+                ? 0
+                : qi.RLM_Approval_Level_Calc__c;
+            if (lvl > 0) {
+                needsApproval.add('• ' + row);
+            } else {
+                otherLines.add('• ' + row);
+            }
+        }
+        if (!needsApproval.isEmpty()) {
+            lines.add('Lines requiring approval:');
+            lines.addAll(needsApproval);
+        }
+        if (!otherLines.isEmpty() && otherLines.size() <= 8) {
+            lines.add('Other lines (auto / no ladder):');
+            lines.addAll(otherLines);
+        }
+        if (needsApproval.isEmpty() && otherLines.isEmpty()) {
+            lines.add('No priced lines on this option.');
+        }
+        return String.join(lines, '\n');
+    }
+
+    private static String formatApprovalLineAsk(QuoteLineItem qi) {
+        Decimal disc = qi.Discount == null ? 0 : qi.Discount;
+        // Discount is stored as percent 0–100 in API for suite edits.
+        if (disc > 0 && disc <= 1) {
+            disc = disc * 100;
+        }
+        String name = qi.Product2 != null && String.isNotBlank(qi.Product2.Name)
+            ? qi.Product2.Name
+            : (qi.Product2 != null ? qi.Product2.StockKeepingUnit : 'Product');
+        Decimal qty = qi.Quantity == null ? 0 : qi.Quantity;
+        Decimal net = qi.NetUnitPrice != null ? qi.NetUnitPrice : qi.UnitPrice;
+        Decimal listPrice = qi.UnitPrice;
+        String ask =
+            String.valueOf(disc.setScale(1, System.RoundingMode.HALF_UP)) +
+            '% off · ' +
+            name +
+            ' · ' +
+            String.valueOf(qty.setScale(0, System.RoundingMode.HALF_UP)) +
+            ' users';
+        if (net != null) {
+            ask += ' · ' + formatApprovalMoney(net) + '/user/mo';
+        }
+        if (listPrice != null && net != null && listPrice != net) {
+            ask += ' (list ' + formatApprovalMoney(listPrice) + ')';
+        }
+        return ask;
+    }
+
+    private static String formatApprovalMoney(Decimal amount) {
+        if (amount == null) {
+            return '$0';
+        }
+        Decimal scaled = amount.setScale(2, System.RoundingMode.HALF_UP);
+        // Keep fractional cents when present (e.g. $0.75).
+        String raw = String.valueOf(scaled);
+        if (!raw.contains('.')) {
+            raw = raw + '.00';
+        }
+        return '$' + raw;
+    }
+
+    private static String latestApprovalSubmissionComments(Id quoteId) {
+        List<ApprovalSubmission> subs = [
+            SELECT Comments
+            FROM ApprovalSubmission
+            WHERE RelatedRecordId = :quoteId
+            WITH SYSTEM_MODE
+            ORDER BY CreatedDate DESC
+            LIMIT 1
+        ];
+        if (subs.isEmpty() || String.isBlank(subs[0].Comments)) {
+            return null;
+        }
+        return subs[0].Comments;
+    }
+
+    /**
+     * Latest Reject (or Recall) comments for Option 2 guidance on the option.
+     * Prefers rejected work-item Comments; falls back to recall/submission notes.
+     */
+    @TestVisible
+    static String latestDecisionCommentsForGuidance(Id quoteId) {
+        if (quoteId == null) {
+            return null;
+        }
+        List<ApprovalWorkItem> rejected = [
+            SELECT Comments, ReviewedDate
+            FROM ApprovalWorkItem
+            WHERE RelatedRecordId = :quoteId AND Status = 'Rejected'
+            WITH SYSTEM_MODE
+            ORDER BY ReviewedDate DESC NULLS LAST, CreatedDate DESC
+            LIMIT 5
+        ];
+        for (ApprovalWorkItem wi : rejected) {
+            if (String.isNotBlank(wi.Comments)) {
+                return wi.Comments.trim();
+            }
+        }
+        List<ApprovalSubmission> recalled = [
+            SELECT Comments, Status
+            FROM ApprovalSubmission
+            WHERE
+                RelatedRecordId = :quoteId
+                AND Status IN ('Recalled', 'Rejected')
+            WITH SYSTEM_MODE
+            ORDER BY CreatedDate DESC
+            LIMIT 1
+        ];
+        if (
+            !recalled.isEmpty() &&
+            String.isNotBlank(recalled[0].Comments)
+        ) {
+            return recalled[0].Comments.trim();
+        }
+        return null;
+    }
+
+    /**
+     * Block commercial Place/edits while approval is Pending or Approved.
+     * Pending → Recall first; Approved stays locked (add a new option to re-quote).
+     */
+    @TestVisible
+    static void assertOptionEditable(Id quoteId) {
+        if (quoteId == null) {
+            return;
+        }
+        List<Quote> rows = [
+            SELECT Id, RLM_Approval_Status__c
+            FROM Quote
+            WHERE Id = :quoteId
+            WITH USER_MODE
+            LIMIT 1
+        ];
+        if (rows.isEmpty()) {
+            return;
+        }
+        String current = normalizeApprovalStatus(rows[0].RLM_Approval_Status__c);
+        if (current == 'Approved') {
+            throw new SuiteException(
+                'This option is Approved and locked. Add a new option to re-quote the deal.'
+            );
+        }
+        if (current == 'Pending') {
+            throw new SuiteException(
+                'This option is Pending approval and locked. Recall first if you need to edit.'
+            );
+        }
+    }
+
     private static void setQuoteApprovalStatus(Id quoteId, String status) {
         Database.SaveResult sr = Database.update(
             new Quote(Id = quoteId, RLM_Approval_Status__c = status),
@@ -1399,6 +1618,196 @@ public with sharing class RLM_BambooRevenueSuite {
         if (!sr.isSuccess()) {
             throw new SuiteException(firstError(sr));
         }
+    }
+
+    /**
+     * Align Quote.RLM_Approval_Status__c (Path / TLE) with Advanced Approvals.
+     * Platform ApprovalSubmission is authoritative. Used after suite review and
+     * on suite open/refresh so TLE Path and suite chips stay in sync when the
+     * AE acts in either surface.
+     * SYSTEM_MODE for ApprovalSubmission — object CRUD not grantable on BambooHR license.
+     */
+    @TestVisible
+    static String syncQuoteApprovalStatusFromPlatform(
+        Id quoteId,
+        String lastDecision
+    ) {
+        if (quoteId == null) {
+            return null;
+        }
+        if (lastDecision == 'Reject') {
+            setQuoteApprovalStatus(quoteId, 'Rejected');
+            return 'Rejected';
+        }
+        return reconcileQuoteApprovalStatusFromPlatform(quoteId);
+    }
+
+    /**
+     * Re-read latest ApprovalSubmission / work items and write RLM_Approval_Status__c.
+     * Does not invent Approved when work items are temporarily empty.
+     */
+    @TestVisible
+    static String reconcileQuoteApprovalStatusFromPlatform(Id quoteId) {
+        if (quoteId == null) {
+            return null;
+        }
+        List<Quote> quotes = [
+            SELECT Id, RLM_Approval_Status__c
+            FROM Quote
+            WHERE Id = :quoteId
+            WITH USER_MODE
+            LIMIT 1
+        ];
+        if (quotes.isEmpty()) {
+            return null;
+        }
+        String current = normalizeApprovalStatus(quotes[0].RLM_Approval_Status__c);
+
+        List<ApprovalSubmission> subs = [
+            SELECT Id, Status
+            FROM ApprovalSubmission
+            WHERE RelatedRecordId = :quoteId
+            WITH SYSTEM_MODE
+            ORDER BY CreatedDate DESC
+            LIMIT 1
+        ];
+        if (subs.isEmpty()) {
+            // Orphan Pending with no platform submission — clear to blank (suite "Draft").
+            if (current == 'Pending') {
+                setQuoteApprovalStatus(quoteId, null);
+                return 'Draft';
+            }
+            return current;
+        }
+
+        String subStatus = subs[0].Status;
+        if (subStatus == 'Approved') {
+            setQuoteApprovalStatus(quoteId, 'Approved');
+            return 'Approved';
+        }
+        if (subStatus == 'Rejected') {
+            setQuoteApprovalStatus(quoteId, 'Rejected');
+            return 'Rejected';
+        }
+        if (subStatus == 'Recalled') {
+            setQuoteApprovalStatus(quoteId, 'Recalled');
+            return 'Recalled';
+        }
+
+        Id submissionId = subs[0].Id;
+        Integer rejectedCount = [
+            SELECT COUNT()
+            FROM ApprovalWorkItem
+            WHERE
+                ApprovalSubmissionId = :submissionId
+                AND Status = 'Rejected'
+            WITH SYSTEM_MODE
+        ];
+        if (rejectedCount > 0) {
+            setQuoteApprovalStatus(quoteId, 'Rejected');
+            return 'Rejected';
+        }
+
+        setQuoteApprovalStatus(quoteId, 'Pending');
+        return 'Pending';
+    }
+
+    /**
+     * Reconcile Path/TLE approval status for every suite option on the Opp.
+     */
+    @TestVisible
+    static void reconcileSuiteOptionApprovals(Id opportunityId) {
+        if (opportunityId == null) {
+            return;
+        }
+        for (Quote q : [
+            SELECT Id
+            FROM Quote
+            WHERE OpportunityId = :opportunityId AND Name LIKE '%Option %'
+            WITH USER_MODE
+        ]) {
+            reconcileQuoteApprovalStatusFromPlatform(q.Id);
+        }
+    }
+
+    private static void invokeRecallApprovalSubmission(
+        Id submissionId,
+        String comments
+    ) {
+        Invocable.Action action = Invocable.Action.createStandardAction(
+            'recallApprovalSubmission'
+        );
+        action.setInvocationParameter(
+            'approvalSubmissionId',
+            String.valueOf(submissionId)
+        );
+        action.setInvocationParameter(
+            'comments',
+            String.isBlank(comments)
+                ? 'Recalled from BambooHR Revenue Suite'
+                : comments.trim()
+        );
+        List<Invocable.Action.Result> results = action.invoke();
+        if (results == null || results.isEmpty()) {
+            throw new SuiteException(
+                'Recall approval submission returned no result.'
+            );
+        }
+        Invocable.Action.Result res = results[0];
+        if (!res.isSuccess()) {
+            List<String> msgs = new List<String>();
+            if (res.getErrors() != null) {
+                for (Invocable.Action.Error err : res.getErrors()) {
+                    msgs.add(err.getMessage());
+                }
+            }
+            throw new SuiteException(
+                'Could not recall approval: ' +
+                (msgs.isEmpty() ? 'Unknown error' : String.join(msgs, '; '))
+            );
+        }
+    }
+
+    /**
+     * After a material commercial Place, Rejected/Recalled options return to Draft
+     * so Send stays gated until the AE resubmits. Approved/Pending are blocked by
+     * assertOptionEditable (explicit Recall when Pending; Approved stays locked)
+     * — not auto-cleared.
+     */
+    @TestVisible
+    static void invalidateOptionApprovalIfNeeded(Id quoteId) {
+        if (quoteId == null) {
+            return;
+        }
+        List<Quote> rows = [
+            SELECT Id, RLM_Approval_Status__c
+            FROM Quote
+            WHERE Id = :quoteId
+            WITH USER_MODE
+            LIMIT 1
+        ];
+        if (rows.isEmpty()) {
+            return;
+        }
+        String current = normalizeApprovalStatus(rows[0].RLM_Approval_Status__c);
+        if (current == 'Rejected' || current == 'Recalled') {
+            setQuoteApprovalStatus(quoteId, null);
+        }
+    }
+
+    @TestVisible
+    static String approvalRequiredLabelFor(Decimal level) {
+        Decimal n = level == null ? 0 : level;
+        if (n >= 3) {
+            return 'Manager → Director → VP';
+        }
+        if (n >= 2) {
+            return 'Manager → Director';
+        }
+        if (n >= 1) {
+            return 'Manager';
+        }
+        return 'None';
     }
 
     @TestVisible
@@ -1461,6 +1870,26 @@ public with sharing class RLM_BambooRevenueSuite {
     }
 
     /**
+     * Commercial operation gateway — prefer this for new LWC mutators.
+     * @see RLM_BambooSuiteCommercial
+     */
+    @AuraEnabled
+    public static RLM_BambooSuiteCommercial.OperationResult runCommercialOperation(
+        String operation,
+        String quoteId,
+        String opportunityId,
+        String payloadJson
+    ) {
+        RLM_BambooSuiteCommercial.OperationRequest req =
+            new RLM_BambooSuiteCommercial.OperationRequest();
+        req.operation = operation;
+        req.quoteId = quoteId;
+        req.opportunityId = opportunityId;
+        req.payloadJson = payloadJson;
+        return RLM_BambooSuiteCommercial.run(req);
+    }
+
+    /**
      * BotDefinition Id for Quoting Assistant (Quinn) — used by suite rail
      * lightning/accApi open/execute. Null when the agent is not published in the org.
      */
@@ -1483,21 +1912,7 @@ public with sharing class RLM_BambooRevenueSuite {
     @AuraEnabled
     public static TierOptionsResultDTO ensureGoodBetterBestOptions(String opportunityId) {
         Id oppId = parseId(opportunityId, 'Opportunity');
-        Opportunity opp = [
-            SELECT
-                Id,
-                Name,
-                AccountId,
-                Account.Name,
-                CloseDate,
-                Pricebook2Id,
-                CurrencyIsoCode,
-                SyncedQuoteId
-            FROM Opportunity
-            WHERE Id = :oppId
-            WITH USER_MODE
-            LIMIT 1
-        ];
+        Opportunity opp = RLM_BambooSuiteSession.requireSessionOpportunity(oppId);
 
         List<OptionSummaryDTO> options = buildOptionSummaries(oppId, null);
         while (options.size() < 3) {
@@ -1543,8 +1958,7 @@ public with sharing class RLM_BambooRevenueSuite {
 
     /**
      * Clear existing lines on a suite option and fill Good / Better / Best catalog.
-     * Good = Path B Core+Payroll+Benefits; Better = Workforce Pro package;
-     * Best = Path B Elite+Payroll+Benefits+Time.
+     * Implementation on RLM_BambooSuitePlace.
      */
     @AuraEnabled
     public static OptionDetailDTO fillTierOption(
@@ -1555,61 +1969,14 @@ public with sharing class RLM_BambooRevenueSuite {
         String startDateIso,
         String billingFrequency
     ) {
-        Id qId = parseId(quoteId, 'Quote');
-        String tier = String.isBlank(tierKey) ? '' : tierKey.trim().toLowerCase();
-        Decimal qty = seats == null || seats <= 0 ? 50 : seats;
-        Integer months = normalizeTerm(termMonths);
-        String startIso = String.isBlank(startDateIso)
-            ? String.valueOf(Date.today())
-            : startDateIso.trim();
-        String billing = normalizeBilling(billingFrequency);
-
-        clearAllLinesOnQuote(qId);
-
-        if (tier == 'good' || tier == 'a' || tier == 'core') {
-            addProductLinesBySku(
-                String.valueOf(qId),
-                new List<String>{
-                    'BAMBOO-CORE',
-                    'BAMBOO-ADD-PAYROLL',
-                    'BAMBOO-ADD-BENEFITS'
-                },
-                new List<Decimal>{ qty, qty, qty },
-                months,
-                startIso,
-                billing
-            );
-        } else if (tier == 'better' || tier == 'b' || tier == 'pro') {
-            addWorkforcePackage(
-                String.valueOf(qId),
-                WORKFORCE_DEFAULT_PLAN,
-                qty,
-                months,
-                startIso,
-                billing
-            );
-        } else if (tier == 'best' || tier == 'c' || tier == 'elite') {
-            addProductLinesBySku(
-                String.valueOf(qId),
-                new List<String>{
-                    'BAMBOO-ELITE',
-                    'BAMBOO-ADD-PAYROLL',
-                    'BAMBOO-ADD-BENEFITS',
-                    'BAMBOO-ADD-TIME'
-                },
-                new List<Decimal>{ qty, qty, qty, qty },
-                months,
-                startIso,
-                billing
-            );
-        } else {
-            throw new SuiteException(
-                'Unknown tier "' +
-                    tierKey +
-                    '". Use Good, Better, or Best.'
-            );
-        }
-        return buildOptionDetail(qId);
+        return RLM_BambooSuitePlace.fillTierOption(
+            quoteId,
+            tierKey,
+            seats,
+            termMonths,
+            startDateIso,
+            billingFrequency
+        );
     }
 
     private static Id quoteIdForLetter(List<OptionSummaryDTO> options, String letter) {
@@ -1622,23 +1989,6 @@ public with sharing class RLM_BambooRevenueSuite {
             }
         }
         return null;
-    }
-
-    private static void clearAllLinesOnQuote(Id quoteId) {
-        List<QuoteLineItem> lines = [
-            SELECT Id
-            FROM QuoteLineItem
-            WHERE QuoteId = :quoteId
-            WITH USER_MODE
-        ];
-        if (lines.isEmpty()) {
-            return;
-        }
-        List<String> ids = new List<String>();
-        for (QuoteLineItem qi : lines) {
-            ids.add(String.valueOf(qi.Id));
-        }
-        removeLines(String.valueOf(quoteId), ids);
     }
 
     private static Id resolveTemplateContentVersionId(String templateName) {
@@ -1706,99 +2056,37 @@ public with sharing class RLM_BambooRevenueSuite {
     /**
      * Persist quantity via Place Sales Transaction + FORCE pricing (RC engine).
      * LWC should debounce (300–500ms); not every keystroke.
+     * Implementation lives on RLM_BambooSuitePlace (Place edge).
      */
-    @AuraEnabled
-    public static OptionDetailDTO updateLineQuantity(
+        public static OptionDetailDTO updateLineQuantity(
         String quoteId,
         String lineId,
         Decimal quantity
     ) {
-        Id qId = parseId(quoteId, 'Quote');
-        Id lId = parseId(lineId, 'QuoteLineItem');
-        Decimal qty = quantity == null || quantity <= 0 ? 1 : quantity;
-
-        List<QuoteLineItem> owned = [
-            SELECT Id
-            FROM QuoteLineItem
-            WHERE Id = :lId AND QuoteId = :qId
-            WITH USER_MODE
-            LIMIT 1
-        ];
-        if (owned.isEmpty()) {
-            throw new SuiteException('Line does not belong to this option quote.');
-        }
-
-        List<RevSalesTrxn.RecordWithReferenceRequest> nodes =
-            new List<RevSalesTrxn.RecordWithReferenceRequest>();
-        nodes.add(
-            new RevSalesTrxn.RecordWithReferenceRequest(
-                'refQuote',
-                new RevSalesTrxn.RecordResource(Quote.getSObjectType(), 'PATCH', qId)
-            )
-        );
-
-        RevSalesTrxn.RecordResource lineNode = new RevSalesTrxn.RecordResource(
-            QuoteLineItem.getSObjectType(),
-            'PATCH',
-            lId
-        );
-        lineNode.fieldValues = new Map<String, Object>{ 'Quantity' => qty };
-        nodes.add(new RevSalesTrxn.RecordWithReferenceRequest('refLine', lineNode));
-
-        executePlaceForce(qId, nodes);
-        return buildOptionDetail(qId);
+        return RLM_BambooSuitePlace.updateLineQuantity(quoteId, lineId, quantity);
     }
 
     /**
-     * Persist AE line discount % via PartnerDiscountPercent + FORCE pricing.
-     * Null / blank clears the partner discount.
+     * Persist AE line discount % via QuoteLineItem.Discount + FORCE pricing.
+     * Implementation lives on RLM_BambooSuitePlace (Place edge).
      */
-    @AuraEnabled
-    public static OptionDetailDTO updateLineDiscount(
+        public static OptionDetailDTO updateLineDiscount(
         String quoteId,
         String lineId,
         Decimal discountPercent
     ) {
-        Id qId = parseId(quoteId, 'Quote');
-        Id lId = parseId(lineId, 'QuoteLineItem');
-        Decimal pct = discountPercent == null ? 0 : discountPercent;
-        if (pct < 0) {
-            pct = 0;
-        }
-        if (pct > 100) {
-            pct = 100;
-        }
+        return RLM_BambooSuitePlace.updateLineDiscount(quoteId, lineId, discountPercent);
+    }
 
-        List<QuoteLineItem> owned = [
-            SELECT Id
-            FROM QuoteLineItem
-            WHERE Id = :lId AND QuoteId = :qId
-            WITH USER_MODE
-            LIMIT 1
-        ];
-        if (owned.isEmpty()) {
-            throw new SuiteException('Line does not belong to this option quote.');
-        }
-
-        List<RevSalesTrxn.RecordWithReferenceRequest> nodes =
-            new List<RevSalesTrxn.RecordWithReferenceRequest>();
-        nodes.add(
-            new RevSalesTrxn.RecordWithReferenceRequest(
-                'refQuote',
-                new RevSalesTrxn.RecordResource(Quote.getSObjectType(), 'PATCH', qId)
-            )
-        );
-
-        RevSalesTrxn.RecordResource lineNode = new RevSalesTrxn.RecordResource(
-            QuoteLineItem.getSObjectType(),
-            'PATCH',
-            lId
-        );
-        lineNode.fieldValues = new Map<String, Object>{ 'PartnerDiscountPercent' => pct };
-        nodes.add(new RevSalesTrxn.RecordWithReferenceRequest('refLine', lineNode));
-
-        executePlaceForce(qId, nodes);
-        return buildOptionDetail(qId);
+    /**
+     * Broadcast the same AE Discount % to every line on a suite option quote
+     * via Place + FORCE. Null / blank clears the AE discount.
+     */
+        public static OptionDetailDTO updateOptionDiscount(
+        String quoteId,
+        Decimal discountPercent
+    ) {
+        return RLM_BambooSuitePlace.updateOptionDiscount(quoteId, discountPercent);
     }
 
     /**
@@ -1806,62 +2094,11 @@ public with sharing class RLM_BambooRevenueSuite {
      * Use for Agentforce seat-only changes (not tier rebuilds). Preserves bundle
      * hierarchy and reprices volume tiers.
      */
-    @AuraEnabled
-    public static OptionDetailDTO updateOptionSeatCount(
+        public static OptionDetailDTO updateOptionSeatCount(
         String quoteId,
         Decimal seats
     ) {
-        Id qId = parseId(quoteId, 'Quote');
-        Decimal qty = seats == null || seats <= 0 ? null : seats;
-        if (qty == null) {
-            throw new SuiteException('Seat count must be greater than zero.');
-        }
-
-        Quote q = [
-            SELECT Id, Name
-            FROM Quote
-            WHERE Id = :qId
-            WITH USER_MODE
-            LIMIT 1
-        ];
-        if (optionLetterFromName(q.Name) == null) {
-            throw new SuiteException(
-                'Only Bamboo Revenue Suite option quotes (… — Option A/B/C) support bulk seat updates.'
-            );
-        }
-
-        List<QuoteLineItem> lines = [
-            SELECT Id
-            FROM QuoteLineItem
-            WHERE QuoteId = :qId
-            WITH USER_MODE
-        ];
-        if (lines.isEmpty()) {
-            throw new SuiteException('Add products before changing seat count.');
-        }
-
-        List<RevSalesTrxn.RecordWithReferenceRequest> nodes =
-            new List<RevSalesTrxn.RecordWithReferenceRequest>();
-        nodes.add(
-            new RevSalesTrxn.RecordWithReferenceRequest(
-                'refQuote',
-                new RevSalesTrxn.RecordResource(Quote.getSObjectType(), 'PATCH', qId)
-            )
-        );
-        Integer i = 0;
-        for (QuoteLineItem qi : lines) {
-            RevSalesTrxn.RecordResource lineNode = new RevSalesTrxn.RecordResource(
-                QuoteLineItem.getSObjectType(),
-                'PATCH',
-                qi.Id
-            );
-            lineNode.fieldValues = new Map<String, Object>{ 'Quantity' => qty };
-            nodes.add(
-                new RevSalesTrxn.RecordWithReferenceRequest('refSeat' + i++, lineNode)
-            );
-        }
-        executePlaceForce(qId, nodes);
-        return buildOptionDetail(qId);
+        return RLM_BambooSuitePlace.updateOptionSeatCount(quoteId, seats);
     }
 
     /**
@@ -1891,117 +2128,22 @@ public with sharing class RLM_BambooRevenueSuite {
     }
 
     /** Re-run System pricing on the option quote (FORCE) without structural changes. */
-    @AuraEnabled
-    public static OptionDetailDTO repriceOption(String quoteId) {
-        Id qId = parseId(quoteId, 'Quote');
-        List<QuoteLineItem> lines = [
-            SELECT Id, Quantity
-            FROM QuoteLineItem
-            WHERE QuoteId = :qId
-            WITH USER_MODE
-        ];
-        if (lines.isEmpty()) {
-            return buildOptionDetail(qId);
-        }
-
-        List<RevSalesTrxn.RecordWithReferenceRequest> nodes =
-            new List<RevSalesTrxn.RecordWithReferenceRequest>();
-        nodes.add(
-            new RevSalesTrxn.RecordWithReferenceRequest(
-                'refQuote',
-                new RevSalesTrxn.RecordResource(Quote.getSObjectType(), 'PATCH', qId)
-            )
-        );
-        Integer i = 0;
-        for (QuoteLineItem qi : lines) {
-            // Re-assert quantity so FORCE pricing recalculates nets on each line.
-            RevSalesTrxn.RecordResource lineNode = new RevSalesTrxn.RecordResource(
-                QuoteLineItem.getSObjectType(),
-                'PATCH',
-                qi.Id
-            );
-            lineNode.fieldValues = new Map<String, Object>{
-                'Quantity' => qi.Quantity != null ? qi.Quantity : 1
-            };
-            nodes.add(
-                new RevSalesTrxn.RecordWithReferenceRequest('refLine' + i++, lineNode)
-            );
-        }
-        executePlaceForce(qId, nodes);
-        return buildOptionDetail(qId);
+        public static OptionDetailDTO repriceOption(String quoteId) {
+        return RLM_BambooSuitePlace.repriceOption(quoteId);
     }
 
     /**
      * Remove a line via Place Sales Transaction DELETE + FORCE reprice.
      */
-    @AuraEnabled
-    public static OptionDetailDTO removeLine(String quoteId, String lineId) {
-        return removeLines(quoteId, new List<String>{ lineId });
+        public static OptionDetailDTO removeLine(String quoteId, String lineId) {
+        return RLM_BambooSuitePlace.removeLine(quoteId, lineId);
     }
 
     /**
      * Remove one or more lines in a single Place DELETE + FORCE reprice.
      */
-    @AuraEnabled
-    public static OptionDetailDTO removeLines(String quoteId, List<String> lineIds) {
-        Id qId = parseId(quoteId, 'Quote');
-        if (lineIds == null || lineIds.isEmpty()) {
-            throw new SuiteException('Select at least one line to delete.');
-        }
-        Set<Id> requested = new Set<Id>();
-        for (String raw : lineIds) {
-            if (String.isBlank(raw)) {
-                continue;
-            }
-            requested.add(parseId(raw, 'QuoteLineItem'));
-        }
-        if (requested.isEmpty()) {
-            throw new SuiteException('Select at least one line to delete.');
-        }
-
-        List<QuoteLineItem> owned = [
-            SELECT Id
-            FROM QuoteLineItem
-            WHERE Id IN :requested AND QuoteId = :qId
-            WITH USER_MODE
-        ];
-        if (owned.size() != requested.size()) {
-            throw new SuiteException('One or more lines do not belong to this option quote.');
-        }
-
-        requested = expandBundleDeleteIds(qId, requested);
-
-        List<RevSalesTrxn.RecordWithReferenceRequest> nodes =
-            new List<RevSalesTrxn.RecordWithReferenceRequest>();
-        nodes.add(
-            new RevSalesTrxn.RecordWithReferenceRequest(
-                'refQuote',
-                new RevSalesTrxn.RecordResource(Quote.getSObjectType(), 'PATCH', qId)
-            )
-        );
-        owned = [
-            SELECT Id
-            FROM QuoteLineItem
-            WHERE Id IN :requested AND QuoteId = :qId
-            WITH USER_MODE
-        ];
-
-        Integer i = 0;
-        for (QuoteLineItem qi : owned) {
-            nodes.add(
-                new RevSalesTrxn.RecordWithReferenceRequest(
-                    'refDelete' + i,
-                    new RevSalesTrxn.RecordResource(
-                        QuoteLineItem.getSObjectType(),
-                        'DELETE',
-                        qi.Id
-                    )
-                )
-            );
-            i++;
-        }
-        executePlaceForce(qId, nodes);
-        return buildOptionDetail(qId);
+        public static OptionDetailDTO removeLines(String quoteId, List<String> lineIds) {
+        return RLM_BambooSuitePlace.removeLines(quoteId, lineIds);
     }
 
     /**
@@ -2010,243 +2152,37 @@ public with sharing class RLM_BambooRevenueSuite {
      * Place DELETE+POST + FORCE. Empty options are a no-op (UI keeps ribbon until add).
      * End date = start + termMonths − 1 day (Neocol-style inclusive term).
      */
-    @AuraEnabled
-    public static OptionDetailDTO applyTermToOption(
+        public static OptionDetailDTO applyTermToOption(
         String quoteId,
         Integer termMonths,
         String startDateIso,
         String billingFrequency
     ) {
-        Id qId = parseId(quoteId, 'Quote');
-        Integer months = normalizeTerm(termMonths);
-        String billing = normalizeBilling(billingFrequency);
-
-        Quote q = [
-            SELECT Id, CurrencyIsoCode, Opportunity.CurrencyIsoCode
-            FROM Quote
-            WHERE Id = :qId
-            WITH USER_MODE
-            LIMIT 1
-        ];
-        String ccy = String.isNotBlank(q.CurrencyIsoCode)
-            ? q.CurrencyIsoCode
-            : q.Opportunity.CurrencyIsoCode;
-        if (String.isBlank(ccy)) {
-            ccy = 'USD';
-        }
-
-        List<QuoteLineItem> lines = [
-            SELECT
-                Id,
-                Quantity,
-                PartnerDiscountPercent,
-                ParentQuoteLineItemId,
-                Product2.StockKeepingUnit
-            FROM QuoteLineItem
-            WHERE QuoteId = :qId
-            WITH USER_MODE
-            ORDER BY CreatedDate ASC
-        ];
-        if (lines.isEmpty()) {
-            // Nothing to restamp; ribbon term is UI-only until first line.
-            OptionDetailDTO empty = buildOptionDetail(qId);
-            Date startDate = parseStartDate(startDateIso);
-            empty.termMonths = months;
-            empty.evergreen = isEvergreen(months);
-            empty.startDate = String.valueOf(startDate);
-            Date endDate = computeEndDate(startDate, months);
-            empty.endDate = endDate == null ? null : String.valueOf(endDate);
-            empty.billingFrequency = billing;
-            return empty;
-        }
-
-        Date startDate = parseStartDate(startDateIso);
-        Date endDate = computeEndDate(startDate, months);
-        Id treatmentId = resolveBillingTreatmentId(ccy);
-
-        // PATCH (not DELETE+POST) so Workforce package ParentQuoteLineItemId
-        // hierarchy survives term/billing restamps. Also swap PricebookEntryId
-        // so Evergreen ↔ TermDefined selling-model changes stick without
-        // flattening the bundle.
-        List<RevSalesTrxn.RecordWithReferenceRequest> nodes =
-            new List<RevSalesTrxn.RecordWithReferenceRequest>();
-        nodes.add(
-            new RevSalesTrxn.RecordWithReferenceRequest(
-                'refQuote',
-                new RevSalesTrxn.RecordResource(Quote.getSObjectType(), 'PATCH', qId)
-            )
+        return RLM_BambooSuitePlace.applyTermToOption(
+            quoteId,
+            termMonths,
+            startDateIso,
+            billingFrequency
         );
-
-        Integer i = 0;
-        for (QuoteLineItem qi : lines) {
-            String sku = qi.Product2 != null ? qi.Product2.StockKeepingUnit : null;
-            if (String.isBlank(sku)) {
-                throw new SuiteException('Cannot restamp a line without a product SKU.');
-            }
-            PricebookEntry pbe = resolvePbe(sku, ccy, months);
-            Map<String, Object> lineFields = new Map<String, Object>{
-                'PricebookEntryId' => pbe.Id,
-                'Product2Id' => pbe.Product2Id,
-                'UnitPrice' => pbe.UnitPrice != null ? pbe.UnitPrice : 0,
-                'StartDate' => String.valueOf(startDate),
-                'BillingFrequency' => billing,
-                'BillingTreatmentId' => String.valueOf(treatmentId),
-                'PeriodBoundary' => 'Anniversary',
-                'Quantity' => qi.Quantity == null || qi.Quantity <= 0 ? 1 : qi.Quantity
-            };
-            if (endDate != null) {
-                lineFields.put('EndDate', String.valueOf(endDate));
-            }
-            if (qi.PartnerDiscountPercent != null) {
-                lineFields.put('PartnerDiscountPercent', qi.PartnerDiscountPercent);
-            }
-            RevSalesTrxn.RecordResource lineNode = new RevSalesTrxn.RecordResource(
-                QuoteLineItem.getSObjectType(),
-                'PATCH',
-                qi.Id
-            );
-            lineNode.fieldValues = lineFields;
-            nodes.add(
-                new RevSalesTrxn.RecordWithReferenceRequest('refTerm' + i++, lineNode)
-            );
-        }
-
-        executePlaceForce(qId, nodes);
-        OptionDetailDTO detail = buildOptionDetail(qId);
-        detail.termMonths = months;
-        detail.evergreen = isEvergreen(months);
-        detail.startDate = String.valueOf(startDate);
-        detail.endDate = endDate == null ? null : String.valueOf(endDate);
-        detail.billingFrequency = billing;
-        return detail;
     }
 
-    /**
-     * Place FORCE PATCH of StartDate / EndDate / BillingFrequency onto every
-     * QuoteLineItem (parent and children). Used after Workforce configurator
-     * expand and by applyTermToOption so commercial terms stay consistent.
-     */
-    private static void stampCommercialTermsOnAllLines(
-        Id quoteId,
-        Date startDate,
-        Date endDate,
-        String billingFrequency,
-        Id treatmentId
-    ) {
-        List<QuoteLineItem> lines = [
-            SELECT Id, Quantity
-            FROM QuoteLineItem
-            WHERE QuoteId = :quoteId
-            WITH USER_MODE
-        ];
-        if (lines.isEmpty()) {
-            return;
-        }
-        String billing = normalizeBilling(billingFrequency);
-        List<RevSalesTrxn.RecordWithReferenceRequest> nodes =
-            new List<RevSalesTrxn.RecordWithReferenceRequest>();
-        nodes.add(
-            new RevSalesTrxn.RecordWithReferenceRequest(
-                'refQuote',
-                new RevSalesTrxn.RecordResource(Quote.getSObjectType(), 'PATCH', quoteId)
-            )
-        );
-        Integer i = 0;
-        for (QuoteLineItem qi : lines) {
-            Map<String, Object> lineFields = new Map<String, Object>{
-                'StartDate' => String.valueOf(startDate),
-                'BillingFrequency' => billing,
-                'BillingTreatmentId' => String.valueOf(treatmentId),
-                'PeriodBoundary' => 'Anniversary',
-                'Quantity' => qi.Quantity == null || qi.Quantity <= 0 ? 1 : qi.Quantity
-            };
-            if (endDate != null) {
-                lineFields.put('EndDate', String.valueOf(endDate));
-            }
-            RevSalesTrxn.RecordResource lineNode = new RevSalesTrxn.RecordResource(
-                QuoteLineItem.getSObjectType(),
-                'PATCH',
-                qi.Id
-            );
-            lineNode.fieldValues = lineFields;
-            nodes.add(
-                new RevSalesTrxn.RecordWithReferenceRequest('refStamp' + i++, lineNode)
-            );
-        }
-        executePlaceForce(quoteId, nodes);
-    }
-
-    /**
-     * Apply term start + length to suite options on the Opportunity.
-     * When quoteIds is null/empty, all options are updated; otherwise only the
-     * listed quote Ids (Shared-scope options). Preserves each option's billing.
-     * Returns the selected option's detail (for the active card refresh).
-     */
-    @AuraEnabled
-    public static OptionDetailDTO applyTermToAllOptions(
+        public static OptionDetailDTO applyTermToAllOptions(
         String opportunityId,
         String selectedQuoteId,
         Integer termMonths,
         String startDateIso,
         List<String> quoteIds
     ) {
-        Id oppId = parseId(opportunityId, 'Opportunity');
-        Id selectedId = String.isBlank(selectedQuoteId)
-            ? null
-            : parseId(selectedQuoteId, 'Quote');
-        List<OptionSummaryDTO> options = buildOptionSummaries(oppId, selectedId);
-        if (options.isEmpty()) {
-            throw new SuiteException('No quote options found on this opportunity.');
-        }
-
-        Set<Id> onlyIds = null;
-        if (quoteIds != null && !quoteIds.isEmpty()) {
-            onlyIds = new Set<Id>();
-            for (String raw : quoteIds) {
-                if (String.isBlank(raw)) {
-                    continue;
-                }
-                onlyIds.add(parseId(raw, 'Quote'));
-            }
-        }
-
-        OptionDetailDTO selectedDetail = null;
-        Boolean touchedSelected = false;
-        for (OptionSummaryDTO opt : options) {
-            if (onlyIds != null && !onlyIds.contains(opt.quoteId)) {
-                continue;
-            }
-            String billing = billingFrequencyForOption(opt.quoteId);
-            OptionDetailDTO detail = applyTermToOption(
-                opt.quoteId,
-                termMonths,
-                startDateIso,
-                billing
-            );
-            if (selectedId != null && opt.quoteId == selectedId) {
-                selectedDetail = detail;
-                touchedSelected = true;
-            }
-        }
-        if (selectedId != null && !touchedSelected) {
-            selectedDetail = buildOptionDetail(selectedId);
-        } else if (selectedDetail == null && selectedId != null) {
-            selectedDetail = buildOptionDetail(selectedId);
-        } else if (selectedDetail == null) {
-            selectedDetail = buildOptionDetail(options[0].quoteId);
-        }
-        return selectedDetail;
+        return RLM_BambooSuitePlace.applyTermToAllOptions(
+            opportunityId,
+            selectedQuoteId,
+            termMonths,
+            startDateIso,
+            quoteIds
+        );
     }
 
-    /**
-     * Apply billing frequency to suite options, preserving each option's
-     * current term start / length. When quoteIds is null/empty, all options
-     * are updated; otherwise only the listed quote Ids (Shared-scope billing).
-     * Empty options (no QLIs) use the optional per-quote maps from the LWC.
-     * Returns the selected option's detail.
-     */
-    @AuraEnabled
-    public static OptionDetailDTO applyBillingToAllOptions(
+        public static OptionDetailDTO applyBillingToAllOptions(
         String opportunityId,
         String selectedQuoteId,
         String billingFrequency,
@@ -2254,89 +2190,14 @@ public with sharing class RLM_BambooRevenueSuite {
         Map<String, String> startDateByQuoteId,
         List<String> quoteIds
     ) {
-        Id oppId = parseId(opportunityId, 'Opportunity');
-        Id selectedId = String.isBlank(selectedQuoteId)
-            ? null
-            : parseId(selectedQuoteId, 'Quote');
-        String billing = normalizeBilling(billingFrequency);
-        List<OptionSummaryDTO> options = buildOptionSummaries(oppId, selectedId);
-        if (options.isEmpty()) {
-            throw new SuiteException('No quote options found on this opportunity.');
-        }
-
-        Set<Id> onlyIds = null;
-        if (quoteIds != null && !quoteIds.isEmpty()) {
-            onlyIds = new Set<Id>();
-            for (String raw : quoteIds) {
-                if (String.isBlank(raw)) {
-                    continue;
-                }
-                onlyIds.add(parseId(raw, 'Quote'));
-            }
-        }
-
-        OptionDetailDTO selectedDetail = null;
-        Boolean touchedSelected = false;
-        for (OptionSummaryDTO opt : options) {
-            if (onlyIds != null && !onlyIds.contains(opt.quoteId)) {
-                continue;
-            }
-            OptionDetailDTO current = buildOptionDetail(opt.quoteId);
-            Boolean hasLines = current.lines != null && !current.lines.isEmpty();
-            Integer months;
-            String startIso;
-            String key = String.valueOf(opt.quoteId);
-            if (hasLines) {
-                months = current.termMonths != null
-                    ? current.termMonths
-                    : 12;
-                startIso = String.isNotBlank(current.startDate)
-                    ? current.startDate
-                    : String.valueOf(Date.today());
-            } else {
-                months = (termMonthsByQuoteId != null &&
-                    termMonthsByQuoteId.containsKey(key))
-                    ? normalizeTerm(termMonthsByQuoteId.get(key))
-                    : 12;
-                startIso = (startDateByQuoteId != null &&
-                    String.isNotBlank(startDateByQuoteId.get(key)))
-                    ? startDateByQuoteId.get(key)
-                    : String.valueOf(Date.today());
-            }
-            OptionDetailDTO detail = applyTermToOption(
-                opt.quoteId,
-                months,
-                startIso,
-                billing
-            );
-            if (selectedId != null && opt.quoteId == selectedId) {
-                selectedDetail = detail;
-                touchedSelected = true;
-            }
-        }
-        if (selectedId != null && !touchedSelected) {
-            selectedDetail = buildOptionDetail(selectedId);
-        } else if (selectedDetail == null && selectedId != null) {
-            selectedDetail = buildOptionDetail(selectedId);
-        } else if (selectedDetail == null) {
-            selectedDetail = buildOptionDetail(options[0].quoteId);
-        }
-        return selectedDetail;
-    }
-
-    private static String billingFrequencyForOption(Id quoteId) {
-        List<QuoteLineItem> lines = [
-            SELECT BillingFrequency
-            FROM QuoteLineItem
-            WHERE QuoteId = :quoteId
-            WITH USER_MODE
-            ORDER BY CreatedDate ASC
-            LIMIT 1
-        ];
-        if (!lines.isEmpty() && String.isNotBlank(lines[0].BillingFrequency)) {
-            return normalizeBilling(lines[0].BillingFrequency);
-        }
-        return 'Monthly';
+        return RLM_BambooSuitePlace.applyBillingToAllOptions(
+            opportunityId,
+            selectedQuoteId,
+            billingFrequency,
+            termMonthsByQuoteId,
+            startDateByQuoteId,
+            quoteIds
+        );
     }
 
     /** Slice 4d Phase A — immediate retries on Opp row lock. */
@@ -2377,6 +2238,106 @@ public with sharing class RLM_BambooRevenueSuite {
      * option quote). Clear sync before Place, verify pricing while still unsynced, then
      * restore SyncedQuoteId asynchronously (Queueable) so PST and Opp DML do not race.
      */
+    public static void placeForcePublic(
+        Id quoteId,
+        List<RevSalesTrxn.RecordWithReferenceRequest> nodes
+    ) {
+        executePlaceForce(quoteId, nodes);
+    }
+
+    public static void placeConfigurePublic(
+        Id quoteId,
+        List<RevSalesTrxn.RecordWithReferenceRequest> nodes
+    ) {
+        executePlaceConfigure(quoteId, nodes);
+    }
+
+    public static OptionDetailDTO buildOptionDetailPublic(Id quoteId) {
+        return buildOptionDetail(quoteId);
+    }
+
+    public static List<OptionSummaryDTO> buildOptionSummariesPublic(
+        Id opportunityId,
+        Id selectedQuoteId
+    ) {
+        return buildOptionSummaries(opportunityId, selectedQuoteId);
+    }
+
+    public static Id parseIdPublic(String raw, String label) {
+        return parseId(raw, label);
+    }
+
+    public static String optionLetterFromNamePublic(String quoteName) {
+        return optionLetterFromName(quoteName);
+    }
+
+    public static void zeroOpportunityAmountForOptionIfWinningPublic(Id optionQuoteId) {
+        zeroOpportunityAmountForOptionIfWinning(optionQuoteId);
+    }
+
+    public static Integer normalizeTermPublic(Integer termMonths) {
+        return normalizeTerm(termMonths);
+    }
+
+    public static String normalizeBillingPublic(String billingFrequency) {
+        return normalizeBilling(billingFrequency);
+    }
+
+    public static Date parseStartDatePublic(String startDateIso) {
+        return parseStartDate(startDateIso);
+    }
+
+    public static Date computeEndDatePublic(Date startDate, Integer termMonths) {
+        return computeEndDate(startDate, termMonths);
+    }
+
+    public static Boolean isEvergreenPublic(Integer termMonths) {
+        return isEvergreen(termMonths);
+    }
+
+    public static Id resolveBillingTreatmentIdPublic(String currencyIsoCode) {
+        return resolveBillingTreatmentId(currencyIsoCode);
+    }
+
+    public static PricebookEntry resolvePbePublic(
+        String sku,
+        String ccy,
+        Integer termMonths
+    ) {
+        return resolvePbe(sku, ccy, termMonths);
+    }
+
+    public static Set<Id> existingLineIdsPublic(Id quoteId) {
+        return existingLineIds(quoteId);
+    }
+
+    public static String workforcePkgSku() {
+        return WORKFORCE_PKG_SKU;
+    }
+
+    public static String workforceDefaultPlan() {
+        return WORKFORCE_DEFAULT_PLAN;
+    }
+
+    public static Boolean isWorkforcePlanSku(String plan) {
+        return String.isNotBlank(plan) && WORKFORCE_PLAN_SKUS.contains(plan);
+    }
+
+    private static String billingFrequencyForOption(Id quoteId) {
+        List<QuoteLineItem> lines = [
+            SELECT BillingFrequency
+            FROM QuoteLineItem
+            WHERE QuoteId = :quoteId
+            WITH USER_MODE
+            ORDER BY CreatedDate ASC
+            LIMIT 1
+        ];
+        if (!lines.isEmpty() && String.isNotBlank(lines[0].BillingFrequency)) {
+            return normalizeBilling(lines[0].BillingFrequency);
+        }
+        return 'Monthly';
+    }
+
     private static void executePlaceForce(
         Id quoteId,
         List<RevSalesTrxn.RecordWithReferenceRequest> nodes
@@ -2417,6 +2378,8 @@ public with sharing class RLM_BambooRevenueSuite {
         RevSalesTrxn.ConfigurationExecutionEnum configExec,
         RevSalesTrxn.ConfigurationOptionsInput configOpts
     ) {
+        assertOptionEditable(quoteId);
+        invalidateOptionApprovalIfNeeded(quoteId);
         if (TXN_JOB_IN_PROGRESS) {
             executePlace(nodes, pricingPref, configExec, configOpts);
             ensureQuotePricedWhileSyncSuspended(quoteId);
@@ -2608,6 +2571,97 @@ public with sharing class RLM_BambooRevenueSuite {
         throw wrapLockException(last);
     }
 
+    /**
+     * When deleting the synced/staged option, clear SyncedQuoteId (if pointing at
+     * that quote) and force Opportunity.Amount to 0 so forecasting does not keep
+     * the prior quote total.
+     */
+    private static void clearOpportunityForecastForOption(
+        Id opportunityId,
+        Id optionQuoteId
+    ) {
+        if (opportunityId == null || optionQuoteId == null) {
+            return;
+        }
+        List<Opportunity> rows = [
+            SELECT
+                Id,
+                Amount,
+                SyncedQuoteId,
+                RLM_Bamboo_Staged_Sync_Quote_Id__c,
+                RLM_Bamboo_Sync_Mode__c
+            FROM Opportunity
+            WHERE Id = :opportunityId
+            WITH USER_MODE
+            LIMIT 1
+        ];
+        if (rows.isEmpty()) {
+            return;
+        }
+        Opportunity opp = rows[0];
+        Boolean wasSynced = opp.SyncedQuoteId == optionQuoteId;
+        Boolean wasStaged = opp.RLM_Bamboo_Staged_Sync_Quote_Id__c == optionQuoteId;
+        if (!wasSynced && !wasStaged) {
+            return;
+        }
+        if (wasSynced) {
+            try {
+                setOpportunitySyncedQuote(opportunityId, null);
+            } catch (SuiteException e) {
+                throw wrapLockException(e);
+            }
+        }
+        // SyncedQuoteId clear does not always remove Opp products / Amount rollup.
+        List<OpportunityLineItem> olis = [
+            SELECT Id
+            FROM OpportunityLineItem
+            WHERE OpportunityId = :opportunityId
+            WITH USER_MODE
+        ];
+        if (!olis.isEmpty()) {
+            Database.DeleteResult[] oliDrs = Database.delete(
+                olis,
+                false,
+                AccessLevel.USER_MODE
+            );
+            for (Database.DeleteResult dr : oliDrs) {
+                if (!dr.isSuccess()) {
+                    throw new SuiteException(firstError(dr));
+                }
+            }
+        }
+        Opportunity patch = new Opportunity(Id = opportunityId, Amount = 0);
+        if (wasStaged) {
+            patch.RLM_Bamboo_Staged_Sync_Quote_Id__c = null;
+        }
+        patch.RLM_Bamboo_Sync_Mode__c = 'Editing';
+        Database.SaveResult sr = Database.update(patch, false, AccessLevel.USER_MODE);
+        if (!sr.isSuccess()) {
+            throw new SuiteException(firstError(sr));
+        }
+    }
+
+    /**
+     * After all lines are removed from an option that is (or was) the Opp winner,
+     * zero Opportunity.Amount and clear sync so the Opp does not keep the old total.
+     */
+    private static void zeroOpportunityAmountForOptionIfWinning(Id optionQuoteId) {
+        if (optionQuoteId == null) {
+            return;
+        }
+        List<Quote> quotes = [
+            SELECT Id, OpportunityId
+            FROM Quote
+            WHERE Id = :optionQuoteId
+            WITH USER_MODE
+            LIMIT 1
+        ];
+        if (quotes.isEmpty() || quotes[0].OpportunityId == null) {
+            return;
+        }
+        clearOpportunityForecastForOption(quotes[0].OpportunityId, optionQuoteId);
+    }
+
     private static void executePlace(
         List<RevSalesTrxn.RecordWithReferenceRequest> nodes,
         RevSalesTrxn.PricingPreferenceEnum pricingPref,
@@ -2714,13 +2768,17 @@ public with sharing class RLM_BambooRevenueSuite {
     }
 
     private static OptionDetailDTO buildOptionDetail(Id quoteId) {
-        Quote header = [
-            SELECT Id, Name, GrandTotal, TotalPrice, RLM_Approval_Status__c
-            FROM Quote
-            WHERE Id = :quoteId
-            WITH USER_MODE
-            LIMIT 1
-        ];
+        Quote header = requireQuote(
+            quoteId,
+            new Set<String>{
+                'Id',
+                'Name',
+                'GrandTotal',
+                'TotalPrice',
+                'RLM_Approval_Status__c',
+                'RLM_Approval_Level__c'
+            }
+        );
         Integer months = inferTermMonths(quoteId);
         List<QuoteLineItem> qlis = [
             SELECT
@@ -2734,6 +2792,7 @@ public with sharing class RLM_BambooRevenueSuite {
                 TotalPrice,
                 Discount,
                 PartnerDiscountPercent,
+                RLM_Approval_Level_Calc__c,
                 StartDate,
                 EndDate,
                 BillingFrequency,
@@ -2796,13 +2855,18 @@ public with sharing class RLM_BambooRevenueSuite {
                             ? 0
                             : pricedUnit * qi.Quantity));
             line.netTotal = net;
-            if (qi.PartnerDiscountPercent != null) {
-                line.discountPercent = qi.PartnerDiscountPercent;
-            } else if (qi.Discount != null) {
+            // Discount drives Default ManualDiscount (ItemDiscountPercentage).
+            if (qi.Discount != null) {
                 line.discountPercent = qi.Discount;
+            } else if (qi.PartnerDiscountPercent != null) {
+                line.discountPercent = qi.PartnerDiscountPercent;
             } else {
                 line.discountPercent = 0;
             }
+            line.approvalLevel = qi.RLM_Approval_Level_Calc__c == null
+                ? 0
+                : qi.RLM_Approval_Level_Calc__c;
+            line.approvalRequiredLabel = approvalRequiredLabelFor(line.approvalLevel);
             if (qi.StartDate != null) {
                 line.startDate = String.valueOf(qi.StartDate);
             }
@@ -2827,6 +2891,13 @@ public with sharing class RLM_BambooRevenueSuite {
             ? header.GrandTotal
             : (header.TotalPrice != null ? header.TotalPrice : 0);
         dto.approvalStatus = normalizeApprovalStatus(header.RLM_Approval_Status__c);
+        dto.approvalLevel = header.RLM_Approval_Level__c == null
+            ? 0
+            : header.RLM_Approval_Level__c;
+        dto.approvalRequiredLabel = approvalRequiredLabelFor(dto.approvalLevel);
+        if (dto.approvalStatus == 'Rejected' || dto.approvalStatus == 'Recalled') {
+            dto.lastDecisionComments = latestDecisionCommentsForGuidance(quoteId);
+        }
         return dto;
     }
 
@@ -2902,6 +2973,12 @@ public with sharing class RLM_BambooRevenueSuite {
         s.approvalStatus = detail != null
             ? detail.approvalStatus
             : normalizeApprovalStatus(null);
+        s.approvalLevel = detail != null && detail.approvalLevel != null
+            ? detail.approvalLevel
+            : 0;
+        s.approvalRequiredLabel = detail != null
+            ? detail.approvalRequiredLabel
+            : approvalRequiredLabelFor(0);
         return s;
     }
 
@@ -2935,6 +3012,113 @@ public with sharing class RLM_BambooRevenueSuite {
         }
         String rest = optionLabel.substring(7).trim();
         return String.isBlank(rest) ? null : rest.substring(0, 1).toUpperCase();
+    }
+
+    /**
+     * Groups the user can act for on ApprovalWorkItem assignees.
+     * Includes direct membership, role / role-and-subordinates auto-groups,
+     * and nested public groups (Manager → CEO Role on this org).
+     * SYSTEM_MODE: Group/GroupMember CRUD is not grantable on the BambooHR
+     * user license; this is eligibility only, not exposed record data.
+     */
+    private static Set<Id> groupIdsForUser(Id userId) {
+        Set<Id> memberKeys = new Set<Id>{ userId };
+        List<User> users = [
+            SELECT UserRoleId
+            FROM User
+            WHERE Id = :userId
+            WITH SYSTEM_MODE
+            LIMIT 1
+        ];
+        if (!users.isEmpty() && users[0].UserRoleId != null) {
+            Id roleId = users[0].UserRoleId;
+            memberKeys.add(roleId);
+            for (Group roleGroup : [
+                SELECT Id
+                FROM Group
+                WHERE RelatedId = :roleId
+                WITH SYSTEM_MODE
+            ]) {
+                memberKeys.add(roleGroup.Id);
+            }
+        }
+
+        Set<Id> groupIds = new Set<Id>();
+        Boolean grew = true;
+        Integer guard = 0;
+        while (grew && guard < 10) {
+            grew = false;
+            guard++;
+            for (GroupMember gm : [
+                SELECT GroupId
+                FROM GroupMember
+                WHERE UserOrGroupId IN :memberKeys
+                WITH SYSTEM_MODE
+            ]) {
+                if (groupIds.add(gm.GroupId)) {
+                    memberKeys.add(gm.GroupId);
+                    grew = true;
+                }
+            }
+        }
+        return groupIds;
+    }
+
+    @TestVisible
+    private static String normalizeReviewDecision(String raw) {
+        if (String.isBlank(raw)) {
+            throw new SuiteException('Approval decision is required.');
+        }
+        String d = raw.trim().toLowerCase();
+        if (d == 'approve' || d == 'approved') {
+            // Platform invocable expects title case (REST sample: "Approve").
+            return 'Approve';
+        }
+        if (d == 'reject' || d == 'rejected') {
+            return 'Reject';
+        }
+        throw new SuiteException('Decision must be Approve or Reject.');
+    }
+
+    private static void invokeReviewApprovalWorkItem(
+        Id workItemId,
+        String decision,
+        String comments
+    ) {
+        Invocable.Action action = Invocable.Action.createStandardAction(
+            'reviewApprovalWorkItem'
+        );
+        action.setInvocationParameter(
+            'approvalWorkItemId',
+            String.valueOf(workItemId)
+        );
+        action.setInvocationParameter('approvalDecision', decision);
+        action.setInvocationParameter(
+            'comments',
+            String.isBlank(comments)
+                ? 'Reviewed from BambooHR Revenue Suite'
+                : comments.trim()
+        );
+        action.setInvocationParameter('channelType', 'InvocableAction');
+        List<Invocable.Action.Result> results = action.invoke();
+        if (results == null || results.isEmpty()) {
+            throw new SuiteException(
+                'Review approval work item returned no result.'
+            );
+        }
+        Invocable.Action.Result res = results[0];
+        if (!res.isSuccess()) {
+            List<String> msgs = new List<String>();
+            if (res.getErrors() != null) {
+                for (Invocable.Action.Error err : res.getErrors()) {
+                    msgs.add(err.getMessage());
+                }
+            }
+            throw new SuiteException(
+                'Could not review approval work item: ' +
+                (msgs.isEmpty() ? 'Unknown error' : String.join(msgs, '; '))
+            );
+        }
     }
 
     private static String optionLetterFromName(String quoteName) {
@@ -3177,6 +3361,44 @@ public with sharing class RLM_BambooRevenueSuite {
         return 'FLAT';
     }
 
+    /**
+     * Re-open path after TLE edits: prefer staged/sync winner, then the most
+     * recently touched suite option — not always a fresh empty Option A.
+     */
+    private static Quote resolveSuiteEntryQuote(Opportunity opp) {
+        Id preferredId = opp.RLM_Bamboo_Staged_Sync_Quote_Id__c != null
+            ? opp.RLM_Bamboo_Staged_Sync_Quote_Id__c
+            : opp.SyncedQuoteId;
+        if (preferredId != null) {
+            List<Quote> preferred = [
+                SELECT Id, Name, QuoteNumber, CurrencyIsoCode, Status
+                FROM Quote
+                WHERE Id = :preferredId AND OpportunityId = :opp.Id
+                WITH USER_MODE
+                LIMIT 1
+            ];
+            if (!preferred.isEmpty() && optionLetterFromName(preferred[0].Name) != null) {
+                return preferred[0];
+            }
+        }
+        List<Quote> recent = [
+            SELECT Id, Name, QuoteNumber, CurrencyIsoCode, Status
+            FROM Quote
+            WHERE OpportunityId = :opp.Id AND Name LIKE '%Option %'
+            WITH USER_MODE
+            ORDER BY LastModifiedDate DESC
+            LIMIT 1
+        ];
+        if (!recent.isEmpty()) {
+            return recent[0];
+        }
+        Quote draft = findOptionADraft(opp.Id);
+        if (draft != null) {
+            return draft;
+        }
+        return createOptionAQuote(opp);
+    }
+
     private static Quote findOptionADraft(Id opportunityId) {
         List<Quote> rows = [
             SELECT Id, Name, QuoteNumber, CurrencyIsoCode, Status
@@ -3280,6 +3502,51 @@ public with sharing class RLM_BambooRevenueSuite {
             expanded.add(child.Id);
         }
         return expanded;
+    }
+
+    private static Quote requireQuote(Id quoteId, Set<String> extraFields) {
+        if (quoteId == null) {
+            throw new SuiteException('Quote Id is required.');
+        }
+        Set<String> fields = new Set<String>{ 'Id' };
+        if (extraFields != null) {
+            fields.addAll(extraFields);
+        }
+        String soql =
+            'SELECT ' +
+            String.join(new List<String>(fields), ', ') +
+            ' FROM Quote WHERE Id = :quoteId WITH USER_MODE LIMIT 1';
+        List<Quote> rows = Database.query(soql);
+        if (rows.isEmpty()) {
+            throw new SuiteException(
+                'Quote not found or you no longer have access. Re-open BambooHR Revenue Suite from the Opportunity.'
+            );
+        }
+        return rows[0];
+    }
+
+    private static Opportunity requireOpportunity(
+        Id opportunityId,
+        Set<String> extraFields
+    ) {
+        if (opportunityId == null) {
+            throw new SuiteException('Opportunity Id is required.');
+        }
+        Set<String> fields = new Set<String>{ 'Id' };
+        if (extraFields != null) {
+            fields.addAll(extraFields);
+        }
+        String soql =
+            'SELECT ' +
+            String.join(new List<String>(fields), ', ') +
+            ' FROM Opportunity WHERE Id = :opportunityId WITH USER_MODE LIMIT 1';
+        List<Opportunity> rows = Database.query(soql);
+        if (rows.isEmpty()) {
+            throw new SuiteException(
+                'Opportunity not found or you no longer have access.'
+            );
+        }
+        return rows[0];
     }
 
     private static Id parseId(String raw, String label) {

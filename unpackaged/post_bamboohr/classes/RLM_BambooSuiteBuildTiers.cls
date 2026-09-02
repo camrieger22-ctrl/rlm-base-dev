@@ -1,6 +1,6 @@
 /**
  * Agentforce Invocable: ensure Option A/B/C and/or fill one Good/Better/Best
- * tier via RLM_BambooRevenueSuite (not the self-serve Get Pricing BFF).
+ * tier via RLM_BambooSuitePlace (ensure quotes via RevenueSuite DTO helpers).
  *
  * Call once with blank tierKey to ensure A/B/C exist, then once per tier
  * (Good → Better → Best) so each Place+price run stays under governor limits.
@@ -129,7 +129,7 @@ public with sharing class RLM_BambooSuiteBuildTiers {
                 : req.startDate.trim();
 
             RLM_BambooRevenueSuite.OptionDetailDTO filled =
-                RLM_BambooRevenueSuite.fillTierOption(
+                RLM_BambooSuitePlace.fillTierOption(
                     quoteIdForTier(ensured, tier),
                     tier,
                     seats,

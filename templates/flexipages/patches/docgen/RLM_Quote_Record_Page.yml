@@ -10,8 +10,12 @@ patches:
       - "Quote.RLM_Create_Proposal"
       - "Quote.RLM_Submit_for_Approval"
 
-  - type: add_display_field
-    field: "QuoteLineItem.RLM_Approval__c"
+  # Idempotent with approvals patch; stamped flag (TLE skips formula fields)
+  - type: add_sales_txn_line_editor_field
+    property: displayFields
+    after: "QuoteLineItem.Discount"
+    fields:
+      - "QuoteLineItem.RLM_Approval_Flag__c"
 
   - type: add_facet_field
     facet: "Quote Information"

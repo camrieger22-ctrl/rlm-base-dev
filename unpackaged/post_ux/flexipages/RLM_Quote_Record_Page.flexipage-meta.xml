@@ -165,6 +165,9 @@
                             <value>QuoteLineItem.Discount</value>
                         </valueListItems>
                         <valueListItems>
+                            <value>QuoteLineItem.RLM_Approval_Flag__c</value>
+                        </valueListItems>
+                        <valueListItems>
                             <value>QuoteLineItem.DiscountAmount</value>
                         </valueListItems>
                         <valueListItems>
@@ -181,9 +184,6 @@
                         </valueListItems>
                         <valueListItems>
                             <value>QuoteLineItem.QuoteLineGroup.IsRamped[QuoteLineGroup]</value>
-                        </valueListItems>
-                        <valueListItems>
-                            <value>QuoteLineItem.RLM_Approval__c</value>
                         </valueListItems>
                     </valueList>
                 </componentInstanceProperties>

@@ -7,29 +7,21 @@ import openFromOpportunity from '@salesforce/apex/RLM_BambooRevenueSuite.openFro
 import getSession from '@salesforce/apex/RLM_BambooRevenueSuite.getSession';
 import getCatalog from '@salesforce/apex/RLM_BambooRevenueSuite.getCatalog';
 import getOptionDetail from '@salesforce/apex/RLM_BambooRevenueSuite.getOptionDetail';
-import addProductLine from '@salesforce/apex/RLM_BambooRevenueSuite.addProductLine';
-import addProductLinesBySku from '@salesforce/apex/RLM_BambooRevenueSuite.addProductLinesBySku';
-import addWorkforcePackage from '@salesforce/apex/RLM_BambooRevenueSuite.addWorkforcePackage';
-import updateLineQuantity from '@salesforce/apex/RLM_BambooRevenueSuite.updateLineQuantity';
-import updateLineDiscount from '@salesforce/apex/RLM_BambooRevenueSuite.updateLineDiscount';
-import repriceOption from '@salesforce/apex/RLM_BambooRevenueSuite.repriceOption';
 import estimateCatalogAdd from '@salesforce/apex/RLM_BambooRevenueSuite.estimateCatalogAdd';
 import listOptions from '@salesforce/apex/RLM_BambooRevenueSuite.listOptions';
 import addOption from '@salesforce/apex/RLM_BambooRevenueSuite.addOption';
 import deleteOption from '@salesforce/apex/RLM_BambooRevenueSuite.deleteOption';
-import removeLine from '@salesforce/apex/RLM_BambooRevenueSuite.removeLine';
-import removeLines from '@salesforce/apex/RLM_BambooRevenueSuite.removeLines';
-import applyTermToOption from '@salesforce/apex/RLM_BambooRevenueSuite.applyTermToOption';
-import applyTermToAllOptions from '@salesforce/apex/RLM_BambooRevenueSuite.applyTermToAllOptions';
-import applyBillingToAllOptions from '@salesforce/apex/RLM_BambooRevenueSuite.applyBillingToAllOptions';
-import previewProposal from '@salesforce/apex/RLM_BambooRevenueSuite.previewProposal';
+import startDocGenPreview from '@salesforce/apex/RLM_BambooSuiteDocGen.startPreview';
 import getProposalStatus from '@salesforce/apex/RLM_BambooRevenueSuite.getProposalStatus';
 import getQuotingAssistantBotId from '@salesforce/apex/RLM_BambooRevenueSuite.getQuotingAssistantBotId';
-import syncOptionToOpportunity from '@salesforce/apex/RLM_BambooRevenueSuite.syncOptionToOpportunity';
-import unsyncOpportunity from '@salesforce/apex/RLM_BambooRevenueSuite.unsyncOpportunity';
+import applySyncAction from '@salesforce/apex/RLM_BambooSuiteSync.applySyncAction';
 import submitOptionForApproval from '@salesforce/apex/RLM_BambooRevenueSuite.submitOptionForApproval';
+import listPendingApprovalWorkItems from '@salesforce/apex/RLM_BambooRevenueSuite.listPendingApprovalWorkItems';
+import reviewSuiteApprovalWorkItem from '@salesforce/apex/RLM_BambooRevenueSuite.reviewSuiteApprovalWorkItem';
+import recallOptionApproval from '@salesforce/apex/RLM_BambooRevenueSuite.recallOptionApproval';
 import listOpportunityContacts from '@salesforce/apex/RLM_BambooRevenueSuite.listOpportunityContacts';
-import sendOptionToCustomer from '@salesforce/apex/RLM_BambooRevenueSuite.sendOptionToCustomer';
+import sendOptionToCustomer from '@salesforce/apex/RLM_BambooSuiteSend.sendOptionToCustomer';
+import runCommercialOperation from '@salesforce/apex/RLM_BambooRevenueSuite.runCommercialOperation';
 import enqueueSuiteMutation from '@salesforce/apex/RLM_BambooSuiteTxnOrchestrator.enqueueSuiteMutation';
 import getJobStatus from '@salesforce/apex/RLM_BambooSuiteTxnOrchestrator.getJobStatus';
 
@@ -55,6 +47,93 @@ const WORKFORCE_PLAN_CHOICES = [
 
 const QTY_PRESETS = [10, 25, 50, 100, 250];
 const QTY_DEBOUNCE_MS = 400;
+
+/** Mirror RLM_Approval_Level_Calc__c (Disc % as 0–100 UI value). */
+function approvalLevelForDiscPercent(pct) {
+    const n = Number(pct);
+    if (!Number.isFinite(n) || n < 15) {
+        return 0;
+    }
+    if (n < 25) {
+        return 1;
+    }
+    if (n < 35) {
+        return 2;
+    }
+    return 3;
+}
+
+function approvalRequiredLabelForLevel(level) {
+    const n = Number(level) || 0;
+    if (n >= 3) {
+        return 'Manager → Director → VP';
+    }
+    if (n >= 2) {
+        return 'Manager → Director';
+    }
+    if (n >= 1) {
+        return 'Manager';
+    }
+    return 'None';
+}
+
+/** Label for the next ladder step while platform orchestration catches up. */
+function nextApproverLabelAfterStep(approvalLevel, stepName) {
+    const level = Number(approvalLevel) || 0;
+    const step = String(stepName || '').toLowerCase();
+    if (step.includes('manager') && level >= 2) {
+        return 'Director';
+    }
+    if (step.includes('director') && level >= 3) {
+        return 'VP';
+    }
+    if (step.includes('payment')) {
+        return 'the next approver';
+    }
+    return 'the next approver';
+}
+
+function lineApprovalFields(pct, serverLevel, serverLabel, optionApprovalStatus) {
+    const n = Number(pct);
+    const disc = Number.isFinite(n) ? n : 0;
+    const approvalLevel =
+        serverLevel != null && Number.isFinite(Number(serverLevel))
+            ? Number(serverLevel)
+            : approvalLevelForDiscPercent(disc);
+    const label =
+        serverLabel || approvalRequiredLabelForLevel(approvalLevel);
+    const status = String(optionApprovalStatus || 'Draft').toLowerCase();
+    // Match TLE RLM_Approval__c: blank Needs flags once Quote is Approved.
+    if (status === 'approved') {
+        return {
+            approvalLevel,
+            approvalRequiredLabel: label,
+            showApprovalRequired: false,
+            showAutoApproved: false,
+            showLineApprovalChip: false,
+            approvalRequiredChipLabel: '',
+            lineApprovalChipClass: ''
+        };
+    }
+    const showApprovalRequired = approvalLevel > 0;
+    // Level 0 (< 15% Disc) — no Manager/Director/VP chain.
+    const showAutoApproved = !showApprovalRequired;
+    return {
+        approvalLevel,
+        approvalRequiredLabel: label,
+        showApprovalRequired,
+        showAutoApproved,
+        showLineApprovalChip: showApprovalRequired || showAutoApproved,
+        approvalRequiredChipLabel: showApprovalRequired
+            ? `Needs ${label}`
+            : showAutoApproved
+              ? 'Auto approved'
+              : '',
+        lineApprovalChipClass: showApprovalRequired
+            ? 'line-approval-chip'
+            : 'line-approval-chip line-approval-auto'
+    };
+}
 
 function todayIso() {
     return new Date().toISOString().slice(0, 10);
@@ -165,6 +244,12 @@ function enrichLine(line, selected, termStartDate, termMonths, formatMoney, extr
             extra.rowClass ||
             (isSelected ? 'line-card line-card-selected' : 'line-card'),
         discountPercent: line.discountPercent == null ? 0 : Number(line.discountPercent),
+        ...lineApprovalFields(
+            line.discountPercent == null ? 0 : Number(line.discountPercent),
+            line.approvalLevel,
+            line.approvalRequiredLabel,
+            extra.optionApprovalStatus
+        ),
         unitLabel: formatMoney(line.unitPrice),
         listLabel: extra.listLabel || `${formatMoney(listTotal)}/mo`,
         netLabel: extra.netLabel || formatMoney(line.netTotal),
@@ -177,8 +262,16 @@ function enrichLine(line, selected, termStartDate, termMonths, formatMoney, extr
     };
 }
 
-function buildLineDisplayRows(lines, selectedIds, termStartDate, termMonths, formatMoney) {
+function buildLineDisplayRows(
+    lines,
+    selectedIds,
+    termStartDate,
+    termMonths,
+    formatMoney,
+    optionApprovalStatus
+) {
     const selected = new Set(selectedIds || []);
+    const approvalStatus = optionApprovalStatus || 'Draft';
     const childrenByParent = new Map();
     for (const line of lines || []) {
         if (line.parentLineId) {
@@ -198,7 +291,8 @@ function buildLineDisplayRows(lines, selectedIds, termStartDate, termMonths, for
             const childRows = children.map((child) =>
                 enrichLine(child, selected, termStartDate, termMonths, formatMoney, {
                     rowKind: 'bundle-child',
-                    rowClass: 'line-card line-card-bundle-child'
+                    rowClass: 'line-card line-card-bundle-child',
+                    optionApprovalStatus: approvalStatus
                 })
             );
             const listTotal = childRows.reduce(
@@ -222,14 +316,16 @@ function buildLineDisplayRows(lines, selectedIds, termStartDate, termMonths, for
                     netLabel: formatMoney(netTotal),
                     bundleLineIds: bundleLineIds.join(','),
                     selected: bundleLineIds.every((id) => selected.has(id)),
-                    childCountLabel: `${children.length} components`
+                    childCountLabel: `${children.length} components`,
+                    optionApprovalStatus: approvalStatus
                 })
             );
             rows.push(...childRows);
         } else {
             rows.push(
                 enrichLine(line, selected, termStartDate, termMonths, formatMoney, {
-                    rowKind: 'standalone'
+                    rowKind: 'standalone',
+                    optionApprovalStatus: approvalStatus
                 })
             );
         }
@@ -307,6 +403,7 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
     estimateBusy = false;
     estimateResult;
     estimateError;
+    estimatePreviewOpen = false;
     agentError;
     quotingAssistantBotId;
     termMonths = 12;
@@ -337,6 +434,19 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
     approvalBusy = false;
     approvalError;
     approvalStatusMsg;
+    approvalsOpen = false;
+    pendingApprovalsLoading = false;
+    pendingApprovalsError;
+    pendingApprovalItems = [];
+    pendingActionableCount = 0;
+    pendingRequestSummary;
+    pendingQuoteApprovalsUrl;
+    pendingWorkGuideHint;
+    approvalReviewComment = '';
+    approvalReviewBusy = false;
+    approvalReviewWorkItemId;
+    pendingApprovalsAdvancing = false;
+    pendingApprovalsAdvancingLabel = '';
     sendOpen = false;
     sendBusy = false;
     sendError;
@@ -363,6 +473,10 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
     billingScopeByQuoteId = {};
     /** Selected line Ids for multi-delete (active option only). */
     selectedLineIds = [];
+    /** UI-only: 'line' | 'option' — where Disc % applies. */
+    discountScope = 'line';
+    /** Footer Disc % when discountScope === 'option'. */
+    optionDiscountPercent = 0;
 
     _qtyTimers = {};
     _qtyInFlight = false;
@@ -370,6 +484,9 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
     _discTimers = {};
     _discInFlight = false;
     _discQueued = null;
+    _optionDiscTimer = null;
+    _optionDiscInFlight = false;
+    _optionDiscQueued = null;
 
     termChoices = TERM_CHOICES;
     billingChoices = BILLING_CHOICES;
@@ -507,6 +624,32 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
         return `${base} approval-draft`;
     }
 
+    get approvalRequiredLabel() {
+        return (
+            this.optionDetail?.approvalRequiredLabel ||
+            this.activeOptionCard?.approvalRequiredLabel ||
+            'None'
+        );
+    }
+
+    get showApprovalRequiredHint() {
+        const level = Number(
+            this.optionDetail?.approvalLevel ??
+                this.activeOptionCard?.approvalLevel ??
+                0
+        );
+        const status = String(this.activeApprovalStatus || 'Draft').toLowerCase();
+        return (
+            Number.isFinite(level) &&
+            level > 0 &&
+            (status === 'draft' || status === 'rejected' || status === 'recalled')
+        );
+    }
+
+    get approvalRequiredChipLabel() {
+        return `Requires ${this.approvalRequiredLabel}`;
+    }
+
     get submitApprovalDisabled() {
         const priced =
             this.optionDetail?.priced || this.pricingStatus === 'priced';
@@ -536,6 +679,105 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
         return 'Submit for approval';
     }
 
+    get pendingApprovalsButtonLabel() {
+        const n = Number(this.pendingActionableCount) || 0;
+        if (n > 0) {
+            return `Pending approvals (${n})`;
+        }
+        return 'Pending approvals';
+    }
+
+    get pendingApprovalsButtonDisabled() {
+        return (
+            !this.session?.quoteId ||
+            this.pendingApprovalsLoading ||
+            this.approvalReviewBusy
+        );
+    }
+
+    get hasPendingApprovalItems() {
+        return (this.pendingApprovalItems || []).length > 0;
+    }
+
+    get showPendingApprovalsAdvancing() {
+        return this.pendingApprovalsAdvancing && !this.pendingApprovalsLoading;
+    }
+
+    get showOpenQuoteApprovals() {
+        return Boolean(this.pendingQuoteApprovalsUrl || this.session?.quoteId);
+    }
+
+    get hasPendingRequestSummary() {
+        return String(this.pendingRequestSummary || '').trim().length > 0;
+    }
+
+    get showRecallApproval() {
+        return (
+            String(this.activeApprovalStatus || '').toLowerCase() === 'pending' &&
+            !this.approvalReviewBusy &&
+            !this.approvalBusy
+        );
+    }
+
+    /** Approved or Pending — commercial edits blocked until Recall (Pending only). */
+    get isOptionLocked() {
+        const status = String(this.activeApprovalStatus || 'Draft').toLowerCase();
+        return status === 'approved' || status === 'pending';
+    }
+
+    get optionLockHint() {
+        const status = String(this.activeApprovalStatus || '').toLowerCase();
+        if (status === 'approved') {
+            return 'Approved and locked. Add a new option to re-quote with different terms.';
+        }
+        if (status === 'pending') {
+            return 'Pending approval and locked. Recall first if you need to edit.';
+        }
+        return '';
+    }
+
+    /** Rejected / Recalled — OOTB Option 2: edit named lines, then Commit + Submit. */
+    get showResubmitGuidance() {
+        const status = String(this.activeApprovalStatus || '').toLowerCase();
+        return status === 'rejected' || status === 'recalled';
+    }
+
+    get resubmitGuidanceTitle() {
+        const status = String(this.activeApprovalStatus || '').toLowerCase();
+        if (status === 'recalled') {
+            return 'Approval recalled — edit and resubmit';
+        }
+        return 'Rejected — edit the named lines, then resubmit';
+    }
+
+    get resubmitGuidanceBody() {
+        return (
+            'This was a quote-level reject (not per-line). Fix the products/discounts called ' +
+            'out below, keep acceptable lines as-is, then Commit and Submit for approval. ' +
+            'Unchanged discount conditions may Smart-Approve on resubmit; changed lines re-enter the ladder.'
+        );
+    }
+
+    get lastDecisionComments() {
+        return this.optionDetail?.lastDecisionComments || '';
+    }
+
+    get hasLastDecisionComments() {
+        return String(this.lastDecisionComments || '').trim().length > 0;
+    }
+
+    get pendingApprovalRows() {
+        return (this.pendingApprovalItems || []).map((row) => ({
+            ...row,
+            chainLabel: row.chainName || 'Approval',
+            assignedLabel: row.assignedToLabel || 'Assignee',
+            showWaiting: !row.canAct,
+            reviewBusy:
+                this.approvalReviewBusy &&
+                row.workItemId === this.approvalReviewWorkItemId
+        }));
+    }
+
     get sendDisabled() {
         const priced =
             this.optionDetail?.priced || this.pricingStatus === 'priced';
@@ -547,7 +789,7 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
             !this.session?.quoteId ||
             !priced ||
             !this.isSyncCommitted ||
-            status === 'pending'
+            status !== 'approved'
         );
     }
 
@@ -614,7 +856,12 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
     }
 
     get termControlsDisabled() {
-        return this.termBusy || this.pricingBusy || !this.session?.quoteId;
+        return (
+            this.termBusy ||
+            this.pricingBusy ||
+            this.isOptionLocked ||
+            !this.session?.quoteId
+        );
     }
 
     get showWorkspace() {
@@ -866,6 +1113,17 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
         return this.catalogSelectionCount > 1;
     }
 
+    get catalogSelectionHint() {
+        const n = this.catalogSelectionCount;
+        if (n <= 0) {
+            return '';
+        }
+        if (n === 1) {
+            return '1 product selected — set quantity and add in the panel to the right.';
+        }
+        return `${n} products selected — review quantities and add in the panel to the right.`;
+    }
+
     /** Shared qty stepper only for single queued product / Workforce package. */
     get showSharedQuantity() {
         return !this.hasCatalogMultiSelect;
@@ -950,7 +1208,8 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
             this.selectedLineIds,
             this.termStartDate,
             this.termMonths,
-            (n) => this.formatMoney(n)
+            (n) => this.formatMoney(n),
+            this.activeApprovalStatus
         );
     }
 
@@ -972,7 +1231,12 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
     }
 
     get deleteSelectedDisabled() {
-        return this.pricingBusy || !this.hasSelectedLines || !this.session?.quoteId;
+        return (
+            this.pricingBusy ||
+            this.isOptionLocked ||
+            !this.hasSelectedLines ||
+            !this.session?.quoteId
+        );
     }
 
     get deleteSelectedLabel() {
@@ -1114,7 +1378,13 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
 
     get addDisabled() {
         const hasTargets = this.hasCatalogQueue || Boolean(this.selectedSku);
-        return this.adding || this.pricingBusy || !hasTargets || !this.session?.quoteId;
+        return (
+            this.adding ||
+            this.pricingBusy ||
+            this.isOptionLocked ||
+            !hasTargets ||
+            !this.session?.quoteId
+        );
     }
 
     get estimateDisabled() {
@@ -1142,6 +1412,17 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
         return (this.estimateResult?.lines || []).length > 0;
     }
 
+    get showEstimatePreview() {
+        return this.estimatePreviewOpen;
+    }
+
+    get estimatePreviewLinkLabel() {
+        if (this.estimateBusy) {
+            return 'Estimating…';
+        }
+        return this.estimateResult?.ok ? 'Refresh RC pricing' : 'Preview RC pricing';
+    }
+
     get estimateLineRows() {
         return (this.estimateResult?.lines || []).map((line) => ({
             ...line,
@@ -1162,16 +1443,26 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
     }
 
     get repriceDisabled() {
-        return this.pricingBusy || !this.hasLines || !this.session?.quoteId;
+        return (
+            this.pricingBusy ||
+            this.isOptionLocked ||
+            !this.hasLines ||
+            !this.session?.quoteId
+        );
     }
 
     get deleteOptionDisabled() {
         return (
             this.pricingBusy ||
+            this.isOptionLocked ||
             this.addingOption ||
             !this.session?.quoteId ||
             (this.options || []).length < 2
         );
+    }
+
+    get lineEditsDisabled() {
+        return this.pricingBusy || this.isOptionLocked;
     }
 
     get deleteOptionTitle() {
@@ -1189,11 +1480,52 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
         return (this.options || []).length < 2;
     }
 
+    get isDiscountScopeLine() {
+        return this.discountScope !== 'option';
+    }
+
+    get isDiscountScopeOption() {
+        return this.discountScope === 'option';
+    }
+
+    get lineDiscountScopeClass() {
+        return this.isDiscountScopeLine
+            ? 'discount-scope discount-scope-active'
+            : 'discount-scope';
+    }
+
+    get optionDiscountScopeClass() {
+        return this.isDiscountScopeOption
+            ? 'discount-scope discount-scope-active'
+            : 'discount-scope';
+    }
+
+    connectedCallback() {
+        this._onSuiteVisible = () => {
+            if (
+                document.visibilityState === 'visible' &&
+                this.session?.quoteId &&
+                !this.loading &&
+                !this.pricingBusy
+            ) {
+                void this.refreshAfterExternalEdit();
+            }
+        };
+        document.addEventListener('visibilitychange', this._onSuiteVisible);
+    }
+
     disconnectedCallback() {
+        if (this._onSuiteVisible) {
+            document.removeEventListener('visibilitychange', this._onSuiteVisible);
+        }
         Object.values(this._qtyTimers).forEach((t) => clearTimeout(t));
         this._qtyTimers = {};
         Object.values(this._discTimers).forEach((t) => clearTimeout(t));
         this._discTimers = {};
+        if (this._optionDiscTimer) {
+            clearTimeout(this._optionDiscTimer);
+            this._optionDiscTimer = null;
+        }
     }
 
     async bootstrap() {
@@ -1201,9 +1533,33 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
         this.error = undefined;
         try {
             if (this.quoteId) {
-                this.session = await getSession({ quoteId: this.quoteId });
-                this.opportunityId =
-                    this.opportunityId || this.session?.opportunityId;
+                try {
+                    this.session = await getSession({ quoteId: this.quoteId });
+                    this.opportunityId =
+                        this.opportunityId || this.session?.opportunityId;
+                } catch (e) {
+                    const oppId =
+                        this.opportunityId ||
+                        window.sessionStorage?.getItem('rlmBambooSuiteLastOppId');
+                    if (oppId && this.isStaleQuoteSessionError(e)) {
+                        this.quoteId = undefined;
+                        this.session = await openFromOpportunity({
+                            opportunityId: oppId
+                        });
+                        this.quoteId = this.session?.quoteId;
+                        this.dispatchEvent(
+                            new ShowToastEvent({
+                                title: 'Resumed suite session',
+                                message:
+                                    'The prior quote link was stale (common after TLE edits). Restored your active option from the Opportunity.',
+                                variant: 'info',
+                                mode: 'dismissable'
+                            })
+                        );
+                    } else {
+                        throw e;
+                    }
+                }
             } else if (this.opportunityId) {
                 this.session = await openFromOpportunity({
                     opportunityId: this.opportunityId
@@ -1223,6 +1579,12 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
             if (this.session?.quoteId) {
                 this.opportunityId =
                     this.opportunityId || this.session.opportunityId;
+                if (this.session.opportunityId && window.sessionStorage) {
+                    window.sessionStorage.setItem(
+                        'rlmBambooSuiteLastOppId',
+                        this.session.opportunityId
+                    );
+                }
                 if (this.session.syncPausedToast) {
                     this.dispatchEvent(
                         new ShowToastEvent({
@@ -1265,7 +1627,9 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
         this.selectedLineIds = [];
         this.optionDetail = await getOptionDetail({ quoteId: this.session.quoteId });
         this.syncRibbonFromOption(this.optionDetail);
+        this.syncOptionDiscountFromLines();
         this.pricingStatus = this.optionDetail?.priced ? 'priced' : 'idle';
+        void this.refreshPendingApprovalCount();
     }
 
     syncRibbonFromOption(detail) {
@@ -1445,12 +1809,17 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
                 });
                 this.optionDetail = await getOptionDetail({ quoteId: qid });
             } else {
-                this.optionDetail = await applyTermToOption({
+                const commercial = await runCommercialOperation({
+                    operation: 'ApplyTerm',
                     quoteId: qid,
-                    termMonths: months,
-                    startDateIso: start,
-                    billingFrequency: this.effectiveBillingFrequency || 'Monthly'
+                    opportunityId: this.session.opportunityId,
+                    payloadJson: JSON.stringify({
+                        termMonths: months,
+                        startDateIso: start,
+                        billingFrequency: this.effectiveBillingFrequency || 'Monthly'
+                    })
                 });
+                this.optionDetail = commercial?.option;
             }
             this.syncRibbonFromOption(this.optionDetail);
             this.pricingStatus = 'priced';
@@ -1481,13 +1850,19 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
         this.optionsError = undefined;
         this.pricingStatus = 'pending';
         try {
-            this.optionDetail = await applyTermToAllOptions({
+            const commercial = await runCommercialOperation({
+                operation: 'ApplyTermAll',
+                quoteId: this.session.quoteId,
                 opportunityId: oppId,
-                selectedQuoteId: this.session.quoteId,
-                termMonths: this.termMonths,
-                startDateIso: this.termStartDate || todayIso(),
-                quoteIds: sharedIds
+                payloadJson: JSON.stringify({
+                    selectedQuoteId: this.session.quoteId,
+                    opportunityId: oppId,
+                    termMonths: this.termMonths,
+                    startDateIso: this.termStartDate || todayIso(),
+                    quoteIds: sharedIds
+                })
             });
+            this.optionDetail = commercial?.option;
             this.syncRibbonFromOption(this.optionDetail);
             this.pricingStatus = this.optionDetail?.priced ? 'priced' : 'idle';
             this.refreshOptionsQuietly();
@@ -1504,6 +1879,7 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
         this.selectedSku = undefined;
         this.catalogQueue = [];
         this.addError = undefined;
+        this.clearEstimate();
     }
 
     handleRemoveFromQueue(event) {
@@ -1522,6 +1898,7 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
             }
         }
         this.addError = undefined;
+        this.clearEstimate();
     }
 
     handleQueueQtyInput(event) {
@@ -1561,6 +1938,7 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
             ...e,
             quantity: qty
         }));
+        this.clearEstimate();
     }
 
     setQueueQuantity(sku, qty) {
@@ -1575,6 +1953,7 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
             this.quantity = safe;
         }
         this.addError = undefined;
+        this.clearEstimate();
     }
 
     enqueueCatalogSku(sku, quantity) {
@@ -1794,14 +2173,20 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
         this.optionsError = undefined;
         this.pricingStatus = 'pending';
         try {
-            this.optionDetail = await applyBillingToAllOptions({
+            const commercial = await runCommercialOperation({
+                operation: 'ApplyBillingAll',
+                quoteId: this.session.quoteId,
                 opportunityId: oppId,
-                selectedQuoteId: this.session.quoteId,
-                billingFrequency: this.billingFrequency || 'Monthly',
-                termMonthsByQuoteId: this.termByQuoteId || {},
-                startDateByQuoteId: this.startByQuoteId || {},
-                quoteIds: sharedIds
+                payloadJson: JSON.stringify({
+                    selectedQuoteId: this.session.quoteId,
+                    opportunityId: oppId,
+                    billingFrequency: this.billingFrequency || 'Monthly',
+                    termMonthsByQuoteId: this.termByQuoteId || {},
+                    startDateByQuoteId: this.startByQuoteId || {},
+                    quoteIds: sharedIds
+                })
             });
+            this.optionDetail = commercial?.option;
             this.syncRibbonFromOption(this.optionDetail);
             this.pricingStatus = this.optionDetail?.priced ? 'priced' : 'idle';
             this.refreshOptionsQuietly();
@@ -2000,6 +2385,9 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
     }
 
     handleLineQtyInput(event) {
+        if (this.lineEditsDisabled) {
+            return;
+        }
         const lineId = event.currentTarget.dataset.lineId;
         const n = Number(event.target.value);
         const qty = Number.isFinite(n) && n > 0 ? n : 1;
@@ -2016,6 +2404,9 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
     }
 
     handleLineDiscountInput(event) {
+        if (this.lineEditsDisabled) {
+            return;
+        }
         const lineId = event.currentTarget.dataset.lineId;
         let n = Number(event.target.value);
         if (!Number.isFinite(n) || n < 0) {
@@ -2030,7 +2421,18 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
         this.optionDetail = {
             ...this.optionDetail,
             lines: this.optionDetail.lines.map((line) =>
-                line.lineId === lineId ? { ...line, discountPercent: n } : line
+                line.lineId === lineId
+                    ? {
+                          ...line,
+                          discountPercent: n,
+                          ...lineApprovalFields(
+                              n,
+                              null,
+                              null,
+                              this.activeApprovalStatus
+                          )
+                      }
+                    : line
             )
         };
         this.scheduleDiscUpdate(lineId, n);
@@ -2092,11 +2494,16 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
                     quoteId: this.session.quoteId
                 });
             } else {
-                this.optionDetail = await updateLineQuantity({
+                const commercial = await runCommercialOperation({
+                    operation: 'UpdateQty',
                     quoteId: this.session.quoteId,
-                    lineId,
-                    quantity: qty
+                    opportunityId: this.session.opportunityId,
+                    payloadJson: JSON.stringify({
+                        lineId,
+                        quantity: qty
+                    })
                 });
+                this.optionDetail = commercial?.option;
             }
             this.pricingStatus = this.optionDetail?.priced ? 'priced' : 'priced';
             this.refreshOptionsQuietly();
@@ -2132,12 +2539,18 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
                     quoteId: this.session.quoteId
                 });
             } else {
-                this.optionDetail = await updateLineDiscount({
+                const commercial = await runCommercialOperation({
+                    operation: 'UpdateDisc',
                     quoteId: this.session.quoteId,
-                    lineId,
-                    discountPercent: pct
+                    opportunityId: this.session.opportunityId,
+                    payloadJson: JSON.stringify({
+                        lineId,
+                        discountPercent: pct
+                    })
                 });
+                this.optionDetail = commercial?.option;
             }
+            this.syncOptionDiscountFromLines();
             this.pricingStatus = 'priced';
             this.refreshOptionsQuietly();
         } catch (e) {
@@ -2150,6 +2563,128 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
                 const next = this._discQueued;
                 this._discQueued = null;
                 this.runDiscUpdate(next.lineId, next.pct);
+            }
+        }
+    }
+
+    handleDiscountScopeLine() {
+        if (this.lineEditsDisabled) {
+            return;
+        }
+        this.discountScope = 'line';
+    }
+
+    handleDiscountScopeOption() {
+        if (this.lineEditsDisabled) {
+            return;
+        }
+        this.discountScope = 'option';
+        this.syncOptionDiscountFromLines();
+    }
+
+    syncOptionDiscountFromLines() {
+        const lines = (this.optionDetail?.lines || []).filter(
+            (l) => !l.hideLineControls
+        );
+        if (!lines.length) {
+            this.optionDiscountPercent = 0;
+            return;
+        }
+        const pcts = lines.map((l) =>
+            l.discountPercent == null ? 0 : Number(l.discountPercent)
+        );
+        const first = pcts[0];
+        const allSame = pcts.every((p) => p === first);
+        this.optionDiscountPercent = allSame ? first : first;
+    }
+
+    handleOptionDiscountInput(event) {
+        if (this.lineEditsDisabled) {
+            return;
+        }
+        let n = Number(event.target.value);
+        if (!Number.isFinite(n) || n < 0) {
+            n = 0;
+        }
+        if (n > 100) {
+            n = 100;
+        }
+        this.optionDiscountPercent = n;
+        if (this.optionDetail?.lines) {
+            const level = approvalLevelForDiscPercent(n);
+            this.optionDetail = {
+                ...this.optionDetail,
+                approvalLevel: level,
+                approvalRequiredLabel: approvalRequiredLabelForLevel(level),
+                lines: this.optionDetail.lines.map((line) => ({
+                    ...line,
+                    discountPercent: n,
+                    ...lineApprovalFields(n, null, null, this.activeApprovalStatus)
+                }))
+            };
+        }
+        this.scheduleOptionDiscUpdate(n);
+    }
+
+    scheduleOptionDiscUpdate(pct) {
+        if (this._optionDiscTimer) {
+            clearTimeout(this._optionDiscTimer);
+        }
+        this.pricingStatus = 'pending';
+        this._optionDiscTimer = setTimeout(() => {
+            this._optionDiscTimer = null;
+            this.enqueueOptionDiscUpdate(pct);
+        }, QTY_DEBOUNCE_MS);
+    }
+
+    enqueueOptionDiscUpdate(pct) {
+        if (this._optionDiscInFlight) {
+            this._optionDiscQueued = pct;
+            return;
+        }
+        this.runOptionDiscUpdate(pct);
+    }
+
+    async runOptionDiscUpdate(pct) {
+        if (!this.session?.quoteId) {
+            return;
+        }
+        this._optionDiscInFlight = true;
+        this.pricingBusy = true;
+        this.optionError = undefined;
+        try {
+            if (this.usesTxnOrchestrator) {
+                await this.enqueueAndPoll('Place', 'UpdateOptionDiscount', {
+                    quoteId: this.session.quoteId,
+                    discountPercent: pct
+                });
+                this.optionDetail = await getOptionDetail({
+                    quoteId: this.session.quoteId
+                });
+            } else {
+                const commercial = await runCommercialOperation({
+                    operation: 'UpdateOptionDisc',
+                    quoteId: this.session.quoteId,
+                    opportunityId: this.session.opportunityId,
+                    payloadJson: JSON.stringify({
+                        discountPercent: pct
+                    })
+                });
+                this.optionDetail = commercial?.option;
+            }
+            this.optionDiscountPercent = pct;
+            this.pricingStatus = 'priced';
+            this.refreshOptionsQuietly();
+        } catch (e) {
+            this.pricingStatus = 'error';
+            this.optionError = this.reduceError(e);
+        } finally {
+            this._optionDiscInFlight = false;
+            this.pricingBusy = false;
+            if (this._optionDiscQueued != null) {
+                const next = this._optionDiscQueued;
+                this._optionDiscQueued = null;
+                this.runOptionDiscUpdate(next);
             }
         }
     }
@@ -2203,6 +2738,11 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
     clearEstimate() {
         this.estimateResult = undefined;
         this.estimateError = undefined;
+        this.estimatePreviewOpen = false;
+    }
+
+    handleHideEstimatePreview() {
+        this.clearEstimate();
     }
 
     buildEstimateLines() {
@@ -2229,6 +2769,7 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
         if (!lines.length) {
             return;
         }
+        this.estimatePreviewOpen = true;
         this.estimateBusy = true;
         this.estimateError = undefined;
         try {
@@ -2282,35 +2823,35 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
                         : Number(this.quantity) > 0
                           ? Number(this.quantity)
                           : 10;
-                result = await addWorkforcePackage({
+                const commercial = await runCommercialOperation({
+                    operation: 'AddWorkforcePackage',
                     quoteId: this.session.quoteId,
-                    planSku: this.packagePlanSku || 'BAMBOO-PRO',
-                    quantity: qty,
-                    termMonths,
-                    startDateIso,
-                    billingFrequency
+                    opportunityId: this.session.opportunityId,
+                    payloadJson: JSON.stringify({
+                        planSku: this.packagePlanSku || 'BAMBOO-PRO',
+                        quantity: qty,
+                        termMonths,
+                        startDateIso,
+                        billingFrequency
+                    })
                 });
-            } else if (queue.length === 1) {
-                result = await addProductLine({
-                    quoteId: this.session.quoteId,
-                    sku: queue[0].sku,
-                    quantity:
-                        Number(queue[0].quantity) > 0 ? Number(queue[0].quantity) : 1,
-                    termMonths,
-                    startDateIso,
-                    billingFrequency
-                });
+                result = commercial?.addResult || { option: commercial?.option };
             } else {
-                result = await addProductLinesBySku({
+                const commercial = await runCommercialOperation({
+                    operation: 'AddLinesBySku',
                     quoteId: this.session.quoteId,
-                    skus: queue.map((e) => e.sku),
-                    quantities: queue.map((e) =>
-                        Number(e.quantity) > 0 ? Number(e.quantity) : 1
-                    ),
-                    termMonths,
-                    startDateIso,
-                    billingFrequency
+                    opportunityId: this.session.opportunityId,
+                    payloadJson: JSON.stringify({
+                        skus: queue.map((e) => e.sku),
+                        quantities: queue.map((e) =>
+                            Number(e.quantity) > 0 ? Number(e.quantity) : 1
+                        ),
+                        termMonths,
+                        startDateIso,
+                        billingFrequency
+                    })
                 });
+                result = commercial?.addResult || { option: commercial?.option };
             }
             this.optionDetail = result.option;
             this.syncRibbonFromOption(result.option);
@@ -2330,7 +2871,7 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
 
     async handleRemoveLine(event) {
         const lineId = event.currentTarget.dataset.lineId;
-        if (!lineId || !this.session?.quoteId || this.pricingBusy) {
+        if (!lineId || !this.session?.quoteId || this.lineEditsDisabled) {
             return;
         }
         await this.deleteLines([lineId]);
@@ -2386,23 +2927,23 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
     }
 
     async deleteLines(lineIds) {
-        if (!lineIds?.length || !this.session?.quoteId || this.pricingBusy) {
+        if (!lineIds?.length || !this.session?.quoteId || this.lineEditsDisabled) {
             return;
         }
         this.pricingBusy = true;
         this.optionError = undefined;
         this.pricingStatus = 'pending';
         try {
-            this.optionDetail =
-                lineIds.length === 1
-                    ? await removeLine({
-                          quoteId: this.session.quoteId,
-                          lineId: lineIds[0]
-                      })
-                    : await removeLines({
-                          quoteId: this.session.quoteId,
-                          lineIds
-                      });
+            const commercial = await runCommercialOperation({
+                operation: 'RemoveLines',
+                quoteId: this.session.quoteId,
+                opportunityId: this.session.opportunityId,
+                payloadJson: JSON.stringify({
+                    lineIds,
+                    lineId: lineIds.length === 1 ? lineIds[0] : null
+                })
+            });
+            this.optionDetail = commercial?.option;
             this.selectedLineIds = [];
             this.pricingStatus = this.optionDetail?.priced ? 'priced' : 'idle';
             if (this.optionDetail?.termMonths && this.optionDetail?.lines?.length) {
@@ -2484,9 +3025,13 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
                     quoteId: this.session.quoteId
                 });
             } else {
-                this.optionDetail = await repriceOption({
-                    quoteId: this.session.quoteId
+                const commercial = await runCommercialOperation({
+                    operation: 'Reprice',
+                    quoteId: this.session.quoteId,
+                    opportunityId: this.session.opportunityId,
+                    payloadJson: JSON.stringify({ quoteId: this.session.quoteId })
                 });
+                this.optionDetail = commercial?.option;
             }
             this.pricingStatus = 'priced';
             this.refreshOptionsQuietly();
@@ -2576,7 +3121,7 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
         this.previewBusy = true;
         this.previewError = undefined;
         try {
-            let status = await previewProposal({ quoteId });
+            let status = await startDocGenPreview({ quoteId });
             const maxAttempts = 45;
             for (let i = 0; i < maxAttempts; i += 1) {
                 const st = (status?.status || '').toLowerCase();
@@ -2647,7 +3192,11 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
         this.syncBusy = true;
         this.syncError = undefined;
         try {
-            const result = await syncOptionToOpportunity({ quoteId });
+            const result = await applySyncAction({
+                action: 'Commit',
+                opportunityId: this.session?.opportunityId || this.opportunityIdOrSession,
+                quoteId
+            });
             this.applySyncResult(result);
             if (this.compareMode) {
                 await this.loadCompareDetails();
@@ -2667,7 +3216,11 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
         this.syncBusy = true;
         this.syncError = undefined;
         try {
-            const result = await unsyncOpportunity({ opportunityId });
+            const result = await applySyncAction({
+                action: 'Clear',
+                opportunityId,
+                quoteId: null
+            });
             this.applySyncResult(result);
             if (this.compareMode) {
                 await this.loadCompareDetails();
@@ -2699,13 +3252,272 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
                 this.optionDetail = result.option;
             }
             this.approvalStatusMsg = result?.summary || 'Submitted for approval.';
+            if (result?.usedApprovalFallback) {
+                this.dispatchEvent(
+                    new ShowToastEvent({
+                        title: 'Smart Approval fallback',
+                        message:
+                            result.summary ||
+                            'Marked Approved because Smart Approval did not start.',
+                        variant: 'warning',
+                        mode: 'sticky'
+                    })
+                );
+            }
             if (this.compareMode) {
                 await this.loadCompareDetails();
+            }
+            await this.refreshPendingApprovalCount();
+            if (this.approvalsOpen) {
+                await this.loadPendingApprovals();
             }
         } catch (e) {
             this.approvalError = this.reduceError(e);
         } finally {
             this.approvalBusy = false;
+        }
+    }
+
+    async refreshPendingApprovalCount() {
+        const quoteId = this.session?.quoteId;
+        if (!quoteId) {
+            this.pendingApprovalItems = [];
+            this.pendingActionableCount = 0;
+            this.pendingRequestSummary = undefined;
+            this.pendingQuoteApprovalsUrl = undefined;
+            this.pendingWorkGuideHint = undefined;
+            return;
+        }
+        try {
+            const result = await listPendingApprovalWorkItems({ quoteId });
+            this.pendingApprovalItems = result?.items || [];
+            this.pendingActionableCount = result?.actionableCount || 0;
+            this.pendingRequestSummary = result?.requestSummary || '';
+            this.pendingQuoteApprovalsUrl = result?.quoteApprovalsUrl || '';
+            this.pendingWorkGuideHint = result?.workGuideHint || '';
+        } catch {
+            this.pendingApprovalItems = [];
+            this.pendingActionableCount = 0;
+            this.pendingRequestSummary = undefined;
+            this.pendingQuoteApprovalsUrl = undefined;
+            this.pendingWorkGuideHint = undefined;
+        }
+    }
+
+    async loadPendingApprovals() {
+        const quoteId = this.session?.quoteId;
+        if (!quoteId) {
+            return;
+        }
+        this.pendingApprovalsLoading = true;
+        this.pendingApprovalsError = undefined;
+        try {
+            const result = await listPendingApprovalWorkItems({ quoteId });
+            this.pendingApprovalItems = result?.items || [];
+            this.pendingActionableCount = result?.actionableCount || 0;
+            this.pendingRequestSummary = result?.requestSummary || '';
+            this.pendingQuoteApprovalsUrl = result?.quoteApprovalsUrl || '';
+            this.pendingWorkGuideHint = result?.workGuideHint || '';
+        } catch (e) {
+            this.pendingApprovalsError = this.reduceError(e);
+        } finally {
+            this.pendingApprovalsLoading = false;
+        }
+    }
+
+    handleOpenQuoteApprovals() {
+        const quoteId = this.session?.quoteId;
+        if (!quoteId) {
+            return;
+        }
+        this[NavigationMixin.Navigate]({
+            type: 'standard__recordPage',
+            attributes: {
+                recordId: quoteId,
+                objectApiName: 'Quote',
+                actionName: 'view'
+            }
+        });
+    }
+
+    clearPendingApprovalsAdvancing() {
+        this.pendingApprovalsAdvancing = false;
+        this.pendingApprovalsAdvancingLabel = '';
+    }
+
+    beginPendingApprovalsAdvancing(nextApproverLabel) {
+        const label = String(nextApproverLabel || '').trim() || 'the next approver';
+        this.pendingApprovalsAdvancing = true;
+        this.pendingApprovalsAdvancingLabel = label;
+    }
+
+    /**
+     * After Approve, the next Discount ladder work item can take a few seconds
+     * to appear. Re-query briefly so Pending approvals does not look empty.
+     */
+    async pollPendingApprovalsAfterStep() {
+        const delaysMs = [1500, 3000, 5000];
+        for (const delayMs of delaysMs) {
+            if ((this.pendingApprovalItems || []).length > 0) {
+                this.clearPendingApprovalsAdvancing();
+                return;
+            }
+            await new Promise((resolve) => {
+                // eslint-disable-next-line @lwc/lwc/no-async-operation
+                setTimeout(resolve, delayMs);
+            });
+            await this.loadPendingApprovals();
+            if ((this.pendingApprovalItems || []).length > 0) {
+                this.clearPendingApprovalsAdvancing();
+                return;
+            }
+        }
+        this.clearPendingApprovalsAdvancing();
+    }
+
+    async handleTogglePendingApprovals() {
+        if (this.approvalsOpen) {
+            this.approvalsOpen = false;
+            this.pendingApprovalsError = undefined;
+            this.approvalReviewComment = '';
+            this.clearPendingApprovalsAdvancing();
+            return;
+        }
+        this.approvalsOpen = true;
+        this.pendingApprovalsError = undefined;
+        this.approvalReviewComment = '';
+        await this.loadPendingApprovals();
+    }
+
+    handleApprovalReviewCommentChange(event) {
+        this.approvalReviewComment = event.target.value;
+    }
+
+    async handleReviewWorkItem(event) {
+        const workItemId = event.currentTarget?.dataset?.workItemId;
+        const decision = event.currentTarget?.dataset?.decision;
+        if (!workItemId || !decision || this.approvalReviewBusy) {
+            return;
+        }
+        if (
+            decision === 'reject' &&
+            !String(this.approvalReviewComment || '').trim()
+        ) {
+            this.pendingApprovalsError =
+                'Reject requires comments naming which line(s) to fix ' +
+                '(e.g. Reject Payroll @ 50%. Keep Core @ 25%.).';
+            return;
+        }
+        const approvedRow = (this.pendingApprovalItems || []).find(
+            (row) => row.workItemId === workItemId
+        );
+        this.approvalReviewBusy = true;
+        this.approvalReviewWorkItemId = workItemId;
+        this.pendingApprovalsError = undefined;
+        this.approvalError = undefined;
+        this.clearPendingApprovalsAdvancing();
+        try {
+            const result = await reviewSuiteApprovalWorkItem({
+                workItemId,
+                decision,
+                comments: this.approvalReviewComment
+            });
+            if (result?.options) {
+                this.options = result.options;
+            }
+            if (result?.option) {
+                this.optionDetail = result.option;
+            }
+            this.approvalStatusMsg = result?.summary || 'Approval decision recorded.';
+            this.approvalReviewComment = '';
+            this.dispatchEvent(
+                new ShowToastEvent({
+                    title: decision === 'approve' ? 'Approved' : 'Rejected',
+                    message: result?.summary || 'Approval step updated.',
+                    variant: 'success'
+                })
+            );
+            await this.loadPendingApprovals();
+            // Next ladder step (Director/VP) can lag a few seconds after Approve.
+            const stillPending =
+                String(result?.approvalStatus || '').toLowerCase() === 'pending';
+            if (decision === 'approve' && stillPending) {
+                const approvalLevel =
+                    result?.option?.approvalLevel ??
+                    this.optionDetail?.approvalLevel ??
+                    this.activeOptionCard?.approvalLevel;
+                const nextLabel = nextApproverLabelAfterStep(
+                    approvalLevel,
+                    approvedRow?.stepName
+                );
+                if (!(this.pendingApprovalItems || []).length) {
+                    this.beginPendingApprovalsAdvancing(nextLabel);
+                }
+                await this.pollPendingApprovalsAfterStep();
+            }
+            if (this.compareMode) {
+                await this.loadCompareDetails();
+            }
+        } catch (e) {
+            this.pendingApprovalsError = this.reduceError(e);
+            this.clearPendingApprovalsAdvancing();
+        } finally {
+            this.approvalReviewBusy = false;
+            this.approvalReviewWorkItemId = undefined;
+        }
+    }
+
+    async handleRecallApproval() {
+        const quoteId = this.session?.quoteId;
+        if (!quoteId || !this.showRecallApproval) {
+            return;
+        }
+        this.approvalReviewBusy = true;
+        this.pendingApprovalsError = undefined;
+        this.approvalError = undefined;
+        try {
+            const result = await recallOptionApproval({
+                quoteId,
+                comments: this.approvalReviewComment
+            });
+            if (result?.options) {
+                this.options = result.options;
+            }
+            if (result?.option) {
+                this.optionDetail = result.option;
+            }
+            this.approvalStatusMsg = result?.summary || 'Approval recalled.';
+            this.approvalReviewComment = '';
+            if (result?.options) {
+                this.options = result.options;
+            }
+            // Auto-reCommit may have restored Committed mode — refresh session chips.
+            if (this.session?.quoteId) {
+                try {
+                    const refreshed = await getSession({ quoteId: this.session.quoteId });
+                    if (refreshed) {
+                        this.session = { ...this.session, ...refreshed };
+                    }
+                } catch {
+                    /* ignore */
+                }
+            }
+            await this.loadPendingApprovals();
+            if (this.compareMode) {
+                await this.loadCompareDetails();
+            }
+            this.dispatchEvent(
+                new ShowToastEvent({
+                    title: 'Recalled',
+                    message: result?.summary || 'Quote approval recalled.',
+                    variant: 'success'
+                })
+            );
+        } catch (e) {
+            this.pendingApprovalsError = this.reduceError(e);
+            this.approvalError = this.reduceError(e);
+        } finally {
+            this.approvalReviewBusy = false;
         }
     }
 
@@ -2758,7 +3570,7 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
         this.sendStatusMsg = undefined;
         try {
             if (this.sendAttachPdf) {
-                let status = await previewProposal({ quoteId });
+                let status = await startDocGenPreview({ quoteId });
                 const maxAttempts = 45;
                 for (let i = 0; i < maxAttempts; i += 1) {
                     const st = (status?.status || '').toLowerCase();
@@ -2831,6 +3643,9 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
                 this.termMonths = this.session.termMonths;
             }
             await Promise.all([this.loadOption(), this.loadOptions()]);
+            if (this.approvalsOpen) {
+                await this.loadPendingApprovals();
+            }
             this.compareMode = false;
             this.compareDetails = [];
         } catch (e) {
@@ -2861,11 +3676,33 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
             return new Intl.NumberFormat('en-US', {
                 style: 'currency',
                 currency: this.currencyCode,
-                maximumFractionDigits: 0
+                minimumFractionDigits: 2,
+                // Match TLE / NetUnitPrice precision (PEPM can be >2 decimals).
+                maximumFractionDigits: 6
             }).format(n);
         } catch (e) {
             return `$${n}`;
         }
+    }
+
+    async refreshAfterExternalEdit() {
+        if (!this.session?.quoteId) {
+            return;
+        }
+        try {
+            await Promise.all([this.loadOption(), this.loadOptions()]);
+        } catch (e) {
+            this.optionError = this.reduceError(e);
+        }
+    }
+
+    isStaleQuoteSessionError(err) {
+        const msg = (this.reduceError(err) || '').toLowerCase();
+        return (
+            msg.includes('quote not found') ||
+            msg.includes('no longer have access') ||
+            msg.includes('list has no rows')
+        );
     }
 
     reduceError(err) {
@@ -2887,6 +3724,11 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
             return (
                 'Opportunity is busy (row lock). Wait a moment and retry, or open this ' +
                 'option Quote and click Reprice All, then Refresh options in the suite.'
+            );
+        }
+        if (upper.includes('LIST HAS NO ROWS FOR ASSIGNMENT TO SOBJECT')) {
+            return (
+                'Quote not found or you no longer have access. Re-open BambooHR Revenue Suite from the Opportunity.'
             );
         }
         return raw;

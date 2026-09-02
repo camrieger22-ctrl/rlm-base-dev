@@ -44,6 +44,15 @@
                 >
                     {sendButtonLabel}
                 </button>
+                <button
+                    class="btn ghost"
+                    type="button"
+                    onclick={handleTogglePendingApprovals}
+                    disabled={pendingApprovalsButtonDisabled}
+                    title="Review and approve Smart Approval work items for the active option"
+                >
+                    {pendingApprovalsButtonLabel}
+                </button>
                 <span class="save-chip">{saveLabel}</span>
                 <button
                     class="btn agent"
@@ -103,6 +112,148 @@
             >
                 {sendBusy ? 'Sending…' : 'Send email'}
             </button>
+        </div>
+
+        <div class="approvals-panel" if:true={approvalsOpen}>
+            <div class="approvals-head">
+                <div>
+                    <h2 class="approvals-title">Pending approvals</h2>
+                    <p class="hint approvals-hint">
+                        Prefer the Quote
+                        <button
+                            type="button"
+                            class="link-btn"
+                            onclick={handleOpenQuoteApprovals}
+                            disabled={approvalReviewBusy}
+                        >
+                            Approvals tab / Work Guide
+                        </button>
+                        for Manager → Director → VP. This panel lists Assigned steps for
+                        convenience. Reject names which line(s) to fix; the AE edits and
+                        resubmits.
+                    </p>
+                    <p class="hint" if:true={pendingWorkGuideHint}>{pendingWorkGuideHint}</p>
+                </div>
+                <div class="approvals-head-actions">
+                    <template if:true={showOpenQuoteApprovals}>
+                        <button
+                            class="btn ghost small"
+                            type="button"
+                            onclick={handleOpenQuoteApprovals}
+                            disabled={approvalReviewBusy}
+                            title="Open this option Quote for Approvals / Work Guide"
+                        >
+                            Open on Quote
+                        </button>
+                    </template>
+                    <button
+                        class="btn ghost small"
+                        type="button"
+                        onclick={handleTogglePendingApprovals}
+                        disabled={approvalReviewBusy}
+                    >
+                        Close
+                    </button>
+                </div>
+            </div>
+            <template if:true={pendingApprovalsLoading}>
+                <p class="hint">Loading approval steps…</p>
+            </template>
+            <div class="error" role="alert" if:true={pendingApprovalsError}>
+                {pendingApprovalsError}
+            </div>
+            <template if:false={pendingApprovalsLoading}>
+                <div class="approvals-request" if:true={hasPendingRequestSummary}>
+                    <p class="approvals-request-label">What is being requested</p>
+                    <pre class="approvals-request-body">{pendingRequestSummary}</pre>
+                </div>
+                <div
+                    class="approvals-advancing"
+                    if:true={showPendingApprovalsAdvancing}
+                    role="status"
+                    aria-live="polite"
+                >
+                    <span class="approvals-advancing-spinner" aria-hidden="true"></span>
+                    <p class="approvals-advancing-text">
+                        Step approved — loading {pendingApprovalsAdvancingLabel}…
+                    </p>
+                    <p class="hint approvals-advancing-hint">
+                        The next approver is assigned by Smart Approval. This usually takes a few
+                        seconds.
+                    </p>
+                </div>
+                <template if:false={hasPendingApprovalItems}>
+                    <p class="hint" if:false={showPendingApprovalsAdvancing}>
+                        No assigned approval steps on this option. Submit for approval after
+                        Commit, then refresh if you expect Manager/Director/VP steps.
+                    </p>
+                </template>
+                <ul class="approvals-list" if:true={hasPendingApprovalItems}>
+                    <template for:each={pendingApprovalRows} for:item="row">
+                        <li key={row.workItemId} class="approvals-item">
+                            <div class="approvals-item-main">
+                                <strong>{row.stepName}</strong>
+                                <span class="muted">{row.chainLabel}</span>
+                                <span class="approvals-assignee"
+                                    >Assigned to {row.assignedLabel}</span
+                                >
+                            </div>
+                            <template if:true={row.canAct}>
+                                <label class="approvals-comment-label">Comments</label>
+                                <textarea
+                                    class="approvals-comment"
+                                    rows="2"
+                                    placeholder="Reject requires: e.g. Reject Payroll @ 50%. Keep Core @ 25%."
+                                    value={approvalReviewComment}
+                                    onchange={handleApprovalReviewCommentChange}
+                                    disabled={row.reviewBusy}
+                                ></textarea>
+                                <p class="hint approvals-reject-hint">
+                                    Reject ends the whole submission (not one line). Name the
+                                    failing product/Disc % so the AE can edit and resubmit.
+                                </p>
+                                <div class="approvals-actions">
+                                    <button
+                                        class="btn add small"
+                                        type="button"
+                                        data-work-item-id={row.workItemId}
+                                        data-decision="approve"
+                                        onclick={handleReviewWorkItem}
+                                        disabled={approvalReviewBusy}
+                                    >
+                                        {row.reviewBusy ? 'Working…' : 'Approve'}
+                                    </button>
+                                    <button
+                                        class="btn ghost small approvals-reject"
+                                        type="button"
+                                        data-work-item-id={row.workItemId}
+                                        data-decision="reject"
+                                        onclick={handleReviewWorkItem}
+                                        disabled={approvalReviewBusy}
+                                    >
+                                        Reject
+                                    </button>
+                                </div>
+                            </template>
+                            <p class="hint approvals-waiting" if:true={row.showWaiting}>
+                                Waiting on {row.assignedLabel}. You are not in that assignee
+                                group/role, so Approve/Reject stay on the assignee.
+                            </p>
+                        </li>
+                    </template>
+                </ul>
+                <div class="approvals-recall" if:true={showRecallApproval}>
+                    <button
+                        class="btn ghost small"
+                        type="button"
+                        onclick={handleRecallApproval}
+                        disabled={approvalReviewBusy}
+                        title="Recall the open Smart Approval submission"
+                    >
+                        Recall approval
+                    </button>
+                </div>
+            </template>
         </div>
 
         <div class="term-ribbon">
@@ -287,87 +438,9 @@
                     value={searchText}
                     oninput={handleSearch}
                 />
-                <div class="catalog-queue" if:true={hasCatalogQueue}>
-                    <div class="catalog-queue-head">
-                        <span class="catalog-queue-title"
-                            >Queued for add ({catalogSelectionCount})</span
-                        >
-                        <button
-                            class="linkish catalog-queue-clear"
-                            type="button"
-                            onclick={handleClearSelection}
-                        >
-                            Clear all
-                        </button>
-                    </div>
-                    <ul class="catalog-queue-list" aria-label="Products queued to add">
-                        <template for:each={catalogQueuedProducts} for:item="item">
-                            <li key={item.sku} class="catalog-queue-item">
-                                <div class="catalog-queue-main">
-                                    <span class="catalog-queue-name">{item.name}</span>
-                                    <span class="catalog-queue-meta muted">{item.badge}</span>
-                                </div>
-                                <div class="catalog-queue-qty" role="group" aria-label="Quantity">
-                                    <button
-                                        class="qty-btn qty-btn-sm"
-                                        type="button"
-                                        data-sku={item.sku}
-                                        data-delta="-1"
-                                        onclick={handleQueueQtyStep}
-                                        disabled={item.qtyLessEqualOne}
-                                        aria-label="Decrease quantity"
-                                    >
-                                        −
-                                    </button>
-                                    <input
-                                        class="catalog-queue-qty-input"
-                                        type="number"
-                                        min="1"
-                                        data-sku={item.sku}
-                                        value={item.quantity}
-                                        onchange={handleQueueQtyInput}
-                                        aria-label="Quantity"
-                                    />
-                                    <button
-                                        class="qty-btn qty-btn-sm"
-                                        type="button"
-                                        data-sku={item.sku}
-                                        data-delta="1"
-                                        onclick={handleQueueQtyStep}
-                                        aria-label="Increase quantity"
-                                    >
-                                        +
-                                    </button>
-                                </div>
-                                <span class="catalog-queue-price">{item.lineListLabel}</span>
-                                <button
-                                    class="catalog-queue-remove"
-                                    type="button"
-                                    data-sku={item.sku}
-                                    title="Remove from queue"
-                                    aria-label="Remove from queue"
-                                    onclick={handleRemoveFromQueue}
-                                >
-                                    ×
-                                </button>
-                            </li>
-                        </template>
-                    </ul>
-                    <div class="catalog-queue-apply" if:true={hasCatalogMultiSelect}>
-                        <span class="catalog-queue-apply-label">Set all to</span>
-                        <template for:each={qtyPresets} for:item="q">
-                            <button
-                                key={q}
-                                type="button"
-                                class="pill pill-sm"
-                                data-qty={q}
-                                onclick={handleApplyQtyToAll}
-                            >
-                                {q}
-                            </button>
-                        </template>
-                    </div>
-                </div>
+                <p class="catalog-selection-hint hint" if:true={hasCatalogQueue}>
+                    {catalogSelectionHint}
+                </p>
                 <template if:true={catalogError}>
                     <div class="error" role="alert">{catalogError}</div>
                 </template>
@@ -428,7 +501,16 @@
                 <h2 class="config-product-name">{configureHeading}</h2>
                 <p class="hint" if:true={configureHint}>{configureHint}</p>
                 <div class="config-queue" if:true={hasCatalogMultiSelect}>
-                    <p class="field-label">Queued products</p>
+                    <div class="config-queue-head">
+                        <p class="field-label config-queue-label">Products to add</p>
+                        <button
+                            class="linkish config-queue-clear"
+                            type="button"
+                            onclick={handleClearSelection}
+                        >
+                            Clear all
+                        </button>
+                    </div>
                     <ul class="config-queue-list config-queue-rows" aria-label="Products to add">
                         <template for:each={catalogQueuedProducts} for:item="item">
                             <li key={item.sku} class="config-queue-row">
@@ -565,38 +647,56 @@
                     </div>
                 </template>
                 <p class="price-line">{configPriceLabel}</p>
-                <template if:true={estimateSummaryLabel}>
-                    <p class="price-line estimate-summary">{estimateSummaryLabel}</p>
-                </template>
-                <template if:true={hasEstimateLines}>
-                    <ul class="estimate-lines">
-                        <template for:each={estimateLineRows} for:item="est">
-                            <li key={est.sku} class="estimate-line">
-                                <span class="estimate-name">{est.name}</span>
-                                <span class="estimate-net"
-                                    >{est.netUnitLabel} × {est.quantity} =
-                                    {est.netTotalLabel}/mo</span
-                                >
-                            </li>
+                <template if:false={estimateDisabled}>
+                    <p class="price-line estimate-link-row">
+                        <button
+                            type="button"
+                            class="link-btn"
+                            onclick={handleEstimateCatalog}
+                            disabled={estimateBusy}
+                            title="Preview RC headless pricing before adding lines"
+                        >
+                            {estimatePreviewLinkLabel}
+                        </button>
+                        <template if:true={showEstimatePreview}>
+                            <button
+                                type="button"
+                                class="link-btn subtle"
+                                onclick={handleHideEstimatePreview}
+                            >
+                                Hide
+                            </button>
                         </template>
-                    </ul>
+                    </p>
                 </template>
-                <template if:true={estimateError}>
-                    <div class="error" role="alert">{estimateError}</div>
+                <template if:true={showEstimatePreview}>
+                    <template if:true={estimateBusy}>
+                        <p class="price-line estimate-summary">Running RC pricing preview…</p>
+                    </template>
+                    <template if:true={estimateSummaryLabel}>
+                        <p class="price-line estimate-summary">{estimateSummaryLabel}</p>
+                    </template>
+                    <template if:true={hasEstimateLines}>
+                        <ul class="estimate-lines">
+                            <template for:each={estimateLineRows} for:item="est">
+                                <li key={est.sku} class="estimate-line">
+                                    <span class="estimate-name">{est.name}</span>
+                                    <span class="estimate-net"
+                                        >{est.netUnitLabel} × {est.quantity} =
+                                        {est.netTotalLabel}/mo</span
+                                    >
+                                </li>
+                            </template>
+                        </ul>
+                    </template>
+                    <template if:true={estimateError}>
+                        <div class="error" role="alert">{estimateError}</div>
+                    </template>
                 </template>
                 <template if:true={addError}>
                     <div class="error" role="alert">{addError}</div>
                 </template>
                 <div class="catalog-actions">
-                    <button
-                        class="btn ghost"
-                        type="button"
-                        onclick={handleEstimateCatalog}
-                        disabled={estimateDisabled}
-                        title="Preview RC headless pricing before adding lines"
-                    >
-                        Estimate
-                    </button>
                     <button
                         class="btn add"
                         type="button"
@@ -652,6 +752,12 @@
                             <h3>{optionLabel}</h3>
                             <div class="chips">
                                 <span class={approvalChipClass}>{approvalChipLabel}</span>
+                                <span
+                                    class="chip approval-required-chip"
+                                    if:true={showApprovalRequiredHint}
+                                    title="Discount ladder requires these approvers on Submit"
+                                    >{approvalRequiredChipLabel}</span
+                                >
                                 <span class={pricingChipClass}>{pricingChipLabel}</span>
                                 <span class="chip chip-synced" if:true={activeOptionSynced}
                                     >On Opportunity</span
@@ -667,6 +773,16 @@
                                 title="Submit this option to Smart Approval"
                             >
                                 {submitApprovalLabel}
+                            </button>
+                            <button
+                                class="btn ghost small approvals-reject"
+                                type="button"
+                                onclick={handleRecallApproval}
+                                disabled={approvalReviewBusy}
+                                if:true={showRecallApproval}
+                                title="Recall the open Smart Approval submission"
+                            >
+                                Recall
                             </button>
                             <button
                                 class="btn ghost small"
@@ -695,6 +811,19 @@
                     <p class="agent-status" if:true={approvalStatusMsg} aria-live="polite">
                         {approvalStatusMsg}
                     </p>
+                    <p class="hint option-lock-hint" if:true={isOptionLocked}>{optionLockHint}</p>
+                    <div
+                        class="option-resubmit-guidance"
+                        if:true={showResubmitGuidance}
+                        role="status"
+                    >
+                        <p class="option-resubmit-title">{resubmitGuidanceTitle}</p>
+                        <p class="hint option-resubmit-body">{resubmitGuidanceBody}</p>
+                        <pre
+                            class="option-resubmit-comments"
+                            if:true={hasLastDecisionComments}
+                        >{lastDecisionComments}</pre>
+                    </div>
                     <div class="metrics">
                         <div><span class="metric-label">MRR</span> {mrrLabel}</div>
                         <div><span class="metric-label">ARR</span> {arrLabel}</div>
@@ -841,7 +970,7 @@
                                 type="checkbox"
                                 checked={allLinesSelected}
                                 onchange={handleToggleSelectAllLines}
-                                disabled={pricingBusy}
+                                disabled={lineEditsDisabled}
                             />
                             <span>Select all</span>
                         </label>
@@ -866,7 +995,7 @@
                                             data-bundle-line-ids={line.bundleLineIds}
                                             checked={line.selected}
                                             onchange={handleToggleLineSelect}
-                                            disabled={pricingBusy}
+                                            disabled={lineEditsDisabled}
                                             aria-label="Select line"
                                         />
                                     </label>
@@ -895,7 +1024,7 @@
                                                     data-line-id={line.lineId}
                                                     value={line.quantity}
                                                     oninput={handleLineQtyInput}
-                                                    disabled={pricingBusy}
+                                                    disabled={lineEditsDisabled}
                                                 />
                                             </template>
                                             <span>users</span>
@@ -916,7 +1045,7 @@
                                 </div>
 
                                 <div class="line-controls" if:false={line.hideLineControls}>
-                                    <label class="line-disc">
+                                    <label class="line-disc" if:true={isDiscountScopeLine}>
                                         <span class="line-control-label">Disc %</span>
                                         <input
                                             class="line-disc-input"
@@ -928,9 +1057,18 @@
                                             data-line-id={line.lineId}
                                             value={line.discountPercent}
                                             oninput={handleLineDiscountInput}
-                                            disabled={pricingBusy}
+                                            disabled={lineEditsDisabled}
                                         />
                                     </label>
+                                    <span class="line-disc-readonly" if:true={isDiscountScopeOption}
+                                        >{line.discountPercent}%</span
+                                    >
+                                    <span
+                                        class={line.lineApprovalChipClass}
+                                        if:true={line.showLineApprovalChip}
+                                        title="This line's Disc % drives Smart Approval"
+                                        >{line.approvalRequiredChipLabel}</span
+                                    >
                                     <span class="line-inherited-chip">Inherited</span>
                                     <div class="line-dates">
                                         <span>{line.dateRangeLabel}</span>
@@ -953,8 +1091,36 @@
                         </div>
                         <div class="option-foot-discount">
                             <span class="option-foot-label">Apply discount at</span>
-                            <span class="discount-scope discount-scope-active">Line</span>
-                            <span class="discount-scope" title="Coming soon">Option</span>
+                            <button
+                                type="button"
+                                class={lineDiscountScopeClass}
+                                onclick={handleDiscountScopeLine}
+                                disabled={lineEditsDisabled}
+                            >
+                                Line
+                            </button>
+                            <button
+                                type="button"
+                                class={optionDiscountScopeClass}
+                                onclick={handleDiscountScopeOption}
+                                disabled={lineEditsDisabled}
+                            >
+                                Option
+                            </button>
+                            <label class="option-disc" if:true={isDiscountScopeOption}>
+                                <span class="line-control-label">Disc %</span>
+                                <input
+                                    class="line-disc-input"
+                                    type="number"
+                                    min="0"
+                                    max="100"
+                                    step="0.1"
+                                    aria-label="Option discount percent"
+                                    value={optionDiscountPercent}
+                                    oninput={handleOptionDiscountInput}
+                                    disabled={lineEditsDisabled}
+                                />
+                            </label>
                         </div>
                         <div class="option-foot-row option-foot-total">
                             <span class="option-foot-label">Grand total</span>

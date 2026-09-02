@@ -1,6 +1,6 @@
 /**
  * Agentforce Invocable: set seat count on all lines of one Bamboo Revenue Suite
- * option quote via PST + FORCE (not direct DML).
+ * option quote via RLM_BambooSuitePlace (PST + FORCE).
  *
  * Use when the AE changes headcount/seats on Option A/B/C without rebuilding
  * Good/Better/Best tiers. Do NOT use LineManagement Update_Record_Fields.
@@ -104,7 +104,7 @@ public with sharing class RLM_BambooSuiteUpdateSeats {
                 return enqueueUpdateSeatsViaOrchestrator(req, qId);
             }
             RLM_BambooRevenueSuite.OptionDetailDTO detail =
-                RLM_BambooRevenueSuite.updateOptionSeatCount(
+                RLM_BambooSuitePlace.updateOptionSeatCount(
                     String.valueOf(qId),
                     req.seatCount
                 );
@@ -122,7 +122,7 @@ public with sharing class RLM_BambooSuiteUpdateSeats {
                     : (String.isNotBlank(detail.startDate)
                           ? detail.startDate
                           : String.valueOf(Date.today()));
-                detail = RLM_BambooRevenueSuite.applyTermToOption(
+                detail = RLM_BambooSuitePlace.applyTermToOption(
                     String.valueOf(qId),
                     months,
                     startIso,

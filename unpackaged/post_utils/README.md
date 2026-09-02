@@ -24,7 +24,7 @@ All resets delete usage policies, binding object rate card entries, usage summar
 The reset runs in two phases:
 
 1. **Pre-savepoint (convergent):** Usage resource policies, binding object rate card entries, and the usage summary graph are always processed; asset rate card entries are processed only when **Delete Assets** is enabled. These operations are idempotent, so partial progress survives a later failure.
-2. **Transactional (savepoint-wrapped):** Entitlements, journals, billing, fulfillment, contracts, orders, assets, quotes, and opportunities. A thrown exception rolls back this phase. Some existing helpers use partial-success DML, so an individual row failure can leave records for a subsequent reset without triggering rollback.
+2. **Transactional (savepoint-wrapped):** Entitlements, journals, billing, fulfillment, contracts, orders, assets, quotes, Bamboo suite transaction jobs (`RLM_Bamboo_Suite_Txn__c` when present), and opportunities. A thrown exception rolls back this phase. Some existing helpers use partial-success DML, so an individual row failure can leave records for a subsequent reset without triggering rollback.
 
 The reset is designed for convergence: if it hits the DML row budget during the usage teardown, it stops and the next run resumes from the smaller graph.
 

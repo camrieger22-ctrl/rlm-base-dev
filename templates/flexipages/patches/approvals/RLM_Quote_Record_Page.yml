@@ -8,8 +8,12 @@ patches:
     actions:
       - "Quote.RLM_Submit_for_Approval"
 
-  - type: add_display_field
-    field: "QuoteLineItem.RLM_Approval__c"
+  # Stamped text field (TLE does not render formula RLM_Approval__c). After Discount %.
+  - type: add_sales_txn_line_editor_field
+    property: displayFields
+    after: "QuoteLineItem.Discount"
+    fields:
+      - "QuoteLineItem.RLM_Approval_Flag__c"
 
   - type: add_facet_field
     facet: "Quote Information"

@@ -394,11 +394,35 @@ public without sharing class RLM_AccountUtilities {
             // Delete quote-linked ContentDocuments before quotes are removed
             deleteQuoteDocuments(accountQuotes);
             deleteQuotes(accountQuotes);
+            // Bamboo suite txn jobs Restrict(→Cascade)-reference Opportunity; clear
+            // them before Opp delete. Dynamic SOQL so post_utils deploys without Bamboo.
+            deleteBambooSuiteTransactions(accountId);
             deleteOpportunities(accountId);
         } catch(Exception e) {
             Database.rollback(sp);
             throw e;
         }
+    }
+
+    /**
+     * Deletes RLM_Bamboo_Suite_Txn__c rows for the account's Opportunities when
+     * the BambooHR suite object is present. No-op on orgs without that object.
+     * Must run before deleteOpportunities while Opportunity__c was Restrict
+     * (now Cascade); explicit delete keeps reset safe across mixed deploy states.
+     */
+    private static void deleteBambooSuiteTransactions(String accountId) {
+        if (!Schema.getGlobalDescribe().containsKey('RLM_Bamboo_Suite_Txn__c')) {
+            return;
+        }
+        Id acctId = accountId;
+        List<SObject> rows = Database.query(
+            'SELECT Id FROM RLM_Bamboo_Suite_Txn__c ' +
+            'WHERE Opportunity__r.AccountId = :acctId'
+        );
+        if (rows.isEmpty()) {
+            return;
+        }
+        reportFailures('RLM_Bamboo_Suite_Txn__c', Database.delete(rows, false));
     }
 
     /**

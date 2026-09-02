@@ -1,12 +1,27 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
     <fullName>RLM_Approval__c</fullName>
+    <description>Legacy formula flag — not shown in TLE (calculated fields do not render in salesTxnLineTable). Prefer stamped RLM_Approval_Flag__c for the Approval column.</description>
     <externalId>false</externalId>
-    <formula>IF( RLM_Approval_Level_Calc__c = 1, (IMAGE(&apos;/img/samples/flag_red.gif&apos;, &quot;&quot;) + &quot; Manager&quot;),
-IF( RLM_Approval_Level_Calc__c = 2, (IMAGE(&apos;/img/samples/flag_red.gif&apos;, &quot;&quot;) + &quot; Director&quot;),
-IF( RLM_Approval_Level_Calc__c = 3, (IMAGE(&apos;/img/samples/flag_red.gif&apos;, &quot;&quot;) + &quot; VP&quot;),&quot;&quot;)))</formula>
+    <formula>IF(
+  ISPICKVAL(Quote.RLM_Approval_Status__c, &quot;Approved&quot;),
+  &quot;&quot;,
+  IF(
+    RLM_Approval_Level_Calc__c = 1,
+    &quot;Needs Manager&quot;,
+    IF(
+      RLM_Approval_Level_Calc__c = 2,
+      &quot;Needs Director&quot;,
+      IF(
+        RLM_Approval_Level_Calc__c = 3,
+        &quot;Needs VP&quot;,
+        &quot;&quot;
+      )
+    )
+  )
+)</formula>
     <formulaTreatBlanksAs>BlankAsZero</formulaTreatBlanksAs>
-    <label>Approval</label>
+    <label>Approval (Formula)</label>
     <required>false</required>
     <trackHistory>false</trackHistory>
     <type>Text</type>

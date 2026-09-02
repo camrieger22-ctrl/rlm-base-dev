@@ -1,0 +1,31 @@
+{
+  "planName": "Approvals",
+  "developerName": "RLM_SalesTransactionContext",
+  "description": "Expose QuoteLineItem.RLM_Approval_Flag__c on the sales-transaction context so Sales Transaction Line Editor can hydrate/display the Approval column (TLE requires context mapping for custom display fields).",
+  "contextAttributesByName": [
+    {
+      "nodeName": "SalesTransactionItem",
+      "name": "RLM_Approval_Flag__c",
+      "dataType": "STRING",
+      "fieldType": "INPUT"
+    }
+  ],
+  "mappingRules": [
+    {
+      "mappingName": "QuoteEntitiesMapping",
+      "contextNode": "SalesTransactionItem",
+      "contextAttribute": "RLM_Approval_Flag__c",
+      "mappingType": "SOBJECT",
+      "sObject": "QuoteLineItem",
+      "sObjectField": "RLM_Approval_Flag__c"
+    }
+  ],
+  "contextTagsByName": [
+    {
+      "nodeName": "SalesTransactionItem",
+      "attributeName": "RLM_Approval_Flag__c",
+      "name": "RLM_Approval_Flag__c"
+    }
+  ],
+  "activate": true
+}

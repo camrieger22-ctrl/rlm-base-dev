@@ -2,9 +2,65 @@
 <Flow xmlns="http://soap.sforce.com/2006/04/metadata">
     <apiVersion>67.0</apiVersion>
     <areMetricsLoggedToDataCloud>false</areMetricsLoggedToDataCloud>
+    <assignments>
+        <name>Bump_Max_Level</name>
+        <label>Bump Max Level</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <assignmentItems>
+            <assignToReference>DiscountApprovalLevel</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <elementReference>Loop_Lines.RLM_Approval_Level_Calc__c</elementReference>
+            </value>
+        </assignmentItems>
+        <connector>
+            <targetReference>Loop_Lines</targetReference>
+        </connector>
+    </assignments>
+    <decisions>
+        <name>Line_Higher_Than_Max</name>
+        <label>Line Higher Than Max</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <defaultConnector>
+            <targetReference>Loop_Lines</targetReference>
+        </defaultConnector>
+        <defaultConnectorLabel>No</defaultConnectorLabel>
+        <rules>
+            <name>Yes_Higher</name>
+            <conditionLogic>and</conditionLogic>
+            <conditions>
+                <leftValueReference>Loop_Lines.RLM_Approval_Level_Calc__c</leftValueReference>
+                <operator>GreaterThan</operator>
+                <rightValue>
+                    <elementReference>DiscountApprovalLevel</elementReference>
+                </rightValue>
+            </conditions>
+            <connector>
+                <targetReference>Bump_Max_Level</targetReference>
+            </connector>
+            <label>Yes</label>
+        </rules>
+    </decisions>
+    <description>Returns Quote payment terms plus MAX(QuoteLineItem.RLM_Approval_Level_Calc__c). Prefer line formulas over Quote.RLM_Approval_Level__c rollup so Smart Approval does not skip VP when the rollup is still stale at submit.</description>
     <environments>Default</environments>
     <interviewLabel>RLM Quote Approval Data {!$Flow.CurrentDateTime}</interviewLabel>
     <label>RLM Quote Approval Data</label>
+    <loops>
+        <name>Loop_Lines</name>
+        <label>Loop Lines</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <collectionReference>Get_Quote_Lines</collectionReference>
+        <iterationOrder>Asc</iterationOrder>
+        <nextValueConnector>
+            <targetReference>Line_Higher_Than_Max</targetReference>
+        </nextValueConnector>
+        <noMoreValuesConnector>
+            <targetReference>Get_Quote_Data</targetReference>
+        </noMoreValuesConnector>
+    </loops>
     <processMetadataValues>
         <name>BuilderType</name>
         <value>
@@ -48,19 +104,38 @@
             <field>OriginalActionType</field>
         </outputAssignments>
         <outputAssignments>
-            <assignToReference>DiscountApprovalLevel</assignToReference>
-            <field>RLM_Approval_Level__c</field>
-        </outputAssignments>
-        <outputAssignments>
             <assignToReference>PaymentTerms</assignToReference>
             <field>RLM_Payment_Terms__c</field>
         </outputAssignments>
+    </recordLookups>
+    <recordLookups>
+        <name>Get_Quote_Lines</name>
+        <label>Get Quote Lines</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <assignNullValuesIfNoRecordsFound>true</assignNullValuesIfNoRecordsFound>
+        <connector>
+            <targetReference>Loop_Lines</targetReference>
+        </connector>
+        <filterLogic>and</filterLogic>
+        <filters>
+            <field>QuoteId</field>
+            <operator>EqualTo</operator>
+            <value>
+                <elementReference>QuoteId</elementReference>
+            </value>
+        </filters>
+        <getFirstRecordOnly>false</getFirstRecordOnly>
+        <object>QuoteLineItem</object>
+        <queriedFields>Id</queriedFields>
+        <queriedFields>RLM_Approval_Level_Calc__c</queriedFields>
+        <storeOutputAutomatically>true</storeOutputAutomatically>
     </recordLookups>
     <start>
         <locationX>0</locationX>
         <locationY>0</locationY>
         <connector>
-            <targetReference>Get_Quote_Data</targetReference>
+            <targetReference>Get_Quote_Lines</targetReference>
         </connector>
     </start>
     <status>Active</status>

@@ -330,10 +330,10 @@ CONTAINS({!Payment_Terms.Outputs.approvalDecision}, &quot;Reject&quot;)
             </entryConditions>
             <entryConditions>
                 <conditionType>EntryCondition</conditionType>
-                <leftValueReference>Manager_Approver.Outputs.approvalDecision</leftValueReference>
+                <leftValueReference>Manager_Approver.Status</leftValueReference>
                 <operator>EqualTo</operator>
                 <rightValue>
-                    <stringValue>Approve</stringValue>
+                    <stringValue>Completed</stringValue>
                 </rightValue>
             </entryConditions>
             <exitConditionLogic>and</exitConditionLogic>
@@ -404,10 +404,10 @@ CONTAINS({!Payment_Terms.Outputs.approvalDecision}, &quot;Reject&quot;)
             </entryConditions>
             <entryConditions>
                 <conditionType>EntryCondition</conditionType>
-                <leftValueReference>Director_Approver.Outputs.approvalDecision</leftValueReference>
+                <leftValueReference>Director_Approver.Status</leftValueReference>
                 <operator>EqualTo</operator>
                 <rightValue>
-                    <stringValue>Approve</stringValue>
+                    <stringValue>Completed</stringValue>
                 </rightValue>
             </entryConditions>
             <exitConditionLogic>and</exitConditionLogic>

@@ -214,6 +214,60 @@ private without sharing class RLM_AccountUtilitiesTest {
         );
     }
 
+    @IsTest
+    static void bambooSuiteTransactionsDoNotBlockOpportunityDelete() {
+        // Object ships in post_bamboohr only — skip when unavailable (QB-only orgs).
+        if (!Schema.getGlobalDescribe().containsKey('RLM_Bamboo_Suite_Txn__c')) {
+            return;
+        }
+        Account a = newAccount();
+        Opportunity o = new Opportunity(
+            Name = 'RLM Utilities Bamboo Suite Opp',
+            AccountId = a.Id,
+            StageName = 'Prospecting',
+            CloseDate = Date.today().addDays(30)
+        );
+        insert o;
+
+        SObject txn = Schema.getGlobalDescribe()
+            .get('RLM_Bamboo_Suite_Txn__c')
+            .newSObject();
+        txn.put('Opportunity__c', o.Id);
+        txn.put('Request_Type__c', 'Place');
+        txn.put('Status__c', 'Succeeded');
+        txn.put('Correlation_Id__c', 'test-reset-' + String.valueOf(Crypto.getRandomLong()));
+        insert txn;
+
+        System.assertEquals(
+            1,
+            Database.countQuery(
+                'SELECT COUNT() FROM RLM_Bamboo_Suite_Txn__c WHERE Opportunity__c = \'' +
+                String.escapeSingleQuotes(String.valueOf(o.Id)) +
+                '\''
+            ),
+            'PRECONDITION: suite txn must exist'
+        );
+
+        Test.startTest();
+        run(request(a.Id, false, false, false));
+        Test.stopTest();
+
+        System.assertEquals(
+            0,
+            [SELECT COUNT() FROM Opportunity WHERE AccountId = :a.Id],
+            'Opp delete must succeed after suite txn cleanup'
+        );
+        System.assertEquals(
+            0,
+            Database.countQuery(
+                'SELECT COUNT() FROM RLM_Bamboo_Suite_Txn__c WHERE Opportunity__c = \'' +
+                String.escapeSingleQuotes(String.valueOf(o.Id)) +
+                '\''
+            ),
+            'Suite txns for the deleted Opp must be gone'
+        );
+    }
+
     // ------------------------------------------------------- DeleteAssets gate
 
     @IsTest
