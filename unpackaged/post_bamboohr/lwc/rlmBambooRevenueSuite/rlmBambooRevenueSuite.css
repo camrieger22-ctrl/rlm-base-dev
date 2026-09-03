@@ -1899,6 +1899,20 @@
     font-size: 0.85rem;
 }
 
+/* Row-level "staged, not yet repriced" marker — replaces locking the grid. */
+.line-saving {
+    font-size: 0.6rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 0.15rem 0.45rem;
+    color: var(--abbey);
+    background: var(--mist, #f7f8f9);
+    font-weight: 600;
+    white-space: nowrap;
+}
+
 .btn-delete-pill {
     border: 1px solid #f5c2c0;
     background: #fef1f1;

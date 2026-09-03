@@ -27,8 +27,8 @@ public with sharing class RLM_BambooSuiteCommercial {
 
     /**
      * Supported operations (case-insensitive):
-     * Reprice, UpdateQty, UpdateDisc, UpdateOptionDisc, UpdateSeats,
-     * RemoveLines, ApplyTerm, ApplyTermAll, ApplyBillingAll,
+     * Reprice, UpdateQty, UpdateDisc, UpdateLines, UpdateOptionDisc,
+     * UpdateSeats, RemoveLines, ApplyTerm, ApplyTermAll, ApplyBillingAll,
      * AddLinesBySku, AddWorkforcePackage
      */
     @AuraEnabled
@@ -61,6 +61,12 @@ public with sharing class RLM_BambooSuiteCommercial {
                 dec(payload, 'discountPercent')
             );
             result.summary = 'Discount updated.';
+        } else if (op == 'updatelines') {
+            result.option = RLM_BambooSuitePlace.updateLines(
+                reqQuote(request, payload),
+                lineEdits(payload, 'edits')
+            );
+            result.summary = 'Line edits applied.';
         } else if (op == 'updateoptiondisc') {
             result.option = RLM_BambooSuitePlace.updateOptionDiscount(
                 reqQuote(request, payload),
@@ -185,6 +191,35 @@ public with sharing class RLM_BambooSuiteCommercial {
             return null;
         }
         return Integer.valueOf(raw);
+    }
+
+    /** Parse the LWC's coalesced [{ lineId, quantity, discountPercent }] batch. */
+    private static List<RLM_BambooSuitePlace.LineEditInput> lineEdits(
+        Map<String, Object> payload,
+        String key
+    ) {
+        List<RLM_BambooSuitePlace.LineEditInput> out =
+            new List<RLM_BambooSuitePlace.LineEditInput>();
+        if (payload == null || !payload.containsKey(key) || payload.get(key) == null) {
+            return out;
+        }
+        Object raw = payload.get(key);
+        if (!(raw instanceof List<Object>)) {
+            return out;
+        }
+        for (Object row : (List<Object>) raw) {
+            if (!(row instanceof Map<String, Object>)) {
+                continue;
+            }
+            Map<String, Object> fields = (Map<String, Object>) row;
+            RLM_BambooSuitePlace.LineEditInput edit =
+                new RLM_BambooSuitePlace.LineEditInput();
+            edit.lineId = str(fields, 'lineId');
+            edit.quantity = dec(fields, 'quantity');
+            edit.discountPercent = dec(fields, 'discountPercent');
+            out.add(edit);
+        }
+        return out;
     }
 
     private static List<String> strList(Map<String, Object> payload, String key) {

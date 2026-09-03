@@ -970,7 +970,7 @@
                                 type="checkbox"
                                 checked={allLinesSelected}
                                 onchange={handleToggleSelectAllLines}
-                                disabled={lineEditsDisabled}
+                                disabled={lineInputsDisabled}
                             />
                             <span>Select all</span>
                         </label>
@@ -995,7 +995,7 @@
                                             data-bundle-line-ids={line.bundleLineIds}
                                             checked={line.selected}
                                             onchange={handleToggleLineSelect}
-                                            disabled={lineEditsDisabled}
+                                            disabled={lineInputsDisabled}
                                             aria-label="Select line"
                                         />
                                     </label>
@@ -1024,7 +1024,9 @@
                                                     data-line-id={line.lineId}
                                                     value={line.quantity}
                                                     oninput={handleLineQtyInput}
-                                                    disabled={lineEditsDisabled}
+                                                    onfocus={handleLineEditFocus}
+                                                    onblur={handleLineEditBlur}
+                                                    disabled={lineInputsDisabled}
                                                 />
                                             </template>
                                             <span>users</span>
@@ -1057,7 +1059,9 @@
                                             data-line-id={line.lineId}
                                             value={line.discountPercent}
                                             oninput={handleLineDiscountInput}
-                                            disabled={lineEditsDisabled}
+                                            onfocus={handleLineEditFocus}
+                                            onblur={handleLineEditBlur}
+                                            disabled={lineInputsDisabled}
                                         />
                                     </label>
                                     <span class="line-disc-readonly" if:true={isDiscountScopeOption}
@@ -1076,6 +1080,12 @@
                                             >{line.dayCountLabel}</span
                                         >
                                     </div>
+                                    <span
+                                        class="line-saving"
+                                        if:true={line.isSaving}
+                                        title="Edited — reprices when you finish with this line"
+                                        >Edited</span
+                                    >
                                     <span class="line-net">{line.netLabel}</span>
                                 </div>
                             </li>
@@ -1095,7 +1105,7 @@
                                 type="button"
                                 class={lineDiscountScopeClass}
                                 onclick={handleDiscountScopeLine}
-                                disabled={lineEditsDisabled}
+                                disabled={lineInputsDisabled}
                             >
                                 Line
                             </button>
@@ -1103,7 +1113,7 @@
                                 type="button"
                                 class={optionDiscountScopeClass}
                                 onclick={handleDiscountScopeOption}
-                                disabled={lineEditsDisabled}
+                                disabled={lineInputsDisabled}
                             >
                                 Option
                             </button>
@@ -1118,7 +1128,9 @@
                                     aria-label="Option discount percent"
                                     value={optionDiscountPercent}
                                     oninput={handleOptionDiscountInput}
-                                    disabled={lineEditsDisabled}
+                                    onfocus={handleLineEditFocus}
+                                    onblur={handleLineEditBlur}
+                                    disabled={lineInputsDisabled}
                                 />
                             </label>
                         </div>

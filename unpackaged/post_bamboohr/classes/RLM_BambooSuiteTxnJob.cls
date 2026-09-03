@@ -143,8 +143,12 @@ public with sharing class RLM_BambooSuiteTxnJob implements Queueable {
         if (h == 'UpdateLineDiscount') {
             return 'UpdateDisc';
         }
-        if (h == 'UpdateOptionDiscount') {
+        if (h == 'UpdateOptionDiscount' || h == 'UpdateOptionDisc') {
             return 'UpdateOptionDisc';
+        }
+        // Coalesced batch of staged line edits from the LWC.
+        if (h == 'UpdateLines') {
+            return 'UpdateLines';
         }
         if (h == 'ApplyTermToOption') {
             return 'ApplyTerm';

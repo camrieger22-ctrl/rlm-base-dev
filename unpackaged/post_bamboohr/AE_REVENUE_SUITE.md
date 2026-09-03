@@ -84,7 +84,9 @@ Hard-refresh the suite after deploy. Try:
 
 `/lightning/n/RLM_Bamboo_Revenue_Suite?c__opportunityId=<OppId>`
 
-Change line quantity on the option card (debounced 400ms) to re-run FORCE pricing.
+Change line quantity or Disc % on the option card to re-run FORCE pricing. Edits
+are **staged locally and coalesced into one Place call** (see *Line edit batching*
+below), so the grid never locks while pricing runs.
 
 ## Phase 2 (multi-option)
 
@@ -361,7 +363,7 @@ qty/disc/add in a Flow interview (performance).
 | `RLM_BambooSuiteSession` | Session Opp load / enter Edit |
 | `RLM_BambooSuiteApprovals` | Thin AA + Quote deep-link |
 | `RLM_BambooSuiteCommercial` | Op table → Place edge |
-| `RLM_BambooSuitePlace` | Place/FORCE: qty, disc, seats, remove, reprice, term, billing, add, workforce, fillTier |
+| `RLM_BambooSuitePlace` | Place/FORCE: qty, disc, batched line edits, seats, remove, reprice, term, billing, add, workforce, fillTier |
 | `RLM_BambooSuiteDocGen` | DocGen start Invocable / Aura |
 | `RLM_BambooSuiteSend` | Send-to-customer Invocable / Aura → QuoteEmail |
 | `RLM_BambooSuiteUpdateSeats` | Agentforce seats → Place |
@@ -380,6 +382,35 @@ qty/disc/add in a Flow interview (performance).
 - After **Recall**, auto-**RecommitStaged** when priced.
 - Pending panel: **Open on Quote** (Work Guide primary).
 - LWC mutates → `runCommercialOperation` / Place edge (not Flow-per-keystroke).
+
+### Line edit batching (non-blocking pricing)
+
+Quantity and Disc % edits do **not** each fire their own Place call. The LWC
+stages them and flushes one batch:
+
+- **Stage** — `stageLineEdit` / `stageOptionDiscount` merge by `lineId` into
+  `_pendingLineEdits`; the row shows a **Pricing…** chip.
+- **Flush** — 1500ms after typing stops, or 250ms after focus leaves the grid
+  (tabbing to the next line's input cancels that, so tab-through still batches).
+- **One call** — `UpdateLines` (`RLM_BambooSuitePlace.updateLines`) PATCHes every
+  edited line in a single Place + FORCE graph. Option-scope Disc % runs first as
+  `UpdateOptionDisc`, since it broadcasts to all lines.
+
+Why it is safe to keep the inputs live:
+
+| Gate | Reads | Behavior |
+|------|-------|----------|
+| Qty / Disc % inputs | `lineInputsDisabled` (`isOptionLocked`) | Stay editable while pricing runs |
+| Add / remove / term / reprice | `lineEditsDisabled` (`pricingBusy \|\| isOptionLocked`) | Wait for the batch |
+| Sync / Submit for Approval / Send | `pricingBusy` + `priced` | Wait for the batch |
+
+Staging sets `pricingBusy = true` immediately (`markEditsStaged`), so every
+commit-boundary gate already blocks on **staged-but-unpriced** edits — nothing
+can act on stale numbers. Only the line inputs opt out, via `lineInputsDisabled`.
+
+Do **not** reintroduce a per-field Place call or a user-facing "instant pricing"
+toggle: pricing stays automatic, and correctness is enforced at the commit
+boundary rather than by locking the grid.
 
 4d Phase B (orchestrator + Edit/Commit sync) — **PR1+PR2 implemented**:
 

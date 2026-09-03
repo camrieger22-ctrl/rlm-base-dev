@@ -46,7 +46,16 @@ const WORKFORCE_PLAN_CHOICES = [
 ];
 
 const QTY_PRESETS = [10, 25, 50, 100, 250];
-const QTY_DEBOUNCE_MS = 400;
+/**
+ * Idle window before staged line edits flush as one Place call. Long enough to
+ * type across several lines; blur commits immediately regardless.
+ */
+const EDIT_FLUSH_IDLE_MS = 1500;
+/**
+ * Grace period after a field loses focus. Long enough that tabbing to the next
+ * line's input cancels it, short enough that leaving the grid feels immediate.
+ */
+const EDIT_FLUSH_BLUR_MS = 250;
 
 /** Mirror RLM_Approval_Level_Calc__c (Disc % as 0–100 UI value). */
 function approvalLevelForDiscPercent(pct) {
@@ -258,7 +267,8 @@ function enrichLine(line, selected, termStartDate, termMonths, formatMoney, extr
             : `${formatDateMdY(start)} — —`,
         dayCountLabel: dayCount != null ? `${dayCount} days` : '',
         isBundleHead: extra.rowKind === 'bundle-head',
-        isBundleChild: extra.rowKind === 'bundle-child'
+        isBundleChild: extra.rowKind === 'bundle-child',
+        isSaving: extra.isSaving === true
     };
 }
 
@@ -268,9 +278,11 @@ function buildLineDisplayRows(
     termStartDate,
     termMonths,
     formatMoney,
-    optionApprovalStatus
+    optionApprovalStatus,
+    pendingLineIds
 ) {
     const selected = new Set(selectedIds || []);
+    const pending = new Set(pendingLineIds || []);
     const approvalStatus = optionApprovalStatus || 'Draft';
     const childrenByParent = new Map();
     for (const line of lines || []) {
@@ -292,7 +304,8 @@ function buildLineDisplayRows(
                 enrichLine(child, selected, termStartDate, termMonths, formatMoney, {
                     rowKind: 'bundle-child',
                     rowClass: 'line-card line-card-bundle-child',
-                    optionApprovalStatus: approvalStatus
+                    optionApprovalStatus: approvalStatus,
+                    isSaving: pending.has(child.lineId)
                 })
             );
             const listTotal = childRows.reduce(
@@ -317,7 +330,8 @@ function buildLineDisplayRows(
                     bundleLineIds: bundleLineIds.join(','),
                     selected: bundleLineIds.every((id) => selected.has(id)),
                     childCountLabel: `${children.length} components`,
-                    optionApprovalStatus: approvalStatus
+                    optionApprovalStatus: approvalStatus,
+                    isSaving: bundleLineIds.some((id) => pending.has(id))
                 })
             );
             rows.push(...childRows);
@@ -325,7 +339,8 @@ function buildLineDisplayRows(
             rows.push(
                 enrichLine(line, selected, termStartDate, termMonths, formatMoney, {
                     rowKind: 'standalone',
-                    optionApprovalStatus: approvalStatus
+                    optionApprovalStatus: approvalStatus,
+                    isSaving: pending.has(line.lineId)
                 })
             );
         }
@@ -478,15 +493,12 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
     /** Footer Disc % when discountScope === 'option'. */
     optionDiscountPercent = 0;
 
-    _qtyTimers = {};
-    _qtyInFlight = false;
-    _qtyQueued = null;
-    _discTimers = {};
-    _discInFlight = false;
-    _discQueued = null;
-    _optionDiscTimer = null;
-    _optionDiscInFlight = false;
-    _optionDiscQueued = null;
+    /** lineId -> { quantity?, discountPercent? } staged for the next flush. */
+    _pendingLineEdits = {};
+    /** Footer Disc % staged for the next flush; null means nothing staged. */
+    _pendingOptionDiscount = null;
+    _flushTimer = null;
+    _flushInFlight = false;
 
     termChoices = TERM_CHOICES;
     billingChoices = BILLING_CHOICES;
@@ -809,6 +821,10 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
     }
 
     get pricingChipLabel() {
+        // Staged-but-not-yet-sent reads differently from an actual reprice.
+        if (this.hasPendingEdits && !this._flushInFlight) {
+            return 'Unpriced edits';
+        }
         if (this.pricingBusy || this.pricingStatus === 'pending') {
             return 'Pricing…';
         }
@@ -1209,7 +1225,8 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
             this.termStartDate,
             this.termMonths,
             (n) => this.formatMoney(n),
-            this.activeApprovalStatus
+            this.activeApprovalStatus,
+            Object.keys(this._pendingLineEdits || {})
         );
     }
 
@@ -1461,8 +1478,21 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
         );
     }
 
+    /**
+     * Structural actions (add / remove / term) still wait for pricing to
+     * settle — pricingBusy covers both an in-flight batch and staged edits.
+     */
     get lineEditsDisabled() {
         return this.pricingBusy || this.isOptionLocked;
+    }
+
+    /**
+     * Quantity and Disc % inputs stay live while pricing runs — edits are
+     * staged locally and coalesced into one Place call, so only a locked
+     * option (submitted / approved / sent) takes the fields away.
+     */
+    get lineInputsDisabled() {
+        return this.isOptionLocked;
     }
 
     get deleteOptionTitle() {
@@ -1518,14 +1548,7 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
         if (this._onSuiteVisible) {
             document.removeEventListener('visibilitychange', this._onSuiteVisible);
         }
-        Object.values(this._qtyTimers).forEach((t) => clearTimeout(t));
-        this._qtyTimers = {};
-        Object.values(this._discTimers).forEach((t) => clearTimeout(t));
-        this._discTimers = {};
-        if (this._optionDiscTimer) {
-            clearTimeout(this._optionDiscTimer);
-            this._optionDiscTimer = null;
-        }
+        this.cancelEditFlush();
     }
 
     async bootstrap() {
@@ -2385,7 +2408,7 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
     }
 
     handleLineQtyInput(event) {
-        if (this.lineEditsDisabled) {
+        if (this.lineInputsDisabled) {
             return;
         }
         const lineId = event.currentTarget.dataset.lineId;
@@ -2400,11 +2423,11 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
                 line.lineId === lineId ? { ...line, quantity: qty } : line
             )
         };
-        this.scheduleQtyUpdate(lineId, qty);
+        this.stageLineEdit(lineId, { quantity: qty });
     }
 
     handleLineDiscountInput(event) {
-        if (this.lineEditsDisabled) {
+        if (this.lineInputsDisabled) {
             return;
         }
         const lineId = event.currentTarget.dataset.lineId;
@@ -2435,147 +2458,220 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
                     : line
             )
         };
-        this.scheduleDiscUpdate(lineId, n);
+        this.stageLineEdit(lineId, { discountPercent: n });
     }
 
-    scheduleQtyUpdate(lineId, qty) {
-        if (this._qtyTimers[lineId]) {
-            clearTimeout(this._qtyTimers[lineId]);
-        }
-        this.pricingStatus = 'pending';
-        this._qtyTimers[lineId] = setTimeout(() => {
-            delete this._qtyTimers[lineId];
-            this.enqueueQtyUpdate(lineId, qty);
-        }, QTY_DEBOUNCE_MS);
-    }
-
-    scheduleDiscUpdate(lineId, pct) {
-        if (this._discTimers[lineId]) {
-            clearTimeout(this._discTimers[lineId]);
-        }
-        this.pricingStatus = 'pending';
-        this._discTimers[lineId] = setTimeout(() => {
-            delete this._discTimers[lineId];
-            this.enqueueDiscUpdate(lineId, pct);
-        }, QTY_DEBOUNCE_MS);
-    }
-
-    enqueueQtyUpdate(lineId, qty) {
-        if (this._qtyInFlight) {
-            this._qtyQueued = { lineId, qty };
+    /**
+     * Stage one line's edit and restart the idle timer. Merging by lineId means
+     * typing across the grid produces a single Place call instead of one per
+     * field, and the inputs never have to lock while it runs.
+     */
+    stageLineEdit(lineId, patch) {
+        if (!lineId || !this.session?.quoteId) {
             return;
         }
-        this.runQtyUpdate(lineId, qty);
+        this._pendingLineEdits = {
+            ...this._pendingLineEdits,
+            [lineId]: { ...(this._pendingLineEdits[lineId] || {}), ...patch }
+        };
+        this.markEditsStaged();
     }
 
-    enqueueDiscUpdate(lineId, pct) {
-        if (this._discInFlight) {
-            this._discQueued = { lineId, pct };
-            return;
-        }
-        this.runDiscUpdate(lineId, pct);
-    }
-
-    async runQtyUpdate(lineId, qty) {
+    stageOptionDiscount(pct) {
         if (!this.session?.quoteId) {
             return;
         }
-        this._qtyInFlight = true;
+        this._pendingOptionDiscount = pct;
+        this.markEditsStaged();
+    }
+
+    /**
+     * A staged edit counts as pricing-in-progress for every downstream gate
+     * (Sync, Submit for Approval, Send, add / remove / term), so nothing can
+     * act on numbers the batch has not repriced yet. The line inputs are the
+     * one exception — they read isOptionLocked instead.
+     */
+    markEditsStaged() {
+        this.pricingStatus = 'pending';
         this.pricingBusy = true;
-        this.optionError = undefined;
-        try {
-            if (this.usesTxnOrchestrator) {
-                await this.enqueueAndPoll('Place', 'UpdateLineQuantity', {
-                    quoteId: this.session.quoteId,
-                    lineId,
-                    quantity: qty
-                });
-                this.optionDetail = await getOptionDetail({
-                    quoteId: this.session.quoteId
-                });
-            } else {
-                const commercial = await runCommercialOperation({
-                    operation: 'UpdateQty',
-                    quoteId: this.session.quoteId,
-                    opportunityId: this.session.opportunityId,
-                    payloadJson: JSON.stringify({
-                        lineId,
-                        quantity: qty
-                    })
-                });
-                this.optionDetail = commercial?.option;
-            }
-            this.pricingStatus = this.optionDetail?.priced ? 'priced' : 'priced';
-            this.refreshOptionsQuietly();
-        } catch (e) {
-            this.pricingStatus = 'error';
-            this.optionError = this.reduceError(e);
-        } finally {
-            this._qtyInFlight = false;
-            this.pricingBusy = false;
-            if (this._qtyQueued) {
-                const next = this._qtyQueued;
-                this._qtyQueued = null;
-                this.runQtyUpdate(next.lineId, next.qty);
-            }
+        this.scheduleEditFlush();
+    }
+
+    scheduleEditFlush(delayMs = EDIT_FLUSH_IDLE_MS) {
+        this.cancelEditFlush();
+        this._flushTimer = setTimeout(() => {
+            this._flushTimer = null;
+            this.flushPendingEdits();
+        }, delayMs);
+    }
+
+    cancelEditFlush() {
+        if (this._flushTimer) {
+            clearTimeout(this._flushTimer);
+            this._flushTimer = null;
         }
     }
 
-    async runDiscUpdate(lineId, pct) {
-        if (!this.session?.quoteId) {
+    /**
+     * Focusing the next field must not commit mid-edit, but it must not stall
+     * the batch either — re-arm the full idle window instead of cancelling, so
+     * tabbing across lines keeps batching and an idle user still gets priced.
+     */
+    handleLineEditFocus() {
+        if (!this.hasPendingEdits) {
             return;
         }
-        this._discInFlight = true;
+        this.scheduleEditFlush();
+    }
+
+    /**
+     * Leaving a field commits soon rather than waiting out the idle window.
+     * Tabbing to the next line's input fires focus right after, which replaces
+     * this short timer with the full idle one — so tab-through still batches.
+     */
+    handleLineEditBlur() {
+        if (!this.hasPendingEdits) {
+            return;
+        }
+        this.scheduleEditFlush(EDIT_FLUSH_BLUR_MS);
+    }
+
+    get hasPendingEdits() {
+        return (
+            Object.keys(this._pendingLineEdits || {}).length > 0 ||
+            this._pendingOptionDiscount != null
+        );
+    }
+
+    async flushPendingEdits() {
+        if (!this.session?.quoteId || !this.hasPendingEdits) {
+            return;
+        }
+        // An in-flight flush re-checks for staged edits when it finishes.
+        if (this._flushInFlight) {
+            return;
+        }
+        const optionPct = this._pendingOptionDiscount;
+        const edits = Object.entries(this._pendingLineEdits).map(
+            ([lineId, patch]) => ({
+                lineId,
+                quantity: patch.quantity == null ? null : patch.quantity,
+                discountPercent:
+                    patch.discountPercent == null ? null : patch.discountPercent
+            })
+        );
+        this._pendingOptionDiscount = null;
+        this._pendingLineEdits = {};
+        this._flushInFlight = true;
         this.pricingBusy = true;
         this.optionError = undefined;
         try {
-            if (this.usesTxnOrchestrator) {
-                await this.enqueueAndPoll('Place', 'UpdateLineDiscount', {
-                    quoteId: this.session.quoteId,
-                    lineId,
-                    discountPercent: pct
+            // Option scope broadcasts to every line, so it must land before
+            // per-line edits or it would overwrite them.
+            if (optionPct != null) {
+                await this.runCommercial('UpdateOptionDisc', {
+                    discountPercent: optionPct
                 });
-                this.optionDetail = await getOptionDetail({
-                    quoteId: this.session.quoteId
-                });
-            } else {
-                const commercial = await runCommercialOperation({
-                    operation: 'UpdateDisc',
-                    quoteId: this.session.quoteId,
-                    opportunityId: this.session.opportunityId,
-                    payloadJson: JSON.stringify({
-                        lineId,
-                        discountPercent: pct
-                    })
-                });
-                this.optionDetail = commercial?.option;
+                this.optionDiscountPercent = optionPct;
             }
-            this.syncOptionDiscountFromLines();
+            if (edits.length) {
+                await this.runCommercial('UpdateLines', { edits });
+                this.syncOptionDiscountFromLines();
+            }
             this.pricingStatus = 'priced';
             this.refreshOptionsQuietly();
         } catch (e) {
             this.pricingStatus = 'error';
             this.optionError = this.reduceError(e);
         } finally {
-            this._discInFlight = false;
-            this.pricingBusy = false;
-            if (this._discQueued) {
-                const next = this._discQueued;
-                this._discQueued = null;
-                this.runDiscUpdate(next.lineId, next.pct);
+            this._flushInFlight = false;
+            // Stay busy if the user kept typing while this batch was running.
+            this.pricingBusy = this.hasPendingEdits;
+            if (this.hasPendingEdits) {
+                this.cancelEditFlush();
+                this.flushPendingEdits();
             }
         }
     }
 
+    /**
+     * One commercial mutate, routed through the txn orchestrator when enabled.
+     * Operation names double as orchestrator handler names — see
+     * RLM_BambooSuiteTxnJob.commercialOpForHandler.
+     */
+    async runCommercial(operation, payload) {
+        if (this.usesTxnOrchestrator) {
+            await this.enqueueAndPoll('Place', operation, {
+                quoteId: this.session.quoteId,
+                ...payload
+            });
+            this.optionDetail = this.withPendingEdits(
+                await getOptionDetail({ quoteId: this.session.quoteId })
+            );
+            return;
+        }
+        const commercial = await runCommercialOperation({
+            operation,
+            quoteId: this.session.quoteId,
+            opportunityId: this.session.opportunityId,
+            payloadJson: JSON.stringify(payload)
+        });
+        this.optionDetail = this.withPendingEdits(commercial?.option);
+    }
+
+    /**
+     * A batch that returns while the user is still typing must not reset the
+     * field under their cursor. Anything staged after the batch snapshot wins
+     * over the server's values until its own flush lands.
+     */
+    withPendingEdits(detail) {
+        if (!detail?.lines?.length || !this.hasPendingEdits) {
+            return detail;
+        }
+        const pending = this._pendingLineEdits || {};
+        const optionPct = this._pendingOptionDiscount;
+        return {
+            ...detail,
+            lines: detail.lines.map((line) => {
+                const patch = pending[line.lineId];
+                let discountPercent = line.discountPercent;
+                if (patch?.discountPercent != null) {
+                    discountPercent = patch.discountPercent;
+                } else if (optionPct != null && !line.hideLineControls) {
+                    discountPercent = optionPct;
+                }
+                const quantity =
+                    patch?.quantity == null ? line.quantity : patch.quantity;
+                if (
+                    quantity === line.quantity &&
+                    discountPercent === line.discountPercent
+                ) {
+                    return line;
+                }
+                return {
+                    ...line,
+                    quantity,
+                    discountPercent,
+                    ...lineApprovalFields(
+                        discountPercent,
+                        null,
+                        null,
+                        this.activeApprovalStatus
+                    )
+                };
+            })
+        };
+    }
+
     handleDiscountScopeLine() {
-        if (this.lineEditsDisabled) {
+        if (this.lineInputsDisabled) {
             return;
         }
         this.discountScope = 'line';
     }
 
     handleDiscountScopeOption() {
-        if (this.lineEditsDisabled) {
+        if (this.lineInputsDisabled) {
             return;
         }
         this.discountScope = 'option';
@@ -2599,7 +2695,7 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
     }
 
     handleOptionDiscountInput(event) {
-        if (this.lineEditsDisabled) {
+        if (this.lineInputsDisabled) {
             return;
         }
         let n = Number(event.target.value);
@@ -2623,70 +2719,7 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
                 }))
             };
         }
-        this.scheduleOptionDiscUpdate(n);
-    }
-
-    scheduleOptionDiscUpdate(pct) {
-        if (this._optionDiscTimer) {
-            clearTimeout(this._optionDiscTimer);
-        }
-        this.pricingStatus = 'pending';
-        this._optionDiscTimer = setTimeout(() => {
-            this._optionDiscTimer = null;
-            this.enqueueOptionDiscUpdate(pct);
-        }, QTY_DEBOUNCE_MS);
-    }
-
-    enqueueOptionDiscUpdate(pct) {
-        if (this._optionDiscInFlight) {
-            this._optionDiscQueued = pct;
-            return;
-        }
-        this.runOptionDiscUpdate(pct);
-    }
-
-    async runOptionDiscUpdate(pct) {
-        if (!this.session?.quoteId) {
-            return;
-        }
-        this._optionDiscInFlight = true;
-        this.pricingBusy = true;
-        this.optionError = undefined;
-        try {
-            if (this.usesTxnOrchestrator) {
-                await this.enqueueAndPoll('Place', 'UpdateOptionDiscount', {
-                    quoteId: this.session.quoteId,
-                    discountPercent: pct
-                });
-                this.optionDetail = await getOptionDetail({
-                    quoteId: this.session.quoteId
-                });
-            } else {
-                const commercial = await runCommercialOperation({
-                    operation: 'UpdateOptionDisc',
-                    quoteId: this.session.quoteId,
-                    opportunityId: this.session.opportunityId,
-                    payloadJson: JSON.stringify({
-                        discountPercent: pct
-                    })
-                });
-                this.optionDetail = commercial?.option;
-            }
-            this.optionDiscountPercent = pct;
-            this.pricingStatus = 'priced';
-            this.refreshOptionsQuietly();
-        } catch (e) {
-            this.pricingStatus = 'error';
-            this.optionError = this.reduceError(e);
-        } finally {
-            this._optionDiscInFlight = false;
-            this.pricingBusy = false;
-            if (this._optionDiscQueued != null) {
-                const next = this._optionDiscQueued;
-                this._optionDiscQueued = null;
-                this.runOptionDiscUpdate(next);
-            }
-        }
+        this.stageOptionDiscount(n);
     }
 
     get usesTxnOrchestrator() {

@@ -47,6 +47,24 @@ public with sharing class RLM_BambooSuitePlace {
         }
     }
 
+    /** Bulk ownership check — one query for a coalesced batch of line edits. */
+    private static void assertOwnedLines(Id quoteId, Set<Id> lineIds) {
+        Set<Id> owned = new Set<Id>();
+        for (QuoteLineItem qi : [
+            SELECT Id
+            FROM QuoteLineItem
+            WHERE Id IN :lineIds AND QuoteId = :quoteId
+            WITH USER_MODE
+        ]) {
+            owned.add(qi.Id);
+        }
+        if (owned.size() != lineIds.size()) {
+            throw new RLM_BambooRevenueSuite.SuiteException(
+                'One or more lines do not belong to this option quote.'
+            );
+        }
+    }
+
     private static void assertSuiteOptionQuote(Id quoteId, String capability) {
         Quote q = [
             SELECT Id, Name
@@ -135,6 +153,92 @@ public with sharing class RLM_BambooSuitePlace {
             'PartnerDiscountPercent' => null
         };
         nodes.add(new RevSalesTrxn.RecordWithReferenceRequest('refLine', lineNode));
+
+        placeForce(qId, nodes);
+        return RLM_BambooRevenueSuite.buildOptionDetailPublic(qId);
+    }
+
+    /**
+     * One staged line edit. A null quantity or discountPercent leaves that
+     * field untouched, so the LWC can stage the two independently.
+     */
+    public class LineEditInput {
+        @AuraEnabled
+        public String lineId { get; set; }
+        @AuraEnabled
+        public Decimal quantity { get; set; }
+        @AuraEnabled
+        public Decimal discountPercent { get; set; }
+    }
+
+    /**
+     * Apply several staged quantity / discount edits in ONE Place + FORCE.
+     * The LWC coalesces keystrokes into this call so editing a grid of lines
+     * costs one reprice instead of one per field.
+     */
+    @AuraEnabled
+    public static RLM_BambooRevenueSuite.OptionDetailDTO updateLines(
+        String quoteId,
+        List<LineEditInput> edits
+    ) {
+        Id qId = RLM_BambooRevenueSuite.parseIdPublic(quoteId, 'Quote');
+
+        // Last value wins per line so a batch never PATCHes the same line twice.
+        Map<Id, LineEditInput> byLine = new Map<Id, LineEditInput>();
+        for (LineEditInput edit : edits == null ? new List<LineEditInput>() : edits) {
+            if (edit == null || String.isBlank(edit.lineId)) {
+                continue;
+            }
+            if (edit.quantity == null && edit.discountPercent == null) {
+                continue;
+            }
+            Id lId = RLM_BambooRevenueSuite.parseIdPublic(
+                edit.lineId,
+                'QuoteLineItem'
+            );
+            LineEditInput merged = byLine.containsKey(lId)
+                ? byLine.get(lId)
+                : new LineEditInput();
+            merged.lineId = edit.lineId;
+            if (edit.quantity != null) {
+                merged.quantity = edit.quantity;
+            }
+            if (edit.discountPercent != null) {
+                merged.discountPercent = edit.discountPercent;
+            }
+            byLine.put(lId, merged);
+        }
+        if (byLine.isEmpty()) {
+            throw new RLM_BambooRevenueSuite.SuiteException(
+                'No line edits to apply.'
+            );
+        }
+        assertOwnedLines(qId, byLine.keySet());
+
+        List<RevSalesTrxn.RecordWithReferenceRequest> nodes =
+            new List<RevSalesTrxn.RecordWithReferenceRequest>();
+        nodes.add(quotePatchNode(qId));
+        Integer i = 0;
+        for (Id lId : byLine.keySet()) {
+            LineEditInput edit = byLine.get(lId);
+            Map<String, Object> lineFields = new Map<String, Object>();
+            if (edit.quantity != null) {
+                lineFields.put('Quantity', edit.quantity <= 0 ? 1 : edit.quantity);
+            }
+            if (edit.discountPercent != null) {
+                lineFields.put('Discount', clampPercent(edit.discountPercent));
+                lineFields.put('PartnerDiscountPercent', null);
+            }
+            RevSalesTrxn.RecordResource lineNode = new RevSalesTrxn.RecordResource(
+                QuoteLineItem.getSObjectType(),
+                'PATCH',
+                lId
+            );
+            lineNode.fieldValues = lineFields;
+            nodes.add(
+                new RevSalesTrxn.RecordWithReferenceRequest('refEdit' + i++, lineNode)
+            );
+        }
 
         placeForce(qId, nodes);
         return RLM_BambooRevenueSuite.buildOptionDetailPublic(qId);
