@@ -647,6 +647,209 @@ private class RLM_BambooRevenueSuiteTest {
         }
     }
 
+    private static RLM_BambooSuitePlace.LineEditInput lineEdit(
+        String lineId,
+        Decimal quantity,
+        Decimal discountPercent
+    ) {
+        RLM_BambooSuitePlace.LineEditInput edit = new RLM_BambooSuitePlace.LineEditInput();
+        edit.lineId = lineId;
+        edit.quantity = quantity;
+        edit.discountPercent = discountPercent;
+        return edit;
+    }
+
+    /** Syntactically valid QuoteLineItem Id that belongs to no quote. */
+    private static Id unownedLineId() {
+        return Id.valueOf(
+            QuoteLineItem.SObjectType.getDescribe().getKeyPrefix() + '000000000001'
+        );
+    }
+
+    @IsTest
+    static void updateLines_rejectsEmptyBatch() {
+        Opportunity opp = makeOpp();
+        RLM_BambooRevenueSuite.SessionDTO session = RLM_BambooRevenueSuite.openFromOpportunity(
+            opp.Id
+        );
+        Boolean threwOnEmpty = false;
+        try {
+            RLM_BambooSuitePlace.updateLines(
+                session.quoteId,
+                new List<RLM_BambooSuitePlace.LineEditInput>()
+            );
+        } catch (RLM_BambooRevenueSuite.SuiteException e) {
+            threwOnEmpty = true;
+        }
+        System.assert(threwOnEmpty, 'Empty batch should throw SuiteException');
+
+        Boolean threwOnNull = false;
+        try {
+            RLM_BambooSuitePlace.updateLines(session.quoteId, null);
+        } catch (RLM_BambooRevenueSuite.SuiteException e) {
+            threwOnNull = true;
+        }
+        System.assert(threwOnNull, 'Null batch should throw SuiteException');
+    }
+
+    @IsTest
+    static void updateLines_rejectsEditsWithNoFieldValues() {
+        Opportunity opp = makeOpp();
+        RLM_BambooRevenueSuite.SessionDTO session = RLM_BambooRevenueSuite.openFromOpportunity(
+            opp.Id
+        );
+        // Entries carrying neither quantity nor discount are skipped, which must
+        // collapse to the same "nothing to apply" guard rather than an empty Place.
+        Boolean threw = false;
+        try {
+            RLM_BambooSuitePlace.updateLines(
+                session.quoteId,
+                new List<RLM_BambooSuitePlace.LineEditInput>{
+                    lineEdit(String.valueOf(unownedLineId()), null, null),
+                    lineEdit(null, 5, 5)
+                }
+            );
+        } catch (RLM_BambooRevenueSuite.SuiteException e) {
+            threw = true;
+        }
+        System.assert(threw, 'Batch with no usable edits should throw SuiteException');
+    }
+
+    @IsTest
+    static void updateLines_rejectsUnownedLine() {
+        Opportunity opp = makeOpp();
+        RLM_BambooRevenueSuite.SessionDTO session = RLM_BambooRevenueSuite.openFromOpportunity(
+            opp.Id
+        );
+        // Covers the bulk ownership check that replaced the per-line query — a
+        // line the quote does not own must never reach Place.
+        Boolean threw = false;
+        String msg = '';
+        try {
+            RLM_BambooSuitePlace.updateLines(
+                session.quoteId,
+                new List<RLM_BambooSuitePlace.LineEditInput>{
+                    lineEdit(String.valueOf(unownedLineId()), null, 10)
+                }
+            );
+        } catch (RLM_BambooRevenueSuite.SuiteException e) {
+            threw = true;
+            msg = e.getMessage();
+        }
+        System.assert(threw, 'Unowned line should throw SuiteException');
+        System.assert(
+            msg.contains('do not belong'),
+            'Expected the ownership error, got: ' + msg
+        );
+    }
+
+    @IsTest
+    static void updateLines_commercialGatewayRoutesBatch() {
+        Opportunity opp = makeOpp();
+        RLM_BambooRevenueSuite.SessionDTO session = RLM_BambooRevenueSuite.openFromOpportunity(
+            opp.Id
+        );
+
+        RLM_BambooSuiteCommercial.OperationRequest req = new RLM_BambooSuiteCommercial.OperationRequest();
+        req.operation = 'UpdateLines';
+        req.quoteId = session.quoteId;
+        req.opportunityId = String.valueOf(opp.Id);
+        req.payloadJson = JSON.serialize(
+            new Map<String, Object>{
+                'edits' => new List<Object>{
+                    new Map<String, Object>{
+                        'lineId' => String.valueOf(unownedLineId()),
+                        'discountPercent' => 10
+                    }
+                }
+            }
+        );
+
+        String msg = '';
+        try {
+            RLM_BambooSuiteCommercial.run(req);
+        } catch (RLM_BambooRevenueSuite.SuiteException e) {
+            msg = e.getMessage();
+        }
+        // Reaching the ownership error (not "no line edits") proves the gateway
+        // routed UpdateLines *and* parsed the JSON batch into a LineEditInput.
+        System.assert(
+            msg.contains('do not belong'),
+            'Gateway should route + parse the batch; got: ' + msg
+        );
+    }
+
+    @IsTest(SeeAllData=true)
+    static void updateLines_appliesBatchWhenCatalogPresent() {
+        List<RLM_BambooRevenueSuite.CatalogProductDTO> catalog = RLM_BambooRevenueSuite.getCatalog(
+            'USD'
+        );
+        if (catalog.isEmpty()) {
+            return;
+        }
+        List<String> skus = new List<String>();
+        for (RLM_BambooRevenueSuite.CatalogProductDTO p : catalog) {
+            if (p.sku == 'BAMBOO-CORE' || p.sku == 'BAMBOO-PRO') {
+                skus.add(p.sku);
+            }
+        }
+        if (skus.isEmpty()) {
+            skus.add(catalog[0].sku);
+        }
+
+        Opportunity opp = makeOpp();
+        RLM_BambooRevenueSuite.SessionDTO session = RLM_BambooRevenueSuite.openFromOpportunity(
+            opp.Id
+        );
+        List<String> lineIds = new List<String>();
+        for (String sku : skus) {
+            RLM_BambooRevenueSuite.AddLineResultDTO added = RLM_BambooRevenueSuite.addProductLine(
+                session.quoteId,
+                sku,
+                10,
+                12,
+                null,
+                null
+            );
+            lineIds.add(added.lineId);
+        }
+
+        List<RLM_BambooSuitePlace.LineEditInput> edits = new List<RLM_BambooSuitePlace.LineEditInput>();
+        // Duplicate entries for one line must merge with the last value winning.
+        edits.add(lineEdit(lineIds[0], null, 10));
+        edits.add(lineEdit(lineIds[0], 25, 20));
+        if (lineIds.size() > 1) {
+            edits.add(lineEdit(lineIds[1], null, 5));
+        }
+
+        Test.startTest();
+        RLM_BambooRevenueSuite.OptionDetailDTO updated = RLM_BambooSuitePlace.updateLines(
+            session.quoteId,
+            edits
+        );
+        Test.stopTest();
+
+        Map<String, RLM_BambooRevenueSuite.OptionLineDTO> byId = new Map<String, RLM_BambooRevenueSuite.OptionLineDTO>();
+        for (RLM_BambooRevenueSuite.OptionLineDTO line : updated.lines) {
+            byId.put(line.lineId, line);
+        }
+
+        RLM_BambooRevenueSuite.OptionLineDTO first = byId.get(lineIds[0]);
+        System.assertNotEquals(null, first, 'Expected the first edited line back');
+        System.assertEquals(20, first.discountPercent, 'Last duplicate edit should win');
+        System.assertEquals(25, first.quantity, 'Batched quantity should apply');
+
+        if (lineIds.size() > 1) {
+            RLM_BambooRevenueSuite.OptionLineDTO second = byId.get(lineIds[1]);
+            System.assertNotEquals(null, second, 'Expected the second edited line back');
+            System.assertEquals(
+                5,
+                second.discountPercent,
+                'Every line in one batch should be repriced together'
+            );
+        }
+    }
+
     @IsTest(SeeAllData=true)
     static void applyTermToOption_restampsWhenCatalogPresent() {
         List<RLM_BambooRevenueSuite.CatalogProductDTO> catalog = RLM_BambooRevenueSuite.getCatalog(
