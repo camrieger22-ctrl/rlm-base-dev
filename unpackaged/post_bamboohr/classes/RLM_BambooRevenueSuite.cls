@@ -3451,6 +3451,14 @@ public with sharing class RLM_BambooRevenueSuite {
             Pricebook2Id = pricebookId,
             Status = 'Draft'
         );
+        // The platform auto-copies the legacy Quote.AccountId from the
+        // Opportunity on insert, but NOT the newer QuoteAccountId — and the
+        // Account "Quotes" related list is keyed on QuoteAccountId, not
+        // AccountId (whose child relationship on Account is null). Stamp it so
+        // suite option quotes surface on the account, not just the opportunity.
+        if (opp.AccountId != null) {
+            q.QuoteAccountId = opp.AccountId;
+        }
         if (String.isNotBlank(opp.CurrencyIsoCode)) {
             q.CurrencyIsoCode = opp.CurrencyIsoCode;
         }

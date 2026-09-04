@@ -1275,6 +1275,27 @@ private class RLM_BambooRevenueSuiteTest {
             result.created.quoteName.contains('Option B'),
             result.created.quoteName
         );
+
+        // Suite option quotes must stamp QuoteAccountId (not just the legacy
+        // auto-copied AccountId) so they surface in the Account's Quotes related
+        // list, which is keyed on QuoteAccountId.
+        Id oppAccountId = [
+            SELECT AccountId
+            FROM Opportunity
+            WHERE Id = :opp.Id
+        ].AccountId;
+        System.assertNotEquals(null, oppAccountId, 'Fixture opp should have an account');
+        for (Quote q : [
+            SELECT Id, QuoteAccountId
+            FROM Quote
+            WHERE OpportunityId = :opp.Id
+        ]) {
+            System.assertEquals(
+                oppAccountId,
+                q.QuoteAccountId,
+                'Option quote should stamp QuoteAccountId for the Account Quotes list'
+            );
+        }
     }
 
     @IsTest
