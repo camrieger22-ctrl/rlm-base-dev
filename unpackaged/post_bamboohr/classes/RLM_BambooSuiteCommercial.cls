@@ -29,7 +29,7 @@ public with sharing class RLM_BambooSuiteCommercial {
      * Supported operations (case-insensitive):
      * Reprice, UpdateQty, UpdateDisc, UpdateLines, UpdateOptionDisc,
      * UpdateSeats, RemoveLines, ApplyTerm, ApplyTermAll, ApplyBillingAll,
-     * AddLinesBySku, AddWorkforcePackage
+     * ApplyDiscountAll, AddLinesBySku, AddWorkforcePackage
      */
     @AuraEnabled
     public static OperationResult run(OperationRequest request) {
@@ -124,6 +124,18 @@ public with sharing class RLM_BambooSuiteCommercial {
                 strList(payload, 'quoteIds')
             );
             result.summary = 'Billing applied to all options.';
+        } else if (op == 'applydiscountall') {
+            String oppId = firstNonBlank(
+                request.opportunityId,
+                str(payload, 'opportunityId')
+            );
+            result.option = RLM_BambooSuitePlace.applyDiscountToAllOptions(
+                oppId,
+                firstNonBlank(request.quoteId, str(payload, 'selectedQuoteId')),
+                dec(payload, 'discountPercent'),
+                strList(payload, 'quoteIds')
+            );
+            result.summary = 'Discount applied to all options.';
         } else if (op == 'addlinesbysku') {
             result.addResult = RLM_BambooSuitePlace.addProductLinesBySku(
                 reqQuote(request, payload),

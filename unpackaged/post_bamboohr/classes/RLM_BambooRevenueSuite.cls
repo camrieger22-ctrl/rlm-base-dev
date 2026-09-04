@@ -2200,6 +2200,25 @@ public with sharing class RLM_BambooRevenueSuite {
         );
     }
 
+    /**
+     * Blanket the same manual discount across every line of every suite option
+     * on the opportunity via Place + FORCE. Fans out to updateOptionDiscount per
+     * option; empty options are skipped. Pass quoteIds to scope; null = all.
+     */
+        public static OptionDetailDTO applyDiscountToAllOptions(
+        String opportunityId,
+        String selectedQuoteId,
+        Decimal discountPercent,
+        List<String> quoteIds
+    ) {
+        return RLM_BambooSuitePlace.applyDiscountToAllOptions(
+            opportunityId,
+            selectedQuoteId,
+            discountPercent,
+            quoteIds
+        );
+    }
+
     /** Slice 4d Phase A — immediate retries on Opp row lock. */
     @TestVisible
     private static final Integer LOCK_RETRY_ATTEMPTS = 3;

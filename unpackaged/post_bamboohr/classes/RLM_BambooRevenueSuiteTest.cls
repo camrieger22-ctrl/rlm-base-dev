@@ -1046,6 +1046,216 @@ private class RLM_BambooRevenueSuiteTest {
         System.assertEquals(12, detail.termMonths);
     }
 
+    @IsTest(SeeAllData=true)
+    static void applyDiscountToAllOptions_fansOutAcrossOptions() {
+        List<RLM_BambooRevenueSuite.CatalogProductDTO> catalog =
+            RLM_BambooRevenueSuite.getCatalog('USD');
+        if (catalog.isEmpty()) {
+            return;
+        }
+        String sku = catalog[0].sku;
+        for (RLM_BambooRevenueSuite.CatalogProductDTO p : catalog) {
+            if (p.sku == 'BAMBOO-CORE') {
+                sku = p.sku;
+                break;
+            }
+        }
+        Opportunity opp = makeOpp();
+        RLM_BambooRevenueSuite.SessionDTO a =
+            RLM_BambooRevenueSuite.openFromOpportunity(opp.Id);
+        RLM_BambooRevenueSuite.AddOptionResultDTO b =
+            RLM_BambooRevenueSuite.addOption(opp.Id);
+        RLM_BambooRevenueSuite.addProductLine(a.quoteId, sku, 10, 12, null, null);
+        RLM_BambooRevenueSuite.addProductLine(
+            b.created.quoteId,
+            sku,
+            10,
+            12,
+            null,
+            null
+        );
+
+        // Keep the per-option Place fan-out (2 options => 2 Place+FORCE) inside
+        // start/stop so it runs against a fresh governor bucket, not the setup's.
+        Test.startTest();
+        RLM_BambooRevenueSuite.OptionDetailDTO selected =
+            RLM_BambooRevenueSuite.applyDiscountToAllOptions(opp.Id, a.quoteId, 15, null);
+        RLM_BambooRevenueSuite.OptionDetailDTO other =
+            RLM_BambooRevenueSuite.getOptionDetail(b.created.quoteId);
+        Test.stopTest();
+
+        System.assert(!selected.lines.isEmpty(), 'Expected lines on selected option');
+        for (RLM_BambooRevenueSuite.OptionLineDTO line : selected.lines) {
+            System.assertEquals(
+                15,
+                line.discountPercent,
+                'Blanket discount should apply to the selected option lines'
+            );
+        }
+        // The *other* option quote must be discounted too (server-side fan-out).
+        System.assert(!other.lines.isEmpty(), 'Expected lines on option B');
+        for (RLM_BambooRevenueSuite.OptionLineDTO line : other.lines) {
+            System.assertEquals(
+                15,
+                line.discountPercent,
+                'Blanket discount should fan out to every option'
+            );
+        }
+    }
+
+    @IsTest(SeeAllData=true)
+    static void applyDiscountToAllOptions_clampsAndSkipsEmpty() {
+        List<RLM_BambooRevenueSuite.CatalogProductDTO> catalog =
+            RLM_BambooRevenueSuite.getCatalog('USD');
+        if (catalog.isEmpty()) {
+            return;
+        }
+        String sku = catalog[0].sku;
+        for (RLM_BambooRevenueSuite.CatalogProductDTO p : catalog) {
+            if (p.sku == 'BAMBOO-CORE') {
+                sku = p.sku;
+                break;
+            }
+        }
+        Opportunity opp = makeOpp();
+        RLM_BambooRevenueSuite.SessionDTO a =
+            RLM_BambooRevenueSuite.openFromOpportunity(opp.Id);
+        // Option B stays empty -> must be skipped (no throw) while A is discounted.
+        RLM_BambooRevenueSuite.addOption(opp.Id);
+        RLM_BambooRevenueSuite.addProductLine(a.quoteId, sku, 10, 12, null, null);
+
+        Test.startTest();
+        RLM_BambooRevenueSuite.OptionDetailDTO clamped =
+            RLM_BambooRevenueSuite.applyDiscountToAllOptions(opp.Id, a.quoteId, 150, null);
+        Test.stopTest();
+
+        System.assert(!clamped.lines.isEmpty(), 'Expected lines on option A');
+        for (RLM_BambooRevenueSuite.OptionLineDTO line : clamped.lines) {
+            System.assertEquals(
+                100,
+                line.discountPercent,
+                'Blanket discount should clamp to 100'
+            );
+        }
+    }
+
+    @IsTest
+    static void applyDiscountToAllOptions_throwsWhenNoOptions() {
+        // No suite option quotes exist until openFromOpportunity is called.
+        Opportunity opp = makeOpp();
+        Boolean threw = false;
+        try {
+            RLM_BambooRevenueSuite.applyDiscountToAllOptions(opp.Id, null, 20, null);
+        } catch (RLM_BambooRevenueSuite.SuiteException e) {
+            threw = true;
+        }
+        System.assert(threw, 'Expected SuiteException when opportunity has no options');
+    }
+
+    @IsTest
+    static void applyDiscountToAllOptions_gatewayRoutesOp() {
+        Opportunity opp = makeOpp();
+        RLM_BambooRevenueSuite.SessionDTO session =
+            RLM_BambooRevenueSuite.openFromOpportunity(opp.Id);
+
+        RLM_BambooSuiteCommercial.OperationRequest req =
+            new RLM_BambooSuiteCommercial.OperationRequest();
+        req.operation = 'ApplyDiscountAll';
+        req.quoteId = session.quoteId;
+        req.opportunityId = String.valueOf(opp.Id);
+        req.payloadJson = JSON.serialize(
+            new Map<String, Object>{
+                'selectedQuoteId' => session.quoteId,
+                'opportunityId' => String.valueOf(opp.Id),
+                'discountPercent' => 10
+            }
+        );
+
+        Test.startTest();
+        RLM_BambooSuiteCommercial.OperationResult result =
+            RLM_BambooSuiteCommercial.run(req);
+        Test.stopTest();
+
+        // Empty option is skipped; gateway still routes + returns the selected
+        // detail, proving ApplyDiscountAll parsing and dispatch.
+        System.assertNotEquals(null, result.option, 'Gateway should return a detail');
+        System.assert(
+            result.summary != null && result.summary.contains('all options'),
+            'Gateway should route ApplyDiscountAll; got: ' + result.summary
+        );
+    }
+
+    /**
+     * Scale guard: when a txn job already owns the Opp sync lifecycle
+     * (TXN_JOB_IN_PROGRESS = true, the async Path B), the fan-out must NOT run
+     * its own suspend/restore (ownSuspend = false) yet must still discount every
+     * option. Proves the hoist guard is honored and the async path stays correct.
+     */
+    @IsTest(SeeAllData=true)
+    static void applyDiscountToAllOptions_skipsOwnSuspendWhenJobInProgress() {
+        List<RLM_BambooRevenueSuite.CatalogProductDTO> catalog =
+            RLM_BambooRevenueSuite.getCatalog('USD');
+        if (catalog.isEmpty()) {
+            return;
+        }
+        String sku = catalog[0].sku;
+        for (RLM_BambooRevenueSuite.CatalogProductDTO p : catalog) {
+            if (p.sku == 'BAMBOO-CORE') {
+                sku = p.sku;
+                break;
+            }
+        }
+        Opportunity opp = makeOpp();
+        RLM_BambooRevenueSuite.SessionDTO a =
+            RLM_BambooRevenueSuite.openFromOpportunity(opp.Id);
+        RLM_BambooRevenueSuite.AddOptionResultDTO b =
+            RLM_BambooRevenueSuite.addOption(opp.Id);
+        RLM_BambooRevenueSuite.addProductLine(a.quoteId, sku, 10, 12, null, null);
+        RLM_BambooRevenueSuite.addProductLine(
+            b.created.quoteId,
+            sku,
+            10,
+            12,
+            null,
+            null
+        );
+
+        Test.startTest();
+        // Simulate the orchestrator having already suspended Opp sync.
+        RLM_BambooRevenueSuite.setTxnJobInProgress(true);
+        RLM_BambooRevenueSuite.OptionDetailDTO selected;
+        try {
+            selected = RLM_BambooRevenueSuite.applyDiscountToAllOptions(
+                opp.Id,
+                a.quoteId,
+                20,
+                null
+            );
+        } finally {
+            RLM_BambooRevenueSuite.setTxnJobInProgress(false);
+        }
+        RLM_BambooRevenueSuite.OptionDetailDTO other =
+            RLM_BambooRevenueSuite.getOptionDetail(b.created.quoteId);
+        Test.stopTest();
+
+        System.assert(!selected.lines.isEmpty(), 'Expected lines on selected option');
+        for (RLM_BambooRevenueSuite.OptionLineDTO line : selected.lines) {
+            System.assertEquals(
+                20,
+                line.discountPercent,
+                'Fan-out must discount the selected option even under Path B'
+            );
+        }
+        System.assert(!other.lines.isEmpty(), 'Expected lines on option B');
+        for (RLM_BambooRevenueSuite.OptionLineDTO line : other.lines) {
+            System.assertEquals(
+                20,
+                line.discountPercent,
+                'Fan-out must discount every option even under Path B'
+            );
+        }
+    }
+
     @IsTest
     static void addOption_createsOptionB() {
         Opportunity opp = makeOpp();

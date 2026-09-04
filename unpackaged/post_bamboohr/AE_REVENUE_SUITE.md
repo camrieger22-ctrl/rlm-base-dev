@@ -94,9 +94,49 @@ below), so the grid never locks while pricing runs.
 - Option tabs switch the active Quote (Add / qty / Reprice target that Quote)
 - **Compare** shows **Term**, **Billing**, **Grand total** (per-option commercial terms), plus MRR/ARR run rates and lines side-by-side; click a column to edit
 - Catalog multi-select with **per-product quantity** in the queue, then one Place
-- **Disc %** on each line (`QuoteLineItem.Discount` via Place + FORCE — Default
-  ManualDiscount / `ItemDiscountPercentage`), or **Option** scope in the footer
-  to fan the same % out to every line on that option Quote
+- **Disc %** — manual discount (`QuoteLineItem.Discount` via Place + FORCE —
+  Default ManualDiscount / `ItemDiscountPercentage`) at three scopes:
+    The **Line / Option** scope toggle sits at the **top of the option card** in
+    the commercial-controls cluster (right under Term and Billing, mirroring the
+    ribbon's Term/Billing/Discount order) so the rep picks scope *before* editing
+    the line grid — not buried in the card footer.
+  - **Line** (card top → *Discount* → **Line**) — per-line % typed in the line
+    grid (staged + batched with qty edits)
+  - **Option** (card top → *Discount* → **Option**) — one % that fans out to
+    every line on the active option Quote (`UpdateOptionDisc` →
+    `RLM_BambooSuitePlace.updateOptionDiscount`)
+  - **Discount** (top ribbon, next to Term/Billing) — blanket the same % across
+    **every line of every option** on the opportunity via an explicit
+    **Apply to all** button (`ApplyDiscountAll` →
+    `RLM_BambooSuitePlace.applyDiscountToAllOptions`, which fans out to
+    `updateOptionDiscount` per option; empty options are skipped). Lives in the
+    shared-across-all-options ribbon (same `termControlsDisabled` gate as Term
+    and Billing) so it is where reps already set cross-option commercial terms —
+    not buried in the option footer.
+
+    **Scale (sync vs async fan-out)** — "Apply to all" runs one Place + FORCE
+    per option. The Opportunity sync suspend/restore is hoisted to run **once**
+    around the whole fan-out (not once per option): `applyDiscountToAllOptions`
+    sets `TXN_JOB_IN_PROGRESS`, so each per-option Place short-circuits its own
+    suspend/restore and a single restore is enqueued at the end — eliminating
+    N−1 redundant Opp queries + DML + restore jobs. Up to `APPLY_ALL_SYNC_MAX`
+    (**3**) options the LWC runs it **synchronously** for instant demo feedback;
+    beyond that, and when the txn orchestrator is enabled, it routes through the
+    **async orchestrator** (`enqueueAndPoll('Place', 'ApplyDiscountToAllOptions')`
+    → the queued job owns the same single suspend/restore) so a many-option,
+    heavily-populated opportunity runs on a fresh async governor budget instead
+    of approaching synchronous SOQL/CPU limits. The Apex guard means the hoist is
+    owned by whichever layer is outermost: the orchestrator when async, the
+    method itself when sync — never both.
+
+  **Waterfall layering** — the manual discount is **multiplicative on the
+  tier-adjusted price**, not additive off list. The standard Volume
+  `PriceAdjustmentTier` (BAMBOO plans: 5/10/15/20/25% at qty bands
+  25/76/151/301/501) applies **first**, then the manual % applies on top:
+  `Net = List × (1 − tier) × (1 − discount)`. Verified live: BAMBOO-CORE @ $10
+  list, qty 100 (10% tier) → $9.00; add manual 20% → **$7.20** (28% effective off
+  list, not 30%). So a rep's blanket "20% off" compounds with any active volume
+  tier rather than replacing it.
 - Path A Workforce bundle expand (Pro default); option lines group by
   `ParentQuoteLineItemId` — bundle head shows rolled-up list/net, children
   indented underneath. After configurator expand, suite **stamps** StartDate /
@@ -395,6 +435,13 @@ stages them and flushes one batch:
 - **One call** — `UpdateLines` (`RLM_BambooSuitePlace.updateLines`) PATCHes every
   edited line in a single Place + FORCE graph. Option-scope Disc % runs first as
   `UpdateOptionDisc`, since it broadcasts to all lines.
+
+The ribbon **Discount** blanket (Apply to all) is **not** part of this staged
+flush — like *Apply Term/Billing to all options*, it is an explicit button
+(`ApplyDiscountAll`) that fans out server-side across every option Quote, so it is
+not fired on each keystroke. At ≤ `APPLY_ALL_SYNC_MAX` (3) options it runs
+synchronously (instant); beyond that it routes through the async orchestrator
+(`enqueueAndPoll`) — see **Disc % → Scale (sync vs async fan-out)** above.
 
 Why it is safe to keep the inputs live:
 

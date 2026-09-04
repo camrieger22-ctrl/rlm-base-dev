@@ -166,6 +166,37 @@
     margin: 0;
 }
 
+.discount-block {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.discount-block .ribbon-label {
+    margin: 0;
+}
+
+.discount-ribbon-control {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.discount-ribbon-input {
+    width: 4rem;
+    text-align: right;
+}
+
+.discount-ribbon-suffix {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--abbey);
+    margin-left: -0.15rem;
+}
+
 .term-date {
     border: 1px solid var(--line);
     border-radius: 8px;
@@ -1986,13 +2017,6 @@
 .option-foot-amount {
     font-weight: 700;
     font-size: 0.95rem;
-}
-
-.option-foot-discount {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.4rem;
 }
 
 .discount-scope {

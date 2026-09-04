@@ -949,6 +949,126 @@ public with sharing class RLM_BambooSuitePlace {
         return selectedDetail;
     }
 
+    /**
+     * Apply the same manual discount percent to every line of every suite option
+     * on the opportunity (blanket discount across all options), via PST + FORCE.
+     * Fans out to updateOptionDiscount per option so the same Place/pricing path,
+     * ownership guards, and waterfall composition apply as the single-option case.
+     * The manual discount layers on top of any volume-tier adjustment
+     * (multiplicative: List x tier x (1 - discount)). Options with no lines are
+     * skipped. Pass quoteIds to scope to a subset; null/empty = all options.
+     */
+    @AuraEnabled
+    public static RLM_BambooRevenueSuite.OptionDetailDTO applyDiscountToAllOptions(
+        String opportunityId,
+        String selectedQuoteId,
+        Decimal discountPercent,
+        List<String> quoteIds
+    ) {
+        Id oppId = RLM_BambooRevenueSuite.parseIdPublic(opportunityId, 'Opportunity');
+        Id selectedId = String.isBlank(selectedQuoteId)
+            ? null
+            : RLM_BambooRevenueSuite.parseIdPublic(selectedQuoteId, 'Quote');
+        Decimal pct = clampPercent(discountPercent);
+        List<RLM_BambooRevenueSuite.OptionSummaryDTO> options =
+            RLM_BambooRevenueSuite.buildOptionSummariesPublic(oppId, selectedId);
+        if (options.isEmpty()) {
+            throw new RLM_BambooRevenueSuite.SuiteException(
+                'No quote options found on this opportunity.'
+            );
+        }
+
+        Set<Id> onlyIds = null;
+        if (quoteIds != null && !quoteIds.isEmpty()) {
+            onlyIds = new Set<Id>();
+            for (String raw : quoteIds) {
+                if (String.isBlank(raw)) {
+                    continue;
+                }
+                onlyIds.add(RLM_BambooRevenueSuite.parseIdPublic(raw, 'Quote'));
+            }
+        }
+
+        // Pre-compute which options actually have lines in one query so empty
+        // options are skipped rather than aborting the batch (updateOptionDiscount
+        // throws when an option has no products).
+        Set<Id> optionIds = new Set<Id>();
+        for (RLM_BambooRevenueSuite.OptionSummaryDTO opt : options) {
+            optionIds.add(opt.quoteId);
+        }
+        Set<Id> optionsWithLines = new Set<Id>();
+        for (AggregateResult ar : [
+            SELECT QuoteId qid
+            FROM QuoteLineItem
+            WHERE QuoteId IN :optionIds
+            WITH USER_MODE
+            GROUP BY QuoteId
+        ]) {
+            optionsWithLines.add((Id) ar.get('qid'));
+        }
+
+        // Scale guard: the Opportunity sync suspend/restore is an opportunity-level
+        // concern, so do it ONCE around the whole fan-out instead of once per
+        // option. With TXN_JOB_IN_PROGRESS set, each per-option Place skips its own
+        // suspend/restore (runPlaceWithOpportunitySyncSuspended short-circuits),
+        // eliminating N-1 redundant Opp queries + DML + restore jobs. When invoked
+        // from the async orchestrator the flag is already set (it owns the
+        // lifecycle), so we must not double-suspend — hence the ownSuspend guard.
+        Boolean ownSuspend = !RLM_BambooRevenueSuite.isTxnJobInProgressPublic();
+        Id stagedSyncQuoteId = null;
+        if (ownSuspend) {
+            stagedSyncQuoteId =
+                RLM_BambooRevenueSuite.syncedQuoteIdForOpportunityPublic(oppId);
+            if (stagedSyncQuoteId != null) {
+                RLM_BambooRevenueSuite.clearOpportunitySyncedQuotePublic(oppId);
+            }
+            RLM_BambooRevenueSuite.setTxnJobInProgress(true);
+        }
+
+        RLM_BambooRevenueSuite.OptionDetailDTO selectedDetail = null;
+        Boolean touchedSelected = false;
+        try {
+            for (RLM_BambooRevenueSuite.OptionSummaryDTO opt : options) {
+                if (onlyIds != null && !onlyIds.contains(opt.quoteId)) {
+                    continue;
+                }
+                if (!optionsWithLines.contains(opt.quoteId)) {
+                    continue;
+                }
+                RLM_BambooRevenueSuite.OptionDetailDTO detail = updateOptionDiscount(
+                    opt.quoteId,
+                    pct
+                );
+                if (selectedId != null && opt.quoteId == selectedId) {
+                    selectedDetail = detail;
+                    touchedSelected = true;
+                }
+            }
+            if (selectedId != null && !touchedSelected) {
+                selectedDetail =
+                    RLM_BambooRevenueSuite.buildOptionDetailPublic(selectedId);
+            } else if (selectedDetail == null && selectedId != null) {
+                selectedDetail =
+                    RLM_BambooRevenueSuite.buildOptionDetailPublic(selectedId);
+            } else if (selectedDetail == null) {
+                selectedDetail = RLM_BambooRevenueSuite.buildOptionDetailPublic(
+                    options[0].quoteId
+                );
+            }
+        } finally {
+            if (ownSuspend) {
+                RLM_BambooRevenueSuite.setTxnJobInProgress(false);
+                if (stagedSyncQuoteId != null) {
+                    RLM_BambooRevenueSuite.enqueueRestoreSyncedQuote(
+                        oppId,
+                        stagedSyncQuoteId
+                    );
+                }
+            }
+        }
+        return selectedDetail;
+    }
+
     @AuraEnabled
     public static RLM_BambooRevenueSuite.OptionDetailDTO applyBillingToAllOptions(
         String opportunityId,

@@ -307,6 +307,32 @@
                     </template>
                 </div>
             </div>
+            <div class="discount-block">
+                <span class="ribbon-label">Discount</span>
+                <div class="discount-ribbon-control">
+                    <input
+                        class="term-date discount-ribbon-input"
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.1"
+                        aria-label="Blanket discount percent applied to every line of every option"
+                        value={allOptionsDiscountPercent}
+                        oninput={handleAllOptionsDiscountInput}
+                        disabled={ribbonDiscountDisabled}
+                    />
+                    <span class="discount-ribbon-suffix">%</span>
+                    <button
+                        type="button"
+                        class="btn add small apply-all-disc-btn"
+                        onclick={applyDiscountToAllOptions}
+                        disabled={ribbonDiscountDisabled}
+                        title="Apply this discount to every line of every option"
+                    >
+                        {applyAllOptionsDiscountLabel}
+                    </button>
+                </div>
+            </div>
         </div>
 
         <!-- Full-bleed compare: replaces the 3-column workspace -->
@@ -936,6 +962,49 @@
                             </div>
                         </div>
                     </div>
+                    <div class="option-term-block option-discount-block">
+                        <div class="option-term-row">
+                            <span class="option-term-label">Discount</span>
+                            <button
+                                type="button"
+                                class={lineDiscountScopeClass}
+                                onclick={handleDiscountScopeLine}
+                                disabled={lineInputsDisabled}
+                                title="Set a discount per line in the grid below"
+                            >
+                                Line
+                            </button>
+                            <button
+                                type="button"
+                                class={optionDiscountScopeClass}
+                                onclick={handleDiscountScopeOption}
+                                disabled={lineInputsDisabled}
+                                title="Apply one discount across every line in this option"
+                            >
+                                Option
+                            </button>
+                            <label class="option-disc" if:true={isDiscountScopeOption}>
+                                <span class="line-control-label">Disc %</span>
+                                <input
+                                    class="line-disc-input"
+                                    type="number"
+                                    min="0"
+                                    max="100"
+                                    step="0.1"
+                                    aria-label="Option discount percent"
+                                    value={optionDiscountPercent}
+                                    oninput={handleOptionDiscountInput}
+                                    onfocus={handleLineEditFocus}
+                                    onblur={handleLineEditBlur}
+                                    disabled={lineInputsDisabled}
+                                />
+                            </label>
+                        </div>
+                        <p class="option-term-hint">
+                            Line sets a % per line below. Option applies one % across
+                            every line in this option.
+                        </p>
+                    </div>
                     <div class="option-actions">
                         <button
                             class="btn ghost small"
@@ -1098,41 +1167,6 @@
                                 <span class="option-foot-meta">{subscriptionTermLabel}</span>
                             </div>
                             <span class="option-foot-amount">{subscriptionTotalLabel}</span>
-                        </div>
-                        <div class="option-foot-discount">
-                            <span class="option-foot-label">Apply discount at</span>
-                            <button
-                                type="button"
-                                class={lineDiscountScopeClass}
-                                onclick={handleDiscountScopeLine}
-                                disabled={lineInputsDisabled}
-                            >
-                                Line
-                            </button>
-                            <button
-                                type="button"
-                                class={optionDiscountScopeClass}
-                                onclick={handleDiscountScopeOption}
-                                disabled={lineInputsDisabled}
-                            >
-                                Option
-                            </button>
-                            <label class="option-disc" if:true={isDiscountScopeOption}>
-                                <span class="line-control-label">Disc %</span>
-                                <input
-                                    class="line-disc-input"
-                                    type="number"
-                                    min="0"
-                                    max="100"
-                                    step="0.1"
-                                    aria-label="Option discount percent"
-                                    value={optionDiscountPercent}
-                                    oninput={handleOptionDiscountInput}
-                                    onfocus={handleLineEditFocus}
-                                    onblur={handleLineEditBlur}
-                                    disabled={lineInputsDisabled}
-                                />
-                            </label>
                         </div>
                         <div class="option-foot-row option-foot-total">
                             <span class="option-foot-label">Grand total</span>

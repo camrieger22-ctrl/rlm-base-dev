@@ -159,6 +159,9 @@ public with sharing class RLM_BambooSuiteTxnJob implements Queueable {
         if (h == 'ApplyBillingToAllOptions') {
             return 'ApplyBillingAll';
         }
+        if (h == 'ApplyDiscountToAllOptions') {
+            return 'ApplyDiscountAll';
+        }
         if (h == 'RemoveLine' || h == 'RemoveLines') {
             return 'RemoveLines';
         }

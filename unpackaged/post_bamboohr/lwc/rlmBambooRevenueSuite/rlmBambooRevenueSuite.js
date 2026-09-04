@@ -57,6 +57,15 @@ const EDIT_FLUSH_IDLE_MS = 1500;
  */
 const EDIT_FLUSH_BLUR_MS = 250;
 
+/**
+ * Blanket "Apply to all options" fans out one Place+FORCE per option. Up to this
+ * many options we run it synchronously for instant demo feedback; beyond it we
+ * route through the async transaction orchestrator (its own transaction, fresh
+ * governor budget, single Opp sync suspend/restore) so heavily-populated,
+ * many-option opportunities stay clear of synchronous SOQL/CPU limits.
+ */
+const APPLY_ALL_SYNC_MAX = 3;
+
 /** Mirror RLM_Approval_Level_Calc__c (Disc % as 0–100 UI value). */
 function approvalLevelForDiscPercent(pct) {
     const n = Number(pct);
@@ -488,10 +497,14 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
     billingScopeByQuoteId = {};
     /** Selected line Ids for multi-delete (active option only). */
     selectedLineIds = [];
-    /** UI-only: 'line' | 'option' — where Disc % applies. */
+    /** UI-only: 'line' | 'option' — where footer Disc % applies. */
     discountScope = 'line';
     /** Footer Disc % when discountScope === 'option'. */
     optionDiscountPercent = 0;
+    /** Ribbon blanket Disc % applied across every line of every option. */
+    allOptionsDiscountPercent = 0;
+    /** True while the ribbon blanket-discount fan-out is running. */
+    allOptionsBusy = false;
 
     /** lineId -> { quantity?, discountPercent? } staged for the next flush. */
     _pendingLineEdits = {};
@@ -1528,6 +1541,18 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
         return this.isDiscountScopeOption
             ? 'discount-scope discount-scope-active'
             : 'discount-scope';
+    }
+
+    /**
+     * Ribbon blanket-discount control shares the same gate as Term/Billing
+     * (shared-across-all-options zone), so it works with one option too.
+     */
+    get ribbonDiscountDisabled() {
+        return this.termControlsDisabled || this.allOptionsBusy;
+    }
+
+    get applyAllOptionsDiscountLabel() {
+        return this.allOptionsBusy ? 'Applying…' : 'Apply to all';
     }
 
     connectedCallback() {
@@ -2676,6 +2701,90 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
         }
         this.discountScope = 'option';
         this.syncOptionDiscountFromLines();
+    }
+
+    handleAllOptionsDiscountInput(event) {
+        let n = Number(event.target.value);
+        if (!Number.isFinite(n) || n < 0) {
+            n = 0;
+        }
+        if (n > 100) {
+            n = 100;
+        }
+        this.allOptionsDiscountPercent = n;
+    }
+
+    /**
+     * Blanket the same manual discount across every line of every option on the
+     * opportunity. Unlike the per-line/per-option flush, this is an explicit
+     * action (like Apply Term/Billing to all options): it fans out server-side
+     * through ApplyDiscountAll so one FORCE reprice runs per option quote. The
+     * manual discount layers on top of any volume tier (List x tier x (1 - disc)).
+     *
+     * Scale: up to APPLY_ALL_SYNC_MAX options this runs synchronously for instant
+     * demo feedback. Beyond that — and when the txn orchestrator is enabled — it
+     * routes through the async orchestrator (own transaction, fresh governor
+     * budget, single Opp sync suspend/restore) so many-option opportunities stay
+     * clear of synchronous SOQL/CPU limits.
+     */
+    async applyDiscountToAllOptions() {
+        const oppId = this.opportunityIdOrSession;
+        if (!oppId || !this.session?.quoteId || this.allOptionsBusy) {
+            return;
+        }
+        let pct = Number(this.allOptionsDiscountPercent);
+        if (!Number.isFinite(pct) || pct < 0) {
+            pct = 0;
+        }
+        if (pct > 100) {
+            pct = 100;
+        }
+        const optionCount = (this.options || []).length;
+        const routeAsync =
+            this.usesTxnOrchestrator && optionCount > APPLY_ALL_SYNC_MAX;
+        this.allOptionsBusy = true;
+        this.pricingBusy = true;
+        this.optionError = undefined;
+        this.optionsError = undefined;
+        this.pricingStatus = 'pending';
+        try {
+            if (routeAsync) {
+                // One async transaction per fan-out; the orchestrator sets
+                // TXN_JOB_IN_PROGRESS so the server hoists suspend/restore once
+                // and each option Place reuses a fresh async governor budget.
+                await this.enqueueAndPoll('Place', 'ApplyDiscountToAllOptions', {
+                    selectedQuoteId: this.session.quoteId,
+                    quoteId: this.session.quoteId,
+                    opportunityId: oppId,
+                    discountPercent: pct
+                });
+                this.optionDetail = await getOptionDetail({
+                    quoteId: this.session.quoteId
+                });
+            } else {
+                const commercial = await runCommercialOperation({
+                    operation: 'ApplyDiscountAll',
+                    quoteId: this.session.quoteId,
+                    opportunityId: oppId,
+                    payloadJson: JSON.stringify({
+                        selectedQuoteId: this.session.quoteId,
+                        opportunityId: oppId,
+                        discountPercent: pct
+                    })
+                });
+                this.optionDetail = commercial?.option;
+            }
+            this.optionDiscountPercent = pct;
+            this.syncRibbonFromOption(this.optionDetail);
+            this.pricingStatus = this.optionDetail?.priced ? 'priced' : 'idle';
+            this.refreshOptionsQuietly();
+        } catch (e) {
+            this.pricingStatus = 'error';
+            this.optionError = this.reduceError(e);
+        } finally {
+            this.allOptionsBusy = false;
+            this.pricingBusy = false;
+        }
     }
 
     syncOptionDiscountFromLines() {
