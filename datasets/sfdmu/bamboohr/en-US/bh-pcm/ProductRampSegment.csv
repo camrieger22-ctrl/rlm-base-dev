@@ -1,1 +1,17 @@
-DurationType,Product.StockKeepingUnit,ProductSellingModel.SellingModelType,SegmentType,TrialDuration
+$$Product.StockKeepingUnit$ProductSellingModel.SellingModelType$SegmentType,DurationType,Product.StockKeepingUnit,ProductSellingModel.Name,SegmentType,TrialDuration
+BAMBOO-CORE;TermDefined;Yearly,,BAMBOO-CORE,Term Monthly,Yearly,
+BAMBOO-CORE;TermDefined;Custom,,BAMBOO-CORE,Term Monthly,Custom,
+BAMBOO-CORE-FLAT-SM;TermDefined;Yearly,,BAMBOO-CORE-FLAT-SM,Term Monthly,Yearly,
+BAMBOO-CORE-FLAT-SM;TermDefined;Custom,,BAMBOO-CORE-FLAT-SM,Term Monthly,Custom,
+BAMBOO-PRO;TermDefined;Yearly,,BAMBOO-PRO,Term Monthly,Yearly,
+BAMBOO-PRO;TermDefined;Custom,,BAMBOO-PRO,Term Monthly,Custom,
+BAMBOO-ELITE;TermDefined;Yearly,,BAMBOO-ELITE,Term Monthly,Yearly,
+BAMBOO-ELITE;TermDefined;Custom,,BAMBOO-ELITE,Term Monthly,Custom,
+BAMBOO-ADD-PAYROLL;TermDefined;Yearly,,BAMBOO-ADD-PAYROLL,Term Monthly,Yearly,
+BAMBOO-ADD-PAYROLL;TermDefined;Custom,,BAMBOO-ADD-PAYROLL,Term Monthly,Custom,
+BAMBOO-ADD-BENEFITS;TermDefined;Yearly,,BAMBOO-ADD-BENEFITS,Term Monthly,Yearly,
+BAMBOO-ADD-BENEFITS;TermDefined;Custom,,BAMBOO-ADD-BENEFITS,Term Monthly,Custom,
+BAMBOO-ADD-TIME;TermDefined;Yearly,,BAMBOO-ADD-TIME,Term Monthly,Yearly,
+BAMBOO-ADD-TIME;TermDefined;Custom,,BAMBOO-ADD-TIME,Term Monthly,Custom,
+BAMBOO-ADD-GLOBAL;TermDefined;Yearly,,BAMBOO-ADD-GLOBAL,Term Monthly,Yearly,
+BAMBOO-ADD-GLOBAL;TermDefined;Custom,,BAMBOO-ADD-GLOBAL,Term Monthly,Custom,

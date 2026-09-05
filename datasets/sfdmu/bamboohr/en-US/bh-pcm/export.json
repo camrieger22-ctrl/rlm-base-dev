@@ -83,10 +83,9 @@
       "externalId": "Product2.StockKeepingUnit;ProductSellingModel.Name;ProductSellingModel.SellingModelType"
     },
     {
-      "query": "SELECT DurationType, Id, ProductId, ProductSellingModelId, SegmentType, TrialDuration, Product.StockKeepingUnit, ProductSellingModel.SellingModelType FROM ProductRampSegment ORDER BY Product.StockKeepingUnit ASC, ProductSellingModel.SellingModelType ASC, SegmentType ASC",
+      "query": "SELECT DurationType, Id, ProductId, ProductSellingModelId, SegmentType, TrialDuration, Product.StockKeepingUnit, ProductSellingModel.Name, ProductSellingModel.SellingModelType FROM ProductRampSegment ORDER BY Product.StockKeepingUnit ASC, ProductSellingModel.SellingModelType ASC, SegmentType ASC",
       "operation": "Upsert",
-      "externalId": "Product.StockKeepingUnit;ProductSellingModel.SellingModelType;SegmentType",
-      "excluded": true
+      "externalId": "Product.StockKeepingUnit;ProductSellingModel.SellingModelType;SegmentType"
     },
     {
       "query": "SELECT AssociatedProductRoleCat, Id, MainProductRoleCat, Name FROM ProductRelationshipType ORDER BY Name ASC",

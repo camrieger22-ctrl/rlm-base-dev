@@ -31,6 +31,11 @@ insert_bamboohr_pcm_data:
 | `BAMBOO-ADD-GLOBAL` | BambooHR Global Employment | Add-on |
 | `BAMBOO-PKG-WORKFORCE` | BambooHR Workforce Package | Bundle header |
 
+Subscription SKUs have **`CanRamp=true`** so line-ramp (`ramp-deal-create`) works. The
+Workforce bundle stays `false` (platform cannot line-ramp a bundle). Each rampable
+SKU has `ProductRampSegment` Yearly + Custom rows on **Term Monthly** (the suite
+12/24/36 PSM).
+
 `BAMBOO-CORE-FLAT-SM` is **not** in the Workforce package plan picker (PEPM Core stays). Get Pricing swaps to the flat SKU when the buyer picks Core and headcount ≤ 25.
 
 Legacy `BAMBOO-SUITE` (one SKU + Plan attribute) is obsolete after migrate.
@@ -53,7 +58,7 @@ Legacy `BAMBOO-SUITE` (one SKU + Plan attribute) is obsolete after migrate.
 | 12 | ProductSellingModel | Upsert | `Name;SellingModelType` | 3 |
 | 13 | ProrationPolicy | Upsert | `Name` | 1 |
 | 14 | ProductSellingModelOption | Upsert | `Product2.StockKeepingUnit;ProductSellingModel.Name;ProductSellingModel.SellingModelType` | 27 |
-| 15 | ProductRampSegment | Upsert | `Product.StockKeepingUnit;ProductSellingModel.SellingModelType;SegmentType` | 0 (excluded) |
+| 15 | ProductRampSegment | Upsert | `Product.StockKeepingUnit;ProductSellingModel.SellingModelType;SegmentType` | 16 |
 | 16 | ProductRelationshipType | Upsert | `Name` | 1 |
 | 17 | ProductComponentGroup | Upsert | `Code` | 2 |
 | 18 | ProductRelatedComponent | Upsert | `ChildProductClassification.Code;ChildProduct.StockKeepingUnit;ParentProduct.StockKeepingUnit;ProductComponentGroup.Code;ProductRelationshipType.Name` | 5 |
