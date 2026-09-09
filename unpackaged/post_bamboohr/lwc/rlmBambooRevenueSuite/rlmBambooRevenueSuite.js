@@ -24,6 +24,7 @@ import sendOptionToCustomer from '@salesforce/apex/RLM_BambooSuiteSend.sendOptio
 import runCommercialOperation from '@salesforce/apex/RLM_BambooRevenueSuite.runCommercialOperation';
 import enqueueSuiteMutation from '@salesforce/apex/RLM_BambooSuiteTxnOrchestrator.enqueueSuiteMutation';
 import getJobStatus from '@salesforce/apex/RLM_BambooSuiteTxnOrchestrator.getJobStatus';
+import getLatestRampJobError from '@salesforce/apex/RLM_BambooSuitePlace.getLatestRampJobError';
 
 const TERM_CHOICES = [
     { value: 1, label: 'M2M' },
@@ -65,6 +66,12 @@ const EDIT_FLUSH_BLUR_MS = 250;
  * many-option opportunities stay clear of synchronous SOQL/CPU limits.
  */
 const APPLY_ALL_SYNC_MAX = 3;
+
+/**
+ * Revenue Settings → Set Up Flow for Creating Ramp Schedules (master-demo).
+ * Same screen flow TLE launches as Create Ramp Schedule. Input: recordId = Quote Id.
+ */
+const CREATE_RAMP_SCHEDULE_FLOW = 'RLM_Create_Ramp_Schedule_V4';
 
 /** Mirror RLM_Approval_Level_Calc__c (Disc % as 0–100 UI value). */
 function approvalLevelForDiscPercent(pct) {
@@ -187,6 +194,80 @@ function computeEndIso(startIso, termMonths) {
     return end.toISOString().slice(0, 10);
 }
 
+function addDaysIso(iso, days) {
+    if (!iso) {
+        return null;
+    }
+    const [y, m, d] = iso.split('-').map(Number);
+    if (!y || !m || !d) {
+        return null;
+    }
+    const dt = new Date(Date.UTC(y, m - 1, d));
+    dt.setUTCDate(dt.getUTCDate() + Number(days));
+    return dt.toISOString().slice(0, 10);
+}
+
+function buildLineRampPreview({ startIso, months, annual, trialDays }) {
+    const rows = [];
+    const start = startIso || todayIso();
+    const term = Number(months);
+    if (!Number.isFinite(term) || term < 1) {
+        return rows;
+    }
+    let cursor = start;
+    const trial = Number(trialDays) || 0;
+    if (trial > 0) {
+        const end = addDaysIso(cursor, trial - 1);
+        rows.push({
+            key: 'trial',
+            name: 'Trial',
+            typeLabel: 'TRIAL',
+            durationLabel: `${trial} Days`,
+            startLabel: formatDateMdY(cursor),
+            endLabel: formatDateMdY(end)
+        });
+        cursor = addDaysIso(end, 1);
+    }
+    if (annual) {
+        const full = Math.floor(term / 12);
+        const rem = term % 12;
+        for (let i = 0; i < full; i += 1) {
+            const end = addDaysIso(cursor, 364);
+            rows.push({
+                key: `year-${i + 1}`,
+                name: `Year ${i + 1}`,
+                typeLabel: 'YEARLY',
+                durationLabel: '12 Months',
+                startLabel: formatDateMdY(cursor),
+                endLabel: formatDateMdY(end)
+            });
+            cursor = addDaysIso(end, 1);
+        }
+        if (rem > 0) {
+            const end = computeEndIso(cursor, rem);
+            rows.push({
+                key: 'prorated',
+                name: `Year ${full + 1} — Prorated`,
+                typeLabel: 'YEARLY - PRORATED',
+                durationLabel: `${rem} Months`,
+                startLabel: formatDateMdY(cursor),
+                endLabel: formatDateMdY(end)
+            });
+        }
+    } else {
+        const end = computeEndIso(cursor, term);
+        rows.push({
+            key: 'custom',
+            name: 'Custom',
+            typeLabel: 'CUSTOM',
+            durationLabel: `${term} Months`,
+            startLabel: formatDateMdY(cursor),
+            endLabel: formatDateMdY(end)
+        });
+    }
+    return rows;
+}
+
 /** Display YYYY-MM-DD as M/D/YYYY (US). */
 function formatDateMdY(iso) {
     if (!iso || iso === '—') {
@@ -277,7 +358,183 @@ function enrichLine(line, selected, termStartDate, termMonths, formatMoney, extr
         dayCountLabel: dayCount != null ? `${dayCount} days` : '',
         isBundleHead: extra.rowKind === 'bundle-head',
         isBundleChild: extra.rowKind === 'bundle-child',
+        isRampSegment: extra.rowKind === 'ramp-head' || extra.rowKind === 'ramp-child',
         isSaving: extra.isSaving === true
+    };
+}
+
+function rampCompareGroupKey(line) {
+    if (!line || line.parentLineId) {
+        return null;
+    }
+    if (line.rampIdentifier) {
+        return `rid:${line.rampIdentifier}`;
+    }
+    if (line.quoteLineGroupId) {
+        return `sku:${line.sku || line.name || line.lineId}`;
+    }
+    return null;
+}
+
+function compactDateRange(startIso, endIso) {
+    if (!startIso && !endIso) {
+        return '';
+    }
+    return `${formatDateMdY(startIso)} – ${formatDateMdY(endIso || '')}`;
+}
+
+function buildRampCompareColumns(lines, segments) {
+    const groupCols = (segments || [])
+        .filter((s) => s && s.isRamped)
+        .map((s, idx) => ({
+            key: s.groupId || `seg-${idx}`,
+            groupId: s.groupId,
+            startDate: s.startDate,
+            label: s.name || `Year ${idx + 1}`,
+            datesLabel: compactDateRange(s.startDate, s.endDate)
+        }));
+    if (groupCols.length) {
+        return groupCols;
+    }
+    const starts = [];
+    const seen = new Set();
+    for (const line of lines || []) {
+        if (!rampCompareGroupKey(line) || !line.startDate || seen.has(line.startDate)) {
+            continue;
+        }
+        seen.add(line.startDate);
+        starts.push(line);
+    }
+    starts.sort((a, b) => String(a.startDate).localeCompare(String(b.startDate)));
+    return starts.map((line, idx) => ({
+        key: line.startDate,
+        groupId: null,
+        startDate: line.startDate,
+        label: line.segmentName || `Year ${idx + 1}`,
+        datesLabel: compactDateRange(line.startDate, line.endDate)
+    }));
+}
+
+function lineMatchesRampColumn(line, col) {
+    if (!line || !col) {
+        return false;
+    }
+    if (col.groupId && line.quoteLineGroupId) {
+        return line.quoteLineGroupId === col.groupId;
+    }
+    return Boolean(col.startDate && line.startDate === col.startDate);
+}
+
+function buildRampCompareModel(
+    lines,
+    segments,
+    selectedIds,
+    formatMoney,
+    optionApprovalStatus,
+    pendingLineIds,
+    selectedSegmentGroupId
+) {
+    const selected = new Set(selectedIds || []);
+    const pending = new Set(pendingLineIds || []);
+    const approvalStatus = optionApprovalStatus || 'Draft';
+    const columns = buildRampCompareColumns(lines, segments);
+    const empty = {
+        columns,
+        rows: [],
+        coveredLineIds: new Set(),
+        gridStyle: '',
+        showGrid: false
+    };
+    if (!columns.length) {
+        return empty;
+    }
+    const grouped = new Map();
+    for (const line of lines || []) {
+        const key = rampCompareGroupKey(line);
+        if (!key) {
+            continue;
+        }
+        if (!grouped.has(key)) {
+            grouped.set(key, []);
+        }
+        grouped.get(key).push(line);
+    }
+    const coveredLineIds = new Set();
+    const rows = [];
+    for (const [key, group] of grouped.entries()) {
+        const inSchedule = group.some((line) =>
+            columns.some((col) => lineMatchesRampColumn(line, col))
+        );
+        if (!inSchedule && group.length < 2) {
+            continue;
+        }
+        group.sort((a, b) =>
+            String(a.startDate || '').localeCompare(String(b.startDate || ''))
+        );
+        const first = group[0];
+        const yearLineIds = [];
+        const years = columns.map((col) => {
+            const line = group.find((item) => lineMatchesRampColumn(item, col));
+            const selectedYear =
+                col.groupId && col.groupId === selectedSegmentGroupId;
+            if (!line) {
+                return {
+                    key: `${key}-${col.key}`,
+                    empty: true,
+                    cellClass: selectedYear
+                        ? 'ramp-compare-cell ramp-compare-cell-empty ramp-compare-cell-active-year'
+                        : 'ramp-compare-cell ramp-compare-cell-empty'
+                };
+            }
+            yearLineIds.push(line.lineId);
+            coveredLineIds.add(line.lineId);
+            const approval = lineApprovalFields(
+                line.discountPercent == null ? 0 : Number(line.discountPercent),
+                line.approvalLevel,
+                line.approvalRequiredLabel,
+                approvalStatus
+            );
+            return {
+                key: line.lineId,
+                empty: false,
+                lineId: line.lineId,
+                quantity: line.quantity,
+                discountPercent:
+                    line.discountPercent == null ? 0 : Number(line.discountPercent),
+                unitLabel: formatMoney(line.unitPrice),
+                netLabel: formatMoney(line.netTotal),
+                isSaving: pending.has(line.lineId),
+                selectedYear,
+                cellClass:
+                    'ramp-compare-cell' +
+                    (selectedYear ? ' ramp-compare-cell-active-year' : '') +
+                    (pending.has(line.lineId) ? ' ramp-compare-cell-saving' : ''),
+                ...approval
+            };
+        });
+        if (!yearLineIds.length) {
+            continue;
+        }
+        const selectedAll = yearLineIds.every((id) => selected.has(id));
+        rows.push({
+            key,
+            name: first.name,
+            sku: first.sku,
+            lineIdsCsv: yearLineIds.join(','),
+            selected: selectedAll,
+            rowClass: selectedAll
+                ? 'ramp-compare-row ramp-compare-row-selected'
+                : 'ramp-compare-row',
+            years
+        });
+    }
+    const n = columns.length;
+    return {
+        columns,
+        rows,
+        coveredLineIds,
+        gridStyle: `--ramp-years:${n}`,
+        showGrid: rows.length > 0
     };
 }
 
@@ -288,23 +545,63 @@ function buildLineDisplayRows(
     termMonths,
     formatMoney,
     optionApprovalStatus,
-    pendingLineIds
+    pendingLineIds,
+    groupRamped,
+    coveredLineIds
 ) {
     const selected = new Set(selectedIds || []);
     const pending = new Set(pendingLineIds || []);
+    const covered = coveredLineIds || new Set();
     const approvalStatus = optionApprovalStatus || 'Draft';
     const childrenByParent = new Map();
+    const rampSiblings = new Map();
     for (const line of lines || []) {
+        if (covered.has(line.lineId)) {
+            continue;
+        }
         if (line.parentLineId) {
             if (!childrenByParent.has(line.parentLineId)) {
                 childrenByParent.set(line.parentLineId, []);
             }
             childrenByParent.get(line.parentLineId).push(line);
         }
+        if (!line.parentLineId && line.rampIdentifier) {
+            if (!rampSiblings.has(line.rampIdentifier)) {
+                rampSiblings.set(line.rampIdentifier, []);
+            }
+            rampSiblings.get(line.rampIdentifier).push(line);
+        }
     }
+    for (const group of rampSiblings.values()) {
+        group.sort((a, b) => String(a.startDate || '').localeCompare(String(b.startDate || '')));
+    }
+        const seenRamp = new Set();
     const rows = [];
     for (const line of lines || []) {
-        if (line.parentLineId) {
+        if (line.parentLineId || covered.has(line.lineId)) {
+            continue;
+        }
+        const rampGroup = rampSiblings.get(line.rampIdentifier) || [];
+        if (line.rampIdentifier && rampGroup.length > 1) {
+            if (seenRamp.has(line.rampIdentifier)) {
+                continue;
+            }
+            seenRamp.add(line.rampIdentifier);
+            rampGroup.forEach((seg, idx) => {
+                rows.push(
+                    enrichLine(seg, selected, termStartDate, termMonths, formatMoney, {
+                        rowKind: idx === 0 ? 'ramp-head' : 'ramp-child',
+                        rowClass:
+                            idx === 0
+                                ? 'line-card line-card-ramp-head'
+                                : 'line-card line-card-ramp-child',
+                        rampChipLabel: seg.segmentName || `Year ${idx + 1}`,
+                        showRampAction: false,
+                        optionApprovalStatus: approvalStatus,
+                        isSaving: pending.has(seg.lineId)
+                    })
+                );
+            });
             continue;
         }
         const children = childrenByParent.get(line.lineId) || [];
@@ -345,9 +642,18 @@ function buildLineDisplayRows(
             );
             rows.push(...childRows);
         } else {
+            const canShowRamp =
+                groupRamped !== true &&
+                line.canRamp === true &&
+                !line.rampIdentifier &&
+                !line.quoteLineGroupId;
             rows.push(
                 enrichLine(line, selected, termStartDate, termMonths, formatMoney, {
                     rowKind: 'standalone',
+                    rampChipLabel: line.rampIdentifier
+                        ? line.segmentName || 'Ramped'
+                        : '',
+                    showRampAction: canShowRamp,
                     optionApprovalStatus: approvalStatus,
                     isSaving: pending.has(line.lineId)
                 })
@@ -479,6 +785,19 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
     sendContactId;
     sendToAddress = '';
     sendAttachPdf = true;
+    rampFlowOpen = false;
+    lineRampOpen = false;
+    lineRampLineId;
+    lineRampProductName = '';
+    lineRampStartDate = '';
+    lineRampDurationMonths = 24;
+    lineRampAnnual = true;
+    lineRampTrial = false;
+    lineRampTrialDays = 30;
+    lineRampError;
+    lineRampBusy = false;
+    selectedSegmentGroupId;
+    addToSubsequent = true;
     options = [];
     optionsError;
     addingOption = false;
@@ -1231,6 +1550,34 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
         return `${this.formatMoney(unit)} /user/mo · line ${this.formatMoney(unit * qty)}/mo (list)`;
     }
 
+    get rampCompareView() {
+        return buildRampCompareModel(
+            this.optionDetail?.lines || [],
+            this.optionDetail?.segments || [],
+            this.selectedLineIds,
+            (n) => this.formatMoney(n),
+            this.activeApprovalStatus,
+            Object.keys(this._pendingLineEdits || {}),
+            this.selectedSegmentGroupId
+        );
+    }
+
+    get showRampCompareGrid() {
+        return this.rampCompareView.showGrid === true;
+    }
+
+    get rampCompareColumns() {
+        return this.rampCompareView.columns;
+    }
+
+    get rampCompareRows() {
+        return this.rampCompareView.rows;
+    }
+
+    get rampCompareGridStyle() {
+        return this.rampCompareView.gridStyle;
+    }
+
     get lineDisplayRows() {
         return buildLineDisplayRows(
             this.optionDetail?.lines || [],
@@ -1239,12 +1586,116 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
             this.termMonths,
             (n) => this.formatMoney(n),
             this.activeApprovalStatus,
-            Object.keys(this._pendingLineEdits || {})
+            Object.keys(this._pendingLineEdits || {}),
+            this.isGroupRamped,
+            this.rampCompareView.coveredLineIds
         );
+    }
+
+    get hasLeftoverLineRows() {
+        return this.lineDisplayRows.length > 0;
     }
 
     get hasLines() {
         return (this.optionDetail?.lines || []).length > 0;
+    }
+
+    get isGroupRamped() {
+        return this.optionDetail?.isGroupRamped === true;
+    }
+
+    get showCreateRampSchedule() {
+        return Boolean(this.session?.quoteId) && !this.isGroupRamped;
+    }
+
+    get rampDialogOpen() {
+        return this.rampFlowOpen || this.lineRampOpen;
+    }
+
+    get rampDialogTitle() {
+        return this.lineRampOpen ? 'Ramp this product' : 'Create Ramp Schedule';
+    }
+
+    get lineRampAnnualClass() {
+        return this.lineRampAnnual
+            ? 'line-ramp-choice line-ramp-choice-active'
+            : 'line-ramp-choice';
+    }
+
+    get lineRampCustomClass() {
+        return this.lineRampAnnual
+            ? 'line-ramp-choice'
+            : 'line-ramp-choice line-ramp-choice-active';
+    }
+
+    get lineRampTrialNoClass() {
+        return this.lineRampTrial
+            ? 'line-ramp-choice'
+            : 'line-ramp-choice line-ramp-choice-active';
+    }
+
+    get lineRampTrialYesClass() {
+        return this.lineRampTrial
+            ? 'line-ramp-choice line-ramp-choice-active'
+            : 'line-ramp-choice';
+    }
+
+    get lineRampPreviewRows() {
+        return buildLineRampPreview({
+            startIso: this.lineRampStartDate || this.effectiveTermStart,
+            months: this.lineRampDurationMonths,
+            annual: this.lineRampAnnual,
+            trialDays: this.lineRampTrial ? this.lineRampTrialDays : 0
+        });
+    }
+
+    get lineRampCreateDisabled() {
+        if (this.lineRampBusy || this.lineEditsDisabled || !this.lineRampLineId) {
+            return true;
+        }
+        if (this.lineRampAnnual) {
+            return this.lineRampPreviewRows.length < 2;
+        }
+        return Number(this.lineRampDurationMonths) < 2;
+    }
+
+    get lineRampHint() {
+        if (this.lineRampAnnual && this.lineRampPreviewRows.length < 2) {
+            return 'Annual needs at least two segments — use 24+ months, or 12 months plus a trial.';
+        }
+        return 'Same shape as Create Ramp Schedule. Salesforce splits this product into the segments below.';
+    }
+
+    get createRampScheduleFlowApiName() {
+        return CREATE_RAMP_SCHEDULE_FLOW;
+    }
+
+    get rampFlowInputVariables() {
+        return [
+            {
+                name: 'recordId',
+                type: 'String',
+                value: this.session?.quoteId || ''
+            }
+        ];
+    }
+
+    get rampSegmentRows() {
+        return (this.optionDetail?.segments || [])
+            .filter((s) => s && s.isRamped)
+            .map((s) => ({
+                ...s,
+                chipClass:
+                    s.groupId === this.selectedSegmentGroupId
+                        ? 'ramp-segment-chip ramp-segment-chip-selected'
+                        : 'ramp-segment-chip',
+                ariaPressed:
+                    s.groupId === this.selectedSegmentGroupId ? 'true' : 'false'
+            }));
+    }
+
+    get hasRampSegments() {
+        return this.rampSegmentRows.length > 0;
     }
 
     get selectedLineCount() {
@@ -1413,7 +1864,9 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
             this.pricingBusy ||
             this.isOptionLocked ||
             !hasTargets ||
-            !this.session?.quoteId
+            !this.session?.quoteId ||
+            (this.isGroupRamped && !this.selectedSegmentGroupId) ||
+            (this.isGroupRamped && this.isWorkforcePackageSelected)
         );
     }
 
@@ -1462,14 +1915,38 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
     }
 
     get addButtonLabel() {
+        const target = this.selectedSegmentName
+            ? this.addToSubsequent
+                ? `${this.selectedSegmentName} + later`
+                : this.selectedSegmentName
+            : this.optionLabel;
         if (this.isWorkforcePackageSelected) {
             return `Add package to ${this.optionLabel}`;
         }
         const n = this.catalogSelectionCount;
         if (n > 1) {
-            return `Add ${n} to ${this.optionLabel}`;
+            return `Add ${n} to ${target}`;
         }
-        return `Add to ${this.optionLabel}`;
+        return `Add to ${target}`;
+    }
+
+    get selectedSegmentName() {
+        const hit = this.rampSegmentRows.find(
+            (s) => s.groupId === this.selectedSegmentGroupId
+        );
+        return hit?.name || '';
+    }
+
+    get addToCurrentClass() {
+        return this.addToSubsequent
+            ? 'line-ramp-choice'
+            : 'line-ramp-choice line-ramp-choice-active';
+    }
+
+    get addToSubsequentClass() {
+        return this.addToSubsequent
+            ? 'line-ramp-choice line-ramp-choice-active'
+            : 'line-ramp-choice';
     }
 
     get repriceDisabled() {
@@ -1573,6 +2050,7 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
         if (this._onSuiteVisible) {
             document.removeEventListener('visibilitychange', this._onSuiteVisible);
         }
+        this.unbindRampFlowEscape();
         this.cancelEditFlush();
     }
 
@@ -1674,6 +2152,7 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
         }
         this.selectedLineIds = [];
         this.optionDetail = await getOptionDetail({ quoteId: this.session.quoteId });
+        this.syncSelectedSegment();
         this.syncRibbonFromOption(this.optionDetail);
         this.syncOptionDiscountFromLines();
         this.pricingStatus = this.optionDetail?.priced ? 'priced' : 'idle';
@@ -2625,7 +3104,12 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
      * RLM_BambooSuiteTxnJob.commercialOpForHandler.
      */
     async runCommercial(operation, payload) {
-        if (this.usesTxnOrchestrator) {
+        // Ramp ops POST Connect (ramp-deal-create / clone) and read a VF
+        // Session_ID. Page.getContent() throws "Callout not allowed from this
+        // future method" inside the txn Queueable — keep these synchronous.
+        const needsConnectCallout =
+            operation === 'CreateLineRamp' || operation === 'CreateGroupRamp';
+        if (this.usesTxnOrchestrator && !needsConnectCallout) {
             await this.enqueueAndPoll('Place', operation, {
                 quoteId: this.session.quoteId,
                 ...payload
@@ -2990,12 +3474,19 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
                         ),
                         termMonths,
                         startDateIso,
-                        billingFrequency
+                        billingFrequency,
+                        segmentGroupId: this.isGroupRamped
+                            ? this.selectedSegmentGroupId
+                            : null,
+                        subsequent: this.isGroupRamped
+                            ? this.addToSubsequent
+                            : false
                     })
                 });
                 result = commercial?.addResult || { option: commercial?.option };
             }
             this.optionDetail = result.option;
+            this.syncSelectedSegment();
             this.syncRibbonFromOption(result.option);
             this.pricingStatus = result.option?.priced ? 'priced' : 'priced';
             this.catalogQueue = [];
@@ -3017,6 +3508,278 @@ export default class RlmBambooRevenueSuite extends NavigationMixin(LightningElem
             return;
         }
         await this.deleteLines([lineId]);
+    }
+
+    syncSelectedSegment() {
+        const segs = (this.optionDetail?.segments || []).filter(
+            (s) => s && s.isRamped
+        );
+        if (!segs.length) {
+            this.selectedSegmentGroupId = undefined;
+            return;
+        }
+        if (
+            !segs.some((s) => s.groupId === this.selectedSegmentGroupId)
+        ) {
+            this.selectedSegmentGroupId = segs[0].groupId;
+        }
+    }
+
+    handleSelectRampSegment(event) {
+        const groupId = event.currentTarget.dataset.groupId;
+        if (!groupId) {
+            return;
+        }
+        this.selectedSegmentGroupId = groupId;
+    }
+
+    handleAddScopeClick(event) {
+        this.addToSubsequent = event.currentTarget.dataset.scope === 'subsequent';
+    }
+
+    handleSelectRampSegmentKeydown(event) {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            this.handleSelectRampSegment(event);
+        }
+    }
+
+    handleOpenCreateRampSchedule() {
+        if (!this.session?.quoteId || this.lineEditsDisabled || !this.showCreateRampSchedule) {
+            return;
+        }
+        this.optionError = undefined;
+        this._rampFlowFocused = false;
+        this.lineRampOpen = false;
+        this.rampFlowOpen = true;
+        this.bindRampFlowEscape();
+    }
+
+    handleOpenLineRamp(event) {
+        const lineId = event.currentTarget.dataset.lineId;
+        if (!lineId || !this.session?.quoteId || this.lineEditsDisabled || this.isGroupRamped) {
+            return;
+        }
+        const line = (this.optionDetail?.lines || []).find((row) => row.lineId === lineId);
+        if (!line || line.canRamp !== true || line.rampIdentifier || line.quoteLineGroupId) {
+            return;
+        }
+        this.optionError = undefined;
+        this.lineRampError = undefined;
+        this.lineRampLineId = lineId;
+        this.lineRampProductName = line.name || 'Product';
+        this.lineRampStartDate = line.startDate || this.effectiveTermStart || todayIso();
+        const term = Number(this.termMonths) || 12;
+        this.lineRampDurationMonths = term >= 24 ? term : 24;
+        this.lineRampAnnual = true;
+        this.lineRampTrial = false;
+        this.lineRampTrialDays = 30;
+        this._rampFlowFocused = false;
+        this.rampFlowOpen = false;
+        this.lineRampOpen = true;
+        this.bindRampFlowEscape();
+    }
+
+    handleCloseRampFlow() {
+        const wasOpen = this.rampFlowOpen || this.lineRampOpen;
+        this.rampFlowOpen = false;
+        this.lineRampOpen = false;
+        this.lineRampBusy = false;
+        this._rampFlowFocused = false;
+        this.unbindRampFlowEscape();
+        if (wasOpen) {
+            void this.refreshOptionAfterRampClose();
+        }
+    }
+
+    handleLineRampTypeClick(event) {
+        this.lineRampAnnual = event.currentTarget.dataset.type !== 'custom';
+    }
+
+    handleLineRampTrialClick(event) {
+        this.lineRampTrial = event.currentTarget.dataset.trial === 'yes';
+    }
+
+    handleLineRampDurationInput(event) {
+        this.lineRampDurationMonths = Number(event.target.value) || 0;
+    }
+
+    handleLineRampTrialDaysInput(event) {
+        this.lineRampTrialDays = Number(event.target.value) || 0;
+    }
+
+    async handleCreateLineRamp() {
+        if (this.lineRampCreateDisabled) {
+            return;
+        }
+        this.lineRampBusy = true;
+        this.pricingBusy = true;
+        this.lineRampError = undefined;
+        this.optionError = undefined;
+        this.pricingStatus = 'pending';
+        const sinceMs = Date.now();
+        try {
+            await this.runCommercial('CreateLineRamp', {
+                lineId: this.lineRampLineId,
+                termMonths: this.lineRampDurationMonths,
+                segmentType: this.lineRampAnnual ? 'YEARLY' : 'CUSTOM',
+                trialDays: this.lineRampTrial ? this.lineRampTrialDays : 0
+            });
+            this.optionDetail = await this.waitForRampReady({
+                lineId: this.lineRampLineId,
+                expectedYears: this.lineRampPreviewRows.length,
+                sinceMs
+            });
+            this.pricingStatus = this.optionDetail?.priced ? 'priced' : 'idle';
+            this.refreshOptionsQuietly();
+            this.rampFlowOpen = false;
+            this.lineRampOpen = false;
+            this.unbindRampFlowEscape();
+        } catch (e) {
+            this.pricingStatus = 'error';
+            this.lineRampError = this.reduceError(e);
+        } finally {
+            this.lineRampBusy = false;
+            this.pricingBusy = false;
+        }
+    }
+
+    async waitForRampReady({ lineId, groupRamp, expectedYears, sinceMs }) {
+        const started = Date.now();
+        const need = Math.max(1, Number(expectedYears) || 1);
+        const since = sinceMs || started;
+        while (Date.now() - started < 60000) {
+            const detail = await getOptionDetail({
+                quoteId: this.session.quoteId
+            });
+            const rampedLines = (detail?.lines || []).filter(
+                (line) => line.rampIdentifier
+            );
+            const jobError = await getLatestRampJobError({ sinceMs: since });
+            if (jobError) {
+                throw new Error(jobError);
+            }
+            if (groupRamp) {
+                const segs = (detail?.segments || []).filter((s) => s.isRamped);
+                if (detail?.isGroupRamped && segs.length >= need) {
+                    return detail;
+                }
+            } else if (
+                rampedLines.some((line) => line.lineId === lineId) ||
+                rampedLines.length >= need
+            ) {
+                return detail;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+        throw new Error(
+            'Ramp is still running. Hard-refresh the suite in a moment.'
+        );
+    }
+
+    handleRampFlowBackdropClick(event) {
+        if (event.target === event.currentTarget) {
+            this.handleCloseRampFlow();
+        }
+    }
+
+    handleRampFlowDialogClick(event) {
+        event.stopPropagation();
+    }
+
+    bindRampFlowEscape() {
+        if (this._onRampFlowEscape) {
+            return;
+        }
+        this._onRampFlowEscape = (event) => {
+            if (event.key === 'Escape' && this.rampDialogOpen) {
+                event.preventDefault();
+                this.handleCloseRampFlow();
+            }
+        };
+        document.addEventListener('keydown', this._onRampFlowEscape, true);
+    }
+
+    unbindRampFlowEscape() {
+        if (!this._onRampFlowEscape) {
+            return;
+        }
+        document.removeEventListener('keydown', this._onRampFlowEscape, true);
+        this._onRampFlowEscape = undefined;
+    }
+
+    async refreshOptionAfterRampClose() {
+        if (!this.session?.quoteId) {
+            return;
+        }
+        try {
+            const detail = await getOptionDetail({
+                quoteId: this.session.quoteId
+            });
+            this.optionDetail = this.withPendingEdits(detail);
+            this.refreshOptionsQuietly();
+        } catch (e) {
+            this.optionError = this.reduceError(e);
+        }
+    }
+
+    async handleRampFlowStatusChange(event) {
+        const status = event?.detail?.status;
+        if (status === 'ERROR') {
+            this.optionError =
+                event.detail?.errors?.[0]?.message ||
+                'Create Ramp Schedule failed.';
+            return;
+        }
+        if (status === 'PAUSED') {
+            this.handleCloseRampFlow();
+            return;
+        }
+        if (status !== 'FINISHED' && status !== 'FINISHED_SCREEN') {
+            return;
+        }
+        this.handleCloseRampFlow();
+        await this.refreshAfterRampFlow();
+    }
+
+    async refreshAfterRampFlow() {
+        if (!this.session?.quoteId) {
+            return;
+        }
+        this.pricingBusy = true;
+        this.pricingStatus = 'pending';
+        try {
+            const started = Date.now();
+            let detail;
+            while (Date.now() - started < 30000) {
+                detail = await getOptionDetail({
+                    quoteId: this.session.quoteId
+                });
+                const segs = (detail?.segments || []).filter((s) => s && s.isRamped);
+                if (detail?.isGroupRamped || segs.length > 0) {
+                    break;
+                }
+                await new Promise((resolve) => setTimeout(resolve, 500));
+            }
+            this.optionDetail = this.withPendingEdits(detail);
+            this.pricingStatus = this.optionDetail?.priced ? 'priced' : 'idle';
+            this.refreshOptionsQuietly();
+        } catch (e) {
+            this.pricingStatus = 'error';
+            this.optionError = this.reduceError(e);
+        } finally {
+            this.pricingBusy = false;
+        }
+    }
+
+    renderedCallback() {
+        if (this.rampDialogOpen && !this._rampFlowFocused) {
+            const dialog = this.template.querySelector('[data-ramp-dialog]');
+            if (dialog) {
+                dialog.focus();
+                this._rampFlowFocused = true;
+            }
+        }
     }
 
     handleToggleLineSelect(event) {

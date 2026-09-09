@@ -1,7 +1,7 @@
 /**
  * Slice 4d Phase B — Queueable worker for serialized suite commercial jobs.
  */
-public with sharing class RLM_BambooSuiteTxnJob implements Queueable {
+public with sharing class RLM_BambooSuiteTxnJob implements Queueable, Database.AllowsCallouts {
     private final Id opportunityId;
 
     public RLM_BambooSuiteTxnJob(Id opportunityId) {
@@ -173,6 +173,12 @@ public with sharing class RLM_BambooSuiteTxnJob implements Queueable {
         }
         if (h == 'AddWorkforcePackage') {
             return 'AddWorkforcePackage';
+        }
+        if (h == 'CreateLineRamp') {
+            return 'CreateLineRamp';
+        }
+        if (h == 'CreateGroupRamp') {
+            return 'CreateGroupRamp';
         }
         return null;
     }

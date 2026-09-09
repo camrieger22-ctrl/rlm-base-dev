@@ -1016,6 +1016,16 @@
                             Reprice
                         </button>
                         <button
+                            class="btn-ramp-line"
+                            type="button"
+                            onclick={handleOpenCreateRampSchedule}
+                            disabled={lineEditsDisabled}
+                            if:true={showCreateRampSchedule}
+                            title="Open the standard Create Ramp Schedule flow for this option quote"
+                        >
+                            Create Ramp Schedule
+                        </button>
+                        <button
                             class="btn-delete-pill"
                             type="button"
                             onclick={handleDeleteOption}
@@ -1029,10 +1039,59 @@
                         <div class="error" role="alert">{optionError}</div>
                     </template>
                     <template if:false={hasLines}>
-                        <p class="empty-lines">
-                            No lines yet. Pick a product from the catalog on the left.
+                        <p class="empty-lines" if:true={hasRampSegments}>
+                            Empty ramp year. Select a year above, then add from the
+                            catalog — This year only, or This year and later.
+                        </p>
+                        <p class="empty-lines" if:false={hasRampSegments}>
+                            No lines yet. Pick a product from the catalog on the left,
+                            or create a ramp schedule first.
                         </p>
                     </template>
+                    <ul
+                        class="ramp-segment-strip"
+                        if:true={hasRampSegments}
+                        aria-label="Ramp segments"
+                    >
+                        <template for:each={rampSegmentRows} for:item="seg">
+                            <li key={seg.groupId}>
+                                <button
+                                    class={seg.chipClass}
+                                    type="button"
+                                    data-group-id={seg.groupId}
+                                    onclick={handleSelectRampSegment}
+                                    onkeydown={handleSelectRampSegmentKeydown}
+                                    aria-pressed={seg.ariaPressed}
+                                >
+                                    <span class="ramp-segment-name">{seg.name}</span>
+                                    <span class="ramp-segment-dates"
+                                        >{seg.startDate} — {seg.endDate}</span
+                                    >
+                                </button>
+                            </li>
+                        </template>
+                    </ul>
+                    <div class="ramp-add-scope" if:true={hasRampSegments}>
+                        <span class="line-ramp-label">Add products to</span>
+                        <div class="line-ramp-choices">
+                            <button
+                                class={addToCurrentClass}
+                                type="button"
+                                data-scope="current"
+                                onclick={handleAddScopeClick}
+                            >
+                                This year only
+                            </button>
+                            <button
+                                class={addToSubsequentClass}
+                                type="button"
+                                data-scope="subsequent"
+                                onclick={handleAddScopeClick}
+                            >
+                                This year and later
+                            </button>
+                        </div>
+                    </div>
                     <div class="line-toolbar" if:true={hasLines}>
                         <label class="line-select-all">
                             <input
@@ -1053,7 +1112,159 @@
                             {deleteSelectedLabel}
                         </button>
                     </div>
-                    <ul class="line-list" if:true={hasLines}>
+                    <div
+                        class="ramp-compare-wrap"
+                        if:true={showRampCompareGrid}
+                    >
+                        <p class="ramp-compare-hint">
+                            Compare quantity and price across years. A dash
+                            means the product is not in that year.
+                        </p>
+                        <div
+                            class="ramp-compare"
+                            style={rampCompareGridStyle}
+                            role="table"
+                            aria-label="Ramp years side by side"
+                        >
+                            <div class="ramp-compare-head" role="row">
+                                <div
+                                    class="ramp-compare-corner"
+                                    role="columnheader"
+                                >
+                                    Product
+                                </div>
+                                <template
+                                    for:each={rampCompareColumns}
+                                    for:item="col"
+                                >
+                                    <div
+                                        key={col.key}
+                                        class="ramp-compare-colhead"
+                                        role="columnheader"
+                                    >
+                                        <span class="ramp-compare-col-name"
+                                            >{col.label}</span
+                                        >
+                                        <span class="ramp-compare-col-dates"
+                                            >{col.datesLabel}</span
+                                        >
+                                    </div>
+                                </template>
+                            </div>
+                            <template
+                                for:each={rampCompareRows}
+                                for:item="row"
+                            >
+                                <div
+                                    key={row.key}
+                                    class={row.rowClass}
+                                    role="row"
+                                >
+                                    <div
+                                        class="ramp-compare-product"
+                                        role="rowheader"
+                                    >
+                                        <label class="line-check">
+                                            <input
+                                                type="checkbox"
+                                                data-bundle-line-ids={row.lineIdsCsv}
+                                                checked={row.selected}
+                                                onchange={handleToggleLineSelect}
+                                                disabled={lineInputsDisabled}
+                                                aria-label="Select all years for this product"
+                                            />
+                                        </label>
+                                        <div class="ramp-compare-identity">
+                                            <strong class="line-name"
+                                                >{row.name}</strong
+                                            >
+                                            <span
+                                                class="ramp-compare-sku"
+                                                if:true={row.sku}
+                                                >{row.sku}</span
+                                            >
+                                        </div>
+                                    </div>
+                                    <template
+                                        for:each={row.years}
+                                        for:item="cell"
+                                    >
+                                        <div
+                                            key={cell.key}
+                                            class={cell.cellClass}
+                                            role="cell"
+                                        >
+                                            <template if:true={cell.empty}>
+                                                <span
+                                                    class="ramp-compare-empty"
+                                                    >—</span
+                                                >
+                                            </template>
+                                            <template if:false={cell.empty}>
+                                                <div class="ramp-compare-qty">
+                                                    <input
+                                                        class="line-qty"
+                                                        type="number"
+                                                        min="1"
+                                                        aria-label="Users"
+                                                        data-line-id={cell.lineId}
+                                                        value={cell.quantity}
+                                                        oninput={handleLineQtyInput}
+                                                        onfocus={handleLineEditFocus}
+                                                        onblur={handleLineEditBlur}
+                                                        disabled={lineInputsDisabled}
+                                                    />
+                                                    <span>users</span>
+                                                </div>
+                                                <span class="ramp-compare-unit"
+                                                    >{cell.unitLabel}/user/mo</span
+                                                >
+                                                <label
+                                                    class="line-disc"
+                                                    if:true={isDiscountScopeLine}
+                                                >
+                                                    <span
+                                                        class="line-control-label"
+                                                        >Disc %</span
+                                                    >
+                                                    <input
+                                                        class="line-disc-input"
+                                                        type="number"
+                                                        min="0"
+                                                        max="100"
+                                                        step="0.1"
+                                                        aria-label="Discount percent"
+                                                        data-line-id={cell.lineId}
+                                                        value={cell.discountPercent}
+                                                        oninput={handleLineDiscountInput}
+                                                        onfocus={handleLineEditFocus}
+                                                        onblur={handleLineEditBlur}
+                                                        disabled={lineInputsDisabled}
+                                                    />
+                                                </label>
+                                                <span
+                                                    class={cell.lineApprovalChipClass}
+                                                    if:true={cell.showLineApprovalChip}
+                                                    title="This year's Disc % drives Smart Approval"
+                                                    >{cell.approvalRequiredChipLabel}</span
+                                                >
+                                                <span class="ramp-compare-net"
+                                                    >{cell.netLabel}</span
+                                                >
+                                                <span
+                                                    class="line-saving"
+                                                    if:true={cell.isSaving}
+                                                    title="Edited — reprices when you finish with this line"
+                                                    >Edited</span
+                                                >
+                                            </template>
+                                        </div>
+                                    </template>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                    <ul class="line-list" if:true={hasLeftoverLineRows}>
                         <template for:each={lineDisplayRows} for:item="line">
                             <li key={line.lineId} class={line.cardClass}>
                                 <div class="line-top">
@@ -1076,6 +1287,12 @@
                                                 if:true={line.isBundleHead}
                                             >
                                                 Bundle · {line.childCountLabel}
+                                            </span>
+                                            <span
+                                                class="ramp-chip"
+                                                if:true={line.rampChipLabel}
+                                            >
+                                                {line.rampChipLabel}
                                             </span>
                                         </div>
                                         <p class="line-subtitle">
@@ -1116,6 +1333,17 @@
                                 </div>
 
                                 <div class="line-controls" if:false={line.hideLineControls}>
+                                    <button
+                                        class="btn-ramp-line"
+                                        type="button"
+                                        data-line-id={line.lineId}
+                                        onclick={handleOpenLineRamp}
+                                        disabled={lineEditsDisabled}
+                                        if:true={line.showRampAction}
+                                        title="Split this product into yearly or custom ramp segments"
+                                    >
+                                        Ramp
+                                    </button>
                                     <label class="line-disc" if:true={isDiscountScopeLine}>
                                         <span class="line-control-label">Disc %</span>
                                         <input
@@ -1210,6 +1438,200 @@
         <div class="boot-panel" if:true={showBootPanel}>
             <p class="hint" if:true={loading}>Opening suite…</p>
             <div class="error" role="alert" if:true={error}>{error}</div>
+        </div>
+
+        <div
+            class="ramp-flow-backdrop"
+            if:true={rampDialogOpen}
+            onclick={handleRampFlowBackdropClick}
+        >
+            <div
+                class="ramp-flow-dialog"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="ramp-flow-title"
+                data-ramp-dialog
+                tabindex="-1"
+                onclick={handleRampFlowDialogClick}
+            >
+                <div class="ramp-flow-header">
+                    <h2 id="ramp-flow-title" class="ramp-flow-title">
+                        {rampDialogTitle}
+                    </h2>
+                    <button
+                        class="ramp-flow-close"
+                        type="button"
+                        onclick={handleCloseRampFlow}
+                        aria-label="Close ramp dialog"
+                    >
+                        Close
+                    </button>
+                </div>
+                <div class="ramp-flow-body">
+                    <template if:true={rampFlowOpen}>
+                        <p class="ramp-flow-hint">
+                            Same flow as the Transaction Line Editor. Close,
+                            Cancel, or Escape leaves without finishing.
+                        </p>
+                        <lightning-flow
+                            flow-api-name={createRampScheduleFlowApiName}
+                            flow-input-variables={rampFlowInputVariables}
+                            onstatuschange={handleRampFlowStatusChange}
+                        ></lightning-flow>
+                    </template>
+                    <template if:true={lineRampOpen}>
+                        <p class="ramp-flow-hint">{lineRampHint}</p>
+                        <div class="line-ramp-layout">
+                            <div class="line-ramp-form">
+                                <label class="line-ramp-field">
+                                    <span class="line-ramp-label">Product</span>
+                                    <input
+                                        class="line-ramp-input"
+                                        type="text"
+                                        value={lineRampProductName}
+                                        disabled
+                                    />
+                                </label>
+                                <div class="line-ramp-field">
+                                    <span class="line-ramp-label">Ramp type</span>
+                                    <div class="line-ramp-choices">
+                                        <button
+                                            class={lineRampAnnualClass}
+                                            type="button"
+                                            data-type="annual"
+                                            onclick={handleLineRampTypeClick}
+                                        >
+                                            Annual
+                                        </button>
+                                        <button
+                                            class={lineRampCustomClass}
+                                            type="button"
+                                            data-type="custom"
+                                            onclick={handleLineRampTypeClick}
+                                        >
+                                            Custom
+                                        </button>
+                                    </div>
+                                </div>
+                                <label class="line-ramp-field">
+                                    <span class="line-ramp-label">Start date</span>
+                                    <input
+                                        class="line-ramp-input"
+                                        type="date"
+                                        value={lineRampStartDate}
+                                        disabled
+                                    />
+                                </label>
+                                <label class="line-ramp-field">
+                                    <span class="line-ramp-label"
+                                        >Duration (months)</span
+                                    >
+                                    <input
+                                        class="line-ramp-input"
+                                        type="number"
+                                        min="12"
+                                        max="120"
+                                        value={lineRampDurationMonths}
+                                        oninput={handleLineRampDurationInput}
+                                    />
+                                </label>
+                                <div class="line-ramp-field">
+                                    <span class="line-ramp-label">Trial segment</span>
+                                    <div class="line-ramp-choices">
+                                        <button
+                                            class={lineRampTrialNoClass}
+                                            type="button"
+                                            data-trial="no"
+                                            onclick={handleLineRampTrialClick}
+                                        >
+                                            No
+                                        </button>
+                                        <button
+                                            class={lineRampTrialYesClass}
+                                            type="button"
+                                            data-trial="yes"
+                                            onclick={handleLineRampTrialClick}
+                                        >
+                                            Yes
+                                        </button>
+                                    </div>
+                                </div>
+                                <label class="line-ramp-field" if:true={lineRampTrial}>
+                                    <span class="line-ramp-label"
+                                        >Trial duration (days)</span
+                                    >
+                                    <input
+                                        class="line-ramp-input"
+                                        type="number"
+                                        min="1"
+                                        max="365"
+                                        value={lineRampTrialDays}
+                                        oninput={handleLineRampTrialDaysInput}
+                                    />
+                                </label>
+                            </div>
+                            <div class="line-ramp-preview">
+                                <h3 class="line-ramp-preview-title">
+                                    {lineRampProductName}
+                                </h3>
+                                <table class="line-ramp-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Segment</th>
+                                            <th>Type</th>
+                                            <th>Duration</th>
+                                            <th>Start</th>
+                                            <th>End</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <template
+                                            for:each={lineRampPreviewRows}
+                                            for:item="seg"
+                                        >
+                                            <tr key={seg.key}>
+                                                <td>{seg.name}</td>
+                                                <td>
+                                                    <span class="line-ramp-type-chip"
+                                                        >{seg.typeLabel}</span
+                                                    >
+                                                </td>
+                                                <td>{seg.durationLabel}</td>
+                                                <td>{seg.startLabel}</td>
+                                                <td>{seg.endLabel}</td>
+                                            </tr>
+                                        </template>
+                                    </tbody>
+                                </table>
+                                <button
+                                    class="line-ramp-create"
+                                    type="button"
+                                    onclick={handleCreateLineRamp}
+                                    disabled={lineRampCreateDisabled}
+                                >
+                                    Create
+                                </button>
+                                <div
+                                    class="error"
+                                    role="alert"
+                                    if:true={lineRampError}
+                                >
+                                    {lineRampError}
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+                <div class="ramp-flow-footer">
+                    <button
+                        class="btn ghost"
+                        type="button"
+                        onclick={handleCloseRampFlow}
+                    >
+                        Cancel
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
 </template>

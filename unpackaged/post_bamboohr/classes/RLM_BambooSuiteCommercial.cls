@@ -29,7 +29,8 @@ public with sharing class RLM_BambooSuiteCommercial {
      * Supported operations (case-insensitive):
      * Reprice, UpdateQty, UpdateDisc, UpdateLines, UpdateOptionDisc,
      * UpdateSeats, RemoveLines, ApplyTerm, ApplyTermAll, ApplyBillingAll,
-     * ApplyDiscountAll, AddLinesBySku, AddWorkforcePackage
+     * ApplyDiscountAll, AddLinesBySku, AddWorkforcePackage, CreateLineRamp,
+     * CreateGroupRamp
      */
     @AuraEnabled
     public static OperationResult run(OperationRequest request) {
@@ -137,14 +138,25 @@ public with sharing class RLM_BambooSuiteCommercial {
             );
             result.summary = 'Discount applied to all options.';
         } else if (op == 'addlinesbysku') {
-            result.addResult = RLM_BambooSuitePlace.addProductLinesBySku(
-                reqQuote(request, payload),
-                strList(payload, 'skus'),
-                decList(payload, 'quantities'),
-                intVal(payload, 'termMonths'),
-                str(payload, 'startDateIso'),
-                str(payload, 'billingFrequency')
-            );
+            if (String.isNotBlank(str(payload, 'segmentGroupId'))) {
+                result.addResult = RLM_BambooSuitePlace.addProductLinesToRampSegments(
+                    reqQuote(request, payload),
+                    strList(payload, 'skus'),
+                    decList(payload, 'quantities'),
+                    str(payload, 'segmentGroupId'),
+                    boolVal(payload, 'subsequent'),
+                    str(payload, 'billingFrequency')
+                );
+            } else {
+                result.addResult = RLM_BambooSuitePlace.addProductLinesBySku(
+                    reqQuote(request, payload),
+                    strList(payload, 'skus'),
+                    decList(payload, 'quantities'),
+                    intVal(payload, 'termMonths'),
+                    str(payload, 'startDateIso'),
+                    str(payload, 'billingFrequency')
+                );
+            }
             if (result.addResult != null) {
                 result.option = result.addResult.option;
             }
@@ -162,6 +174,22 @@ public with sharing class RLM_BambooSuiteCommercial {
                 result.option = result.addResult.option;
             }
             result.summary = 'Workforce package added.';
+        } else if (op == 'createlineramp') {
+            result.option = RLM_BambooSuitePlace.createLineRamp(
+                reqQuote(request, payload),
+                str(payload, 'lineId'),
+                intVal(payload, 'termMonths'),
+                str(payload, 'segmentType'),
+                intVal(payload, 'trialDays')
+            );
+            result.summary = 'Line ramp created.';
+        } else if (op == 'creategroupramp') {
+            result.option = RLM_BambooSuitePlace.createGroupRamp(
+                reqQuote(request, payload),
+                intVal(payload, 'termMonths'),
+                str(payload, 'startDateIso')
+            );
+            result.summary = 'Group ramp created.';
         } else {
             throw new RLM_BambooRevenueSuite.SuiteException(
                 'Unknown commercial operation: ' + request.operation
@@ -203,6 +231,17 @@ public with sharing class RLM_BambooSuiteCommercial {
             return null;
         }
         return Integer.valueOf(raw);
+    }
+
+    private static Boolean boolVal(Map<String, Object> payload, String key) {
+        if (payload == null || !payload.containsKey(key) || payload.get(key) == null) {
+            return false;
+        }
+        Object raw = payload.get(key);
+        if (raw instanceof Boolean) {
+            return (Boolean) raw;
+        }
+        return String.valueOf(raw).equalsIgnoreCase('true');
     }
 
     /** Parse the LWC's coalesced [{ lineId, quantity, discountPercent }] batch. */

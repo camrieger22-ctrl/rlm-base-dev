@@ -88,6 +88,41 @@ Change line quantity or Disc % on the option card to re-run FORCE pricing. Edits
 are **staged locally and coalesced into one Place call** (see *Line edit batching*
 below), so the grid never locks while pricing runs.
 
+### Ramp schedule (OOTB Create Ramp Schedule flow)
+
+**Create Ramp Schedule** on the option card launches the same screen flow the
+Transaction Line Editor uses (`RLM_Create_Ramp_Schedule_V4` in master-demo;
+Revenue Settings → Set Up Flow for Creating Ramp Schedules). Input is
+`recordId` = the active option Quote Id.
+
+The flow is the generator — annual or custom segments, optional trial and
+proration, live preview, then **Create**. It writes empty `QuoteLineGroup`
+ramp segments only. Products are added afterward (catalog / TLE Browse
+Catalog) and inherit each segment's dates, discount, and uplift. Hidden once
+the option is already group-ramped (the flow does not edit existing
+schedules).
+
+After the interview finishes, the suite refreshes option detail so the
+segment strip shows the new groups. Term restamp still skips lines with
+`RampIdentifier` or `QuoteLineGroupId`.
+
+**Ramp** on an eligible product line (added first, `CanRamp`, not already
+ramped, option is not group-ramped) opens the same modal chrome with Annual /
+Custom, duration, optional trial, and a live preview. Create calls the
+standard Connect `ramp-deal-create` API (Apex is transport only). Hidden once
+the option has a group ramp schedule — the two motions cannot share a quote.
+
+When the option is group-ramped, select a year chip then add from the catalog.
+**This year only** / **This year and later** maps to the standard Place
+`AddProducts` action (current vs current+subsequent). Dates come from the
+segment groups. The Workforce package cannot be added into a ramp year —
+use a-la-carte SKUs.
+
+Ramped products render as a **product × year grid** (qty, unit price, discount,
+net side by side). Ungrouped lines stay in the stacked list below.
+
+Still to build: Edit Ramp Schedule, delete segment, exit ramp, add/remove year.
+
 ## Phase 2 (multi-option)
 
 - **+ Add option** creates the next native Draft Quote (`… — Option B`, then C…)
@@ -403,7 +438,7 @@ qty/disc/add in a Flow interview (performance).
 | `RLM_BambooSuiteSession` | Session Opp load / enter Edit |
 | `RLM_BambooSuiteApprovals` | Thin AA + Quote deep-link |
 | `RLM_BambooSuiteCommercial` | Op table → Place edge |
-| `RLM_BambooSuitePlace` | Place/FORCE: qty, disc, batched line edits, seats, remove, reprice, term, billing, add, workforce, fillTier |
+| `RLM_BambooSuitePlace` | Place/FORCE: qty, disc, batched line edits, seats, remove, reprice, term, billing, add, workforce, fillTier, **line ramp**, **group ramp** (`CreateGroupRamp` → GroupAll + IsRamped PATCH + clone) |
 | `RLM_BambooSuiteDocGen` | DocGen start Invocable / Aura |
 | `RLM_BambooSuiteSend` | Send-to-customer Invocable / Aura → QuoteEmail |
 | `RLM_BambooSuiteUpdateSeats` | Agentforce seats → Place |

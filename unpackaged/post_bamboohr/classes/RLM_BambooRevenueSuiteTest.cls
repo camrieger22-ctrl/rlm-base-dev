@@ -2041,6 +2041,266 @@ private class RLM_BambooRevenueSuiteTest {
         System.assert(found, 'Inserted contact should be listed');
     }
 
+    @IsTest
+    static void shouldSkipCommercialStamp_rampedOrGrouped() {
+        System.assertEquals(
+            false,
+            RLM_BambooSuitePlace.shouldSkipCommercialStamp(null, null)
+        );
+        System.assertEquals(
+            true,
+            RLM_BambooSuitePlace.shouldSkipCommercialStamp('RDI123', null)
+        );
+        System.assertEquals(
+            true,
+            RLM_BambooSuitePlace.shouldSkipCommercialStamp('', UserInfo.getUserId())
+        );
+    }
+
+    @IsTest
+    static void extractTransactionContextId_readsConnectShape() {
+        System.assertEquals(
+            'ctx-1',
+            RLM_BambooSuitePlace.extractTransactionContextId(
+                '{"transactionContextId":"ctx-1"}'
+            )
+        );
+        System.assertEquals(
+            'ctx-2',
+            RLM_BambooSuitePlace.extractTransactionContextId(
+                '{"result":{"transactionContextId":"ctx-2"}}'
+            )
+        );
+        System.assertEquals(null, RLM_BambooSuitePlace.extractTransactionContextId('{}'));
+        System.assertEquals(null, RLM_BambooSuitePlace.extractTransactionContextId(''));
+    }
+
+    @IsTest
+    static void createGroupRamp_rejectsInvalidQuote() {
+        Boolean threw = false;
+        try {
+            RLM_BambooSuitePlace.createGroupRamp('not-an-id', 36, null);
+        } catch (RLM_BambooRevenueSuite.SuiteException e) {
+            threw = true;
+            System.assert(e.getMessage().contains('Invalid'), e.getMessage());
+        }
+        System.assert(threw, 'Expected SuiteException for invalid quote');
+    }
+
+    @IsTest
+    static void createGroupRamp_rejectsEmptyOption() {
+        Opportunity opp = makeOpp();
+        RLM_BambooRevenueSuite.SessionDTO session = RLM_BambooRevenueSuite.openFromOpportunity(
+            opp.Id
+        );
+        Boolean threw = false;
+        try {
+            RLM_BambooSuitePlace.createGroupRamp(session.quoteId, 36, null);
+        } catch (RLM_BambooRevenueSuite.SuiteException e) {
+            threw = true;
+            System.assert(
+                e.getMessage().contains('Add products'),
+                e.getMessage()
+            );
+        }
+        System.assert(threw, 'Expected SuiteException on empty option');
+    }
+
+    @IsTest
+    static void createGroupRamp_rejectsEvergreen() {
+        Opportunity opp = makeOpp();
+        RLM_BambooRevenueSuite.SessionDTO session = RLM_BambooRevenueSuite.openFromOpportunity(
+            opp.Id
+        );
+        Boolean threw = false;
+        try {
+            RLM_BambooSuitePlace.createGroupRamp(session.quoteId, 1, null);
+        } catch (RLM_BambooRevenueSuite.SuiteException e) {
+            threw = true;
+            System.assert(
+                e.getMessage().contains('1-year') || e.getMessage().contains('term'),
+                e.getMessage()
+            );
+        }
+        System.assert(threw, 'Expected SuiteException for M2M term');
+    }
+
+    @IsTest
+    static void getLatestRampJobError_emptyIsNull() {
+        System.assertEquals(null, RLM_BambooSuitePlace.getLatestRampJobError(null));
+    }
+
+    @IsTest
+    static void createLineRamp_rejectsInvalidIds() {
+        Boolean threw = false;
+        try {
+            RLM_BambooSuitePlace.createLineRamp('not-an-id', 'also-bad', 12);
+        } catch (RLM_BambooRevenueSuite.SuiteException e) {
+            threw = true;
+            System.assert(e.getMessage().contains('Invalid'), e.getMessage());
+        }
+        System.assert(threw, 'Expected SuiteException for invalid ids');
+    }
+
+    @IsTest
+    static void createLineRamp_rejectsMissingLine() {
+        Opportunity opp = makeOpp();
+        RLM_BambooRevenueSuite.SessionDTO session = RLM_BambooRevenueSuite.openFromOpportunity(
+            opp.Id
+        );
+        Boolean threw = false;
+        try {
+            RLM_BambooSuitePlace.createLineRamp(
+                session.quoteId,
+                '0QL000000000001AAA',
+                36
+            );
+        } catch (RLM_BambooRevenueSuite.SuiteException e) {
+            threw = true;
+            System.assert(
+                e.getMessage().contains('not found'),
+                e.getMessage()
+            );
+        }
+        System.assert(threw, 'Expected SuiteException for missing line');
+    }
+
+    @IsTest
+    static void commercialCreateLineRamp_requiresLineId() {
+        Opportunity opp = makeOpp();
+        RLM_BambooRevenueSuite.SessionDTO session = RLM_BambooRevenueSuite.openFromOpportunity(
+            opp.Id
+        );
+        Boolean threw = false;
+        try {
+            RLM_BambooRevenueSuite.runCommercialOperation(
+                'CreateLineRamp',
+                session.quoteId,
+                opp.Id,
+                '{"termMonths":36}'
+            );
+        } catch (RLM_BambooRevenueSuite.SuiteException e) {
+            threw = true;
+            System.assert(
+                e.getMessage().contains('required') || e.getMessage().contains('Invalid'),
+                e.getMessage()
+            );
+        }
+        System.assert(threw, 'Expected SuiteException when lineId is missing');
+    }
+
+    @IsTest
+    static void addProductLinesToRampSegments_requiresValidGroup() {
+        Opportunity opp = makeOpp();
+        RLM_BambooRevenueSuite.SessionDTO session = RLM_BambooRevenueSuite.openFromOpportunity(
+            opp.Id
+        );
+        Boolean threw = false;
+        try {
+            RLM_BambooSuitePlace.addProductLinesToRampSegments(
+                session.quoteId,
+                new List<String>{ 'BAMBOO-CORE' },
+                new List<Decimal>{ 10 },
+                session.quoteId,
+                false,
+                'Monthly'
+            );
+        } catch (RLM_BambooRevenueSuite.SuiteException e) {
+            threw = true;
+            System.assert(
+                e.getMessage().contains('segment') ||
+                    e.getMessage().contains('Invalid') ||
+                    e.getMessage().contains('Select a ramp'),
+                e.getMessage()
+            );
+        }
+        System.assert(threw, 'Expected SuiteException for a non-group Id');
+    }
+
+    @IsTest(SeeAllData=true)
+    static void createLineRamp_guardsOrTransportsWhenCatalogPresent() {
+        List<RLM_BambooRevenueSuite.CatalogProductDTO> catalog = RLM_BambooRevenueSuite.getCatalog(
+            'USD'
+        );
+        if (catalog.isEmpty()) {
+            return;
+        }
+        String sku = null;
+        for (RLM_BambooRevenueSuite.CatalogProductDTO p : catalog) {
+            if (p.sku == 'BAMBOO-CORE') {
+                sku = p.sku;
+                break;
+            }
+        }
+        if (sku == null) {
+            sku = catalog[0].sku;
+        }
+        Opportunity opp = makeOpp();
+        RLM_BambooRevenueSuite.SessionDTO session = RLM_BambooRevenueSuite.openFromOpportunity(
+            opp.Id
+        );
+        RLM_BambooRevenueSuite.AddLineResultDTO added = RLM_BambooRevenueSuite.addProductLine(
+            session.quoteId,
+            sku,
+            10,
+            36,
+            null,
+            null
+        );
+        if (added == null || added.lineId == null) {
+            return;
+        }
+        RLM_BambooRevenueSuite.OptionDetailDTO before =
+            RLM_BambooRevenueSuite.getOptionDetail(session.quoteId);
+        Boolean canRamp = false;
+        for (RLM_BambooRevenueSuite.OptionLineDTO line : before.lines) {
+            if (line.lineId == added.lineId && line.canRamp == true) {
+                canRamp = true;
+            }
+        }
+        if (!canRamp) {
+            Boolean threw = false;
+            try {
+                RLM_BambooSuitePlace.createLineRamp(
+                    session.quoteId,
+                    String.valueOf(added.lineId),
+                    36
+                );
+            } catch (RLM_BambooRevenueSuite.SuiteException e) {
+                threw = true;
+                System.assert(
+                    e.getMessage().contains('not rampable'),
+                    e.getMessage()
+                );
+            }
+            System.assert(threw, 'Expected CanRamp guard');
+            return;
+        }
+
+        RLM_BambooSuitePlace.skipLineRampPlace = true;
+        Test.setMock(HttpCalloutMock.class, new RampDealCreateMock());
+        Test.startTest();
+        RLM_BambooRevenueSuite.OptionDetailDTO after = RLM_BambooSuitePlace.createLineRamp(
+            session.quoteId,
+            String.valueOf(added.lineId),
+            36
+        );
+        Test.stopTest();
+        RLM_BambooSuitePlace.skipLineRampPlace = false;
+        System.assertNotEquals(null, after);
+        System.assert(after.lines.size() >= 1);
+    }
+
+    private class RampDealCreateMock implements HttpCalloutMock {
+        public HttpResponse respond(HttpRequest req) {
+            HttpResponse res = new HttpResponse();
+            res.setStatusCode(200);
+            res.setHeader('Content-Type', 'application/json');
+            res.setBody('{"transactionContextId":"ctx-test-line-ramp"}');
+            return res;
+        }
+    }
+
     // Kept for local fixture experiments; not run against orgs that already have BAMBOO SKUs.
     @IsTest
     static void catalogFixture_helpersCompile() {

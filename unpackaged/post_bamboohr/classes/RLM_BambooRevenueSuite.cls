@@ -113,6 +113,42 @@ public with sharing class RLM_BambooRevenueSuite {
         public Boolean isBundleRoot;
         @AuraEnabled
         public Boolean isBundleChild;
+        /** Product2.CanRamp — line-ramp gate. Bundles stay false. */
+        @AuraEnabled
+        public Boolean canRamp;
+        /** Shared across yearly segments of one line ramp. */
+        @AuraEnabled
+        public String rampIdentifier;
+        @AuraEnabled
+        public String segmentIdentifier;
+        @AuraEnabled
+        public String segmentName;
+        @AuraEnabled
+        public Boolean isPrimarySegment;
+        @AuraEnabled
+        public Id quoteLineGroupId;
+    }
+
+    /** One QuoteLineGroup ramp segment on an option (group ramp). */
+    public class OptionSegmentDTO {
+        @AuraEnabled
+        public Id groupId;
+        @AuraEnabled
+        public String name;
+        @AuraEnabled
+        public Boolean isRamped;
+        @AuraEnabled
+        public String segmentType;
+        @AuraEnabled
+        public String startDate;
+        @AuraEnabled
+        public String endDate;
+        @AuraEnabled
+        public Integer sortOrder;
+        @AuraEnabled
+        public Decimal discountPercent;
+        @AuraEnabled
+        public List<OptionLineDTO> lines;
     }
 
     public class OptionDetailDTO {
@@ -159,6 +195,11 @@ public with sharing class RLM_BambooRevenueSuite {
         public String billingFrequency;
         @AuraEnabled
         public List<OptionLineDTO> lines;
+        /** Ramped QuoteLineGroup segments; empty when the option is not group-ramped. */
+        @AuraEnabled
+        public List<OptionSegmentDTO> segments;
+        @AuraEnabled
+        public Boolean isGroupRamped;
     }
 
     public class AddLineResultDTO {
@@ -2264,6 +2305,44 @@ public with sharing class RLM_BambooRevenueSuite {
         executePlaceForce(quoteId, nodes);
     }
 
+    /**
+     * Place + FORCE with a sales-transaction context from ramp-deal-create.
+     * The context id is opaque — pass it through; do not prefix-validate.
+     */
+    public static void placeForceWithContextPublic(
+        Id quoteId,
+        List<RevSalesTrxn.RecordWithReferenceRequest> nodes,
+        String contextId
+    ) {
+        runPlaceWithOpportunitySyncSuspended(
+            quoteId,
+            nodes,
+            RevSalesTrxn.PricingPreferenceEnum.FORCE,
+            RevSalesTrxn.ConfigurationExecutionEnum.SKIP,
+            new RevSalesTrxn.ConfigurationOptionsInput(),
+            contextId
+        );
+    }
+
+    /**
+     * Place + FORCE with a group-ramp action (AddProducts, DeleteSegment, …).
+     */
+    public static void placeForceWithGroupRampPublic(
+        Id quoteId,
+        List<RevSalesTrxn.RecordWithReferenceRequest> nodes,
+        RevSalesTrxn.GroupRampActionEnum groupRamp
+    ) {
+        runPlaceWithOpportunitySyncSuspended(
+            quoteId,
+            nodes,
+            RevSalesTrxn.PricingPreferenceEnum.FORCE,
+            RevSalesTrxn.ConfigurationExecutionEnum.SKIP,
+            new RevSalesTrxn.ConfigurationOptionsInput(),
+            null,
+            groupRamp
+        );
+    }
+
     public static void placeConfigurePublic(
         Id quoteId,
         List<RevSalesTrxn.RecordWithReferenceRequest> nodes
@@ -2296,6 +2375,10 @@ public with sharing class RLM_BambooRevenueSuite {
 
     public static Integer normalizeTermPublic(Integer termMonths) {
         return normalizeTerm(termMonths);
+    }
+
+    public static Integer inferTermMonthsPublic(Id quoteId) {
+        return inferTermMonths(quoteId);
     }
 
     public static String normalizeBillingPublic(String billingFrequency) {
@@ -2397,10 +2480,48 @@ public with sharing class RLM_BambooRevenueSuite {
         RevSalesTrxn.ConfigurationExecutionEnum configExec,
         RevSalesTrxn.ConfigurationOptionsInput configOpts
     ) {
+        runPlaceWithOpportunitySyncSuspended(
+            quoteId,
+            nodes,
+            pricingPref,
+            configExec,
+            configOpts,
+            null
+        );
+    }
+
+    private static void runPlaceWithOpportunitySyncSuspended(
+        Id quoteId,
+        List<RevSalesTrxn.RecordWithReferenceRequest> nodes,
+        RevSalesTrxn.PricingPreferenceEnum pricingPref,
+        RevSalesTrxn.ConfigurationExecutionEnum configExec,
+        RevSalesTrxn.ConfigurationOptionsInput configOpts,
+        String contextId
+    ) {
+        runPlaceWithOpportunitySyncSuspended(
+            quoteId,
+            nodes,
+            pricingPref,
+            configExec,
+            configOpts,
+            contextId,
+            null
+        );
+    }
+
+    private static void runPlaceWithOpportunitySyncSuspended(
+        Id quoteId,
+        List<RevSalesTrxn.RecordWithReferenceRequest> nodes,
+        RevSalesTrxn.PricingPreferenceEnum pricingPref,
+        RevSalesTrxn.ConfigurationExecutionEnum configExec,
+        RevSalesTrxn.ConfigurationOptionsInput configOpts,
+        String contextId,
+        RevSalesTrxn.GroupRampActionEnum groupRamp
+    ) {
         assertOptionEditable(quoteId);
         invalidateOptionApprovalIfNeeded(quoteId);
         if (TXN_JOB_IN_PROGRESS) {
-            executePlace(nodes, pricingPref, configExec, configOpts);
+            executePlace(nodes, pricingPref, configExec, configOpts, contextId, groupRamp);
             ensureQuotePricedWhileSyncSuspended(quoteId);
             return;
         }
@@ -2410,7 +2531,7 @@ public with sharing class RLM_BambooRevenueSuite {
             setOpportunitySyncedQuote(oppId, null);
         }
         try {
-            executePlace(nodes, pricingPref, configExec, configOpts);
+            executePlace(nodes, pricingPref, configExec, configOpts, contextId, groupRamp);
             ensureQuotePricedWhileSyncSuspended(quoteId);
         } finally {
             if (syncedQuoteId != null) {
@@ -2687,21 +2808,57 @@ public with sharing class RLM_BambooRevenueSuite {
         RevSalesTrxn.ConfigurationExecutionEnum configExec,
         RevSalesTrxn.ConfigurationOptionsInput configOpts
     ) {
+        executePlace(nodes, pricingPref, configExec, configOpts, null);
+    }
+
+    private static void executePlace(
+        List<RevSalesTrxn.RecordWithReferenceRequest> nodes,
+        RevSalesTrxn.PricingPreferenceEnum pricingPref,
+        RevSalesTrxn.ConfigurationExecutionEnum configExec,
+        RevSalesTrxn.ConfigurationOptionsInput configOpts,
+        String contextId
+    ) {
+        executePlace(nodes, pricingPref, configExec, configOpts, contextId, null);
+    }
+
+    private static void executePlace(
+        List<RevSalesTrxn.RecordWithReferenceRequest> nodes,
+        RevSalesTrxn.PricingPreferenceEnum pricingPref,
+        RevSalesTrxn.ConfigurationExecutionEnum configExec,
+        RevSalesTrxn.ConfigurationOptionsInput configOpts,
+        String contextId,
+        RevSalesTrxn.GroupRampActionEnum groupRamp
+    ) {
         SuiteException last = null;
+        RevSalesTrxn.ConfigurationOptionsInput opts = configOpts == null
+            ? new RevSalesTrxn.ConfigurationOptionsInput()
+            : configOpts;
         for (Integer attempt = 0; attempt < LOCK_RETRY_ATTEMPTS; attempt++) {
             RevSalesTrxn.GraphRequest graph = new RevSalesTrxn.GraphRequest(
                 'BambooRevenueSuite',
                 nodes
             );
-            RevSalesTrxn.PlaceSalesTransactionResponse resp = RevSalesTrxn.PlaceSalesTransactionExecutor.execute(
-                graph,
-                pricingPref,
-                configExec,
-                configOpts == null
-                    ? new RevSalesTrxn.ConfigurationOptionsInput()
-                    : configOpts,
-                null
-            );
+            RevSalesTrxn.PlaceSalesTransactionResponse resp;
+            if (groupRamp != null) {
+                resp = RevSalesTrxn.PlaceSalesTransactionExecutor.execute(
+                    graph,
+                    pricingPref,
+                    configExec,
+                    opts,
+                    contextId,
+                    null,
+                    null,
+                    groupRamp
+                );
+            } else {
+                resp = RevSalesTrxn.PlaceSalesTransactionExecutor.execute(
+                    graph,
+                    pricingPref,
+                    configExec,
+                    opts,
+                    contextId
+                );
+            }
             if (resp != null && resp.isSuccess) {
                 return;
             }
@@ -2815,12 +2972,18 @@ public with sharing class RLM_BambooRevenueSuite {
                 StartDate,
                 EndDate,
                 BillingFrequency,
+                RampIdentifier,
+                SegmentIdentifier,
+                SegmentName,
+                IsPrimarySegment,
+                QuoteLineGroupId,
                 Product2.Name,
-                Product2.StockKeepingUnit
+                Product2.StockKeepingUnit,
+                Product2.CanRamp
             FROM QuoteLineItem
             WHERE QuoteId = :quoteId
             WITH USER_MODE
-            ORDER BY CreatedDate ASC
+            ORDER BY StartDate ASC NULLS LAST, CreatedDate ASC
         ];
 
         Set<Id> bundleParentIds = new Set<Id>();
@@ -2851,6 +3014,12 @@ public with sharing class RLM_BambooRevenueSuite {
             line.parentLineId = qi.ParentQuoteLineItemId;
             line.isBundleChild = qi.ParentQuoteLineItemId != null;
             line.isBundleRoot = bundleParentIds.contains(qi.Id);
+            line.canRamp = qi.Product2 != null && qi.Product2.CanRamp == true;
+            line.rampIdentifier = qi.RampIdentifier;
+            line.segmentIdentifier = qi.SegmentIdentifier;
+            line.segmentName = qi.SegmentName;
+            line.isPrimarySegment = qi.IsPrimarySegment == true;
+            line.quoteLineGroupId = qi.QuoteLineGroupId;
             line.sku = qi.Product2 != null ? qi.Product2.StockKeepingUnit : null;
             line.name = qi.Product2 != null ? qi.Product2.Name : null;
             line.quantity = qi.Quantity;
@@ -2917,7 +3086,64 @@ public with sharing class RLM_BambooRevenueSuite {
         if (dto.approvalStatus == 'Rejected' || dto.approvalStatus == 'Recalled') {
             dto.lastDecisionComments = latestDecisionCommentsForGuidance(quoteId);
         }
+        attachGroupRampSegments(quoteId, dto);
         return dto;
+    }
+
+    private static void attachGroupRampSegments(Id quoteId, OptionDetailDTO dto) {
+        dto.segments = new List<OptionSegmentDTO>();
+        dto.isGroupRamped = false;
+        List<QuoteLineGroup> groups = [
+            SELECT
+                Id,
+                Name,
+                IsRamped,
+                SegmentType,
+                Type,
+                StartDate,
+                EndDate,
+                SortOrder,
+                Discount
+            FROM QuoteLineGroup
+            WHERE QuoteId = :quoteId
+            WITH USER_MODE
+            ORDER BY SortOrder ASC NULLS LAST, StartDate ASC NULLS LAST
+        ];
+        if (groups.isEmpty()) {
+            return;
+        }
+        Map<Id, OptionSegmentDTO> byGroup = new Map<Id, OptionSegmentDTO>();
+        for (QuoteLineGroup grp : groups) {
+            if (grp.Type == 'RampScheduleGroup') {
+                continue;
+            }
+            if (grp.IsRamped == true) {
+                dto.isGroupRamped = true;
+            }
+            OptionSegmentDTO seg = new OptionSegmentDTO();
+            seg.groupId = grp.Id;
+            seg.name = grp.Name;
+            seg.isRamped = grp.IsRamped == true;
+            seg.segmentType = grp.SegmentType;
+            seg.startDate = grp.StartDate == null ? null : String.valueOf(grp.StartDate);
+            seg.endDate = grp.EndDate == null ? null : String.valueOf(grp.EndDate);
+            seg.sortOrder = grp.SortOrder == null ? null : Integer.valueOf(grp.SortOrder);
+            seg.discountPercent = grp.Discount;
+            seg.lines = new List<OptionLineDTO>();
+            dto.segments.add(seg);
+            byGroup.put(grp.Id, seg);
+        }
+        if (dto.lines == null) {
+            return;
+        }
+        for (OptionLineDTO line : dto.lines) {
+            if (line.quoteLineGroupId != null && byGroup.containsKey(line.quoteLineGroupId)) {
+                byGroup.get(line.quoteLineGroupId).lines.add(line);
+            }
+        }
+        if (!dto.isGroupRamped) {
+            dto.segments.clear();
+        }
     }
 
     private static List<OptionSummaryDTO> buildOptionSummaries(
