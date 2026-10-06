@@ -3,7 +3,7 @@
 > **Auto-generated** by `scripts/ai/generate_cci_reference.py` from `cumulusci.yml`.  
 > Do not edit manually — re-run the script after changing `cumulusci.yml`.
 
-**274 tasks** across **10 groups**.
+**275 tasks** across **10 groups**.
 
 ---
 
@@ -1050,7 +1050,7 @@
 
 ## Revenue Lifecycle Management
 
-*165 task(s)*
+*166 task(s)*
 
 ### `activate_agents`
 
@@ -1996,6 +1996,18 @@
 **Options:**
 
 - `path`: `unpackaged/post_prm_pricing/permissionsets`
+
+---
+
+### `deploy_post_ramp_ux`
+
+**Description:** Deploy the Flow-hosted Ramp Builder from unpackaged/post_ramp_ux: rlmRampBuilder LWC, RLM_Ramp_Builder screen flow, Quote.RLM_Ramp_Builder quick action, RLM_RampTransactionAction invocable, and the RLM_Ramp_Builder permission set. Flexipage action is assembled when the ramp_ux flag is on.
+
+**Class:** `cumulusci.tasks.salesforce.Deploy`
+
+**Options:**
+
+- `path`: `unpackaged/post_ramp_ux`
 
 ---
 

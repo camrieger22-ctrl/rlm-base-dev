@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PermissionSet xmlns="http://soap.sforce.com/2006/04/metadata">
+    <classAccesses>
+        <apexClass>RLM_RampConfiguratorAction</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <classAccesses>
+        <apexClass>RLM_RampTransactionAction</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <flowAccesses>
+        <enabled>true</enabled>
+        <flow>RLM_Ramp_Builder</flow>
+    </flowAccesses>
+    <flowAccesses>
+        <enabled>true</enabled>
+        <flow>RLM_Ramp_Product_Config</flow>
+    </flowAccesses>
+    <hasActivationRequired>false</hasActivationRequired>
+    <label>RLM Ramp Builder</label>
+    <pageAccesses>
+        <apexPage>RLM_SessionId</apexPage>
+        <enabled>true</enabled>
+    </pageAccesses>
+    <userPermissions>
+        <enabled>true</enabled>
+        <name>RunFlow</name>
+    </userPermissions>
+</PermissionSet>

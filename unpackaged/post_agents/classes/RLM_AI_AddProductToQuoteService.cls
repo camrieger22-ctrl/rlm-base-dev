@@ -425,10 +425,10 @@ public with sharing class RLM_AI_AddProductToQuoteService {
             action.setInvocationParameter('productSellingModelID', String.valueOf(sellingModelId));
             action.setInvocationParameter('quantity', quantity);
             if (startDate != null) {
-                action.setInvocationParameter('startDate', startDate);
+                action.setInvocationParameter('startDate', String.valueOf(startDate));
             }
             if (endDate != null) {
-                action.setInvocationParameter('endDate', endDate);
+                action.setInvocationParameter('endDate', String.valueOf(endDate));
             }
             List<Invocable.Action.Result> actionResults = action.invoke();
             if (actionResults.isEmpty() || !actionResults[0].isSuccess()) {

@@ -1,0 +1,572 @@
+<template>
+    <div class="page">
+        <div class="card">
+            <div class="topbar">
+                <div>
+                    <p class="eyebrow">{quoteLabel}</p>
+                    <h1 class="title">Ramp Builder</h1>
+                </div>
+                <div class="actions">
+                    <lightning-button label="Cancel" onclick={handleCancel}></lightning-button>
+                    <lightning-button variant="brand" label="Save to quote" onclick={handleSave} disabled={saving}></lightning-button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="section-head">
+                <div>
+                    <h2 class="section-title">1 · Ramp schedule</h2>
+                </div>
+                <p class="hint">
+                    {scheduleName}. Segments update as you change the schedule.
+                    Discount % and Uplift % are defaults for new lines. Change any product in step 2.
+                </p>
+            </div>
+
+            <div class="schedule-grid">
+                <div>
+                    <div class="field">
+                        <lightning-input
+                            label="Ramp schedule name"
+                            value={scheduleName}
+                            data-field="scheduleName"
+                            onchange={handleField}
+                        ></lightning-input>
+                    </div>
+                    <div class="field">
+                        <span class="field-label">Segment type</span>
+                        <div class="choices">
+                            <lightning-input type="radio" label="Annual" name="segmentType" checked={segmentTypeAnnual} data-field="segmentType" data-value="Annual" onchange={handleChoice}></lightning-input>
+                            <lightning-input type="radio" label="Custom" name="segmentType" checked={segmentTypeCustom} data-field="segmentType" data-value="Custom" onchange={handleChoice}></lightning-input>
+                        </div>
+                    </div>
+                    <div class="pair">
+                        <lightning-input type="date" label="Start date" value={startDate} data-field="startDate" onchange={handleField}></lightning-input>
+                        <lightning-input type="number" label="Duration (months)" value={durationMonths} min="1" data-field="durationMonths" onchange={handleField}></lightning-input>
+                    </div>
+                    <template lwc:if={segmentTypeCustom}>
+                        <div class="field">
+                            <lightning-input
+                                type="number"
+                                label="Number of custom segments"
+                                value={customSegmentCount}
+                                min="1"
+                                max="12"
+                                required
+                                message-when-range-overflow="A ramp schedule can have at most 12 segments, not including a trial."
+                                field-level-help="Same limit as Create Ramp Schedule: up to 12 paid segments. A trial does not count toward this limit."
+                                data-field="customSegmentCount"
+                                onchange={handleField}
+                            ></lightning-input>
+                        </div>
+                    </template>
+                    <template lwc:if={segmentTypeAnnual}>
+                        <div class="field">
+                            <span class="field-label">Prorated segment position</span>
+                            <div class="choices">
+                                <lightning-input type="radio" label="Beginning" name="proration" checked={prorationBeginning} data-field="prorationPosition" data-value="Beginning" onchange={handleChoice}></lightning-input>
+                                <lightning-input type="radio" label="End" name="proration" checked={prorationEnd} data-field="prorationPosition" data-value="End" onchange={handleChoice}></lightning-input>
+                            </div>
+                        </div>
+                    </template>
+                    <div class="field">
+                        <span class="field-label">Trial segment</span>
+                        <div class="choices">
+                            <lightning-input type="radio" label="Yes" name="trial" checked={trialYes} data-field="trial" data-value="true" onchange={handleChoice}></lightning-input>
+                            <lightning-input type="radio" label="No" name="trial" checked={trialNo} data-field="trial" data-value="false" onchange={handleChoice}></lightning-input>
+                        </div>
+                    </div>
+                    <template lwc:if={trialYes}>
+                        <div class="pair">
+                            <lightning-input type="number" label="Trial duration (days)" value={trialDays} min="1" data-field="trialDays" onchange={handleField}></lightning-input>
+                            <lightning-input type="number" label="Trial discount %" value={trialDiscount} min="0" max="100" data-field="trialDiscount" onchange={handleField}></lightning-input>
+                        </div>
+                    </template>
+                </div>
+
+                <div class="preview-wrap">
+                    <table class="preview">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Segment name</th>
+                                <th>Length</th>
+                                <th>Type</th>
+                                <th>Start date</th>
+                                <th>End date</th>
+                                <th>Discount %</th>
+                                <th>Uplift %</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template for:each={segments} for:item="seg">
+                                <tr key={seg.key}>
+                                    <td>{seg.number}</td>
+                                    <td>
+                                        <input data-key={seg.key} data-field="name" value={seg.name} onchange={handleSegmentEdit} />
+                                    </td>
+                                    <td>{seg.length}</td>
+                                    <td>{seg.type}</td>
+                                    <td>{seg.startDate}</td>
+                                    <td>{seg.endDate}</td>
+                                    <td>
+                                        <input type="number" data-key={seg.key} data-field="discount" value={seg.discount} onchange={handleSegmentEdit} />
+                                    </td>
+                                    <td>
+                                        <input type="number" data-key={seg.key} data-field="uplift" value={seg.uplift} onchange={handleSegmentEdit} />
+                                    </td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="grid-toolbar">
+                <div>
+                    <h2 class="section-title">2 · Products by segment</h2>
+                    <p class="hint">
+                        Select products, choose which years they belong in, then set quantity, discount, or markup for each year.
+                        Schedule percentages in step 1 seed new lines only.
+                    </p>
+                </div>
+                <div class="view-toggle">
+                    <lightning-button label="Browse catalog" variant={catalogButtonVariant} onclick={handleOpenCatalog}></lightning-button>
+                </div>
+            </div>
+
+            <template lwc:if={approvalText}>
+                <div class="approval">{approvalText}</div>
+            </template>
+            <template lwc:if={errorMessage}>
+                <p class="error">{errorMessage}</p>
+            </template>
+
+            <div class={step2BodyClass}>
+                <div class="grid-pane">
+                    <table class="grid">
+                        <thead>
+                            <tr>
+                                <th>Product</th>
+                                <template for:each={segments} for:item="seg">
+                                    <th key={seg.key}>
+                                        {seg.name}
+                                        <span class="seg-meta">{seg.startShort} – {seg.endDate}</span>
+                                        <button class="copy-from" type="button" data-segment={seg.key} onclick={handleBrowseSegment}>
+                                            Browse catalog
+                                        </button>
+                                        <template lwc:if={seg.prevName}>
+                                            <button class="copy-from" type="button" data-segment={seg.key} onclick={handleCopyFrom}>
+                                                Copy lines from {seg.prevName}
+                                            </button>
+                                        </template>
+                                    </th>
+                                </template>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template for:each={gridRows} for:item="row">
+                                <tr key={row.pricebookEntryId}>
+                                    <td>
+                                        <div class="product-ident">
+                                            <template lwc:if={row.hasImage}>
+                                                <img
+                                                    class="product-thumb"
+                                                    src={row.displayUrl}
+                                                    alt={row.name}
+                                                    data-product={row.product2Id}
+                                                    onerror={handleImageError}
+                                                />
+                                            </template>
+                                            <div>
+                                                <div class="product-name">
+                                                    {row.name}
+                                                    <template lwc:if={row.configurable}>
+                                                        <span class="bundle-tag">Bundle</span>
+                                                    </template>
+                                                </div>
+                                                <div class="sku-row">
+                                                    <div class="sku">{row.sellingModelLine}</div>
+                                                    <template lwc:if={row.configurable}>
+                                                        <button
+                                                            type="button"
+                                                            class="configure-link"
+                                                            aria-label="Configure bundle"
+                                                            data-id={row.pricebookEntryId}
+                                                            data-source="grid"
+                                                            onclick={handleConfigureProduct}
+                                                            disabled={configureBusy}
+                                                        >
+                                                            <lightning-icon icon-name="utility:settings" size="xx-small" alternative-text="Configure"></lightning-icon>
+                                                            Configure
+                                                        </button>
+                                                    </template>
+                                                </div>
+                                                <div class="sku">{row.coverage}</div>
+                                            </div>
+                                        </div>
+                                        <div class="product-actions">
+                                            <button class="linkish" type="button" data-id={row.pricebookEntryId} onclick={handleFillAll}>Fill all segments</button>
+                                            <button class="linkish" type="button" data-id={row.pricebookEntryId} onclick={handleRemoveProduct}>Remove</button>
+                                        </div>
+                                    </td>
+                                    <template for:each={row.cells} for:item="cell">
+                                        <td key={cell.key} class={cell.cellClass}>
+                                            <template lwc:if={cell.present}>
+                                                <lightning-combobox
+                                                    label="Type"
+                                                    variant="label-stacked"
+                                                    value={cell.adjustmentKind}
+                                                    options={adjustmentKindOptions}
+                                                    data-product={row.pricebookEntryId}
+                                                    data-segment={cell.segmentKey}
+                                                    data-field="adjustmentKind"
+                                                    onchange={handleCellChange}
+                                                ></lightning-combobox>
+                                                <div class="cell-row">
+                                                    <lightning-input type="number" label="Qty" variant="label-stacked" value={cell.quantity} data-product={row.pricebookEntryId} data-segment={cell.segmentKey} data-field="quantity" onchange={handleCellChange}></lightning-input>
+                                                    <lightning-input type="number" label={cell.adjustmentLabel} variant="label-stacked" value={cell.adjustment} data-product={row.pricebookEntryId} data-segment={cell.segmentKey} data-field="adjustment" onchange={handleCellChange}></lightning-input>
+                                                </div>
+                                                <div class="money">{cell.listDisplay} {cell.netDisplay}</div>
+                                                <template lwc:if={cell.likelyApproval}>
+                                                    <span class="likely">Likely approval</span>
+                                                </template>
+                                                <button class="linkish" type="button" data-product={row.pricebookEntryId} data-segment={cell.segmentKey} onclick={handleCopyToLater}>Copy to later</button>
+                                                <button class="linkish" type="button" data-product={row.pricebookEntryId} data-segment={cell.segmentKey} onclick={handleRemoveCell}>Remove</button>
+                                            </template>
+                                            <template lwc:else>
+                                                <button class="linkish" type="button" data-product={row.pricebookEntryId} data-segment={cell.segmentKey} onclick={handleAddCell}>{cell.addLabel}</button>
+                                            </template>
+                                        </td>
+                                    </template>
+                                </tr>
+                            </template>
+                            <tr class="totals">
+                                <td>Segment total</td>
+                                <template for:each={segmentColumns} for:item="col">
+                                    <td key={col.key}>{col.total}</td>
+                                </template>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <div class="footer">
+                        <p class="fineprint">
+                            Amounts are estimates for building the deal (sample list prices).
+                            On save, the pricing procedure prices every line and the screen shows those numbers instead.
+                            Line discount is saved on the quote line. Schedule discount and uplift stay on the segment as defaults.
+                        </p>
+                        <div class="ecv">Estimated contract value {contractValue}</div>
+                    </div>
+                </div>
+
+                <template lwc:if={showCatalog}>
+                    <aside class="catalog-panel" aria-label="Browse catalog">
+                        <div class="catalog-panel-head">
+                            <div>
+                                <h3 class="catalog-panel-title">Browse catalog</h3>
+                                <p class="hint">Adding to {browseScopeLabel}</p>
+                            </div>
+                            <lightning-button label="Close" onclick={handleCloseCatalog}></lightning-button>
+                        </div>
+                        <template lwc:if={hasBrowseSegments}>
+                            <lightning-combobox
+                                label="Current segment"
+                                value={effectiveBrowseKey}
+                                options={browseSegmentOptions}
+                                onchange={handleBrowseScopeChange}
+                            ></lightning-combobox>
+                        </template>
+                        <div class="catalog-toolbar">
+                            <lightning-input
+                                type="search"
+                                label="Search catalog"
+                                variant="label-hidden"
+                                placeholder="Search Product Discovery"
+                                value={catalogSearch}
+                                onchange={handleCatalogSearch}
+                                oncommit={handleCatalogSearchCommit}
+                            ></lightning-input>
+                            <template lwc:if={hasCatalogPicker}>
+                                <lightning-combobox
+                                    label="Catalog"
+                                    variant="label-hidden"
+                                    value={catalogId}
+                                    options={catalogOptions}
+                                    onchange={handleCatalogChange}
+                                ></lightning-combobox>
+                            </template>
+                            <lightning-button label="Search" onclick={handleCatalogSearchCommit} disabled={catalogLoading}></lightning-button>
+                        </div>
+                        <p class="hint catalog-hint">{catalogHint}</p>
+                        <template lwc:if={catalogLoading}>
+                            <p class="hint">Loading products from Product Discovery…</p>
+                        </template>
+                        <template lwc:if={catalogEmpty}>
+                            <p class="hint">No products returned for this quote. Try another search term.</p>
+                        </template>
+                        <div class="catalog">
+                            <template for:each={catalogCards} for:item="item">
+                                <div key={item.product2Id} class={item.cardClass}>
+                                    <template lwc:if={item.hasImage}>
+                                        <img
+                                            class="product-image"
+                                            src={item.displayUrl}
+                                            alt={item.name}
+                                            data-product={item.product2Id}
+                                            onerror={handleImageError}
+                                        />
+                                    </template>
+                                    <template lwc:else>
+                                        <div class="product-image product-image-fallback" aria-hidden="true">
+                                            <lightning-icon icon-name="standard:product" size="small"></lightning-icon>
+                                        </div>
+                                    </template>
+                                    <div class="product-name">
+                                        {item.name}
+                                        <template lwc:if={item.configurable}>
+                                            <span class="bundle-tag">Bundle</span>
+                                        </template>
+                                    </div>
+                                    <div class="sku-row">
+                                        <div class="sku">{item.sku} · {item.listDisplay}</div>
+                                        <template lwc:if={item.configurable}>
+                                            <button
+                                                type="button"
+                                                class="configure-link"
+                                                aria-label="Configure bundle"
+                                                data-id={item.pricebookEntryId}
+                                                data-source="catalog"
+                                                onclick={handleConfigureProduct}
+                                                disabled={configureBusy}
+                                            >
+                                                <lightning-icon icon-name="utility:settings" size="xx-small" alternative-text="Configure"></lightning-icon>
+                                                Configure
+                                            </button>
+                                        </template>
+                                    </div>
+                                    <template lwc:if={item.hasSellingModelPicker}>
+                                        <lightning-combobox
+                                            label="Selling model"
+                                            value={item.pricebookEntryId}
+                                            options={item.sellingModels}
+                                            data-product={item.product2Id}
+                                            onchange={handleSellingModelChange}
+                                        ></lightning-combobox>
+                                    </template>
+                                    <template lwc:else>
+                                        <div class="sku">{item.sellingModel}</div>
+                                    </template>
+                                    <template lwc:if={item.qualified}>
+                                        <div class="catalog-actions">
+                                            <lightning-button label={item.addLabel} data-id={item.pricebookEntryId} onclick={handleAddProduct} disabled={item.addDisabled}></lightning-button>
+                                            <template lwc:if={item.configurable}>
+                                                <lightning-button
+                                                    label="Configure"
+                                                    icon-name="utility:settings"
+                                                    data-id={item.pricebookEntryId}
+                                                    data-source="catalog"
+                                                    onclick={handleConfigureProduct}
+                                                    disabled={configureBusy}
+                                                ></lightning-button>
+                                            </template>
+                                        </div>
+                                    </template>
+                                    <template lwc:else>
+                                        <span class="likely">Not qualified</span>
+                                    </template>
+                                </div>
+                            </template>
+                        </div>
+                    </aside>
+                </template>
+            </div>
+        </div>
+
+        <template lwc:if={showPlacement}>
+            <div class="placement-backdrop">
+                <div
+                    class="placement-card"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="placement-title"
+                    data-id="placement-dialog"
+                    tabindex="-1"
+                    onkeydown={handlePlacementKeydown}
+                >
+                    <h2 id="placement-title" class="placement-title">Add {placementProductName}</h2>
+                    <p class="hint">Current segment is {browseScopeLabel}. Choose where this product is placed. New cells use that year’s schedule discount or uplift.</p>
+                    <lightning-radio-group
+                        name="placementMode"
+                        label="Place in"
+                        options={placementModeOptions}
+                        value={placementMode}
+                        type="radio"
+                        onchange={handlePlacementModeChange}
+                    ></lightning-radio-group>
+                    <template lwc:if={showPlacementChoose}>
+                        <fieldset class="placement-choices">
+                            <legend class="field-label">Segments</legend>
+                            <template for:each={placementSegmentChoices} for:item="choice">
+                                <lightning-input
+                                    key={choice.key}
+                                    type="checkbox"
+                                    label={choice.name}
+                                    checked={choice.checked}
+                                    data-key={choice.key}
+                                    onchange={handlePlacementSegmentToggle}
+                                ></lightning-input>
+                            </template>
+                        </fieldset>
+                    </template>
+                    <div class="placement-actions">
+                        <lightning-button label="Cancel" onclick={handleCancelPlacement}></lightning-button>
+                        <lightning-button variant="brand" label="Add to segments" onclick={handleConfirmPlacement} disabled={placementConfirmDisabled}></lightning-button>
+                    </div>
+                </div>
+            </div>
+        </template>
+
+        <template lwc:if={configuring}>
+            <div class="config-overlay" role="dialog" aria-modal="true" aria-labelledby="ramp-config-title">
+                <div class="config-head">
+                    <div>
+                        <p class="eyebrow">{quoteLabel}</p>
+                        <h2 id="ramp-config-title" class="config-title">{configureTitle}</h2>
+                    </div>
+                    <div class="config-actions">
+                        <template lwc:if={showAddonPanel}>
+                            <lightning-button
+                                label="Advanced"
+                                onclick={handleOpenAdvanced}
+                                disabled={addonLoading}
+                            ></lightning-button>
+                        </template>
+                        <lightning-button label="Back to Ramp Builder" onclick={handleCloseConfigurator}></lightning-button>
+                    </div>
+                </div>
+                <template lwc:if={errorMessage}>
+                    <p class="error config-error">{errorMessage}</p>
+                </template>
+                <template lwc:if={addonNotice}>
+                    <p class="addon-notice">{addonNotice}</p>
+                </template>
+                <template lwc:if={showAddonPanel}>
+                    <div class="addon-body">
+                        <template lwc:if={addonLoading}>
+                            <lightning-spinner alternative-text="Loading add-ons" size="medium"></lightning-spinner>
+                        </template>
+                        <template lwc:else>
+                            <template lwc:if={hasAddonMessages}>
+                                <ul class="addon-messages">
+                                    <template for:each={addonMessages} for:item="msg">
+                                        <li key={msg.key} class={msg.toneClass}>{msg.text}</li>
+                                    </template>
+                                </ul>
+                            </template>
+                            <template lwc:if={hasAddonAttributes}>
+                                <section class="addon-section">
+                                    <h3 class="addon-section-title">Product options</h3>
+                                    <div class="addon-attributes">
+                                        <template for:each={addonAttributeView} for:item="attr">
+                                            <lightning-combobox
+                                                key={attr.attributeName}
+                                                label={attr.label}
+                                                value={attr.value}
+                                                options={attr.options}
+                                                data-name={attr.attributeName}
+                                                onchange={handleAddonAttribute}
+                                            ></lightning-combobox>
+                                        </template>
+                                    </div>
+                                </section>
+                            </template>
+                            <div class="addon-groups">
+                                <template for:each={addonGroupsView} for:item="group">
+                                    <section key={group.id} class="addon-group">
+                                        <div class="addon-group-head">
+                                            <h3 class="addon-section-title">{group.name}</h3>
+                                            <span class="addon-range">{group.rangeLabel}</span>
+                                        </div>
+                                        <template for:each={group.components} for:item="component">
+                                            <div key={component.product2Id} class={component.rowClass}>
+                                                <template lwc:if={group.isSingle}>
+                                                    <input
+                                                        type="radio"
+                                                        name={group.id}
+                                                        checked={component.selected}
+                                                        data-id={component.product2Id}
+                                                        data-group={group.id}
+                                                        onchange={handleAddonRadio}
+                                                        aria-label={component.name}
+                                                    />
+                                                </template>
+                                                <template lwc:else>
+                                                    <lightning-input
+                                                        type="checkbox"
+                                                        label={component.name}
+                                                        variant="label-hidden"
+                                                        checked={component.selected}
+                                                        disabled={component.checkboxDisabled}
+                                                        data-id={component.product2Id}
+                                                        data-group={group.id}
+                                                        onchange={handleAddonToggle}
+                                                    ></lightning-input>
+                                                </template>
+                                                <div class="addon-copy">
+                                                    <div class="addon-name">{component.name}</div>
+                                                    <div class="addon-meta">{component.sku} · {component.priceLabel}</div>
+                                                </div>
+                                                <lightning-input
+                                                    type="number"
+                                                    label="Quantity"
+                                                    variant="label-hidden"
+                                                    value={component.quantity}
+                                                    min="1"
+                                                    disabled={component.qtyDisabled}
+                                                    data-id={component.product2Id}
+                                                    data-group={group.id}
+                                                    onchange={handleAddonQty}
+                                                ></lightning-input>
+                                                <template lwc:if={component.hasSellingModelPicker}>
+                                                    <lightning-combobox
+                                                        label="Selling model"
+                                                        variant="label-hidden"
+                                                        value={component.pricebookEntryId}
+                                                        options={component.options}
+                                                        data-id={component.product2Id}
+                                                        data-group={group.id}
+                                                        onchange={handleAddonSellingModel}
+                                                    ></lightning-combobox>
+                                                </template>
+                                            </div>
+                                        </template>
+                                    </section>
+                                </template>
+                            </div>
+                        </template>
+                    </div>
+                    <div class="addon-foot">
+                        <lightning-button
+                            variant="brand"
+                            label="Save add-ons"
+                            onclick={handleSaveAddons}
+                            disabled={addonBusy}
+                        ></lightning-button>
+                    </div>
+                </template>
+                <template lwc:else>
+                    <div class="config-flow">
+                        <lightning-flow
+                            flow-api-name="RLM_Ramp_Product_Config"
+                            flow-input-variables={configuratorInputs}
+                            onstatuschange={handleConfiguratorStatus}
+                        ></lightning-flow>
+                    </div>
+                </template>
+            </div>
+        </template>
+    </div>
+</template>

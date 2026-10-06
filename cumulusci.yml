@@ -130,6 +130,7 @@ project:
     breconfig: false          # Business Rules Engine configuration
     guidedselling: true      # Guided Selling
     procedureplans: true      # Procedure Plans
+    ramp_ux: false            # Ramp Builder flow + LWC (post_ramp_ux)
 
     # ── Data & UX ──────────────────────────────────────────────────────────────
     qb: true                  # QuantumBit data
@@ -1394,6 +1395,17 @@ tasks:
     class_path: cumulusci.tasks.salesforce.Deploy
     options:
       path: unpackaged/post_utils
+
+  deploy_post_ramp_ux:
+    group: Revenue Lifecycle Management
+    description: >
+      Deploy the Flow-hosted Ramp Builder from unpackaged/post_ramp_ux:
+      rlmRampBuilder LWC, RLM_Ramp_Builder screen flow, Quote.RLM_Ramp_Builder
+      quick action, RLM_RampTransactionAction invocable, and the RLM_Ramp_Builder
+      permission set. Flexipage action is assembled when the ramp_ux flag is on.
+    class_path: cumulusci.tasks.salesforce.Deploy
+    options:
+      path: unpackaged/post_ramp_ux
 
   deploy_post_setup_guide:
     group: Revenue Lifecycle Management

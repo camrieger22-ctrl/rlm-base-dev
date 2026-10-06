@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<McpServerDefinition xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description>Revenue Cloud quoting tools for Claude: build several commercial options under one Opportunity, or create/add/configure/discount/recap/submit a single quote.</description>
+    <masterLabel>Revenue Cloud Quoting</masterLabel>
+    <tools>
+        <apiDefinition>
+            <apiIdentifier>aa:apex-RLM_MCP_BuildQuoteOptions</apiIdentifier>
+            <apiSource>API_CATALOG</apiSource>
+            <operation>RLM_MCP_BuildQuoteOptions</operation>
+        </apiDefinition>
+        <descriptionOverride>Creates Draft quotes under one Opportunity. Places the first option of each product mix, then Deep Clones siblings and patches term/discount. Returns remainingOptionsJson only if CPU forces a pause. Then render comparisonDisplay as a visual card.</descriptionOverride>
+        <toolName>buildRevenueCloudQuoteOptions</toolName>
+        <toolTitle>Build Quote Options</toolTitle>
+    </tools>
+    <tools>
+        <apiDefinition>
+            <apiIdentifier>aa:apex-RLM_MCP_CreateQuote</apiIdentifier>
+            <apiSource>API_CATALOG</apiSource>
+            <operation>RLM_MCP_CreateQuote</operation>
+        </apiDefinition>
+        <descriptionOverride>Creates a Draft Revenue Cloud Quote for an account name. Returns Quote Id. Call this before adding products.</descriptionOverride>
+        <toolName>createRevenueCloudQuote</toolName>
+        <toolTitle>Create Revenue Cloud Quote</toolTitle>
+    </tools>
+    <tools>
+        <apiDefinition>
+            <apiIdentifier>aa:apex-RLM_MCP_AddProductToQuote</apiIdentifier>
+            <apiSource>API_CATALOG</apiSource>
+            <operation>RLM_MCP_AddProductToQuote</operation>
+        </apiDefinition>
+        <descriptionOverride>Adds a named product to an existing Draft quote using the Revenue Cloud add-line action. Requires Quote Id and product name.</descriptionOverride>
+        <toolName>addProductToRevenueCloudQuote</toolName>
+        <toolTitle>Add Product To Quote</toolTitle>
+    </tools>
+    <tools>
+        <apiDefinition>
+            <apiIdentifier>aa:apex-RLM_MCP_ApplyQuoteDiscount</apiIdentifier>
+            <apiSource>API_CATALOG</apiSource>
+            <operation>RLM_MCP_ApplyQuoteDiscount</operation>
+        </apiDefinition>
+        <descriptionOverride>Applies a percent discount to all lines or to lines matching a product name on a Revenue Cloud quote.</descriptionOverride>
+        <toolName>applyRevenueCloudQuoteDiscount</toolName>
+        <toolTitle>Apply Quote Discount</toolTitle>
+    </tools>
+    <tools>
+        <apiDefinition>
+            <apiIdentifier>aa:apex-RLM_MCP_GetQuoteSummary</apiIdentifier>
+            <apiSource>API_CATALOG</apiSource>
+            <operation>RLM_MCP_GetQuoteSummary</operation>
+        </apiDefinition>
+        <descriptionOverride>Read-only recap of quote lines: product, quantity, and prices. Use after create or add.</descriptionOverride>
+        <toolName>getRevenueCloudQuoteSummary</toolName>
+        <toolTitle>Get Quote Summary</toolTitle>
+    </tools>
+    <tools>
+        <apiDefinition>
+            <apiIdentifier>aa:apex-RLM_MCP_SubmitQuoteForApproval</apiIdentifier>
+            <apiSource>API_CATALOG</apiSource>
+            <operation>RLM_MCP_SubmitQuoteForApproval</operation>
+        </apiDefinition>
+        <descriptionOverride>Submits a Draft Revenue Cloud quote for approval by quote name, account name, or Quote Id. Ask the user to pick when more than one quote matches. Only quotes with lines can be submitted.</descriptionOverride>
+        <toolName>submitRevenueCloudQuoteForApproval</toolName>
+        <toolTitle>Submit Quote For Approval</toolTitle>
+    </tools>
+    <tools>
+        <apiDefinition>
+            <apiIdentifier>aa:apex-RLM_MCP_DescribeBundleConfiguration</apiIdentifier>
+            <apiSource>API_CATALOG</apiSource>
+            <operation>RLM_MCP_DescribeBundleConfiguration</operation>
+        </apiDefinition>
+        <descriptionOverride>Loads configurator option groups, current picks, attributes, and constraint messages for a bundle on a Draft quote. Does not save. Ask the user about unanswered groups, then call configureRevenueCloudBundle. Never insert child QuoteLineItem rows.</descriptionOverride>
+        <toolName>describeRevenueCloudBundleConfiguration</toolName>
+        <toolTitle>Describe Bundle Configuration</toolTitle>
+    </tools>
+    <tools>
+        <apiDefinition>
+            <apiIdentifier>aa:apex-RLM_MCP_ConfigureBundle</apiIdentifier>
+            <apiSource>API_CATALOG</apiSource>
+            <operation>RLM_MCP_ConfigureBundle</operation>
+        </apiDefinition>
+        <descriptionOverride>Applies named bundle options and attributes, then saves through the Revenue Cloud configurator. Call describe first. Pass product names or SKUs, not child QuoteLineItem inserts.</descriptionOverride>
+        <toolName>configureRevenueCloudBundle</toolName>
+        <toolTitle>Configure Bundle</toolTitle>
+    </tools>
+</McpServerDefinition>

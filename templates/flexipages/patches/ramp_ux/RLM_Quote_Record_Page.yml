@@ -1,0 +1,8 @@
+feature: ramp_ux
+feature_flag: ramp_ux
+# Surfaces the Flow-hosted Ramp Builder after the standard Create Ramp Schedule action.
+patches:
+  - type: insert_action
+    after: "CreateRampSchedule"
+    actions:
+      - "Quote.RLM_Open_Ramp_Builder"
