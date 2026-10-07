@@ -26,6 +26,12 @@ global with sharing class RLM_MCP_CreateQuote {
         @InvocableVariable(label='Quote Id')
         global String quoteId;
 
+        @InvocableVariable(
+            label='Quote Url'
+            description='Lightning Quote page. Render as [Open Quote](quoteUrl) in the chat reply.'
+        )
+        global String quoteUrl;
+
         @InvocableVariable(label='Quote Name')
         global String quoteName;
 
@@ -34,6 +40,12 @@ global with sharing class RLM_MCP_CreateQuote {
 
         @InvocableVariable(label='Opportunity Id')
         global String opportunityId;
+
+        @InvocableVariable(
+            label='Opportunity Url'
+            description='Lightning Opportunity page. Render as [Open Opportunity](opportunityUrl) in the chat reply.'
+        )
+        global String opportunityUrl;
 
         @InvocableVariable(label='Message')
         global String message;
@@ -100,6 +112,7 @@ global with sharing class RLM_MCP_CreateQuote {
             }
         }
         out.opportunityId = opportunity.Id;
+        out.opportunityUrl = RLM_MCP_RecordLinks.lightningUrl('Opportunity', opportunity.Id);
 
         String name = String.isBlank(input.quoteName)
             ? 'New Quote For ' + account.Name
@@ -119,8 +132,21 @@ global with sharing class RLM_MCP_CreateQuote {
 
         out.isSuccess = true;
         out.quoteId = quote.Id;
+        out.quoteUrl = RLM_MCP_RecordLinks.lightningUrl('Quote', quote.Id);
         out.quoteName = name;
-        out.message = 'Created draft quote ' + name + ' on ' + account.Name + '.';
+        List<String> lines = new List<String>{
+            'Created draft quote ' + name + ' on ' + account.Name + '.'
+        };
+        String quoteLink = RLM_MCP_RecordLinks.markdown('Open Quote', 'Quote', quote.Id);
+        String oppLink = RLM_MCP_RecordLinks.markdown(
+            'Open Opportunity', 'Opportunity', opportunity.Id);
+        if (String.isNotBlank(quoteLink)) {
+            lines.add(quoteLink);
+        }
+        if (String.isNotBlank(oppLink)) {
+            lines.add(oppLink);
+        }
+        out.message = String.join(lines, '\n');
         return out;
     }
 

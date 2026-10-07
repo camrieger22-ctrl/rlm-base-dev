@@ -34,6 +34,11 @@ global with sharing class RLM_MCP_DescribeBundleConfiguration {
         global Boolean isSuccess;
         @InvocableVariable(label='Quote Id')
         global String quoteId;
+        @InvocableVariable(
+            label='Quote Url'
+            description='Lightning Quote page. Render as [Open Quote](quoteUrl) in the chat reply.'
+        )
+        global String quoteUrl;
         @InvocableVariable(label='Quote Name')
         global String quoteName;
         @InvocableVariable(label='Quote Line Item Id')
@@ -79,6 +84,8 @@ global with sharing class RLM_MCP_DescribeBundleConfiguration {
         DescribeOutput out = new DescribeOutput();
         out.isSuccess = raw.isSuccess;
         out.quoteId = raw.quoteId;
+        out.quoteUrl = RLM_MCP_RecordLinks.lightningUrl(
+            'Quote', RLM_MCP_RecordLinks.toId(raw.quoteId));
         out.quoteName = raw.quoteName;
         out.quoteLineItemId = raw.quoteLineItemId;
         out.productName = raw.productName;

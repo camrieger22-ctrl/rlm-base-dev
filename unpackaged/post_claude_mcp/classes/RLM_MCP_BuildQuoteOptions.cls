@@ -40,7 +40,10 @@ global with sharing class RLM_MCP_BuildQuoteOptions {
         global String opportunityName;
         @InvocableVariable(label='Opportunity Id')
         global String opportunityId;
-        @InvocableVariable(label='Opportunity Url')
+        @InvocableVariable(
+            label='Opportunity Url'
+            description='Lightning Opportunity page. Render as [Open Opportunity](opportunityUrl) in the chat reply.'
+        )
         global String opportunityUrl;
         @InvocableVariable(
             label='Comparison Display'
@@ -156,7 +159,7 @@ global with sharing class RLM_MCP_BuildQuoteOptions {
             Opportunity opportunity = findOrCreateOpportunity(account, oppName);
             out.opportunityId = opportunity.Id;
             out.opportunityName = opportunity.Name;
-            out.opportunityUrl = lightningUrl('Opportunity', opportunity.Id);
+            out.opportunityUrl = RLM_MCP_RecordLinks.lightningUrl('Opportunity', opportunity.Id);
 
             List<String> recap = new List<String>();
             recap.add('**' + options.size() + ' commercial option'
@@ -1108,7 +1111,7 @@ global with sharing class RLM_MCP_BuildQuoteOptions {
                 row += ' · ' + term;
             }
             row += ' · ' + lineLabel + ' · ' + money(netOf(q, lineNets));
-            String quoteUrl = lightningUrl('Quote', q.Id);
+            String quoteUrl = RLM_MCP_RecordLinks.lightningUrl('Quote', q.Id);
             if (String.isNotBlank(quoteUrl)) {
                 row += ' · [Open](' + quoteUrl + ')';
             }
@@ -1133,14 +1136,6 @@ global with sharing class RLM_MCP_BuildQuoteOptions {
         }
         Integer months = startDate.monthsBetween(endDate);
         return months < 0 ? null : months;
-    }
-
-    static String lightningUrl(String objectName, Id recordId) {
-        if (recordId == null || String.isBlank(objectName)) {
-            return null;
-        }
-        return URL.getOrgDomainUrl().toExternalForm()
-            + '/lightning/r/' + objectName + '/' + String.valueOf(recordId) + '/view';
     }
 
     static String money(Decimal value) {

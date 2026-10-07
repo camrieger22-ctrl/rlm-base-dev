@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <McpServerDefinition xmlns="http://soap.sforce.com/2006/04/metadata">
-    <description>Revenue Cloud quoting tools for Claude: build several commercial options under one Opportunity, or create/add/configure/discount/recap/submit a single quote.</description>
+    <description>Revenue Cloud quoting tools for Claude: build commercial options, create/add/configure/discount/recap/explain/submit a quote, preview a quote document, create/activate an order, and amend an asset.</description>
     <masterLabel>Revenue Cloud Quoting</masterLabel>
     <tools>
         <apiDefinition>
@@ -81,5 +81,55 @@
         <descriptionOverride>Applies named bundle options and attributes, then saves through the Revenue Cloud configurator. Call describe first. Pass product names or SKUs, not child QuoteLineItem inserts.</descriptionOverride>
         <toolName>configureRevenueCloudBundle</toolName>
         <toolTitle>Configure Bundle</toolTitle>
+    </tools>
+    <tools>
+        <apiDefinition>
+            <apiIdentifier>aa:apex-RLM_MCP_CreateOrderFromQuote</apiIdentifier>
+            <apiSource>API_CATALOG</apiSource>
+            <operation>RLM_MCP_CreateOrderFromQuote</operation>
+        </apiDefinition>
+        <descriptionOverride>Creates a Revenue Cloud Order from a quote via createOrdersFromQuote. Resolve by quote name, account name, or Quote Id. Then call activateRevenueCloudOrder so assets are created. Never insert Order rows yourself.</descriptionOverride>
+        <toolName>createRevenueCloudOrderFromQuote</toolName>
+        <toolTitle>Create Order From Quote</toolTitle>
+    </tools>
+    <tools>
+        <apiDefinition>
+            <apiIdentifier>aa:apex-RLM_MCP_ActivateOrder</apiIdentifier>
+            <apiSource>API_CATALOG</apiSource>
+            <operation>RLM_MCP_ActivateOrder</operation>
+        </apiDefinition>
+        <descriptionOverride>Activates a Draft Revenue Cloud Order so Salesforce creates assets. Stamps Bill to Contact and addresses when missing. If isPartial, call again with the same order Id until assets appear. Never insert Asset rows yourself.</descriptionOverride>
+        <toolName>activateRevenueCloudOrder</toolName>
+        <toolTitle>Activate Order</toolTitle>
+    </tools>
+    <tools>
+        <apiDefinition>
+            <apiIdentifier>aa:apex-RLM_MCP_AmendAsset</apiIdentifier>
+            <apiSource>API_CATALOG</apiSource>
+            <operation>RLM_MCP_AmendAsset</operation>
+        </apiDefinition>
+        <descriptionOverride>Starts an asset amendment via initiateAmendment (quote output). quantityChange is a delta, not the new total. startDate is required (yyyy-mm-dd); ask the user and do not assume today. If the named asset is a bundle component, amend the top-level parent (quantity 0) then apply the delta to that component line. Then create an order and activate. Never update Asset rows yourself.</descriptionOverride>
+        <toolName>amendRevenueCloudAsset</toolName>
+        <toolTitle>Amend Asset</toolTitle>
+    </tools>
+    <tools>
+        <apiDefinition>
+            <apiIdentifier>aa:apex-RLM_MCP_ExplainQuotePrice</apiIdentifier>
+            <apiSource>API_CATALOG</apiSource>
+            <operation>RLM_MCP_ExplainQuotePrice</operation>
+        </apiDefinition>
+        <descriptionOverride>Explains list price, quote discount, proration, and amount due. Uses QuoteLineDetail slices and the persisted pricing waterfall. Blank Net Unit Price on an amendment line is expected — do not treat it as a failure. Resolve by quote name, number, account, or Quote Id. Pass productName to focus on one product.</descriptionOverride>
+        <toolName>explainRevenueCloudQuotePrice</toolName>
+        <toolTitle>Explain Quote Price</toolTitle>
+    </tools>
+    <tools>
+        <apiDefinition>
+            <apiIdentifier>aa:apex-RLM_MCP_PreviewQuoteDocument</apiIdentifier>
+            <apiSource>API_CATALOG</apiSource>
+            <operation>RLM_MCP_PreviewQuoteDocument</operation>
+        </apiDefinition>
+        <descriptionOverride>Generates the Quote Proposal PDF (RLM_QuoteProposal). Reuses the last PDF when the quote is unchanged. If isPartial, immediately call again with quoteId and documentGenerationProcessId; do not reply to the user. Never insert ContentVersion rows yourself.</descriptionOverride>
+        <toolName>previewRevenueCloudQuoteDocument</toolName>
+        <toolTitle>Preview Quote Document</toolTitle>
     </tools>
 </McpServerDefinition>

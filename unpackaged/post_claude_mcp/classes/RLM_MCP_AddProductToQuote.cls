@@ -32,6 +32,11 @@ global with sharing class RLM_MCP_AddProductToQuote {
     global class AddOutput {
         @InvocableVariable(label='Is Success')
         global Boolean isSuccess;
+        @InvocableVariable(
+            label='Quote Url'
+            description='Lightning Quote page. Render as [Open Quote](quoteUrl) in the chat reply.'
+        )
+        global String quoteUrl;
         @InvocableVariable(label='Quote Line Item Id')
         global String quoteLineItemId;
         @InvocableVariable(label='Product Name Added')
@@ -71,9 +76,10 @@ global with sharing class RLM_MCP_AddProductToQuote {
             mapped.sellingModelName = input.sellingModelName;
             serviceInputs.add(mapped);
         }
-        for (RLM_AI_AddProductToQuoteService.AddOutput raw :
-            RLM_AI_AddProductToQuoteService.addProduct(serviceInputs)
-        ) {
+        List<RLM_AI_AddProductToQuoteService.AddOutput> rawResults =
+            RLM_AI_AddProductToQuoteService.addProduct(serviceInputs);
+        for (Integer i = 0; i < rawResults.size(); i++) {
+            RLM_AI_AddProductToQuoteService.AddOutput raw = rawResults[i];
             AddOutput out = new AddOutput();
             out.isSuccess = raw.isSuccess;
             out.quoteLineItemId = raw.quoteLineItemId;
@@ -84,6 +90,18 @@ global with sharing class RLM_MCP_AddProductToQuote {
             out.needsDisambiguation = raw.needsDisambiguation;
             out.candidateSummariesDisplay = raw.candidateSummariesDisplay;
             out.errorMessage = raw.errorMessage;
+            if (out.isSuccess == true && i < inputs.size()) {
+                Id quoteId = RLM_MCP_RecordLinks.toId(inputs[i].quoteId);
+                if (quoteId != null) {
+                    out.quoteUrl = RLM_MCP_RecordLinks.lightningUrl('Quote', quoteId);
+                    String link = RLM_MCP_RecordLinks.markdown('Open Quote', 'Quote', quoteId);
+                    if (String.isNotBlank(link)) {
+                        out.lineSummaryDisplay = String.isBlank(out.lineSummaryDisplay)
+                            ? link
+                            : out.lineSummaryDisplay + '\n' + link;
+                    }
+                }
+            }
             results.add(out);
         }
         return results;

@@ -53,6 +53,11 @@ global with sharing class RLM_MCP_SubmitQuoteForApproval {
         global String message;
         @InvocableVariable(label='Quote Id')
         global String quoteId;
+        @InvocableVariable(
+            label='Quote Url'
+            description='Lightning Quote page. Render as [Open Quote](quoteUrl) in the chat reply.'
+        )
+        global String quoteUrl;
         @InvocableVariable(label='Quote Name')
         global String quoteName;
         @InvocableVariable(label='Approval Submission Id')
@@ -98,6 +103,7 @@ global with sharing class RLM_MCP_SubmitQuoteForApproval {
                 return out;
             }
             out.quoteId = q.Id;
+            out.quoteUrl = RLM_MCP_RecordLinks.lightningUrl('Quote', q.Id);
             out.quoteName = q.Name;
 
             // 2. Validate it can be submitted.
@@ -138,12 +144,16 @@ global with sharing class RLM_MCP_SubmitQuoteForApproval {
                 ORDER BY CreatedDate DESC
                 LIMIT 1
             ];
+            String quoteLink = RLM_MCP_RecordLinks.markdown('Open Quote', 'Quote', q.Id);
             if (subs.isEmpty()) {
                 out.message = 'Submitted **' + q.Name + '** for approval. No approval submission is visible yet; check the quote shortly.';
             } else {
                 out.approvalSubmissionId = subs[0].Id;
                 out.approvalStatus = String.valueOf(subs[0].Status);
                 out.message = 'Submitted **' + q.Name + '** for approval. Status: ' + out.approvalStatus + '.';
+            }
+            if (String.isNotBlank(quoteLink)) {
+                out.message += '\n' + quoteLink;
             }
         } catch (Exception e) {
             out.isSuccess = false;
@@ -272,6 +282,10 @@ global with sharing class RLM_MCP_SubmitQuoteForApproval {
             line += ', ' + q.LineItemCount + (q.LineItemCount == 1 ? ' line' : ' lines');
             if (q.GrandTotal != null) {
                 line += ', $' + String.valueOf(q.GrandTotal.setScale(2));
+            }
+            String quoteLink = RLM_MCP_RecordLinks.markdown('Open', 'Quote', q.Id);
+            if (String.isNotBlank(quoteLink)) {
+                line += ' · ' + quoteLink;
             }
             lines.add(line);
             ordinal++;

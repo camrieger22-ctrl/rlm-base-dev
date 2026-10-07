@@ -676,6 +676,10 @@ public with sharing class RLM_MCP_BundleConfigService {
             if (quote.Account != null && String.isNotBlank(quote.Account.Name)) {
                 row += ' (' + quote.Account.Name + ')';
             }
+            String quoteLink = RLM_MCP_RecordLinks.markdown('Open', 'Quote', quote.Id);
+            if (String.isNotBlank(quoteLink)) {
+                row += ' · ' + quoteLink;
+            }
             lines.add(row);
             ordinal++;
         }

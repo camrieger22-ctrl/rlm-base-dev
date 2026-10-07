@@ -69,6 +69,11 @@ private class RLM_MCP_SubmitQuoteForApprovalTest {
         RLM_MCP_SubmitQuoteForApproval.SubmitOutput out = run(byName('zephyr expansion', null));
 
         System.assertEquals(true, out.isSuccess, 'Submit failed: ' + out.errorMessage);
+        System.assert(
+            out.quoteUrl != null && out.quoteUrl.contains('/lightning/r/Quote/'),
+            out.quoteUrl
+        );
+        System.assert(out.message.contains('Open Quote'), out.message);
         System.assertEquals(1, fake.calls);
         System.assertEquals(String.valueOf(q.Id), fake.lastParams.get('recordId'));
         System.assertEquals('Test submission', fake.lastParams.get('submissionComments'));
