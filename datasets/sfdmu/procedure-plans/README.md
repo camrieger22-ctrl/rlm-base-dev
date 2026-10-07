@@ -11,10 +11,11 @@ This data plan is executed as **step 4** of the `prepare_procedureplans` flow (w
 | Step | Task                                    | Description                                                                  |
 |------|-----------------------------------------|------------------------------------------------------------------------------|
 | 1    | `deploy_post_procedureplans`            | Deploy expression set metadata (RLM_Price_Distribution_Procedure, RLM_Revenue_Management_Recalc_Procedure) + RevenueManagement.settings (`skipOrgSttPricing=false`) |
-| 2    | `activate_procedure_plan_expression_sets` | Activate RLM_Price_Distribution_Procedure_V1 (idempotent)                   |
+| 2    | `activate_procedure_plan_expression_sets` | Activate RLM_Price_Distribution_Procedure_V1 and RLM_Revenue_Management_Recalc_Procedure_V1 (idempotent) |
 | 3    | `create_procedure_plan_definition`      | Create PPD + inactive PPDV via Connect API (idempotent)                      |
 | 4    | `insert_procedure_plan_data`            | Run this SFDMU plan (2 passes — sections then options)                       |
 | 5    | `activate_procedure_plan_version`       | Activate the ProcedurePlanDefinitionVersion (idempotent)                     |
+| 6    | `apply_derived_pricing_procedure_plan_overlay` | Add Recalc after Default Pricing so derived prices compute on reprice   |
 
 ### Task Definition
 
@@ -105,11 +106,15 @@ Activates the ProcedurePlanDefinitionVersion after all sections and options have
 | Section | SubSectionType | Sequence | Expression Set | Priority |
 |---------|----------------|----------|----------------|----------|
 | Default Pricing | `DefaultPricing` | 1 | `RLM_DefaultPricingProcedure` | 1 |
-| Header Distribution | `HeaderDistribution` | 2 | `RLM_Price_Distribution_Procedure` | 1 |
+| Recalc | `RevenueManagementRecalc` | 2 | `RLM_Revenue_Management_Recalc_Procedure` | 1 |
+| Header Distribution | `HeaderDistribution` | 3 | `RLM_Price_Distribution_Procedure` | 1 |
 
-The plan executes two pricing procedures in order:
+The plan executes pricing procedures in order:
 1. **Default Pricing** (Seq 1): Runs `RLM_DefaultPricingProcedure` — the main pricing expression set (deployed by the core flow, not this plan)
-2. **Header Distribution** (Seq 2): Runs `RLM_Price_Distribution_Procedure` — distributes header-level adjustments to line items (deployed by `deploy_post_procedureplans`)
+2. **Recalc** (Seq 2): Runs `RLM_Revenue_Management_Recalc_Procedure` — Derived Pricing for $0-list products such as Software Maintenance (added by `apply_derived_pricing_procedure_plan_overlay`)
+3. **Header Distribution** (Seq 3): Runs `RLM_Price_Distribution_Procedure` — distributes header-level adjustments to line items (deployed by `deploy_post_procedureplans`)
+
+A later PRM overlay may insert `IFPartnerDistributorOnQuote` after Default Pricing; Recalc still runs before Header Distribution.
 
 ## Expression Set Metadata
 
@@ -167,6 +172,7 @@ This plan is **fully idempotent** at every step:
 2. **Expression set activation** — skips if already active
 3. **SFDMU Upsert** — matches existing records via composite external IDs; "Nothing was updated" on re-run
 4. **PPDV activation** — skips if already active
+5. **Derived pricing overlay** — upserts Recalc after Default Pricing; no-op if already placed
 
 Verified against `dev-sb0` (Release 260 / API v66.0) with all records present.
 

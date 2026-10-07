@@ -3,7 +3,7 @@
 > **Auto-generated** by `scripts/ai/generate_cci_reference.py` from `cumulusci.yml`.  
 > Do not edit manually — re-run the script after changing `cumulusci.yml`.
 
-**42 feature flags**, **85 configuration values**, **41 YAML anchors** under `project.custom`.
+**42 feature flags**, **86 configuration values**, **41 YAML anchors** under `project.custom`.
 
 ---
 
@@ -41,7 +41,7 @@ Boolean flags that gate task/flow execution via `when:` clauses.
 | `prm_exp_bundle` | `False` | 4 flow step(s) |
 | `prm_pricing` | `True` | 14 flow step(s) |
 | `procedure_plan_definition_version_active` | `False` | — |
-| `procedureplans` | `True` | 6 flow step(s) |
+| `procedureplans` | `True` | 7 flow step(s) |
 | `q3` | `False` | 13 flow step(s) |
 | `qb` | `True` | 40 flow step(s) |
 | `qbrix` | `False` | — |
@@ -315,6 +315,7 @@ Boolean flags that gate task/flow execution via `when:` clauses.
 - `prepare_procedureplans` step 3 → `create_procedure_plan_definition`
 - `prepare_procedureplans` step 4 → `insert_procedure_plan_data`
 - `prepare_procedureplans` step 5 → `activate_procedure_plan_version`
+- `prepare_procedureplans` step 6 → `apply_derived_pricing_procedure_plan_overlay`
 
 ### `q3` (default: `False`)
 
@@ -520,6 +521,7 @@ Non-boolean scalar values under `project.custom` used as YAML anchors for contex
 | `core_pricing_recipe_table_mappings` | `datasets/tooling/PricingRecipeTableMappings/core_ngp_default.json` |
 | `default_context_start_date` | `2020-01-01T00:00:00.000Z` |
 | `default_context_ttl` | `30` |
+| `derived_pricing_procedure_plan_overlay` | `datasets/procedure_plan_overlays/derived_pricing.json` |
 | `fulfillment_asset_context_base_reference` | `FulfillmentAssetContext__stdctx` |
 | `fulfillment_asset_context_default_mapping` | `FulfillAssetEntitiesMapping` |
 | `fulfillment_asset_context_name` | `RLM_FulfillmentAssetContext` |

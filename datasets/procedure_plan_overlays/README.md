@@ -9,6 +9,20 @@ resolves parent IDs with SOQL and creates or updates
 `ProcedurePlanSection`, `ProcedurePlanOption`, and `ProcedurePlanCriterion`
 records directly through the Salesforce REST API.
 
+## Derived Pricing (Recalc)
+
+`derived_pricing.json` applies the `RLM_Quote_Pricing_Procedure_Plan` overlay
+used by `prepare_procedureplans`:
+
+- upsert `RevenueManagementRecalc` immediately after `DefaultPricing`
+- upsert the priority `1` option for `RLM_Revenue_Management_Recalc_Procedure`
+- no criteria (runs on every quote)
+
+Recalc includes the Derived Pricing element that Default Pricing does not, so
+products like Software Maintenance (20% of API software, $0 list) get a
+calculated price on quote reprice. CCI task:
+`apply_derived_pricing_procedure_plan_overlay`.
+
 ## PRM Pricing
 
 `prm_pricing.json` applies the `RLM_Quote_Pricing_Procedure_Plan` overlay used

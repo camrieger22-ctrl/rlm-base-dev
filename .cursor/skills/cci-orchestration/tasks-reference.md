@@ -3,7 +3,7 @@
 > **Auto-generated** by `scripts/ai/generate_cci_reference.py` from `cumulusci.yml`.  
 > Do not edit manually — re-run the script after changing `cumulusci.yml`.
 
-**275 tasks** across **10 groups**.
+**276 tasks** across **10 groups**.
 
 ---
 
@@ -1050,7 +1050,7 @@
 
 ## Revenue Lifecycle Management
 
-*166 task(s)*
+*167 task(s)*
 
 ### `activate_agents`
 
@@ -1162,14 +1162,14 @@
 
 ### `activate_procedure_plan_expression_sets`
 
-**Description:** Activate Procedure Plan expression set versions (RLM_Price_Distribution_Procedure; RLM_DefaultPricingProcedure is activated by the main activate_expression_sets task)
+**Description:** Activate Procedure Plan expression set versions (RLM_Price_Distribution_Procedure and RLM_Revenue_Management_Recalc_Procedure; RLM_DefaultPricingProcedure is activated by the main activate_expression_sets task)
 
 **Class:** `tasks.rlm_manage_expression_sets.ManageExpressionSets`
 
 **Options:**
 
 - `operation`: `activate_versions`
-- `version_full_names`: `RLM_Price_Distribution_Procedure_V1`
+- `version_full_names`: `RLM_Price_Distribution_Procedure_V1,RLM_Revenue_Management_Recalc_Procedure_V1`
 
 ---
 
@@ -1280,6 +1280,21 @@
 - `deactivate_before`: `False`
 - `activate`: `True`
 - `verify`: `True`
+
+---
+
+### `apply_derived_pricing_procedure_plan_overlay`
+
+**Description:** Add Recalc to the quote procedure plan after Default Pricing so derived prices (Software Maintenance at 20% of API software) compute on quote reprice.
+
+**Class:** `tasks.rlm_apply_procedure_plan_overlay.ApplyProcedurePlanOverlay`
+
+**Options:**
+
+- `overlay_file`: `datasets/procedure_plan_overlays/derived_pricing.json`
+- `developerName`: `RLM_Quote_Pricing_Procedure_Plan`
+- `verify`: `True`
+- `activate_after_apply`: `True`
 
 ---
 

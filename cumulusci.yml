@@ -624,6 +624,7 @@ project:
 
     procedure_plans_dataset: &procedure_plans_dataset "datasets/sfdmu/procedure-plans"                                 # Procedure Plan data (sections + options)
     prm_pricing_procedure_plan_overlay: &prm_pricing_procedure_plan_overlay "datasets/procedure_plan_overlays/prm_pricing.json" # PRM pricing Procedure Plan overlay
+    derived_pricing_procedure_plan_overlay: &derived_pricing_procedure_plan_overlay "datasets/procedure_plan_overlays/derived_pricing.json" # Recalc/derived pricing Procedure Plan overlay
     core_pricing_recipe_table_mappings: &core_pricing_recipe_table_mappings "datasets/tooling/PricingRecipeTableMappings/core_ngp_default.json" # Core pricing recipe table mapping payload
     prm_pricing_recipe_table_mappings: &prm_pricing_recipe_table_mappings "datasets/tooling/PricingRecipeTableMappings/prm_ngp_default.json" # PRM pricing recipe table mapping payload
 
@@ -3178,6 +3179,18 @@ tasks:
       verify: true
       activate_after_apply: true
 
+  apply_derived_pricing_procedure_plan_overlay:
+    group: Revenue Lifecycle Management
+    description: >
+      Add Recalc to the quote procedure plan after Default Pricing so derived
+      prices (Software Maintenance at 20% of API software) compute on quote reprice.
+    class_path: tasks.rlm_apply_procedure_plan_overlay.ApplyProcedurePlanOverlay
+    options:
+      overlay_file: *derived_pricing_procedure_plan_overlay
+      developerName: *procedure_plan_definition_developer_name
+      verify: true
+      activate_after_apply: true
+
   # Expression Set structural management via BRE Connect API
   export_expression_set:
     group: Revenue Lifecycle Management
@@ -3253,11 +3266,11 @@ tasks:
 
   activate_procedure_plan_expression_sets:
     group: Revenue Lifecycle Management
-    description: Activate Procedure Plan expression set versions (RLM_Price_Distribution_Procedure; RLM_DefaultPricingProcedure is activated by the main activate_expression_sets task)
+    description: Activate Procedure Plan expression set versions (RLM_Price_Distribution_Procedure and RLM_Revenue_Management_Recalc_Procedure; RLM_DefaultPricingProcedure is activated by the main activate_expression_sets task)
     class_path: tasks.rlm_manage_expression_sets.ManageExpressionSets
     options:
       operation: activate_versions
-      version_full_names: RLM_Price_Distribution_Procedure_V1
+      version_full_names: RLM_Price_Distribution_Procedure_V1,RLM_Revenue_Management_Recalc_Procedure_V1
 
 
   stamp_git_commit:
@@ -4476,6 +4489,9 @@ flows:
         when: project_config.project__custom__procedureplans
       5:
         task: activate_procedure_plan_version
+        when: project_config.project__custom__procedureplans
+      6:
+        task: apply_derived_pricing_procedure_plan_overlay
         when: project_config.project__custom__procedureplans
 
   prepare_constraints:

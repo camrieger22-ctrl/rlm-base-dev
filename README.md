@@ -959,7 +959,7 @@ See [Data Management Tasks](#data-management-tasks) for per-task details and gro
 | `refresh_all_decision_tables` | Sync pricing, refresh all DT categories | `rating`, `commerce`, `tso`, `prm`, `prm_pricing` |
 | `prepare_decision_tables` | Activate decision tables | Scratch only |
 | `prepare_price_adjustment_schedules` | Activate price adjustment schedules | Scratch only |
-| `prepare_procedureplans` | Deploy procedure plans metadata + `skipOrgSttPricing` setting, create PPD via Connect API, load sections/options, activate | `procedureplans` |
+| `prepare_procedureplans` | Deploy procedure plans metadata + `skipOrgSttPricing` setting, create PPD via Connect API, load sections/options, activate, overlay Recalc for derived pricing | `procedureplans` |
 | `prepare_constraints` | Load TransactionProcessingTypes, deploy metadata, configure settings, import CML models, activate | `constraints`, `constraints_data`, `qb` |
 | `prepare_guidedselling` | Assign guided selling permissions, deploy Guided Selling metadata, update Product2 guided-selling field values, and configure guided-selling fields in the PCM search index | `guidedselling`, `qb` |
 | `prepare_payments` | Deploy payments site, publish community, deploy settings | `payments` |

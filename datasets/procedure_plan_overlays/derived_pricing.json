@@ -1,0 +1,25 @@
+{
+  "developerName": "RLM_Quote_Pricing_Procedure_Plan",
+  "sections": [
+    {
+      "subSectionType": "RevenueManagementRecalc",
+      "description": "Run Recalc after default list pricing so derived prices (Software Maintenance) compute.",
+      "phase": 0,
+      "resolutionType": "Default",
+      "sectionType": "PricingProcedure",
+      "placement": {
+        "afterSubSectionType": "DefaultPricing"
+      }
+    }
+  ],
+  "options": [
+    {
+      "sectionSubSectionType": "RevenueManagementRecalc",
+      "priority": 1,
+      "expressionSetDeveloperName": "RLM_Revenue_Management_Recalc_Procedure",
+      "readContextMapping": "QuoteEntitiesMapping",
+      "saveContextMapping": "QuoteEntitiesMapping"
+    }
+  ],
+  "criteria": []
+}
