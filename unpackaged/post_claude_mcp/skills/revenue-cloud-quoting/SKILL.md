@@ -9,27 +9,36 @@ description: >
   never update Asset quantity. quantityChange is a delta. Convert spoken
   amendment dates to yyyy-mm-dd; ask for start date only if missing; never
   assume today. If document preview isPartial, retry the same tool
-  immediately with no user-facing wait. Playbook is in this skill body.
+  immediately with no user-facing wait (cap 3). Preview the PDF only
+  when the user asks for the order form. One product mix: one create
+  quote with linesJson, never add-product per SKU. Change qty or
+  discount on an existing Draft quote with updateRevenueCloudQuoteLines;
+  never rebuild. When Gmail or Outlook is connected, build a quote from
+  a customer email after confirming the parsed lines. Playbook is in
+  this skill body.
 ---
 
 # Revenue Cloud quoting
 
 You have **Revenue Cloud Quoting** MCP tools plus Salesforce **SObject All** for
-reads. SObject All is for lookup and recap only. Never insert `Quote`,
-`QuoteLineItem`, `Order`, `OrderItem`, or `Asset` rows yourself. Never update
-`Asset` rows to change quantity. Never use SObject All to explain a price or
-rebuild a waterfall — call `explainRevenueCloudQuotePrice` once instead.
+reads. **Gmail** and **Microsoft 365 / Outlook** connectors (when enabled on
+this chat) are for reading customer mail only. SObject All is for lookup and
+recap only. Never insert `Quote`, `QuoteLineItem`, `Order`, `OrderItem`, or
+`Asset` rows yourself. Never update `Asset` rows to change quantity. Never use
+SObject All to explain a price or rebuild a waterfall — call
+`explainRevenueCloudQuotePrice` once instead. Never send mail to the customer.
 
 ## Which tool
 
 | User intent | Tool |
 |---|---|
 | Two or more commercial alternatives under **one Opportunity** (term, mix, discount) | `buildRevenueCloudQuoteOptions` |
-| One new Draft quote | `createRevenueCloudQuote` |
+| One new Draft quote | `createRevenueCloudQuote` (pass `linesJson` to add every product in that call) |
 | Add a catalog product to an existing Draft quote | `addProductToRevenueCloudQuote` |
 | See bundle option groups / current picks | `describeRevenueCloudBundleConfiguration` |
 | Save bundle picks the user chose from describe | `configureRevenueCloudBundle` |
-| Percent off | `applyRevenueCloudQuoteDiscount` |
+| Percent off | `applyRevenueCloudQuoteDiscount` (discount only) or `updateRevenueCloudQuoteLines` when also changing qty |
+| Change quantity on existing quote lines | `updateRevenueCloudQuoteLines` with `quantitiesJson` — never rebuild, never add delta lines |
 | Recap lines and prices | `getRevenueCloudQuoteSummary` |
 | Why this price / walk the customer through list → final | `explainRevenueCloudQuotePrice` |
 | Preview the order form / quote proposal PDF | `previewRevenueCloudQuoteDocument` |
@@ -37,6 +46,7 @@ rebuild a waterfall — call `explainRevenueCloudQuotePrice` once instead.
 | Create an order from a quote | `createRevenueCloudOrderFromQuote` |
 | Activate an order so Salesforce creates assets | `activateRevenueCloudOrder` |
 | Amend an existing asset (quantity change) | `amendRevenueCloudAsset` |
+| Build a quote from a customer email | Search Gmail or Outlook, then one `createRevenueCloudQuote` with `linesJson` |
 
 If the user asks for “three options”, “alternatives”, “good / better / best”,
 or several quotes on the same deal, call **Build Quote Options** with every
@@ -126,6 +136,69 @@ Keep one short sentence under the card. Put line-item detail behind a follow-up
 Do **not** render the final card until `remainingOptionsJson` is blank. A
 partial call may show 1 of 3 options — continue the tool, then show the card.
 
+## Inbound quote from email
+
+When the user asks to build a quote from email (“latest Acme email”,
+“the customer request in my inbox”, a named sender):
+
+1. Use **Gmail** or **Microsoft 365 / Outlook** — not Salesforce — to find
+   and read the message.
+   - Gmail: `search_threads` (account name, quote/pricing, newest first),
+     then `get_thread` on the match.
+   - Outlook: the mail search/read tools that connector exposes. Same intent.
+   - Search narrowly. Do not dump the inbox.
+   - If those connectors are missing or off, say so and ask them to enable
+     Gmail or Microsoft 365 on this chat, or paste the email. Do not invent
+     an inbox.
+2. Extract: sender name and email, account hint, products and quantities,
+   term, discount language, new sale vs change to something they already own.
+3. Do **not** query `Product2` (or the catalog) with SObject All. Create Quote
+   resolves product names. Use SObject All only for Account/Contact when the
+   sender is unclear, or Asset when this looks like an amendment.
+4. If they already named a **new** Opportunity, do **not** stop to confirm
+   and do **not** ask which existing Opportunity to use. Otherwise show a
+   short confirmation card (account, lines) and wait.
+5. One mix: **one** `createRevenueCloudQuote` call. Do **not** call
+   `addProductToRevenueCloudQuote` per SKU. Do **not** call
+   `buildRevenueCloudQuoteOptions`. Pass:
+   - `accountName`
+   - `quoteName`
+   - `opportunityName` (the name they chose)
+   - `termMonths` from the email (12 if they asked for 12 months)
+   - `linesJson`: `[{"product":"QuantumBit Database","quantity":10}, ...]`
+     using the names from the email.
+   - Describe/configure only if a returned line is a bundle that still needs
+     picks. Discount only if the email asked for one.
+6. Recap `linesDisplay` (or the line list in `message`) and render
+   **Open Quote** / **Open Opportunity**. Do **not** call
+   `previewRevenueCloudQuoteDocument` unless they asked for the order form,
+   proposal, or PDF. Do **not** call `getRevenueCloudQuoteSummary`.
+7. **Never** `send_message`, `reply`, Outlook send, or email a PDF to the
+   customer. Draft a reply only if they explicitly ask — leave it unsent.
+   Do not write “reconciling totals” or wait messages. If they already said
+   to create a new Opportunity, do not ask which existing one to use.
+
+## Update quantity or discount on an existing quote
+
+When the user wants to change quantity on lines already on a Draft quote,
+and/or apply a percent off:
+
+1. Call **`updateRevenueCloudQuoteLines` once** with the `quoteId` you already
+   have. Pass `quantitiesJson` for qty changes and `discountPercentage` for
+   a whole-quote percent in the **same** call.
+   ```json
+   [{"product":"QuantumBit Database","quantity":20},{"product":"Q-Rack 750","quantity":3}]
+   ```
+2. Do **not** rebuild the quote. Do **not** create a new Opportunity. Do
+   **not** call `addProductToRevenueCloudQuote` to “add the difference.”
+3. Do **not** also call `applyRevenueCloudQuoteDiscount` in the same turn
+   when `discountPercentage` was already passed.
+4. Recap `resultsDisplay` and **Open Quote**. Do not preview the PDF unless
+   they asked.
+
+Discount-only (no qty change): `applyRevenueCloudQuoteDiscount` with
+`applyToAll=true` is fine.
+
 ## Bundle configuration
 
 1. Describe first. If it fails, show the error and stop.
@@ -199,8 +272,11 @@ amendment:
 
 ## Preview quote document (order form)
 
-When the user wants to preview the order form, quote proposal, or PDF for a
-quote:
+Call this tool **only** when the user asks to preview the order form, quote
+proposal, or PDF. Never preview as a side effect of create, add-product, or
+building a quote from email.
+
+When they do ask:
 
 1. Call `previewRevenueCloudQuoteDocument`. Default template is
    **RLM_QuoteProposal** — do not pass `templateName` unless they named a
@@ -211,7 +287,8 @@ quote:
    - Do **not** write anything to the user (no “generating”, no “please wait”).
    - Immediately call the same tool again with `quoteId` and
      `documentGenerationProcessId` from the last result.
-   - Repeat until `isPartial` is false or `errorMessage` is set (cap 8).
+   - Repeat until `isPartial` is false or `errorMessage` is set (**cap 3**).
+     If still partial, show **Open Quote** and stop. Do not poll 7+ times.
 4. When `pdfUrl` is set, render **Open PDF** and **Open Quote**. Claude
    cannot show the PDF inline; the link is the preview.
 5. A later preview of the same unchanged quote returns the existing PDF on
@@ -289,6 +366,13 @@ What start date should I use?
   tell the user they must add quantity on Complete instead.
 - Price explanations: one `explainRevenueCloudQuotePrice` call. Never
   reconstruct list/discount/proration with SObject All.
-- Quote document preview: `previewRevenueCloudQuoteDocument` with
-  RLM_QuoteProposal. Never insert Files yourself. On `isPartial` or
-  `RETRY_NOW`, retry immediately and do not tell the user to wait.
+- Quote document preview: only when they ask for the order form or PDF.
+  Then `previewRevenueCloudQuoteDocument` with RLM_QuoteProposal. Never
+  insert Files yourself. On `isPartial` or `RETRY_NOW`, retry immediately
+  (cap 3) and do not tell the user to wait.
+- Inbound email: Gmail/Outlook for read only. Never send mail to the
+  customer. One mix: one create with `linesJson`. Never SObject All on
+  Product2, never add-product per SKU, never Build Quote Options, never
+  summary, never preview unless they ask.
+- Qty/discount on an existing Draft quote: one `updateRevenueCloudQuoteLines`.
+  Never rebuild. Never add extra lines for a quantity change.

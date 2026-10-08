@@ -5,7 +5,7 @@
  */
 global with sharing class RLM_MCP_BuildQuoteOptions {
     private static final Integer MAX_OPTIONS = 5;
-    private static final Integer MAX_LINES = 10;
+    private static final Integer MAX_LINES = 30;
     private static final Integer LIVE_OPTIONS_PER_CALL = 5;
     private static final Integer CPU_BUDGET_MS = 6500;
     @TestVisible

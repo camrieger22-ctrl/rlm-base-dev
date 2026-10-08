@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <McpServerDefinition xmlns="http://soap.sforce.com/2006/04/metadata">
-    <description>Revenue Cloud quoting tools for Claude: build commercial options, create/add/configure/discount/recap/explain/submit a quote, preview a quote document, create/activate an order, and amend an asset.</description>
+    <description>Revenue Cloud quoting tools for Claude: build options, create/add/update lines, configure, discount, recap, explain, submit, preview a document, create/activate an order, and amend an asset.</description>
     <masterLabel>Revenue Cloud Quoting</masterLabel>
     <tools>
         <apiDefinition>
@@ -18,7 +18,7 @@
             <apiSource>API_CATALOG</apiSource>
             <operation>RLM_MCP_CreateQuote</operation>
         </apiDefinition>
-        <descriptionOverride>Creates a Draft Revenue Cloud Quote for an account name. Returns Quote Id. Call this before adding products.</descriptionOverride>
+        <descriptionOverride>Creates a Draft quote. Pass opportunityName, termMonths, and linesJson ([{product, quantity}]) to add every line in this call. Do not pre-query Product2 or call add-product per SKU.</descriptionOverride>
         <toolName>createRevenueCloudQuote</toolName>
         <toolTitle>Create Revenue Cloud Quote</toolTitle>
     </tools>
@@ -41,6 +41,16 @@
         <descriptionOverride>Applies a percent discount to all lines or to lines matching a product name on a Revenue Cloud quote.</descriptionOverride>
         <toolName>applyRevenueCloudQuoteDiscount</toolName>
         <toolTitle>Apply Quote Discount</toolTitle>
+    </tools>
+    <tools>
+        <apiDefinition>
+            <apiIdentifier>aa:apex-RLM_MCP_UpdateQuoteLines</apiIdentifier>
+            <apiSource>API_CATALOG</apiSource>
+            <operation>RLM_MCP_UpdateQuoteLines</operation>
+        </apiDefinition>
+        <descriptionOverride>Patches quantity on existing Draft quote lines and/or applies a percent discount in one Place Sales Transaction. Pass quantitiesJson and/or discountPercentage. Never rebuild the quote or add extra lines.</descriptionOverride>
+        <toolName>updateRevenueCloudQuoteLines</toolName>
+        <toolTitle>Update Quote Lines</toolTitle>
     </tools>
     <tools>
         <apiDefinition>
