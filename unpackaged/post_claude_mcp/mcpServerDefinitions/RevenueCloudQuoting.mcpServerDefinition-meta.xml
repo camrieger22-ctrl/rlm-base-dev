@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <McpServerDefinition xmlns="http://soap.sforce.com/2006/04/metadata">
-    <description>Revenue Cloud quoting tools for Claude: build options, create/add/update lines, configure, discount, recap, explain, submit, preview a document, create/activate an order, and amend an asset.</description>
+    <description>Revenue Cloud quoting for Claude: prospect, create/add/update, find quotes, deal status, renew/cancel, unsent reply, ramp, billing/usage, compare vs installed base, order, amend.</description>
     <masterLabel>Revenue Cloud Quoting</masterLabel>
     <tools>
         <apiDefinition>
@@ -24,11 +24,21 @@
     </tools>
     <tools>
         <apiDefinition>
+            <apiIdentifier>aa:apex-RLM_MCP_CreateProspect</apiIdentifier>
+            <apiSource>API_CATALOG</apiSource>
+            <operation>RLM_MCP_CreateProspect</operation>
+        </apiDefinition>
+        <descriptionOverride>Creates or reuses Account and Contact for a prospect not in Salesforce. Confirm with the user first. Then createRevenueCloudQuote. Never SObject-insert Account.</descriptionOverride>
+        <toolName>createRevenueCloudProspect</toolName>
+        <toolTitle>Create Revenue Cloud Prospect</toolTitle>
+    </tools>
+    <tools>
+        <apiDefinition>
             <apiIdentifier>aa:apex-RLM_MCP_AddProductToQuote</apiIdentifier>
             <apiSource>API_CATALOG</apiSource>
             <operation>RLM_MCP_AddProductToQuote</operation>
         </apiDefinition>
-        <descriptionOverride>Adds a named product to an existing Draft quote using the Revenue Cloud add-line action. Requires Quote Id and product name.</descriptionOverride>
+        <descriptionOverride>Adds products to an existing Draft. Pass linesJson ([{product, quantity}]) for every new SKU in this call. Do not add-product per SKU when linesJson is set.</descriptionOverride>
         <toolName>addProductToRevenueCloudQuote</toolName>
         <toolTitle>Add Product To Quote</toolTitle>
     </tools>
@@ -48,7 +58,7 @@
             <apiSource>API_CATALOG</apiSource>
             <operation>RLM_MCP_UpdateQuoteLines</operation>
         </apiDefinition>
-        <descriptionOverride>Patches quantity on existing Draft quote lines and/or applies a percent discount in one Place Sales Transaction. Pass quantitiesJson and/or discountPercentage. Never rebuild the quote or add extra lines.</descriptionOverride>
+        <descriptionOverride>Patches quantity, termMonths, startDate (yyyy-mm-dd), and/or discount on an existing Draft in one Place Sales Transaction. 5 years = 60. Never rebuild or SObject-update Quote.</descriptionOverride>
         <toolName>updateRevenueCloudQuoteLines</toolName>
         <toolTitle>Update Quote Lines</toolTitle>
     </tools>
@@ -61,6 +71,16 @@
         <descriptionOverride>Read-only recap of quote lines: product, quantity, and prices. Use after create or add.</descriptionOverride>
         <toolName>getRevenueCloudQuoteSummary</toolName>
         <toolTitle>Get Quote Summary</toolTitle>
+    </tools>
+    <tools>
+        <apiDefinition>
+            <apiIdentifier>aa:apex-RLM_MCP_FindOpenQuotes</apiIdentifier>
+            <apiSource>API_CATALOG</apiSource>
+            <operation>RLM_MCP_FindOpenQuotes</operation>
+        </apiDefinition>
+        <descriptionOverride>Lists Draft quotes for an account (name, Opportunity, line count, last modified). Use when more than one deal might match. Do not create a quote.</descriptionOverride>
+        <toolName>findRevenueCloudOpenQuotes</toolName>
+        <toolTitle>Find Open Quotes</toolTitle>
     </tools>
     <tools>
         <apiDefinition>
@@ -131,6 +151,76 @@
         <descriptionOverride>Explains list price, quote discount, proration, and amount due. Uses QuoteLineDetail slices and the persisted pricing waterfall. Blank Net Unit Price on an amendment line is expected — do not treat it as a failure. Resolve by quote name, number, account, or Quote Id. Pass productName to focus on one product.</descriptionOverride>
         <toolName>explainRevenueCloudQuotePrice</toolName>
         <toolTitle>Explain Quote Price</toolTitle>
+    </tools>
+    <tools>
+        <apiDefinition>
+            <apiIdentifier>aa:apex-RLM_MCP_GetInstalledBase</apiIdentifier>
+            <apiSource>API_CATALOG</apiSource>
+            <operation>RLM_MCP_GetInstalledBase</operation>
+        </apiDefinition>
+        <descriptionOverride>Read-only recap of what an account owns: current AssetStatePeriod MRR and Discount, derived ARR (MRR×12), and add-ons. Never Asset.CurrentMrr. Quote line Discount is a draft quote, not installed base.</descriptionOverride>
+        <toolName>getRevenueCloudInstalledBase</toolName>
+        <toolTitle>Get Installed Base</toolTitle>
+    </tools>
+    <tools>
+        <apiDefinition>
+            <apiIdentifier>aa:apex-RLM_MCP_CompareQuoteToInstalledBase</apiIdentifier>
+            <apiSource>API_CATALOG</apiSource>
+            <operation>RLM_MCP_CompareQuoteToInstalledBase</operation>
+        </apiDefinition>
+        <descriptionOverride>Compares a Draft quote to current AssetStatePeriod qty and Discount. Quote 30% off is not what they own. Never use Asset.CurrentMrr.</descriptionOverride>
+        <toolName>compareRevenueCloudQuoteToInstalledBase</toolName>
+        <toolTitle>Compare Quote To Installed Base</toolTitle>
+    </tools>
+    <tools>
+        <apiDefinition>
+            <apiIdentifier>aa:apex-RLM_MCP_GetDealStatus</apiIdentifier>
+            <apiSource>API_CATALOG</apiSource>
+            <operation>RLM_MCP_GetDealStatus</operation>
+        </apiDefinition>
+        <descriptionOverride>Read-only deal stage: Draft, approval, order, assets. Do not submit, create an order, or activate from this tool.</descriptionOverride>
+        <toolName>getRevenueCloudDealStatus</toolName>
+        <toolTitle>Get Deal Status</toolTitle>
+    </tools>
+    <tools>
+        <apiDefinition>
+            <apiIdentifier>aa:apex-RLM_MCP_RenewOrCancelAsset</apiIdentifier>
+            <apiSource>API_CATALOG</apiSource>
+            <operation>RLM_MCP_RenewOrCancelAsset</operation>
+        </apiDefinition>
+        <descriptionOverride>Starts a renewal or cancellation Quote. action=renew or cancel. Confirm cancel first. startDate yyyy-mm-dd required for cancel. Then create order and activate. Never PATCH Asset.</descriptionOverride>
+        <toolName>renewOrCancelRevenueCloudAsset</toolName>
+        <toolTitle>Renew Or Cancel Asset</toolTitle>
+    </tools>
+    <tools>
+        <apiDefinition>
+            <apiIdentifier>aa:apex-RLM_MCP_DraftCustomerReply</apiIdentifier>
+            <apiSource>API_CATALOG</apiSource>
+            <operation>RLM_MCP_DraftCustomerReply</operation>
+        </apiDefinition>
+        <descriptionOverride>Drafts an unsent customer email from quote lines and totals. Never send_message or Outlook send. Leave the draft in chat.</descriptionOverride>
+        <toolName>draftRevenueCloudCustomerReply</toolName>
+        <toolTitle>Draft Customer Reply</toolTitle>
+    </tools>
+    <tools>
+        <apiDefinition>
+            <apiIdentifier>aa:apex-RLM_MCP_ApplyQuoteRamp</apiIdentifier>
+            <apiSource>API_CATALOG</apiSource>
+            <operation>RLM_MCP_ApplyQuoteRamp</operation>
+        </apiDefinition>
+        <descriptionOverride>Describes ramp segments, or patches qty on existing ramped groups via segmentsJson ([{quantity:10},...]). Cannot create the first schedule. Never rebuild the quote.</descriptionOverride>
+        <toolName>applyRevenueCloudQuoteRamp</toolName>
+        <toolTitle>Apply Quote Ramp</toolTitle>
+    </tools>
+    <tools>
+        <apiDefinition>
+            <apiIdentifier>aa:apex-RLM_MCP_GetBillingAndUsage</apiIdentifier>
+            <apiSource>API_CATALOG</apiSource>
+            <operation>RLM_MCP_GetBillingAndUsage</operation>
+        </apiDefinition>
+        <descriptionOverride>Read-only next BillingSchedule date, quote TCV (GrandTotal), and UsageSummary. TCV is not ARR. Never Asset.CurrentMrr.</descriptionOverride>
+        <toolName>getRevenueCloudBillingAndUsage</toolName>
+        <toolTitle>Get Billing And Usage</toolTitle>
     </tools>
     <tools>
         <apiDefinition>

@@ -40,11 +40,14 @@ private class RLM_MCP_UpdateQuoteLinesTest {
                 Pricebook2Id = pbId, Product2Id = maint.Id, UnitPrice = 1000, IsActive = true
             )
         };
+        Date startDay = Date.today();
         Quote quote = new Quote(
             Name = 'MCP Update Lines Quote',
             OpportunityId = opportunity.Id,
             Pricebook2Id = pbId,
-            Status = 'Draft'
+            Status = 'Draft',
+            StartDate = startDay,
+            EndDate = startDay.addMonths(12)
         );
         insert quote;
         Map<Id, Id> pbeByProduct = new Map<Id, Id>();
@@ -141,6 +144,87 @@ private class RLM_MCP_UpdateQuoteLinesTest {
         System.assertEquals(5, byName.get('Software Maintenance').Quantity);
         System.assertEquals(20, byName.get('QuantumBit Database').Discount);
         System.assertEquals(20, byName.get('Software Maintenance').Discount);
+    }
+
+    @IsTest
+    static void patchesTermOnQuoteHeader() {
+        Quote before = [
+            SELECT StartDate FROM Quote WHERE Id = :quoteId()
+        ];
+        RLM_MCP_UpdateQuoteLines.UpdateInput input =
+            new RLM_MCP_UpdateQuoteLines.UpdateInput();
+        input.quoteId = String.valueOf(quoteId());
+        input.termMonths = 24;
+
+        Test.startTest();
+        RLM_MCP_UpdateQuoteLines.UpdateOutput out = run(input);
+        Test.stopTest();
+
+        System.assertEquals(true, out.isSuccess, String.valueOf(out.errorMessage) + ' ' + out.resultsDisplay);
+        System.assert(out.resultsDisplay.contains('24 months'), out.resultsDisplay);
+        Quote after = [SELECT StartDate, EndDate FROM Quote WHERE Id = :quoteId()];
+        Date expectedStart = before.StartDate == null ? Date.today() : before.StartDate;
+        System.assertEquals(expectedStart, after.StartDate);
+        System.assertEquals(expectedStart.addMonths(24), after.EndDate);
+    }
+
+    @IsTest
+    static void patchesStartDateAndTerm() {
+        RLM_MCP_UpdateQuoteLines.UpdateInput input =
+            new RLM_MCP_UpdateQuoteLines.UpdateInput();
+        input.quoteId = String.valueOf(quoteId());
+        input.termMonths = 60;
+        input.startDate = '12/1/2026';
+
+        Test.startTest();
+        RLM_MCP_UpdateQuoteLines.UpdateOutput out = run(input);
+        Test.stopTest();
+
+        System.assertEquals(true, out.isSuccess, String.valueOf(out.errorMessage) + ' ' + out.resultsDisplay);
+        System.assert(out.resultsDisplay.contains('60 months'), out.resultsDisplay);
+        System.assert(out.resultsDisplay.contains('2026-12-01'), out.resultsDisplay);
+        Quote after = [SELECT StartDate, EndDate FROM Quote WHERE Id = :quoteId()];
+        System.assertEquals(Date.newInstance(2026, 12, 1), after.StartDate);
+        System.assertEquals(Date.newInstance(2031, 12, 1), after.EndDate);
+    }
+
+    @IsTest
+    static void startDateOnlyKeepsExistingTerm() {
+        RLM_MCP_UpdateQuoteLines.UpdateInput input =
+            new RLM_MCP_UpdateQuoteLines.UpdateInput();
+        input.quoteId = String.valueOf(quoteId());
+        input.startDate = '2026-12-01';
+
+        Test.startTest();
+        RLM_MCP_UpdateQuoteLines.UpdateOutput out = run(input);
+        Test.stopTest();
+
+        System.assertEquals(true, out.isSuccess, String.valueOf(out.errorMessage) + ' ' + out.resultsDisplay);
+        Quote after = [SELECT StartDate, EndDate FROM Quote WHERE Id = :quoteId()];
+        System.assertEquals(Date.newInstance(2026, 12, 1), after.StartDate);
+        System.assertEquals(Date.newInstance(2027, 12, 1), after.EndDate);
+    }
+
+    @IsTest
+    static void invalidStartDate() {
+        RLM_MCP_UpdateQuoteLines.UpdateInput input =
+            new RLM_MCP_UpdateQuoteLines.UpdateInput();
+        input.quoteId = String.valueOf(quoteId());
+        input.startDate = 'not-a-date';
+        RLM_MCP_UpdateQuoteLines.UpdateOutput out = run(input);
+        System.assertEquals(false, out.isSuccess);
+        System.assert(out.errorMessage.contains('yyyy-mm-dd'), out.errorMessage);
+    }
+
+    @IsTest
+    static void invalidTermMonths() {
+        RLM_MCP_UpdateQuoteLines.UpdateInput input =
+            new RLM_MCP_UpdateQuoteLines.UpdateInput();
+        input.quoteId = String.valueOf(quoteId());
+        input.termMonths = 0;
+        RLM_MCP_UpdateQuoteLines.UpdateOutput out = run(input);
+        System.assertEquals(false, out.isSuccess);
+        System.assert(out.errorMessage.contains('Term months'), out.errorMessage);
     }
 
     @IsTest

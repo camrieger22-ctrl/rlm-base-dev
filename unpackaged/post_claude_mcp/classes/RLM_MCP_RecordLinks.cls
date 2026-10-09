@@ -33,4 +33,20 @@ public inherited sharing class RLM_MCP_RecordLinks {
             return null;
         }
     }
+
+    public static String formatNumber(Decimal value) {
+        if (value == null) {
+            return '0';
+        }
+        Decimal rounded = value.setScale(2, RoundingMode.HALF_UP);
+        if (rounded == rounded.round(RoundingMode.DOWN)) {
+            return String.valueOf(rounded.longValue());
+        }
+        return String.valueOf(rounded);
+    }
+
+    public static String money(Decimal value) {
+        Decimal n = value == null ? 0 : value.setScale(2);
+        return 'USD ' + n.format();
+    }
 }

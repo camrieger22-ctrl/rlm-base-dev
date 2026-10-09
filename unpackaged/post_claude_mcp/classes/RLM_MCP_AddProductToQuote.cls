@@ -1,7 +1,27 @@
 /**
  * Global MCP wrapper around RLM_AI_AddProductToQuoteService (managed add-line).
+ * Optional linesJson adds several products in one call on an existing Draft.
  */
 global with sharing class RLM_MCP_AddProductToQuote {
+    private static final Integer MAX_LINES = 20;
+
+    public interface LineAdder {
+        List<RLM_AI_AddProductToQuoteService.AddOutput> add(
+            List<RLM_AI_AddProductToQuoteService.AddInput> inputs
+        );
+    }
+
+    public class DefaultLineAdder implements LineAdder {
+        public List<RLM_AI_AddProductToQuoteService.AddOutput> add(
+            List<RLM_AI_AddProductToQuoteService.AddInput> inputs
+        ) {
+            return RLM_AI_AddProductToQuoteService.addProduct(inputs);
+        }
+    }
+
+    @TestVisible
+    static LineAdder lineAdder = new DefaultLineAdder();
+
     global class AddInput {
         @InvocableVariable(
             required=true
@@ -11,8 +31,14 @@ global with sharing class RLM_MCP_AddProductToQuote {
         global String quoteId;
 
         @InvocableVariable(
+            label='Lines JSON'
+            description='Optional JSON array to add several products in this call: [{"product":"Name","quantity":2}]. Do not call add-product per SKU when this is set.'
+        )
+        global String linesJson;
+
+        @InvocableVariable(
             label='Product Name'
-            description='Product name or SKU fragment, e.g. QuantumBit Database or QB-DB.'
+            description='Product name or SKU fragment, e.g. QuantumBit Database or QB-DB. Skip when linesJson is set.'
         )
         global String productName;
 
@@ -57,16 +83,35 @@ global with sharing class RLM_MCP_AddProductToQuote {
 
     @InvocableMethod(
         label='Add Product To Revenue Cloud Quote'
-        description='Adds a product to an existing Draft quote using the Revenue Cloud add-line action. Resolves product and default selling model. Ask the user to pick when the name is ambiguous.'
+        description='Adds products to an existing Draft quote. Pass linesJson ([{product, quantity}]) to add every new SKU in this call. Do not add-product per SKU when linesJson is set.'
     )
     global static List<AddOutput> addProduct(List<AddInput> inputs) {
         List<AddOutput> results = new List<AddOutput>();
         if (inputs == null || inputs.isEmpty()) {
             return results;
         }
+        for (AddInput input : inputs) {
+            results.add(addOne(input));
+        }
+        return results;
+    }
+
+    private static AddOutput addOne(AddInput input) {
+        AddOutput out = new AddOutput();
+        out.isSuccess = false;
+        if (input == null || String.isBlank(input.quoteId)) {
+            out.errorMessage = 'Quote Id is required.';
+            return out;
+        }
         List<RLM_AI_AddProductToQuoteService.AddInput> serviceInputs =
             new List<RLM_AI_AddProductToQuoteService.AddInput>();
-        for (AddInput input : inputs) {
+        if (String.isNotBlank(input.linesJson)) {
+            String parseError = parseLinesJson(input, serviceInputs);
+            if (parseError != null) {
+                out.errorMessage = parseError;
+                return out;
+            }
+        } else {
             RLM_AI_AddProductToQuoteService.AddInput mapped =
                 new RLM_AI_AddProductToQuoteService.AddInput();
             mapped.quoteId = input.quoteId;
@@ -76,34 +121,115 @@ global with sharing class RLM_MCP_AddProductToQuote {
             mapped.sellingModelName = input.sellingModelName;
             serviceInputs.add(mapped);
         }
-        List<RLM_AI_AddProductToQuoteService.AddOutput> rawResults =
-            RLM_AI_AddProductToQuoteService.addProduct(serviceInputs);
-        for (Integer i = 0; i < rawResults.size(); i++) {
-            RLM_AI_AddProductToQuoteService.AddOutput raw = rawResults[i];
-            AddOutput out = new AddOutput();
-            out.isSuccess = raw.isSuccess;
-            out.quoteLineItemId = raw.quoteLineItemId;
-            out.productNameAdded = raw.productNameAdded;
-            out.quantityAdded = raw.quantityAdded;
-            out.sellingModelName = raw.sellingModelName;
-            out.lineSummaryDisplay = raw.lineSummaryDisplay;
-            out.needsDisambiguation = raw.needsDisambiguation;
-            out.candidateSummariesDisplay = raw.candidateSummariesDisplay;
-            out.errorMessage = raw.errorMessage;
-            if (out.isSuccess == true && i < inputs.size()) {
-                Id quoteId = RLM_MCP_RecordLinks.toId(inputs[i].quoteId);
-                if (quoteId != null) {
-                    out.quoteUrl = RLM_MCP_RecordLinks.lightningUrl('Quote', quoteId);
-                    String link = RLM_MCP_RecordLinks.markdown('Open Quote', 'Quote', quoteId);
-                    if (String.isNotBlank(link)) {
-                        out.lineSummaryDisplay = String.isBlank(out.lineSummaryDisplay)
-                            ? link
-                            : out.lineSummaryDisplay + '\n' + link;
-                    }
-                }
-            }
-            results.add(out);
+        List<RLM_AI_AddProductToQuoteService.AddOutput> rawResults = lineAdder.add(serviceInputs);
+        if (rawResults == null || rawResults.isEmpty()) {
+            out.errorMessage = 'Add product returned no result.';
+            return out;
         }
-        return results;
+        Boolean allOk = true;
+        List<String> recap = new List<String>();
+        RLM_AI_AddProductToQuoteService.AddOutput last = rawResults[rawResults.size() - 1];
+        for (RLM_AI_AddProductToQuoteService.AddOutput raw : rawResults) {
+            if (raw.needsDisambiguation == true) {
+                out.needsDisambiguation = true;
+                out.candidateSummariesDisplay = raw.candidateSummariesDisplay;
+                out.errorMessage = raw.errorMessage;
+                return out;
+            }
+            if (raw.isSuccess != true) {
+                allOk = false;
+                if (String.isNotBlank(raw.errorMessage)) {
+                    recap.add(raw.errorMessage);
+                }
+            } else if (String.isNotBlank(raw.lineSummaryDisplay)) {
+                recap.add(raw.lineSummaryDisplay);
+            } else if (String.isNotBlank(raw.productNameAdded)) {
+                recap.add(raw.productNameAdded);
+            }
+        }
+        out.isSuccess = allOk;
+        out.quoteLineItemId = last.quoteLineItemId;
+        out.productNameAdded = last.productNameAdded;
+        out.quantityAdded = last.quantityAdded;
+        out.sellingModelName = last.sellingModelName;
+        out.errorMessage = allOk ? null : last.errorMessage;
+        Id quoteId = RLM_MCP_RecordLinks.toId(input.quoteId);
+        if (quoteId != null) {
+            out.quoteUrl = RLM_MCP_RecordLinks.lightningUrl('Quote', quoteId);
+            String link = RLM_MCP_RecordLinks.markdown('Open Quote', 'Quote', quoteId);
+            if (String.isNotBlank(link)) {
+                recap.add(link);
+            }
+        }
+        out.lineSummaryDisplay = recap.isEmpty() ? last.lineSummaryDisplay : String.join(recap, '\n');
+        return out;
+    }
+
+    private static String parseLinesJson(
+        AddInput input,
+        List<RLM_AI_AddProductToQuoteService.AddInput> serviceInputs
+    ) {
+        Object parsed;
+        try {
+            parsed = JSON.deserializeUntyped(input.linesJson);
+        } catch (Exception e) {
+            return 'linesJson is not valid JSON. Pass [{"product":"Name","quantity":2}].';
+        }
+        if (!(parsed instanceof List<Object>)) {
+            return 'linesJson must be a JSON array.';
+        }
+        for (Object item : (List<Object>) parsed) {
+            if (serviceInputs.size() >= MAX_LINES) {
+                break;
+            }
+            if (!(item instanceof Map<String, Object>)) {
+                continue;
+            }
+            Map<String, Object> row = (Map<String, Object>) item;
+            String product = asString(first(row, new List<String>{ 'product', 'name', 'sku' }));
+            if (String.isBlank(product)) {
+                continue;
+            }
+            RLM_AI_AddProductToQuoteService.AddInput mapped =
+                new RLM_AI_AddProductToQuoteService.AddInput();
+            mapped.quoteId = input.quoteId;
+            mapped.productName = product;
+            mapped.quantity = asDecimal(first(row, new List<String>{ 'quantity', 'qty' }));
+            mapped.sellingModelName = asString(first(row, new List<String>{
+                'sellingModel', 'sellingModelName'
+            }));
+            serviceInputs.add(mapped);
+        }
+        if (serviceInputs.isEmpty()) {
+            return 'linesJson had no products.';
+        }
+        return null;
+    }
+
+    private static Object first(Map<String, Object> raw, List<String> keys) {
+        for (String key : keys) {
+            if (raw.containsKey(key) && raw.get(key) != null) {
+                return raw.get(key);
+            }
+        }
+        return null;
+    }
+
+    private static String asString(Object value) {
+        return value == null ? null : String.valueOf(value).trim();
+    }
+
+    private static Decimal asDecimal(Object value) {
+        if (value == null) {
+            return 1;
+        }
+        if (value instanceof Decimal) {
+            return (Decimal) value;
+        }
+        try {
+            return Decimal.valueOf(String.valueOf(value).trim());
+        } catch (Exception e) {
+            return 1;
+        }
     }
 }

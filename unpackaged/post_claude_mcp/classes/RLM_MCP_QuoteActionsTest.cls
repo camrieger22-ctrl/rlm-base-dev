@@ -11,6 +11,19 @@ private class RLM_MCP_QuoteActionsTest {
     }
 
     @IsTest
+    static void createQuote_unknownAccountPointsAtProspect() {
+        RLM_MCP_CreateQuote.CreateInput input = new RLM_MCP_CreateQuote.CreateInput();
+        input.accountName = 'No Such Prospect MCP XYZ';
+        List<RLM_MCP_CreateQuote.CreateOutput> results =
+            RLM_MCP_CreateQuote.createQuote(new List<RLM_MCP_CreateQuote.CreateInput>{ input });
+        System.assertEquals(false, results[0].isSuccess);
+        System.assert(
+            results[0].message.contains('createRevenueCloudProspect'),
+            '' + results[0].message
+        );
+    }
+
+    @IsTest
     static void createQuote_insertsDraftForAccount() {
         update new Pricebook2(Id = Test.getStandardPricebookId(), IsActive = true);
         Account account = new Account(Name = 'MCP Quote Test Account');
@@ -159,6 +172,52 @@ private class RLM_MCP_QuoteActionsTest {
         System.assertEquals(false, results[0].isSuccess);
         System.assert(results[0].message.contains('linesJson'), results[0].message);
         System.assertEquals(0, [SELECT COUNT() FROM Quote WHERE AccountId = :account.Id]);
+    }
+
+    private class FakeAddLineAdder implements RLM_MCP_AddProductToQuote.LineAdder {
+        Integer calls = 0;
+        Integer lineCount = 0;
+        public List<RLM_AI_AddProductToQuoteService.AddOutput> add(
+            List<RLM_AI_AddProductToQuoteService.AddInput> inputs
+        ) {
+            calls++;
+            lineCount = inputs == null ? 0 : inputs.size();
+            List<RLM_AI_AddProductToQuoteService.AddOutput> outs =
+                new List<RLM_AI_AddProductToQuoteService.AddOutput>();
+            if (inputs == null) {
+                return outs;
+            }
+            for (RLM_AI_AddProductToQuoteService.AddInput addIn : inputs) {
+                RLM_AI_AddProductToQuoteService.AddOutput row =
+                    new RLM_AI_AddProductToQuoteService.AddOutput();
+                row.isSuccess = true;
+                row.productNameAdded = addIn.productName;
+                row.quantityAdded = addIn.quantity;
+                row.lineSummaryDisplay = String.valueOf(addIn.quantity) + ' × ' + addIn.productName;
+                outs.add(row);
+            }
+            return outs;
+        }
+    }
+
+    @IsTest
+    static void addProduct_linesJsonAddsAllInOneCall() {
+        FakeAddLineAdder fake = new FakeAddLineAdder();
+        RLM_MCP_AddProductToQuote.lineAdder = fake;
+        RLM_MCP_AddProductToQuote.AddInput input = new RLM_MCP_AddProductToQuote.AddInput();
+        input.quoteId = '0Q0000000000001AAA';
+        input.linesJson =
+            '[{"product":"QuantumBit Database","quantity":3},{"product":"Q-Rack 750","quantity":2}]';
+        Test.startTest();
+        List<RLM_MCP_AddProductToQuote.AddOutput> results =
+            RLM_MCP_AddProductToQuote.addProduct(
+                new List<RLM_MCP_AddProductToQuote.AddInput>{ input }
+            );
+        Test.stopTest();
+        System.assertEquals(true, results[0].isSuccess, '' + results[0].errorMessage);
+        System.assertEquals(1, fake.calls);
+        System.assertEquals(2, fake.lineCount);
+        System.assert(results[0].lineSummaryDisplay.contains('QuantumBit Database'), results[0].lineSummaryDisplay);
     }
 
     @IsTest

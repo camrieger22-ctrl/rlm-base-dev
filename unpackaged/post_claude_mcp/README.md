@@ -1,13 +1,18 @@
 # Claude Hosted MCP — Revenue Cloud quoting
 
-Custom Hosted MCP tools so Claude Desktop can create a Draft quote (optional
-`linesJson` adds every product in that same call), add a
-product via the managed add-line action, patch quantity and/or a percent
+Custom Hosted MCP tools so Claude Desktop can create a prospect
+Account/Contact (confirm first), create a Draft quote (optional
+`linesJson` adds every product in that same call), add several products
+to an existing Draft via `linesJson`, list open Drafts, recap deal/approval
+status, renew or cancel an asset, draft an unsent customer reply, patch
+ramp segment quantities, recap next bill/TCV/usage, compare a quote
+to installed base, patch quantity, term, and/or a percent
 discount on existing Draft lines in one Place Sales Transaction, configure a
 bundle, recap the quote, explain how a quote price was calculated, preview the
 quote proposal PDF, submit it for approval, create an order from a quote,
 activate that order (assets
-follow), amend an existing asset, or build several commercial options under
+follow), amend an existing asset, recap installed base (current period MRR,
+derived ARR, add-ons), or build several commercial options under
 one Opportunity. Backs the tools
 with `global` invocables; add/discount/summary delegate to the existing
 Quoting Assistant services. Bundle describe/configure wrap
@@ -49,7 +54,7 @@ characters**. Keep that field as a short router (when to use the skill). Put
 procedure in the markdown body — the body has no such cap. If upload fails
 with that error, trim `description`, not the playbook.
 
-Create, add-line, update-lines, discount, summary, explain, preview document, submit,
+Create, prospect, add-line, update-lines, find-open-quotes, deal-status, renew/cancel, draft-reply, ramp, billing/usage, compare-to-installed-base, discount, summary, explain, installed-base, preview document, submit,
 configure, create-order, activate, amend, and Build Quote Options return
 Lightning `quoteUrl` / `opportunityUrl` / `orderUrl` / `assetUrl` /
 `pdfUrl` fields plus markdown `[Open Quote](...)` / `[Open Order](...)` /
@@ -109,3 +114,16 @@ per-SKU add, no Product2 SObject queries) and return **Open Quote**. It
 should **not** generate a PDF unless you ask for the order form. If Gmail
 or Microsoft 365 is off, it should say so — do not paste the email unless
 you want that fallback.
+
+A later email with updated quantities or term is **not** a new quote. Put
+the revision in the same inbox, then ask:
+
+> Look at the latest Acme email and update the existing quote from that
+> message.
+
+Claude should read the newest mail, then **one** Update Quote Lines on the
+Draft already created (qty, `termMonths`, discount as asked) — same
+Opportunity, no rebuild. If several Drafts exist for that account, it
+should call Find Open Quotes and ask which one. New SKUs in that mail
+are **one** Add Product with `linesJson`, not a second quote. A sender
+with no Account: confirm, then Create Prospect, then Create Quote.

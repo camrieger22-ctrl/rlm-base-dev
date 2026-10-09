@@ -1,9 +1,10 @@
 /**
- * Hosted MCP: patch quantities and/or a percent discount on existing
- * Draft quote lines in one Place Sales Transaction. Do not add lines.
+ * Hosted MCP: patch quantities, term, and/or a percent discount on an
+ * existing Draft quote in one Place Sales Transaction. Do not add lines.
  */
 global with sharing class RLM_MCP_UpdateQuoteLines {
     private static final Integer MAX_QTY_UPDATES = 20;
+    private static final Integer MAX_TERM_MONTHS = 120;
 
     global class UpdateInput {
         @InvocableVariable(
@@ -24,6 +25,18 @@ global with sharing class RLM_MCP_UpdateQuoteLines {
             description='Optional percent off (0-100) applied to every line after quantity patches.'
         )
         global Decimal discountPercentage;
+
+        @InvocableVariable(
+            label='Term Months'
+            description='Optional subscription term in months (e.g. 60 for 5 years). Patches quote and TermDefined line dates. Keep the existing start date unless startDate is passed.'
+        )
+        global Integer termMonths;
+
+        @InvocableVariable(
+            label='Start Date'
+            description='Optional quote start date yyyy-mm-dd (e.g. 2026-12-01). Convert 12/1/2026 first. Recalculates end date from termMonths or the current term.'
+        )
+        global String startDate;
     }
 
     global class UpdateOutput {
@@ -53,7 +66,7 @@ global with sharing class RLM_MCP_UpdateQuoteLines {
 
     @InvocableMethod(
         label='Update Revenue Cloud Quote Lines'
-        description='Patches quantity on existing Draft quote lines and/or applies a percent discount in one call. Pass quantitiesJson and/or discountPercentage. Never rebuild the quote or add delta lines.'
+        description='Patches quantity, termMonths, startDate (yyyy-mm-dd), and/or percent discount on an existing Draft in one call. 5 years = 60. Never rebuild or SObject-update Quote.'
     )
     global static List<UpdateOutput> updateLines(List<UpdateInput> inputs) {
         List<UpdateOutput> results = new List<UpdateOutput>();
@@ -88,17 +101,56 @@ global with sharing class RLM_MCP_UpdateQuoteLines {
                 out.errorMessage = 'Discount percentage must be between 0 and 100.';
                 return out;
             }
+            Boolean hasTerm = input.termMonths != null;
+            Boolean hasStart = String.isNotBlank(input.startDate);
+            Date startDate;
+            Date endDate;
+            Integer effectiveTerm = input.termMonths;
+            if (hasTerm && (input.termMonths < 1 || input.termMonths > MAX_TERM_MONTHS)) {
+                out.errorMessage = 'Term months must be between 1 and '
+                    + String.valueOf(MAX_TERM_MONTHS) + '.';
+                return out;
+            }
+            if (hasStart) {
+                startDate = parseDate(input.startDate);
+                if (startDate == null) {
+                    out.errorMessage = 'Start date must be yyyy-mm-dd.';
+                    return out;
+                }
+            }
+            if (hasTerm || hasStart) {
+                Quote header = [
+                    SELECT StartDate, EndDate
+                    FROM Quote
+                    WHERE Id = :quoteId
+                    LIMIT 1
+                ];
+                if (startDate == null) {
+                    startDate = header.StartDate == null ? Date.today() : header.StartDate;
+                }
+                if (effectiveTerm == null) {
+                    effectiveTerm = termMonthsOf(header.StartDate, header.EndDate);
+                }
+                if (effectiveTerm == null || effectiveTerm < 1) {
+                    out.errorMessage = 'Pass termMonths with startDate when the quote has no existing term.';
+                    return out;
+                }
+                endDate = startDate.addMonths(effectiveTerm);
+            }
             List<QtySpec> specs = parseQuantities(input.quantitiesJson, out);
             if (String.isNotBlank(out.errorMessage)) {
                 return out;
             }
-            if (specs.isEmpty() && !hasDiscount) {
-                out.errorMessage = 'Pass quantitiesJson and/or discountPercentage.';
+            if (specs.isEmpty() && !hasDiscount && !hasTerm && !hasStart) {
+                out.errorMessage = 'Pass quantitiesJson, discountPercentage, termMonths, and/or startDate.';
                 return out;
             }
 
             List<QuoteLineItem> lines = [
-                SELECT Id, Quantity, Discount, Product2.Name, Product2.StockKeepingUnit
+                SELECT Id, Quantity, Discount, Product2.Name, Product2.StockKeepingUnit,
+                       StartDate, EndDate, SubscriptionTerm, SubscriptionTermUnit,
+                       ProductSellingModel.SellingModelType,
+                       ProductSellingModel.PricingTermUnit
                 FROM QuoteLineItem
                 WHERE QuoteId = :quoteId
                 LIMIT 200
@@ -117,7 +169,15 @@ global with sharing class RLM_MCP_UpdateQuoteLines {
                 qtyByLine.put(matched.Id, spec.quantity);
             }
 
-            String persistError = persist(quoteId, lines, qtyByLine, input.discountPercentage);
+            String persistError = persist(
+                quoteId,
+                lines,
+                qtyByLine,
+                input.discountPercentage,
+                effectiveTerm,
+                startDate,
+                endDate
+            );
             if (String.isNotBlank(persistError)) {
                 out.errorMessage = persistError;
                 return out;
@@ -128,6 +188,18 @@ global with sharing class RLM_MCP_UpdateQuoteLines {
             List<String> rows = new List<String>();
             rows.add('Updated quote lines:');
             Integer updates = 0;
+            if (hasTerm || hasStart) {
+                if (effectiveTerm != null) {
+                    rows.add('- Term: ' + String.valueOf(effectiveTerm) + ' months');
+                }
+                if (startDate != null) {
+                    rows.add('- Start: ' + String.valueOf(startDate));
+                }
+                if (endDate != null) {
+                    rows.add('- End: ' + String.valueOf(endDate));
+                }
+                updates++;
+            }
             for (QuoteLineItem line : lines) {
                 String name = line.Product2 == null ? String.valueOf(line.Id) : line.Product2.Name;
                 List<String> bits = new List<String>();
@@ -270,15 +342,32 @@ global with sharing class RLM_MCP_UpdateQuoteLines {
         Id quoteId,
         List<QuoteLineItem> lines,
         Map<Id, Decimal> qtyByLine,
-        Decimal percent
+        Decimal percent,
+        Integer termMonths,
+        Date startDate,
+        Date endDate
     ) {
+        Boolean hasTerm = termMonths != null && termMonths > 0 && endDate != null;
         if (Test.isRunningTest()) {
+            if (hasTerm) {
+                Quote header = new Quote(Id = quoteId, StartDate = startDate, EndDate = endDate);
+                try {
+                    update header;
+                } catch (Exception e) {
+                    return e.getMessage();
+                }
+            }
             for (QuoteLineItem line : lines) {
                 if (qtyByLine.containsKey(line.Id)) {
                     line.Quantity = qtyByLine.get(line.Id);
                 }
                 if (percent != null) {
                     line.Discount = percent;
+                }
+                if (hasTerm && isTermDefined(line)) {
+                    line.StartDate = startDate;
+                    line.EndDate = endDate;
+                    line.SubscriptionTerm = termCount(termMonths, termUnit(line));
                 }
             }
             try {
@@ -292,7 +381,14 @@ global with sharing class RLM_MCP_UpdateQuoteLines {
             new List<RevSalesTrxn.RecordWithReferenceRequest>();
         RevSalesTrxn.RecordResource quoteNode = new RevSalesTrxn.RecordResource(
             Quote.getSObjectType(), 'PATCH', quoteId);
-        quoteNode.fieldValues = new Map<String, Object>{ 'Status' => 'Draft' };
+        Map<String, Object> quoteFields = new Map<String, Object>{ 'Status' => 'Draft' };
+        if (hasTerm) {
+            if (startDate != null) {
+                quoteFields.put('StartDate', String.valueOf(startDate));
+            }
+            quoteFields.put('EndDate', String.valueOf(endDate));
+        }
+        quoteNode.fieldValues = quoteFields;
         records.add(new RevSalesTrxn.RecordWithReferenceRequest('refQuoteUpd', quoteNode));
         Integer i = 0;
         for (QuoteLineItem line : lines) {
@@ -302,6 +398,17 @@ global with sharing class RLM_MCP_UpdateQuoteLines {
             }
             if (percent != null) {
                 fields.put('Discount', percent);
+            }
+            if (hasTerm && isTermDefined(line)) {
+                String unit = termUnit(line);
+                fields.put('EndDate', String.valueOf(endDate));
+                fields.put('SubscriptionTerm', termCount(termMonths, unit));
+                if (startDate != null) {
+                    fields.put('StartDate', String.valueOf(startDate));
+                }
+                if (String.isNotBlank(unit)) {
+                    fields.put('SubscriptionTermUnit', unit);
+                }
             }
             if (fields.isEmpty()) {
                 continue;
@@ -351,6 +458,76 @@ global with sharing class RLM_MCP_UpdateQuoteLines {
         return resp == null || resp.errorResponse == null
             ? 'Pricing did not return a result.'
             : String.valueOf(resp.errorResponse);
+    }
+
+    private static Boolean isTermDefined(QuoteLineItem line) {
+        String modelType = line.ProductSellingModel == null
+            ? null
+            : line.ProductSellingModel.SellingModelType;
+        return modelType != null && modelType.equalsIgnoreCase('TermDefined');
+    }
+
+    private static String termUnit(QuoteLineItem line) {
+        if (String.isNotBlank(line.SubscriptionTermUnit)) {
+            return line.SubscriptionTermUnit;
+        }
+        return line.ProductSellingModel == null
+            ? 'Months'
+            : line.ProductSellingModel.PricingTermUnit;
+    }
+
+    @TestVisible
+    static Integer termCount(Integer termMonths, String unit) {
+        if (termMonths == null || termMonths <= 0) {
+            return 1;
+        }
+        if (unit != null && unit.equalsIgnoreCase('Annual')) {
+            Integer years = termMonths / 12;
+            return years < 1 ? 1 : years;
+        }
+        if (unit != null && unit.equalsIgnoreCase('Quarterly')) {
+            Integer quarters = termMonths / 3;
+            return quarters < 1 ? 1 : quarters;
+        }
+        if (unit != null && unit.equalsIgnoreCase('Semi-Annual')) {
+            Integer halves = termMonths / 6;
+            return halves < 1 ? 1 : halves;
+        }
+        return termMonths;
+    }
+
+    private static Integer termMonthsOf(Date existingStart, Date existingEnd) {
+        if (existingStart == null || existingEnd == null) {
+            return null;
+        }
+        Integer months = existingStart.monthsBetween(existingEnd);
+        return months < 1 ? null : months;
+    }
+
+    private static Date parseDate(String raw) {
+        if (String.isBlank(raw)) {
+            return null;
+        }
+        String day = raw.trim();
+        if (day.length() >= 10 && day.indexOf('-') == 4) {
+            try {
+                return Date.valueOf(day.substring(0, 10));
+            } catch (Exception e) {
+                return null;
+            }
+        }
+        List<String> parts = day.split('[/\\-.]');
+        if (parts.size() != 3) {
+            return null;
+        }
+        try {
+            Integer month = Integer.valueOf(parts[0].trim());
+            Integer dayNum = Integer.valueOf(parts[1].trim());
+            Integer year = Integer.valueOf(parts[2].trim());
+            return Date.newInstance(year, month, dayNum);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private static Object first(Map<String, Object> raw, List<String> keys) {

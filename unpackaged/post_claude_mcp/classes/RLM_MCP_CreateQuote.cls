@@ -122,7 +122,8 @@ global with sharing class RLM_MCP_CreateQuote {
 
         Account account = findAccount(input.accountName.trim());
         if (account == null) {
-            out.message = 'No account matched "' + input.accountName + '".';
+            out.message = 'No account matched "' + input.accountName
+                + '". Confirm with the user, then call createRevenueCloudProspect, then retry Create Quote.';
             return out;
         }
         out.accountName = account.Name;
