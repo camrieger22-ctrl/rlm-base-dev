@@ -7,6 +7,7 @@ private class RLM_MCP_AmendAssetTest {
         String errorMessage;
         Boolean returnNull;
         Id lastAssetId;
+        Id lastOpportunityId;
         Decimal lastQuantity;
 
         FakeInvoker(Boolean succeed, String quoteId) {
@@ -23,6 +24,7 @@ private class RLM_MCP_AmendAssetTest {
         ) {
             calls++;
             lastAssetId = assetId;
+            lastOpportunityId = opportunityId;
             lastQuantity = quantityChange;
             if (returnNull == true) {
                 return null;
@@ -406,5 +408,23 @@ private class RLM_MCP_AmendAssetTest {
             SELECT Quantity FROM QuoteLineItem WHERE QuoteId = :seed.Id AND Product2Id = :child.Product2Id
         ];
         System.assertEquals(5, patched.Quantity);
+    }
+
+    @IsTest
+    static void namedOpportunityIsPassedToInvoker() {
+        Quote seed = [SELECT Id FROM Quote WHERE Name = 'Zephyr Amend Seed'];
+        Id oppId = [SELECT Id FROM Opportunity WHERE Name = 'Zephyr Amend Opp'].Id;
+        FakeInvoker fake = new FakeInvoker(true, String.valueOf(seed.Id));
+        RLM_MCP_AmendAsset.invoker = fake;
+        RLM_MCP_AmendAsset.AmendInput input = new RLM_MCP_AmendAsset.AmendInput();
+        input.quantityChange = 2;
+        input.startDate = todayStamp();
+        input.assetId = String.valueOf(databaseAsset().Id);
+        input.opportunityName = 'Zephyr Amend Opp';
+        Test.startTest();
+        RLM_MCP_AmendAsset.AmendOutput out = run(input);
+        Test.stopTest();
+        System.assertEquals(true, out.isSuccess, 'err=' + out.errorMessage);
+        System.assertEquals(oppId, fake.lastOpportunityId);
     }
 }

@@ -96,6 +96,142 @@ private class RLM_MCP_QuoteActionsTest {
         System.assertEquals(Date.today().addMonths(12), created.EndDate);
     }
 
+    @IsTest
+    static void createQuote_secondCallReusesSameNamedDraft() {
+        update new Pricebook2(Id = Test.getStandardPricebookId(), IsActive = true);
+        Account account = new Account(Name = 'MCP Reuse Quote Account');
+        insert account;
+
+        RLM_MCP_CreateQuote.CreateInput input = new RLM_MCP_CreateQuote.CreateInput();
+        input.accountName = 'MCP Reuse Quote Account';
+        input.quoteName = 'Claude Email Test';
+        input.opportunityName = 'Claude Email Test';
+        input.linesJson = '[{"product":"QuantumBit Database","quantity":10}]';
+        FakeLineAdder fake = new FakeLineAdder();
+        RLM_MCP_CreateQuote.lineAdder = fake;
+
+        List<RLM_MCP_CreateQuote.CreateOutput> first =
+            RLM_MCP_CreateQuote.createQuote(new List<RLM_MCP_CreateQuote.CreateInput>{ input });
+        System.assertEquals(true, first[0].isSuccess, first[0].message);
+        System.assertEquals(false, first[0].alreadyExisted);
+        System.assertEquals(1, fake.calls);
+
+        Test.startTest();
+        List<RLM_MCP_CreateQuote.CreateOutput> second =
+            RLM_MCP_CreateQuote.createQuote(new List<RLM_MCP_CreateQuote.CreateInput>{ input });
+        Test.stopTest();
+
+        System.assertEquals(true, second[0].isSuccess, second[0].message);
+        System.assertEquals(true, second[0].alreadyExisted);
+        System.assertEquals(first[0].quoteId, second[0].quoteId);
+        System.assertEquals(1, fake.calls);
+        System.assertEquals(1, [SELECT COUNT() FROM Quote WHERE AccountId = :account.Id]);
+        System.assert(second[0].message.contains('Reused existing draft'), second[0].message);
+    }
+
+    @IsTest
+    static void createQuote_blankOppNameWithSeveralOppsAsks() {
+        update new Pricebook2(Id = Test.getStandardPricebookId(), IsActive = true);
+        Account account = new Account(Name = 'MCP Many Opp Account');
+        insert account;
+        insert new List<Opportunity>{
+            new Opportunity(
+                Name = 'Deal A',
+                AccountId = account.Id,
+                StageName = 'Prospecting',
+                CloseDate = Date.today().addDays(10)
+            ),
+            new Opportunity(
+                Name = 'Deal B',
+                AccountId = account.Id,
+                StageName = 'Prospecting',
+                CloseDate = Date.today().addDays(20)
+            )
+        };
+
+        RLM_MCP_CreateQuote.CreateInput input = new RLM_MCP_CreateQuote.CreateInput();
+        input.accountName = 'MCP Many Opp Account';
+        input.quoteName = 'Should Not Insert';
+
+        Test.startTest();
+        List<RLM_MCP_CreateQuote.CreateOutput> results =
+            RLM_MCP_CreateQuote.createQuote(new List<RLM_MCP_CreateQuote.CreateInput>{ input });
+        Test.stopTest();
+
+        System.assertEquals(false, results[0].isSuccess);
+        System.assert(results[0].message.contains('opportunityName'), results[0].message);
+        System.assertEquals(0, [SELECT COUNT() FROM Quote WHERE AccountId = :account.Id]);
+    }
+
+    @IsTest
+    static void createQuote_newQuoteNameOnSameOppInserts() {
+        update new Pricebook2(Id = Test.getStandardPricebookId(), IsActive = true);
+        Account account = new Account(Name = 'MCP Second Quote Account');
+        insert account;
+        Opportunity opp = new Opportunity(
+            Name = 'Shared Deal',
+            AccountId = account.Id,
+            StageName = 'Proposal/Quote',
+            CloseDate = Date.today().addDays(30)
+        );
+        insert opp;
+        insert new Quote(
+            Name = 'First Option',
+            OpportunityId = opp.Id,
+            Pricebook2Id = Test.getStandardPricebookId(),
+            Status = 'Draft'
+        );
+
+        RLM_MCP_CreateQuote.CreateInput input = new RLM_MCP_CreateQuote.CreateInput();
+        input.accountName = 'MCP Second Quote Account';
+        input.opportunityName = 'Shared Deal';
+        input.quoteName = 'Second Option';
+
+        Test.startTest();
+        List<RLM_MCP_CreateQuote.CreateOutput> results =
+            RLM_MCP_CreateQuote.createQuote(new List<RLM_MCP_CreateQuote.CreateInput>{ input });
+        Test.stopTest();
+
+        System.assertEquals(true, results[0].isSuccess, results[0].message);
+        System.assertEquals(false, results[0].alreadyExisted);
+        System.assertEquals(2, [SELECT COUNT() FROM Quote WHERE OpportunityId = :opp.Id]);
+    }
+
+    @IsTest
+    static void createQuote_warnsWhenLinesMatchOwnedAssets() {
+        update new Pricebook2(Id = Test.getStandardPricebookId(), IsActive = true);
+        Account account = new Account(Name = 'MCP Owned Overlap Account');
+        insert account;
+        Product2 product = new Product2(
+            Name = 'QuantumBit Database',
+            StockKeepingUnit = 'ZMCP-OWN-DB',
+            IsActive = true
+        );
+        insert product;
+        insert new Asset(
+            Name = 'QuantumBit Database',
+            AccountId = account.Id,
+            Product2Id = product.Id,
+            Quantity = 5,
+            Status = 'Purchased'
+        );
+        FakeLineAdder fake = new FakeLineAdder();
+        RLM_MCP_CreateQuote.lineAdder = fake;
+        RLM_MCP_CreateQuote.CreateInput input = new RLM_MCP_CreateQuote.CreateInput();
+        input.accountName = 'MCP Owned Overlap Account';
+        input.quoteName = 'New Sale Or Amend';
+        input.opportunityName = 'Overlap Deal';
+        input.linesJson = '[{"product":"QuantumBit Database","quantity":5}]';
+        Test.startTest();
+        List<RLM_MCP_CreateQuote.CreateOutput> results =
+            RLM_MCP_CreateQuote.createQuote(new List<RLM_MCP_CreateQuote.CreateInput>{ input });
+        Test.stopTest();
+        System.assertEquals(true, results[0].isSuccess, results[0].message);
+        System.assertEquals(false, results[0].alreadyExisted);
+        System.assert(results[0].message.contains('already own'), results[0].message);
+        System.assert(results[0].message.contains('amend'), results[0].message);
+    }
+
     private class FakeLineAdder implements RLM_MCP_CreateQuote.LineAdder {
         Integer calls = 0;
         public List<RLM_AI_AddProductToQuoteService.AddOutput> add(

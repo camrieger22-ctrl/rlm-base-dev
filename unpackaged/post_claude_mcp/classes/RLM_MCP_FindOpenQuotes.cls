@@ -12,6 +12,12 @@ global with sharing class RLM_MCP_FindOpenQuotes {
             description='Account that owns the quotes, e.g. Acme.'
         )
         global String accountName;
+
+        @InvocableVariable(
+            label='Opportunity Name'
+            description='Optional. When set, list only Drafts on this open Opportunity. Use after reconnect or a follow-up email.'
+        )
+        global String opportunityName;
     }
 
     global class FindOutput {
@@ -33,7 +39,7 @@ global with sharing class RLM_MCP_FindOpenQuotes {
 
     @InvocableMethod(
         label='Find Revenue Cloud Open Quotes'
-        description='Lists Draft quotes for an account (name, Opportunity, line count, last modified). Use when more than one deal might match. Do not create a quote.'
+        description='Lists Draft quotes for an account. Pass opportunityName after reconnect to pin the deal. Do not create a quote.'
     )
     global static List<FindOutput> findOpenQuotes(List<FindInput> inputs) {
         List<FindOutput> results = new List<FindOutput>();
@@ -56,29 +62,51 @@ global with sharing class RLM_MCP_FindOpenQuotes {
                 out.errorMessage = 'Account name is required.';
                 return out;
             }
-            Account account = resolveAccount(input.accountName.trim(), out);
-            if (account == null) {
+            RLM_MCP_DealResolver.Result accountHit =
+                RLM_MCP_DealResolver.resolveAccount(input.accountName.trim());
+            if (accountHit.account == null) {
+                out.needsDisambiguation = accountHit.needsDisambiguation;
+                out.candidateSummariesDisplay = accountHit.candidateSummariesDisplay;
+                out.errorMessage = accountHit.errorMessage;
                 return out;
             }
-            List<Quote> quotes = [
-                SELECT Id, Name, QuoteNumber, Status, LineItemCount, LastModifiedDate,
-                       Opportunity.Name, OpportunityId
-                FROM Quote
-                WHERE AccountId = :account.Id
-                AND Status = 'Draft'
-                ORDER BY LastModifiedDate DESC
-                LIMIT :MAX_QUOTES
-            ];
+            Account account = accountHit.account;
+            Id opportunityId = null;
+            if (String.isNotBlank(input.opportunityName)) {
+                opportunityId = RLM_MCP_DealResolver.findNamedOpenOpportunity(
+                    account.Id,
+                    input.opportunityName
+                );
+                if (opportunityId == null) {
+                    out.isSuccess = true;
+                    out.summaryDisplay = account.Name + ' has no open Opportunity named "'
+                        + input.opportunityName.trim() + '".';
+                    return out;
+                }
+            }
+            List<Quote> quotes = RLM_MCP_DealResolver.listDrafts(account.Id, opportunityId);
+            if (quotes.size() > MAX_QUOTES) {
+                List<Quote> clipped = new List<Quote>();
+                for (Integer i = 0; i < MAX_QUOTES; i++) {
+                    clipped.add(quotes[i]);
+                }
+                quotes = clipped;
+            }
             out.isSuccess = true;
             out.quoteCount = quotes.size();
             if (quotes.isEmpty()) {
-                out.summaryDisplay = account.Name + ' has no Draft quotes.';
+                out.summaryDisplay = String.isBlank(input.opportunityName)
+                    ? account.Name + ' has no Draft quotes.'
+                    : account.Name + ' has no Draft quotes on "'
+                        + input.opportunityName.trim() + '".';
                 return out;
             }
             out.latestQuoteId = quotes[0].Id;
-            List<String> rows = new List<String>{
-                'Draft quotes for ' + account.Name + ' (newest first):'
-            };
+            String heading = String.isBlank(input.opportunityName)
+                ? 'Draft quotes for ' + account.Name + ' (newest first):'
+                : 'Draft quotes for ' + account.Name + ' on '
+                    + input.opportunityName.trim() + ' (newest first):';
+            List<String> rows = new List<String>{ heading };
             Integer n = 1;
             for (Quote q : quotes) {
                 String opp = q.Opportunity == null ? '' : q.Opportunity.Name;
@@ -100,44 +128,16 @@ global with sharing class RLM_MCP_FindOpenQuotes {
                 }
                 n++;
             }
-            rows.add('Use the quoteId already in this chat when it matches. Otherwise ask which row.');
+            if (quotes.size() == 1) {
+                rows.add('Use latestQuoteId. Do not create another quote.');
+            } else {
+                rows.add('Use the quoteId already in this chat when it matches. Otherwise ask which row.');
+            }
             out.summaryDisplay = String.join(rows, '\n');
         } catch (Exception e) {
             out.isSuccess = false;
             out.errorMessage = e.getMessage() == null ? 'Could not list quotes.' : e.getMessage();
         }
         return out;
-    }
-
-    private static Account resolveAccount(String term, FindOutput out) {
-        List<Account> exact = [
-            SELECT Id, Name FROM Account WHERE Name = :term LIMIT 10
-        ];
-        if (exact.size() == 1) {
-            return exact[0];
-        }
-        String fuzzy = '%' + term + '%';
-        List<Account> matches = [
-            SELECT Id, Name FROM Account WHERE Name LIKE :fuzzy ORDER BY Name LIMIT 10
-        ];
-        if (matches.isEmpty()) {
-            out.errorMessage = 'No account matched "' + term + '".';
-            return null;
-        }
-        if (matches.size() == 1) {
-            return matches[0];
-        }
-        out.needsDisambiguation = true;
-        List<String> names = new List<String>{
-            'Multiple accounts match "' + term + '". Which one?'
-        };
-        Integer n = 1;
-        for (Account account : matches) {
-            names.add(String.valueOf(n) + '. ' + account.Name);
-            n++;
-        }
-        out.candidateSummariesDisplay = String.join(names, '\n');
-        out.errorMessage = 'Multiple accounts match "' + term + '". Ask the user which one.';
-        return null;
     }
 }

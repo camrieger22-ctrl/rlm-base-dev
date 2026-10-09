@@ -95,6 +95,96 @@ private class RLM_MCP_ApplyQuoteRampTest {
         System.assert(out.resultsDisplay.contains('2 ramp segments'), '' + out.resultsDisplay);
     }
 
+    private class FakePlanInvoker implements RLM_MCP_ApplyQuoteRamp.PlanInvoker {
+        public String errorMessage;
+        public Integer calls = 0;
+        public String lastPlanJson;
+        public String applyPlan(Id quoteId, String planJson) {
+            calls++;
+            lastPlanJson = planJson;
+            if (String.isNotBlank(errorMessage)) {
+                return errorMessage;
+            }
+            Date start = Date.today();
+            QuoteLineGroup year1 = new QuoteLineGroup(
+                QuoteId = quoteId,
+                Name = 'Year 1',
+                SortOrder = 1,
+                IsRamped = true,
+                SegmentType = 'Yearly',
+                StartDate = start,
+                EndDate = start.addYears(1).addDays(-1)
+            );
+            QuoteLineGroup year2 = new QuoteLineGroup(
+                QuoteId = quoteId,
+                Name = 'Year 2',
+                SortOrder = 2,
+                IsRamped = true,
+                SegmentType = 'Yearly',
+                StartDate = start.addYears(1),
+                EndDate = start.addYears(2).addDays(-1)
+            );
+            insert new List<QuoteLineGroup>{ year1, year2 };
+            return null;
+        }
+    }
+
+    @IsTest
+    static void createsFirstScheduleWhenNoSegments() {
+        Id pbId = Test.getStandardPricebookId();
+        Account account = new Account(Name = 'MCP First Ramp Acme');
+        insert account;
+        Opportunity opp = new Opportunity(
+            Name = 'MCP First Ramp Opp',
+            AccountId = account.Id,
+            StageName = 'Proposal/Quote',
+            CloseDate = Date.today().addDays(30)
+        );
+        insert opp;
+        Product2 product = new Product2(
+            Name = 'QuantumBit Database',
+            StockKeepingUnit = 'ZMCP-1ST-DB',
+            IsActive = true
+        );
+        insert product;
+        PricebookEntry pbe = new PricebookEntry(
+            Pricebook2Id = pbId, Product2Id = product.Id, UnitPrice = 12000, IsActive = true
+        );
+        insert pbe;
+        Quote quote = new Quote(
+            Name = 'MCP First Ramp Quote',
+            OpportunityId = opp.Id,
+            Pricebook2Id = pbId,
+            Status = 'Draft',
+            StartDate = Date.today()
+        );
+        insert quote;
+        insert new QuoteLineItem(
+            QuoteId = quote.Id,
+            PricebookEntryId = pbe.Id,
+            Product2Id = product.Id,
+            Quantity = 10,
+            UnitPrice = 12000
+        );
+        FakePlanInvoker fake = new FakePlanInvoker();
+        RLM_MCP_ApplyQuoteRamp.planInvoker = fake;
+        RLM_MCP_ApplyQuoteRamp.RampInput input = new RLM_MCP_ApplyQuoteRamp.RampInput();
+        input.quoteId = String.valueOf(quote.Id);
+        input.productName = 'QuantumBit Database';
+        input.segmentsJson = '[{"quantity":10},{"quantity":20}]';
+        Test.startTest();
+        RLM_MCP_ApplyQuoteRamp.RampOutput out = run(input);
+        Test.stopTest();
+        System.assertEquals(true, out.isSuccess, '' + out.errorMessage);
+        System.assertEquals(1, fake.calls);
+        System.assert(fake.lastPlanJson.contains('Year 1'), fake.lastPlanJson);
+        System.assert(out.resultsDisplay.contains('Created a 2-year ramp'), '' + out.resultsDisplay);
+        System.assertEquals(
+            2,
+            [SELECT COUNT() FROM QuoteLineGroup WHERE QuoteId = :quote.Id AND IsRamped = true]
+        );
+    }
+
     @IsTest
     static void appliesSegmentQuantities() {
         Id quoteId = [SELECT Id FROM Quote WHERE Name = 'MCP Ramp Quote'].Id;

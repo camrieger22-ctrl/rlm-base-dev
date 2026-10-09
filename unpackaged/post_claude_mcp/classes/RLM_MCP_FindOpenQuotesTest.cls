@@ -29,8 +29,16 @@ private class RLM_MCP_FindOpenQuotesTest {
     }
 
     private static RLM_MCP_FindOpenQuotes.FindOutput run(String accountName) {
+        return run(accountName, null);
+    }
+
+    private static RLM_MCP_FindOpenQuotes.FindOutput run(
+        String accountName,
+        String opportunityName
+    ) {
         RLM_MCP_FindOpenQuotes.FindInput input = new RLM_MCP_FindOpenQuotes.FindInput();
         input.accountName = accountName;
+        input.opportunityName = opportunityName;
         return RLM_MCP_FindOpenQuotes.findOpenQuotes(
             new List<RLM_MCP_FindOpenQuotes.FindInput>{ input }
         )[0];
@@ -60,5 +68,35 @@ private class RLM_MCP_FindOpenQuotesTest {
         RLM_MCP_FindOpenQuotes.FindOutput out = run('No Such Account XYZ');
         System.assertEquals(false, out.isSuccess);
         System.assert(out.errorMessage.contains('No account matched'), '' + out.errorMessage);
+    }
+
+    @IsTest
+    static void filtersByOpportunityName() {
+        Account extra = new Account(Name = 'MCP Open Quotes Other');
+        insert extra;
+        Opportunity otherOpp = new Opportunity(
+            Name = 'Unrelated Deal',
+            AccountId = [SELECT Id FROM Account WHERE Name = 'MCP Open Quotes Acme'].Id,
+            StageName = 'Proposal/Quote',
+            CloseDate = Date.today().addDays(60)
+        );
+        insert otherOpp;
+        insert new Quote(
+            Name = 'Other Deal Quote',
+            OpportunityId = otherOpp.Id,
+            Pricebook2Id = Test.getStandardPricebookId(),
+            Status = 'Draft'
+        );
+
+        Test.startTest();
+        RLM_MCP_FindOpenQuotes.FindOutput out =
+            run('MCP Open Quotes Acme', 'Claude Email Test 4');
+        Test.stopTest();
+
+        System.assertEquals(true, out.isSuccess, '' + out.errorMessage);
+        System.assertEquals(2, out.quoteCount);
+        System.assert(out.summaryDisplay.contains('Claude Email Test 4'), '' + out.summaryDisplay);
+        System.assert(!out.summaryDisplay.contains('Other Deal Quote'), '' + out.summaryDisplay);
+        System.assertNotEquals(null, out.latestQuoteId);
     }
 }

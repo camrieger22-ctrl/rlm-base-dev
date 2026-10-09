@@ -4,6 +4,7 @@ private class RLM_MCP_RenewOrCancelAssetTest {
         public String lastAction;
         public Id lastAssetId;
         public Date lastStart;
+        public Id lastOpportunityId;
         public RLM_MCP_RenewOrCancelAsset.InvokeResult result;
         public RLM_MCP_RenewOrCancelAsset.InvokeResult start(
             String actionName, Id assetId, Date startDay, Id opportunityId
@@ -11,6 +12,7 @@ private class RLM_MCP_RenewOrCancelAssetTest {
             lastAction = actionName;
             lastAssetId = assetId;
             lastStart = startDay;
+            lastOpportunityId = opportunityId;
             return result;
         }
     }
@@ -90,12 +92,14 @@ private class RLM_MCP_RenewOrCancelAssetTest {
         input.action = 'renew';
         input.assetId = String.valueOf(assetId);
         input.startDate = '2026-12-01';
+        input.opportunityName = 'MCP Renew Opp';
         Test.startTest();
         RLM_MCP_RenewOrCancelAsset.ChangeOutput out = run(input);
         Test.stopTest();
         System.assertEquals(true, out.isSuccess, '' + out.errorMessage);
         System.assertEquals('renew', fake.lastAction);
         System.assertEquals(Date.newInstance(2026, 12, 1), fake.lastStart);
+        System.assertEquals(opp.Id, fake.lastOpportunityId);
         System.assert(out.message.contains('renew'), '' + out.message);
     }
 }

@@ -39,9 +39,15 @@ global with sharing class RLM_MCP_CreateQuote {
 
         @InvocableVariable(
             label='Opportunity Name'
-            description='If set, create or reuse this Opportunity on the account. Do not reuse a differently named open Opportunity.'
+            description='Required when the account has several open Opportunities. Create or reuse this named Opportunity. Do not reuse a differently named open Opportunity.'
         )
         global String opportunityName;
+
+        @InvocableVariable(
+            label='Contact Email'
+            description='Optional sender email. Sets Quote.ContactId so activate can stamp Bill-to.'
+        )
+        global String contactEmail;
 
         @InvocableVariable(
             label='Term Months'
@@ -90,17 +96,24 @@ global with sharing class RLM_MCP_CreateQuote {
         )
         global String linesDisplay;
 
+        @InvocableVariable(
+            label='Already Existed'
+            description='True when this call reused an existing Draft. Call updateQuoteLines or addProduct; do not create again.'
+        )
+        global Boolean alreadyExisted;
+
         @InvocableVariable(label='Message')
         global String message;
 
         global CreateOutput() {
             this.isSuccess = false;
+            this.alreadyExisted = false;
         }
     }
 
     @InvocableMethod(
         label='Create Revenue Cloud Quote'
-        description='Creates a Draft quote. Pass opportunityName, termMonths, and linesJson ([{product, quantity}]) to add every line in this call. Do not pre-query Product2 or call add-product per SKU.'
+        description='Creates a Draft quote, or reuses the Draft on the same Opportunity and quote name. Pass opportunityName, termMonths, and linesJson. Do not pre-query Product2 or call add-product per SKU.'
     )
     global static List<CreateOutput> createQuote(List<CreateInput> inputs) {
         List<CreateOutput> results = new List<CreateOutput>();
@@ -120,18 +133,27 @@ global with sharing class RLM_MCP_CreateQuote {
             return out;
         }
 
-        Account account = findAccount(input.accountName.trim());
-        if (account == null) {
-            out.message = 'No account matched "' + input.accountName
-                + '". Confirm with the user, then call createRevenueCloudProspect, then retry Create Quote.';
-            return out;
-        }
-        out.accountName = account.Name;
-
         List<LineSpec> specs = parseLinesJson(input.linesJson, out);
         if (out.message != null && out.isSuccess != true) {
             return out;
         }
+
+        String wantedQuoteName = String.isBlank(input.quoteName) ? null : input.quoteName.trim();
+        RLM_MCP_DealResolver.Result deal = RLM_MCP_DealResolver.resolve(
+            input.accountName.trim(),
+            input.opportunityName,
+            wantedQuoteName
+        );
+        if (deal.needsDisambiguation == true) {
+            out.message = deal.errorMessage;
+            return out;
+        }
+        if (deal.account == null) {
+            out.message = 'No account matched "' + input.accountName
+                + '". Confirm with the user, then call createRevenueCloudProspect, then retry Create Quote.';
+            return out;
+        }
+        out.accountName = deal.account.Name;
 
         List<Pricebook2> books = [
             SELECT Id
@@ -145,19 +167,28 @@ global with sharing class RLM_MCP_CreateQuote {
             return out;
         }
 
-        Opportunity opportunity;
-        try {
-            opportunity = resolveOpportunity(account, input.opportunityName);
-        } catch (Exception e) {
-            out.message = 'Could not create Opportunity: ' + e.getMessage();
-            return out;
+        Opportunity opportunity = deal.opportunity;
+        if (opportunity == null) {
+            String oppName = String.isNotBlank(input.opportunityName)
+                ? input.opportunityName.trim()
+                : deal.account.Name + ' Quote Opportunity';
+            try {
+                opportunity = insertOpportunity(deal.account, oppName);
+            } catch (Exception e) {
+                out.message = 'Could not create Opportunity: ' + e.getMessage();
+                return out;
+            }
         }
         out.opportunityId = opportunity.Id;
         out.opportunityUrl = RLM_MCP_RecordLinks.lightningUrl('Opportunity', opportunity.Id);
 
-        String name = String.isBlank(input.quoteName)
-            ? 'New Quote For ' + account.Name
-            : input.quoteName.trim();
+        String name = String.isBlank(wantedQuoteName)
+            ? 'New Quote For ' + deal.account.Name
+            : wantedQuoteName;
+        if (deal.draft != null) {
+            return reuseDraft(out, deal, opportunity, name);
+        }
+
         Date startDate = Date.today();
         Date endDate = (input.termMonths != null && input.termMonths > 0)
             ? startDate.addMonths(input.termMonths)
@@ -167,7 +198,8 @@ global with sharing class RLM_MCP_CreateQuote {
             OpportunityId = opportunity.Id,
             Pricebook2Id = books[0].Id,
             Status = 'Draft',
-            StartDate = startDate
+            StartDate = startDate,
+            ContactId = contactIdFor(deal.account.Id, input.contactEmail)
         );
         if (endDate != null) {
             quote.EndDate = endDate;
@@ -180,14 +212,19 @@ global with sharing class RLM_MCP_CreateQuote {
         }
 
         out.isSuccess = true;
+        out.alreadyExisted = false;
         out.quoteId = quote.Id;
         out.quoteUrl = RLM_MCP_RecordLinks.lightningUrl('Quote', quote.Id);
         out.quoteName = name;
         List<String> lines = new List<String>{
-            'Created draft quote ' + name + ' on ' + account.Name + '.'
+            'Created draft quote ' + name + ' on ' + deal.account.Name + '.'
         };
         if (!specs.isEmpty()) {
             appendAddedLines(out, quote.Id, specs, startDate, endDate, lines);
+            String overlap = ownedOverlapWarning(deal.account.Id, specs);
+            if (String.isNotBlank(overlap)) {
+                lines.add(overlap);
+            }
         }
         String quoteLink = RLM_MCP_RecordLinks.markdown('Open Quote', 'Quote', quote.Id);
         String oppLink = RLM_MCP_RecordLinks.markdown(
@@ -322,65 +359,77 @@ global with sharing class RLM_MCP_CreateQuote {
         }
     }
 
-    private static Account findAccount(String name) {
-        List<Account> exact = [
-            SELECT Id, Name
-            FROM Account
-            WHERE Name = :name
-            WITH USER_MODE
-            LIMIT 2
-        ];
-        if (exact.size() == 1) {
-            return exact[0];
+    private static String ownedOverlapWarning(Id accountId, List<LineSpec> specs) {
+        if (accountId == null || specs == null || specs.isEmpty()) {
+            return null;
         }
-        if (exact.size() > 1) {
-            return exact[0];
-        }
-        String likeName = '%' + name + '%';
-        List<Account> fuzzy = [
-            SELECT Id, Name
-            FROM Account
-            WHERE Name LIKE :likeName
+        List<Asset> assets = [
+            SELECT Name, Product2.Name, Product2.StockKeepingUnit
+            FROM Asset
+            WHERE AccountId = :accountId
+            AND Status != 'Obsolete'
             WITH USER_MODE
-            LIMIT 2
+            LIMIT 50
         ];
-        return fuzzy.isEmpty() ? null : fuzzy[0];
-    }
-
-    private static Opportunity resolveOpportunity(Account account, String opportunityName) {
-        if (String.isNotBlank(opportunityName)) {
-            String wanted = opportunityName.trim();
-            List<Opportunity> named = [
-                SELECT Id
-                FROM Opportunity
-                WHERE AccountId = :account.Id
-                AND Name = :wanted
-                AND IsClosed = false
-                WITH USER_MODE
-                ORDER BY LastModifiedDate DESC
-                LIMIT 1
-            ];
-            if (!named.isEmpty()) {
-                return named[0];
+        if (assets.isEmpty()) {
+            return null;
+        }
+        Set<String> owned = new Set<String>();
+        for (LineSpec spec : specs) {
+            if (String.isBlank(spec.product)) {
+                continue;
             }
-            return insertOpportunity(account, wanted);
+            String term = spec.product.toLowerCase();
+            for (Asset asset : assets) {
+                String name = asset.Product2 == null || String.isBlank(asset.Product2.Name)
+                    ? (asset.Name == null ? '' : asset.Name.toLowerCase())
+                    : asset.Product2.Name.toLowerCase();
+                String sku = asset.Product2 == null || String.isBlank(asset.Product2.StockKeepingUnit)
+                    ? '' : asset.Product2.StockKeepingUnit.toLowerCase();
+                if (name == term || sku == term || name.contains(term) || term.contains(name)) {
+                    owned.add(String.isBlank(asset.Product2 == null ? null : asset.Product2.Name)
+                        ? asset.Name : asset.Product2.Name);
+                }
+            }
         }
-        Opportunity existing = findOpenOpportunity(account.Id);
-        return existing != null
-            ? existing
-            : insertOpportunity(account, account.Name + ' Quote Opportunity');
+        if (owned.isEmpty()) {
+            return null;
+        }
+        return 'They already own ' + String.join(new List<String>(owned), ', ')
+            + '. Confirm amend vs new sale (amendRevenueCloudAsset) before submitting.';
     }
 
-    private static Opportunity findOpenOpportunity(Id accountId) {
-        List<Opportunity> opps = [
-            SELECT Id
-            FROM Opportunity
-            WHERE AccountId = :accountId AND IsClosed = false
-            WITH USER_MODE
-            ORDER BY LastModifiedDate DESC
-            LIMIT 1
-        ];
-        return opps.isEmpty() ? null : opps[0];
+    private static CreateOutput reuseDraft(
+        CreateOutput out,
+        RLM_MCP_DealResolver.Result deal,
+        Opportunity opportunity,
+        String name
+    ) {
+        out.isSuccess = true;
+        out.alreadyExisted = true;
+        out.quoteId = deal.draft.Id;
+        out.quoteUrl = RLM_MCP_RecordLinks.lightningUrl('Quote', deal.draft.Id);
+        out.quoteName = deal.draft.Name;
+        List<String> lines = new List<String>{
+            'Reused existing draft quote ' + deal.draft.Name + ' on ' + deal.account.Name + '.',
+            'Do not create another. Call updateRevenueCloudQuoteLines or addProductToRevenueCloudQuote if quantities or SKUs changed.'
+        };
+        String quoteLink = RLM_MCP_RecordLinks.markdown('Open Quote', 'Quote', deal.draft.Id);
+        String oppLink = RLM_MCP_RecordLinks.markdown(
+            'Open Opportunity', 'Opportunity', opportunity.Id);
+        if (String.isNotBlank(quoteLink)) {
+            lines.add(quoteLink);
+        }
+        if (String.isNotBlank(oppLink)) {
+            lines.add(oppLink);
+        }
+        out.message = String.join(lines, '\n');
+        return out;
+    }
+
+    private static Id contactIdFor(Id accountId, String email) {
+        Contact contact = RLM_MCP_DealResolver.findContact(accountId, email);
+        return contact == null ? null : contact.Id;
     }
 
     private static Opportunity insertOpportunity(Account account, String name) {

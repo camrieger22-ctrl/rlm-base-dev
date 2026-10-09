@@ -1,18 +1,15 @@
 ---
 name: revenue-cloud-quoting
 description: >
-  Route Salesforce Revenue Cloud quoting in Claude Desktop. Quotes, options,
-  bundles, recaps, explain, PDF, approval, order/activate, amend, installed
-  base, prospects, open Drafts, quote vs owned, deal status, renew/cancel,
-  unsent reply, ramp, next bill/TCV/usage. Never insert Quote, Order, Asset,
-  or Account; never update Asset; never send mail. Dates yyyy-mm-dd; never
-  assume today. Preview PDF only when asked. New mix: one create with
-  linesJson. No account: confirm then createRevenueCloudProspect. Follow-up
-  SKUs: one add with linesJson. Qty/term/start/discount: one updateQuoteLines.
-  Which quote: findOpenQuotes. Own vs quote: getInstalledBase / compare.
-  Deal: getDealStatus. Renew/cancel after confirm. Reply:
-  draftCustomerReply unsent. Ramp: applyQuoteRamp. Bill/usage:
-  getBillingAndUsage. Playbook is in this skill body.
+  Route Salesforce Revenue Cloud quoting in Claude Desktop. After reconnect
+  call getRevenueCloudQuotingCatalog, then findOpenQuotes with opportunityName.
+  Quotes, options, bundles, recaps, PDF, submit/decide approval, order,
+  amend, renew/cancel, unsent Gmail draft, first-ramp in chat. Never insert
+  Quote/Order/Asset/Account; never update Asset; never send mail. Dates
+  yyyy-mm-dd. New mix: one create with linesJson + opportunityName + quoteName.
+  Same email again: reuse or update, never a second Draft. No account: confirm
+  then prospect (address or useDemoAddress). Own SKU: amend, not create.
+  Playbook is in this skill body.
 ---
 
 # Revenue Cloud quoting
@@ -28,13 +25,18 @@ base — call `explainRevenueCloudQuotePrice` or
 
 ## Which tool
 
+After reconnect, or when a tool parameter such as `startDate` is “unknown”,
+call **`getRevenueCloudQuotingCatalog` first**. If that tool is missing,
+stop and tell the user to reconnect MCP and re-upload this skill.
+
 | User intent | Tool |
 |---|---|
+| After reconnect / stale tools / skill version | `getRevenueCloudQuotingCatalog` |
 | Two or more commercial alternatives under **one Opportunity** (term, mix, discount) | `buildRevenueCloudQuoteOptions` |
-| One new Draft quote | `createRevenueCloudQuote` (pass `linesJson` to add every product in that call) |
+| One new Draft quote | `createRevenueCloudQuote` (always pass `opportunityName` + `quoteName` + `linesJson`) |
 | Prospect / sender not in Salesforce | Confirm with the user, then `createRevenueCloudProspect`, then Create Quote — never SObject-insert Account |
 | Add catalog products to an existing Draft quote | `addProductToRevenueCloudQuote` with `linesJson` for every new SKU in that call |
-| Which Draft quote / several Acme deals | `findRevenueCloudOpenQuotes` — ask which row; do not guess |
+| Which Draft quote / reconnect / several Acme deals | `findRevenueCloudOpenQuotes` with `opportunityName` from the email — ask only if several rows |
 | See bundle option groups / current picks | `describeRevenueCloudBundleConfiguration` |
 | Save bundle picks the user chose from describe | `configureRevenueCloudBundle` |
 | Percent off | `applyRevenueCloudQuoteDiscount` (discount only) or `updateRevenueCloudQuoteLines` when also changing qty or term |
@@ -43,18 +45,19 @@ base — call `explainRevenueCloudQuotePrice` or
 | Why this price / walk the customer through list → final | `explainRevenueCloudQuotePrice` |
 | Preview the order form / quote proposal PDF | `previewRevenueCloudQuoteDocument` |
 | Submit a Draft quote that has lines | `submitRevenueCloudQuoteForApproval` |
+| Approve or reject a submitted quote (assignee) | `decideRevenueCloudQuoteApproval` (`decision=approve` or `reject`) |
 | Create an order from a quote | `createRevenueCloudOrderFromQuote` |
 | Activate an order so Salesforce creates assets | `activateRevenueCloudOrder` |
-| Amend an existing asset (quantity change) | `amendRevenueCloudAsset` |
+| Amend an existing asset (quantity change) | `amendRevenueCloudAsset` (pass `opportunityName`) |
 | What they own / MRR / ARR / current discount / how often they add on | `getRevenueCloudInstalledBase` — period Discount, never quotes, never `Asset.CurrentMrr` |
 | Quote vs what they own (qty / discount) | `compareRevenueCloudQuoteToInstalledBase` — quote 30% off is not owned Discount |
 | Where is this deal / approval / order / assets | `getRevenueCloudDealStatus` — read only |
 | Renew or cancel what they own | Confirm first, then `renewOrCancelRevenueCloudAsset` (`action=renew` or `cancel`). Then create order + activate. Never PATCH Asset |
-| Draft a customer reply | `draftRevenueCloudCustomerReply` — leave unsent. Never Gmail/Outlook send |
-| Ramp 10/20/30 on an existing Draft | `applyRevenueCloudQuoteRamp` — describe, or patch qty on existing segments. Create the first schedule in Ramp Builder |
+| Draft a customer reply | `draftRevenueCloudCustomerReply` — then Gmail draft/create if that tool exists. Never send |
+| Ramp 10/20/30 on an existing Draft | `applyRevenueCloudQuoteRamp` — describe, create the first yearly schedule, or patch qty |
 | Next bill / TCV / usage | `getRevenueCloudBillingAndUsage` — TCV is quote GrandTotal, not ARR |
-| Build a quote from a customer email | Search Gmail or Outlook, then one `createRevenueCloudQuote` with `linesJson` |
-| Later email with updated quantities or term on an existing quote | Search Gmail or Outlook for the **newest** message, then one `updateRevenueCloudQuoteLines` — never create a second quote |
+| Build a quote from a customer email | Search Gmail or Outlook, then one `createRevenueCloudQuote` with `opportunityName`, `quoteName`, and `linesJson`. If `alreadyExisted`, update — do not create again |
+| Later email / reconnect on an existing quote | `findRevenueCloudOpenQuotes` with that `opportunityName`, then `updateRevenueCloudQuoteLines` — never a second quote |
 
 If the user asks for “three options”, “alternatives”, “good / better / best”,
 or several quotes on the same deal, call **Build Quote Options** with every
@@ -125,8 +128,8 @@ from this org, not products from another demo.
 hardware is not given an end date.
 
 Year-over-year **group ramps** (qty 10 / 20 / 30 as segments) are not in this
-tool. Build the quotes here, then use Ramp Builder in Salesforce for segment
-quantities.
+tool. Build the quotes here, then `applyRevenueCloudQuoteRamp` with
+`segmentsJson` to create or patch the yearly schedule.
 
 ### Visual recap (required)
 
@@ -165,7 +168,10 @@ When the user asks to **build a new quote** from email (“latest Acme email”,
      Gmail or Microsoft 365 on this chat, or paste the email. Do not invent
      an inbox.
 2. Extract: sender name and email, account hint, products and quantities,
-   term, discount language, new sale vs change to something they already own.
+   term, discount language, **new sale vs change to something they already
+   own**. If they already own that SKU (`getRevenueCloudInstalledBase`),
+   this is an **amend** (`amendRevenueCloudAsset` with a delta and
+   `startDate`), not a new quote. Pass `opportunityName`.
 3. Do **not** query `Product2` (or the catalog) with SObject All. Create Quote
    resolves product names. Use SObject All only when the sender is unclear,
    or Asset when this looks like an amendment. If **no Account** matches the
@@ -180,11 +186,17 @@ When the user asks to **build a new quote** from email (“latest Acme email”,
    `addProductToRevenueCloudQuote` per SKU. Do **not** call
    `buildRevenueCloudQuoteOptions`. Pass:
    - `accountName`
-   - `quoteName`
-   - `opportunityName` (the name they chose)
+   - `quoteName` (stable name from the subject or the name they chose)
+   - `opportunityName` (**required** when the account has several open
+     deals — never omit it on Acme)
+   - `contactEmail` when you have the sender
    - `termMonths` from the email (12 if they asked for 12 months)
    - `linesJson`: `[{"product":"QuantumBit Database","quantity":10}, ...]`
      using the names from the email.
+   If Create Quote returns `alreadyExisted=true`, **do not add lines**.
+   Call `updateRevenueCloudQuoteLines` or `addProductToRevenueCloudQuote`.
+   If the message says they already own a product, confirm amend vs new
+   sale before submitting.
    - Describe/configure only if a returned line is a bundle that still needs
      picks. Discount only if the email asked for one.
 6. Recap `linesDisplay` (or the line list in `message`) and render
@@ -239,10 +251,12 @@ When a later email from the same customer has updated quantities or term
    did not mention unchanged.
 3. Resolve the existing **Draft** quote:
    - Use the `quoteId` already in this chat if you have one.
-   - Else **`findRevenueCloudOpenQuotes`** with the account name. Never
-     query `Quote` or `Product2` with SObject All.
-   - If more than one Draft matches, ask which Opportunity/quote. Do **not**
-     guess and do **not** create another quote.
+   - Else **`findRevenueCloudOpenQuotes`** with `accountName` **and**
+     `opportunityName` from the original email/subject. Never query
+     `Quote` or `Product2` with SObject All.
+   - If that Opportunity has exactly one Draft, use `latestQuoteId`.
+   - If more than one Draft matches, ask which row. Do **not** guess
+     and do **not** create another quote.
 4. Call **`updateRevenueCloudQuoteLines` once** with that `quoteId`,
    `quantitiesJson`, and `termMonths` / `discountPercentage` when present.
 5. Do **not** `createRevenueCloudQuote`. Do **not** rebuild. Do **not** call
@@ -279,7 +293,9 @@ that is not in Salesforce:
    confirm** before creating records.
 2. After they confirm, call **`createRevenueCloudProspect`** with
    `accountName`, `contactFirstName` / `contactLastName`, and `contactEmail`.
-   Never SObject-insert `Account` or `Contact`.
+   If the account has no billing street, pass the address from the email
+   or `useDemoAddress=true` **only after they confirm** a demo address
+   (do not invent a customer HQ). Never SObject-insert `Account` or `Contact`.
 3. If `needsDisambiguation`, ask reuse vs create. Do not insert a duplicate.
 4. Then **one** `createRevenueCloudQuote` with `linesJson` as usual.
 5. Render **Open Account** / **Open Contact** / **Open Quote**.
@@ -289,9 +305,11 @@ that is not in Salesforce:
 When the user says “the Acme quote” and more than one Draft might exist,
 or a follow-up email has no `quoteId` in this chat:
 
-1. Call **`findRevenueCloudOpenQuotes`** with `accountName`.
+1. Call **`findRevenueCloudOpenQuotes`** with `accountName` and
+   `opportunityName` when you have it (email subject / named deal).
 2. Recap `summaryDisplay` and **Open Quote** links. If more than one row,
-   **ask which**. Use `latestQuoteId` only when they said the latest / newest.
+   **ask which**. Use `latestQuoteId` when that Opportunity has one Draft
+   or they said the latest / newest.
 3. Do **not** query `Quote` with SObject All. Do **not** create a quote.
 
 ## Quote vs installed base
@@ -321,7 +339,8 @@ When they ask if a quote is submitted, approved, ordered, or has assets:
 2. Get a start date and convert it to `yyyy-mm-dd`. Required for cancel.
    Required for early or expired renewals. Do not assume today.
 3. Call **`renewOrCancelRevenueCloudAsset`** with `action=renew` or
-   `action=cancel`. Prefer `assetId` when known.
+   `action=cancel`. Prefer `assetId` when known. Pass `opportunityName`
+   when this is tied to an email/deal.
 4. Then create an order from the returned quote and activate it. Never PATCH
    `Asset`. Never use amend for a full cancel/renew.
 
@@ -332,21 +351,22 @@ email text:
 
 1. Call **`draftRevenueCloudCustomerReply`** with the quote (or account).
 2. Show `subject` and `bodyDisplay` in chat. Say it is **unsent**.
-3. **Never** `send_message`, Gmail send, or Outlook send. Even if they say
-   “send it,” refuse send from this skill and leave the draft for them to copy.
+3. If Gmail exposes a **draft / create draft** tool, pass that subject and
+   body there so it lands in the mailbox compose window. If that tool is
+   absent, leave the draft in chat and say “copy to Gmail compose.”
+4. **Never** `send_message`, Gmail send, or Outlook send. Even if they say
+   “send it,” refuse send from this skill.
 
 ## Ramp on an existing quote
 
-Year-over-year qty (10 / 20 / 30) on a Draft that **already has ramp
-segments**:
+Year-over-year qty (10 / 20 / 30) on a Draft:
 
 1. Call **`applyRevenueCloudQuoteRamp`** with `quoteId` to describe.
-2. To set quantities: same tool with `productName` and
-   `segmentsJson` `[{"quantity":10},{"quantity":20},{"quantity":30}]` matching
-   the segment count.
-3. If there are no segments yet, tell them to open Ramp Builder on the quote,
-   then call this tool again. Do not SObject-insert `QuoteLineGroup`. Do not
-   rebuild the quote.
+2. To create the first schedule or set quantities: same tool with
+   `productName` and
+   `segmentsJson` `[{"quantity":10},{"quantity":20},{"quantity":30}]`.
+3. Do not open Ramp Builder for the first schedule. Do not
+   SObject-insert `QuoteLineGroup`. Do not rebuild the quote.
 
 ## Next bill, TCV, and usage
 
@@ -467,8 +487,10 @@ When they do ask:
    asynchronously after activation; an empty first activate is normal.
 
 The account must have a Contact (Bill to Contact) and a billing or shipping
-address. If activation says those are missing, tell the user — do not invent
-contacts.
+address. Create Prospect writes those when you pass an address or confirmed
+`useDemoAddress`. Create Quote stamps `Quote.ContactId` from `contactEmail`
+or the account contact. If activation still says those are missing, tell
+the user — do not invent a customer HQ.
 
 ## Amend an asset
 
@@ -497,7 +519,8 @@ What start date should I use?
    five; -2 removes two) and required `startDate`. Pass `assetId` when known;
    otherwise `accountName` + `productName`. If the named product is a **bundle
    component** (for example QuantumBit Database under Complete), still call
-   this tool with that product name. The tool amends the top-level parent and
+   this tool with that product name. Pass `opportunityName` when this came
+   from an email thread. The tool amends the top-level parent and
    applies the delta to the component line. Do **not** refuse, and do **not**
    add the quantity to Complete instead.
 4. If `needsDisambiguation`, ask which asset. If `isPartial`, call again with
@@ -531,11 +554,14 @@ What start date should I use?
   insert Files yourself. On `isPartial` or `RETRY_NOW`, retry immediately
   (cap 3) and do not tell the user to wait.
 - Inbound email: Gmail/Outlook for read only. Never send mail to the
-  customer. New mix: one create with `linesJson`. No account: confirm,
-  then `createRevenueCloudProspect`. Follow-up qty email: newest message,
-  then `findRevenueCloudOpenQuotes` if needed, then one
-  `updateRevenueCloudQuoteLines`. New SKUs on that Draft: one add with
-  `linesJson`. Never create a second quote. Never SObject-insert Account.
+  customer. Always pass `opportunityName` + `quoteName`. New mix: one
+  create with `linesJson`. Same request again: `alreadyExisted` or
+  `findRevenueCloudOpenQuotes` then update — never a second Draft. No
+  account: confirm, then `createRevenueCloudProspect` (address or
+  confirmed `useDemoAddress`). They already own the SKU: amend, not
+  create. Follow-up qty email: newest message, find with
+  `opportunityName`, then one `updateRevenueCloudQuoteLines`. New SKUs
+  on that Draft: one add with `linesJson`. Never SObject-insert Account.
   Never SObject All on Product2, never add-product per SKU, never Build
   Quote Options, never summary, never preview unless they ask.
 - Quote vs owned: `compareRevenueCloudQuoteToInstalledBase`. Do not mix
@@ -543,9 +569,13 @@ What start date should I use?
 - Deal status: one `getRevenueCloudDealStatus`. Read only.
 - Renew/cancel: confirm cancel, then `renewOrCancelRevenueCloudAsset`. Then
   order + activate. Never PATCH Asset.
-- Customer reply: `draftRevenueCloudCustomerReply`. Never send mail.
-- Ramp: `applyRevenueCloudQuoteRamp` on existing segments only. First
-  schedule is Ramp Builder.
+- Customer reply: `draftRevenueCloudCustomerReply`, then Gmail
+  draft/create if available. Never send mail.
+- Ramp: `applyRevenueCloudQuoteRamp` creates the first yearly schedule
+  or patches existing segments. Do not open Ramp Builder for 10/20/30.
+- Approver: `decideRevenueCloudQuoteApproval`. Never PATCH Quote.Status.
+- After reconnect: `getRevenueCloudQuotingCatalog`, then find with
+  `opportunityName`.
 - Next bill / TCV / usage: `getRevenueCloudBillingAndUsage`. TCV ≠ ARR.
 - Qty, term, start date, or discount on an existing Draft quote: one
   `updateRevenueCloudQuoteLines` from chat or email (`termMonths`: 5 years =

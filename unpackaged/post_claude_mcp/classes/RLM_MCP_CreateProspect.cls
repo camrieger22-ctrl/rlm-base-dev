@@ -34,6 +34,30 @@ global with sharing class RLM_MCP_CreateProspect {
 
         @InvocableVariable(label='Website')
         global String website;
+
+        @InvocableVariable(
+            label='Billing Street'
+            description='Optional billing street. Needed so activate can stamp the order.'
+        )
+        global String billingStreet;
+
+        @InvocableVariable(label='Billing City')
+        global String billingCity;
+
+        @InvocableVariable(label='Billing State')
+        global String billingState;
+
+        @InvocableVariable(label='Billing Postal Code')
+        global String billingPostalCode;
+
+        @InvocableVariable(label='Billing Country')
+        global String billingCountry;
+
+        @InvocableVariable(
+            label='Use Demo Address'
+            description='True only after the user confirms a demo billing address. Do not invent a customer HQ.'
+        )
+        global Boolean useDemoAddress;
     }
 
     global class ProspectOutput {
@@ -115,8 +139,21 @@ global with sharing class RLM_MCP_CreateProspect {
                 if (String.isNotBlank(input.phone)) {
                     account.Phone = input.phone.trim();
                 }
+                applyAddress(account, input);
                 insert as user account;
                 out.accountCreated = true;
+            } else {
+                Account patch = applyAddress(account, input);
+                if (patch != null) {
+                    update as user patch;
+                    account = [
+                        SELECT Id, Name, BillingStreet
+                        FROM Account
+                        WHERE Id = :account.Id
+                        WITH USER_MODE
+                        LIMIT 1
+                    ];
+                }
             }
 
             out.accountId = account.Id;
@@ -147,6 +184,9 @@ global with sharing class RLM_MCP_CreateProspect {
             if (String.isNotBlank(aLink)) {
                 rows.add(aLink);
             }
+            if (String.isNotBlank(account.BillingStreet)) {
+                rows.add('Billing address is set so order activate can stamp Bill-to.');
+            }
             rows.add('Next: createRevenueCloudQuote with this accountName.');
             out.resultsDisplay = String.join(rows, '\n');
         } catch (Exception e) {
@@ -157,9 +197,16 @@ global with sharing class RLM_MCP_CreateProspect {
         return out;
     }
 
+    private static final String DEMO_STREET = '415 Mission St';
+    private static final String DEMO_CITY = 'San Francisco';
+    private static final String DEMO_STATE = 'CA';
+    private static final String DEMO_POSTAL = '94105';
+    private static final String DEMO_COUNTRY = 'United States';
+
     private static Account findExactAccount(String name) {
         List<Account> matches = [
-            SELECT Id, Name
+            SELECT Id, Name, BillingStreet, BillingCity, BillingState,
+                   BillingPostalCode, BillingCountry
             FROM Account
             WHERE Name = :name
             WITH USER_MODE
@@ -279,5 +326,48 @@ global with sharing class RLM_MCP_CreateProspect {
 
     private static String blankToNull(String value) {
         return String.isBlank(value) ? null : value.trim();
+    }
+
+    private static Account applyAddress(Account account, ProspectInput input) {
+        if (account == null) {
+            return null;
+        }
+        String street = blankToNull(input.billingStreet);
+        String city = blankToNull(input.billingCity);
+        String state = blankToNull(input.billingState);
+        String postal = blankToNull(input.billingPostalCode);
+        String country = blankToNull(input.billingCountry);
+        if (street == null && input.useDemoAddress == true) {
+            street = DEMO_STREET;
+            if (city == null) {
+                city = DEMO_CITY;
+            }
+            if (state == null) {
+                state = DEMO_STATE;
+            }
+            if (postal == null) {
+                postal = DEMO_POSTAL;
+            }
+            if (country == null) {
+                country = DEMO_COUNTRY;
+            }
+        }
+        if (street == null) {
+            return account.Id == null ? account : null;
+        }
+        if (account.Id != null && String.isNotBlank(account.BillingStreet)) {
+            return null;
+        }
+        account.BillingStreet = street;
+        account.BillingCity = city;
+        account.BillingState = state;
+        account.BillingPostalCode = postal;
+        account.BillingCountry = country;
+        account.ShippingStreet = street;
+        account.ShippingCity = city;
+        account.ShippingState = state;
+        account.ShippingPostalCode = postal;
+        account.ShippingCountry = country;
+        return account;
     }
 }

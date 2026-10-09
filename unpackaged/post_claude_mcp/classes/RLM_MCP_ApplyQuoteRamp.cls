@@ -1,9 +1,55 @@
 /**
- * Hosted MCP: describe ramp segments on a Draft, or patch yearly quantities
- * on existing ramped groups. Does not invent a new schedule from scratch.
+ * Hosted MCP: describe ramp segments on a Draft, create the first yearly
+ * schedule via Ramp Builder ApplyPlan, or patch quantities on existing groups.
  */
 global with sharing class RLM_MCP_ApplyQuoteRamp {
     private static final Integer MAX_SEGMENTS = 8;
+
+    public interface PlanInvoker {
+        String applyPlan(Id quoteId, String planJson);
+    }
+
+    public class DefaultPlanInvoker implements PlanInvoker {
+        public String applyPlan(Id quoteId, String planJson) {
+            try {
+                Invocable.Action action =
+                    Invocable.Action.createCustomAction('apex', 'RLM_RampTransactionAction');
+                action.setInvocationParameter('action', 'ApplyPlan');
+                action.setInvocationParameter('quoteId', String.valueOf(quoteId));
+                action.setInvocationParameter('planJson', planJson);
+                List<Invocable.Action.Result> results = action.invoke();
+                if (results == null || results.isEmpty()) {
+                    return 'ApplyPlan returned no result.';
+                }
+                if (!results[0].isSuccess()) {
+                    List<String> msgs = new List<String>();
+                    for (Invocable.Action.Error err : results[0].getErrors()) {
+                        msgs.add(err.getMessage());
+                    }
+                    return msgs.isEmpty()
+                        ? 'Could not create the ramp schedule.'
+                        : String.join(msgs, '; ');
+                }
+                Map<String, Object> outs = results[0].getOutputParameters();
+                if (outs != null && outs.get('success') == false) {
+                    String message = String.valueOf(outs.get('message'));
+                    return String.isBlank(message)
+                        ? 'Could not create the ramp schedule.'
+                        : message;
+                }
+                return null;
+            } catch (Exception e) {
+                String raw = e.getMessage() == null ? '' : e.getMessage();
+                if (raw.contains('RLM_RampTransactionAction') || raw.contains('Invalid')) {
+                    return 'Ramp Builder is not deployed in this org. Open Ramp Builder on the quote, or deploy post_ramp_ux.';
+                }
+                return raw;
+            }
+        }
+    }
+
+    @TestVisible
+    static PlanInvoker planInvoker = new DefaultPlanInvoker();
 
     global class RampInput {
         @InvocableVariable(
@@ -43,7 +89,7 @@ global with sharing class RLM_MCP_ApplyQuoteRamp {
 
     @InvocableMethod(
         label='Apply Revenue Cloud Quote Ramp'
-        description='Describes ramp segments on a Draft, or patches qty on existing ramped groups from segmentsJson. Never SObject-insert QuoteLineGroup. Never rebuild the quote.'
+        description='Describes ramp segments, creates the first yearly schedule from segmentsJson, or patches qty on existing groups. Never SObject-insert QuoteLineGroup. Never rebuild the quote.'
     )
     global static List<RampOutput> applyRamp(List<RampInput> inputs) {
         List<RampOutput> results = new List<RampOutput>();
@@ -76,6 +122,7 @@ global with sharing class RLM_MCP_ApplyQuoteRamp {
                 SELECT Id, Name, StartDate, EndDate
                 FROM Quote
                 WHERE Id = :quoteId
+                WITH USER_MODE
                 LIMIT 1
             ];
             out.quoteUrl = RLM_MCP_RecordLinks.lightningUrl('Quote', quote.Id);
@@ -84,13 +131,16 @@ global with sharing class RLM_MCP_ApplyQuoteRamp {
                 FROM QuoteLineGroup
                 WHERE QuoteId = :quoteId
                 AND Type != 'RampScheduleGroup'
+                WITH USER_MODE
                 ORDER BY SortOrder ASC NULLS LAST
                 LIMIT 20
             ];
             List<QuoteLineItem> lines = [
-                SELECT Id, Quantity, QuoteLineGroupId, Product2.Name, Product2.StockKeepingUnit
+                SELECT Id, Quantity, QuoteLineGroupId, PricebookEntryId, Product2Id,
+                       Product2.Name, Product2.StockKeepingUnit
                 FROM QuoteLineItem
                 WHERE QuoteId = :quoteId
+                WITH USER_MODE
                 LIMIT 200
             ];
             List<QuoteLineGroup> ramped = new List<QuoteLineGroup>();
@@ -109,9 +159,7 @@ global with sharing class RLM_MCP_ApplyQuoteRamp {
                 return out;
             }
             if (ramped.isEmpty()) {
-                out.errorMessage =
-                    'This quote has no ramp segments yet. Open Ramp Builder on the quote to create the schedule, then call this tool again with segmentsJson to set quantities.';
-                return out;
+                return createFirstSchedule(out, quote, lines, input.productName, qtys);
             }
             if (String.isBlank(input.productName)) {
                 out.errorMessage = 'Product name is required when applying segment quantities.';
@@ -166,7 +214,7 @@ global with sharing class RLM_MCP_ApplyQuoteRamp {
             rows.add(link);
         }
         if (ramped.isEmpty()) {
-            rows.add('No ramp segments. Use Ramp Builder to create 10/20/30 (or similar), then call this tool with segmentsJson.');
+            rows.add('No ramp segments yet. Call this tool again with productName and segmentsJson (e.g. 10/20/30) to create the first yearly schedule.');
             return String.join(rows, '\n');
         }
         rows.add(String.valueOf(ramped.size()) + ' ramp segments:');
@@ -267,10 +315,169 @@ global with sharing class RLM_MCP_ApplyQuoteRamp {
         return qtys;
     }
 
+    private static RampOutput createFirstSchedule(
+        RampOutput out,
+        Quote quote,
+        List<QuoteLineItem> lines,
+        String productName,
+        List<Decimal> qtys
+    ) {
+        if (String.isBlank(productName)) {
+            out.errorMessage = 'Product name is required when creating the first ramp schedule.';
+            return out;
+        }
+        QuoteLineItem source = matchAnyLine(productName, lines, out);
+        if (source == null) {
+            return out;
+        }
+        if (source.PricebookEntryId == null) {
+            out.errorMessage = 'That line has no price book entry, so a ramp schedule cannot be created.';
+            return out;
+        }
+        String planJson = buildYearlyPlan(quote, source, qtys);
+        String applyError = planInvoker.applyPlan(quote.Id, planJson);
+        if (String.isNotBlank(applyError)) {
+            out.errorMessage = applyError;
+            return out;
+        }
+        dropUngroupedSource(quote.Id, source);
+        List<QuoteLineGroup> created = [
+            SELECT Id, Name, Type, IsRamped, SortOrder, StartDate, EndDate, SegmentType
+            FROM QuoteLineGroup
+            WHERE QuoteId = :quote.Id
+            AND Type != 'RampScheduleGroup'
+            AND IsRamped = true
+            WITH USER_MODE
+            ORDER BY SortOrder ASC NULLS LAST
+            LIMIT 20
+        ];
+        List<QuoteLineItem> after = [
+            SELECT Id, Quantity, QuoteLineGroupId, Product2.Name, Product2.StockKeepingUnit
+            FROM QuoteLineItem
+            WHERE QuoteId = :quote.Id
+            WITH USER_MODE
+            LIMIT 200
+        ];
+        List<String> recap = new List<String>{
+            'Created a ' + String.valueOf(qtys.size())
+                + '-year ramp for ' + productName + ':'
+        };
+        Integer i = 0;
+        for (QuoteLineGroup seg : created) {
+            String qtyLabel = i < qtys.size()
+                ? RLM_MCP_RecordLinks.formatNumber(qtys[i])
+                : '?';
+            recap.add('- ' + nullToName(seg.Name)
+                + ' (' + day(seg.StartDate) + '–' + day(seg.EndDate) + '): qty '
+                + qtyLabel);
+            i++;
+        }
+        String link = RLM_MCP_RecordLinks.markdown('Open Quote', 'Quote', quote.Id);
+        if (String.isNotBlank(link)) {
+            recap.add(link);
+        }
+        if (created.isEmpty()) {
+            recap.add(describeRamp(quote, created, after));
+        }
+        out.isSuccess = true;
+        out.resultsDisplay = String.join(recap, '\n');
+        return out;
+    }
+
+    private static String buildYearlyPlan(
+        Quote quote,
+        QuoteLineItem source,
+        List<Decimal> qtys
+    ) {
+        Date start = quote.StartDate == null ? Date.today() : quote.StartDate;
+        List<Object> segments = new List<Object>();
+        Map<String, Object> cells = new Map<String, Object>();
+        for (Integer i = 0; i < qtys.size(); i++) {
+            String key = 's' + String.valueOf(i);
+            Date segStart = start.addYears(i);
+            Date segEnd = start.addYears(i + 1).addDays(-1);
+            segments.add(new Map<String, Object>{
+                'key' => key,
+                'name' => 'Year ' + String.valueOf(i + 1),
+                'type' => 'Yearly',
+                'startDate' => String.valueOf(segStart),
+                'endDate' => String.valueOf(segEnd),
+                'discount' => 0,
+                'uplift' => 0
+            });
+            cells.put(key, new Map<String, Object>{ 'quantity' => qtys[i] });
+        }
+        Map<String, Object> product = new Map<String, Object>{
+            'pricebookEntryId' => String.valueOf(source.PricebookEntryId),
+            'product2Id' => source.Product2Id == null ? null : String.valueOf(source.Product2Id),
+            'persisted' => false,
+            'cells' => cells
+        };
+        Map<String, Object> plan = new Map<String, Object>{
+            'scheduleName' => String.valueOf(qtys.size()) + ' Year Ramp Schedule',
+            'segmentType' => 'Yearly',
+            'startDate' => String.valueOf(start),
+            'durationMonths' => qtys.size() * 12,
+            'segments' => segments,
+            'products' => new List<Object>{ product }
+        };
+        return JSON.serialize(plan);
+    }
+
+    private static QuoteLineItem matchAnyLine(
+        String productName,
+        List<QuoteLineItem> lines,
+        RampOutput out
+    ) {
+        String term = productName.trim().toLowerCase();
+        List<QuoteLineItem> hits = new List<QuoteLineItem>();
+        for (QuoteLineItem line : lines) {
+            String name = line.Product2 == null || line.Product2.Name == null
+                ? '' : line.Product2.Name.toLowerCase();
+            String sku = line.Product2 == null || line.Product2.StockKeepingUnit == null
+                ? '' : line.Product2.StockKeepingUnit.toLowerCase();
+            if (name == term || sku == term || name.contains(term) || sku.contains(term)) {
+                hits.add(line);
+            }
+        }
+        if (hits.isEmpty()) {
+            out.errorMessage = 'No "' + productName + '" line on this quote.';
+            return null;
+        }
+        if (hits.size() > 1) {
+            out.needsDisambiguation = true;
+            out.errorMessage = 'Multiple "' + productName + '" lines. Ask which.';
+            return null;
+        }
+        return hits[0];
+    }
+
+    private static void dropUngroupedSource(Id quoteId, QuoteLineItem source) {
+        if (source == null || source.QuoteLineGroupId != null) {
+            return;
+        }
+        List<QuoteLineItem> leftovers = [
+            SELECT Id
+            FROM QuoteLineItem
+            WHERE Id = :source.Id
+            AND QuoteId = :quoteId
+            AND QuoteLineGroupId = null
+            WITH USER_MODE
+            LIMIT 1
+        ];
+        if (leftovers.isEmpty()) {
+            return;
+        }
+        Database.delete(leftovers, false, AccessLevel.USER_MODE);
+    }
+
     private static String persistQuantities(Id quoteId, Map<Id, Decimal> qtyByLine) {
         if (Test.isRunningTest()) {
             List<QuoteLineItem> lines = [
-                SELECT Id, Quantity FROM QuoteLineItem WHERE Id IN :qtyByLine.keySet()
+                SELECT Id, Quantity
+                FROM QuoteLineItem
+                WHERE Id IN :qtyByLine.keySet()
+                WITH USER_MODE
             ];
             for (QuoteLineItem line : lines) {
                 line.Quantity = qtyByLine.get(line.Id);

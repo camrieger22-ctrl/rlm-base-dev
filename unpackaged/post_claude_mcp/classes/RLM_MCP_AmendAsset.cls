@@ -38,6 +38,12 @@ global with sharing class RLM_MCP_AmendAsset {
             description='Required amendment start date yyyy-mm-dd. Ask the user. Do not assume today.'
         )
         global String startDate;
+
+        @InvocableVariable(
+            label='Opportunity Name'
+            description='Optional open Opportunity to hang the amendment quote on. Do not pick the latest Opp when several exist.'
+        )
+        global String opportunityName;
     }
 
     global class AmendOutput {
@@ -189,7 +195,7 @@ global with sharing class RLM_MCP_AmendAsset {
             Asset root = rootOf(asset);
             Boolean isComponent = root != null && root.Id != asset.Id;
             Decimal initiateQty = isComponent ? 0 : input.quantityChange;
-            Id opportunityId = findOpenOpportunity(asset.AccountId);
+            Id opportunityId = resolveOpportunityId(asset.AccountId, input.opportunityName);
             InvokeResult created = invoker.start(
                 root.Id,
                 startDay,
@@ -481,9 +487,12 @@ global with sharing class RLM_MCP_AmendAsset {
         ];
     }
 
-    private static Id findOpenOpportunity(Id accountId) {
+    private static Id resolveOpportunityId(Id accountId, String opportunityName) {
         if (accountId == null) {
             return null;
+        }
+        if (String.isNotBlank(opportunityName)) {
+            return RLM_MCP_DealResolver.findNamedOpenOpportunity(accountId, opportunityName);
         }
         List<Opportunity> opps = [
             SELECT Id
@@ -491,9 +500,9 @@ global with sharing class RLM_MCP_AmendAsset {
             WHERE AccountId = :accountId AND IsClosed = false
             WITH USER_MODE
             ORDER BY LastModifiedDate DESC
-            LIMIT 1
+            LIMIT 2
         ];
-        return opps.isEmpty() ? null : opps[0].Id;
+        return opps.size() == 1 ? opps[0].Id : null;
     }
 
     private static Quote findLatestAmendQuote(Id accountId) {

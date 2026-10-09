@@ -1,7 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <McpServerDefinition xmlns="http://soap.sforce.com/2006/04/metadata">
-    <description>Revenue Cloud quoting for Claude: prospect, create/add/update, find quotes, deal status, renew/cancel, unsent reply, ramp, billing/usage, compare vs installed base, order, amend.</description>
+    <description>Revenue Cloud quoting for Claude: catalog ping, prospect, create/reuse Draft, find quotes, approve/reject, ramp create, order, amend, renew/cancel, unsent reply.</description>
     <masterLabel>Revenue Cloud Quoting</masterLabel>
+    <tools>
+        <apiDefinition>
+            <apiIdentifier>aa:apex-RLM_MCP_GetQuotingCatalog</apiIdentifier>
+            <apiSource>API_CATALOG</apiSource>
+            <operation>RLM_MCP_GetQuotingCatalog</operation>
+        </apiDefinition>
+        <descriptionOverride>Returns quoting MCP skill version and tool names. Call after reconnect or when a parameter is unknown. If missing, reconnect MCP and re-upload the skill.</descriptionOverride>
+        <toolName>getRevenueCloudQuotingCatalog</toolName>
+        <toolTitle>Get Quoting Catalog</toolTitle>
+    </tools>
     <tools>
         <apiDefinition>
             <apiIdentifier>aa:apex-RLM_MCP_BuildQuoteOptions</apiIdentifier>
@@ -18,7 +28,7 @@
             <apiSource>API_CATALOG</apiSource>
             <operation>RLM_MCP_CreateQuote</operation>
         </apiDefinition>
-        <descriptionOverride>Creates a Draft quote. Pass opportunityName, termMonths, and linesJson ([{product, quantity}]) to add every line in this call. Do not pre-query Product2 or call add-product per SKU.</descriptionOverride>
+        <descriptionOverride>Creates a Draft, or reuses the Draft on the same Opportunity and quote name. Pass opportunityName. Do not create a second quote for the same email. linesJson adds every product.</descriptionOverride>
         <toolName>createRevenueCloudQuote</toolName>
         <toolTitle>Create Revenue Cloud Quote</toolTitle>
     </tools>
@@ -28,7 +38,7 @@
             <apiSource>API_CATALOG</apiSource>
             <operation>RLM_MCP_CreateProspect</operation>
         </apiDefinition>
-        <descriptionOverride>Creates or reuses Account and Contact for a prospect not in Salesforce. Confirm with the user first. Then createRevenueCloudQuote. Never SObject-insert Account.</descriptionOverride>
+        <descriptionOverride>Creates or reuses Account and Contact. Optional billing address or useDemoAddress after confirm. Then createRevenueCloudQuote. Never SObject-insert Account.</descriptionOverride>
         <toolName>createRevenueCloudProspect</toolName>
         <toolTitle>Create Revenue Cloud Prospect</toolTitle>
     </tools>
@@ -78,7 +88,7 @@
             <apiSource>API_CATALOG</apiSource>
             <operation>RLM_MCP_FindOpenQuotes</operation>
         </apiDefinition>
-        <descriptionOverride>Lists Draft quotes for an account (name, Opportunity, line count, last modified). Use when more than one deal might match. Do not create a quote.</descriptionOverride>
+        <descriptionOverride>Lists Draft quotes. Pass opportunityName after reconnect to pin the deal. One match returns latestQuoteId. Do not create a quote.</descriptionOverride>
         <toolName>findRevenueCloudOpenQuotes</toolName>
         <toolTitle>Find Open Quotes</toolTitle>
     </tools>
@@ -91,6 +101,16 @@
         <descriptionOverride>Submits a Draft Revenue Cloud quote for approval by quote name, account name, or Quote Id. Ask the user to pick when more than one quote matches. Only quotes with lines can be submitted.</descriptionOverride>
         <toolName>submitRevenueCloudQuoteForApproval</toolName>
         <toolTitle>Submit Quote For Approval</toolTitle>
+    </tools>
+    <tools>
+        <apiDefinition>
+            <apiIdentifier>aa:apex-RLM_MCP_DecideQuoteApproval</apiIdentifier>
+            <apiSource>API_CATALOG</apiSource>
+            <operation>RLM_MCP_DecideQuoteApproval</operation>
+        </apiDefinition>
+        <descriptionOverride>Approves or rejects the assigned ApprovalWorkItem. Decision approve or reject. Caller must be an assignee. Never PATCH Quote.Status.</descriptionOverride>
+        <toolName>decideRevenueCloudQuoteApproval</toolName>
+        <toolTitle>Decide Quote Approval</toolTitle>
     </tools>
     <tools>
         <apiDefinition>
@@ -138,7 +158,7 @@
             <apiSource>API_CATALOG</apiSource>
             <operation>RLM_MCP_AmendAsset</operation>
         </apiDefinition>
-        <descriptionOverride>Starts an asset amendment via initiateAmendment (quote output). quantityChange is a delta, not the new total. startDate is required (yyyy-mm-dd); ask the user and do not assume today. If the named asset is a bundle component, amend the top-level parent (quantity 0) then apply the delta to that component line. Then create an order and activate. Never update Asset rows yourself.</descriptionOverride>
+        <descriptionOverride>Starts an asset amendment via initiateAmendment. quantityChange is a delta. startDate yyyy-mm-dd required. Pass opportunityName. Bundle component: amend parent qty 0 then patch child. Then order+activate. Never PATCH Asset.</descriptionOverride>
         <toolName>amendRevenueCloudAsset</toolName>
         <toolTitle>Amend Asset</toolTitle>
     </tools>
@@ -188,7 +208,7 @@
             <apiSource>API_CATALOG</apiSource>
             <operation>RLM_MCP_RenewOrCancelAsset</operation>
         </apiDefinition>
-        <descriptionOverride>Starts a renewal or cancellation Quote. action=renew or cancel. Confirm cancel first. startDate yyyy-mm-dd required for cancel. Then create order and activate. Never PATCH Asset.</descriptionOverride>
+        <descriptionOverride>Starts a renewal or cancellation Quote. action=renew or cancel. Confirm cancel first. startDate yyyy-mm-dd required for cancel. Pass opportunityName. Then order+activate. Never PATCH Asset.</descriptionOverride>
         <toolName>renewOrCancelRevenueCloudAsset</toolName>
         <toolTitle>Renew Or Cancel Asset</toolTitle>
     </tools>
@@ -198,7 +218,7 @@
             <apiSource>API_CATALOG</apiSource>
             <operation>RLM_MCP_DraftCustomerReply</operation>
         </apiDefinition>
-        <descriptionOverride>Drafts an unsent customer email from quote lines and totals. Never send_message or Outlook send. Leave the draft in chat.</descriptionOverride>
+        <descriptionOverride>Drafts an unsent customer email. If Gmail has a draft/create tool, put subject and bodyDisplay there. Never send_message. Leave unsent.</descriptionOverride>
         <toolName>draftRevenueCloudCustomerReply</toolName>
         <toolTitle>Draft Customer Reply</toolTitle>
     </tools>
@@ -208,7 +228,7 @@
             <apiSource>API_CATALOG</apiSource>
             <operation>RLM_MCP_ApplyQuoteRamp</operation>
         </apiDefinition>
-        <descriptionOverride>Describes ramp segments, or patches qty on existing ramped groups via segmentsJson ([{quantity:10},...]). Cannot create the first schedule. Never rebuild the quote.</descriptionOverride>
+        <descriptionOverride>Describes ramp segments, creates the first yearly schedule from segmentsJson, or patches qty on existing groups. Never SObject-insert QuoteLineGroup. Never rebuild the quote.</descriptionOverride>
         <toolName>applyRevenueCloudQuoteRamp</toolName>
         <toolTitle>Apply Quote Ramp</toolTitle>
     </tools>

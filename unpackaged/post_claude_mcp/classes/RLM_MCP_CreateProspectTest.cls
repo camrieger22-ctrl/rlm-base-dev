@@ -68,6 +68,56 @@ private class RLM_MCP_CreateProspectTest {
     }
 
     @IsTest
+    static void writesDemoAddressWhenConfirmed() {
+        RLM_MCP_CreateProspect.ProspectInput input =
+            new RLM_MCP_CreateProspect.ProspectInput();
+        input.accountName = 'MCP Prospect Demo Address';
+        input.contactEmail = 'demo.addr.mcp@example.com';
+        input.contactLastName = 'Demo';
+        input.useDemoAddress = true;
+
+        Test.startTest();
+        RLM_MCP_CreateProspect.ProspectOutput out = run(input);
+        Test.stopTest();
+
+        System.assertEquals(true, out.isSuccess, '' + out.errorMessage);
+        Account created = [
+            SELECT BillingStreet, BillingCity, ShippingStreet
+            FROM Account
+            WHERE Id = :out.accountId
+        ];
+        System.assertEquals('415 Mission St', created.BillingStreet);
+        System.assertEquals('San Francisco', created.BillingCity);
+        System.assertEquals('415 Mission St', created.ShippingStreet);
+        System.assert(out.resultsDisplay.contains('Billing address is set'), '' + out.resultsDisplay);
+    }
+
+    @IsTest
+    static void writesExplicitBillingAddress() {
+        insert new Account(Name = 'MCP Prospect Need Address');
+        RLM_MCP_CreateProspect.ProspectInput input =
+            new RLM_MCP_CreateProspect.ProspectInput();
+        input.accountName = 'MCP Prospect Need Address';
+        input.contactEmail = 'need.addr.mcp@example.com';
+        input.contactLastName = 'Need';
+        input.billingStreet = '1 Market St';
+        input.billingCity = 'San Francisco';
+        input.billingState = 'CA';
+        input.billingPostalCode = '94105';
+        input.billingCountry = 'United States';
+
+        Test.startTest();
+        RLM_MCP_CreateProspect.ProspectOutput out = run(input);
+        Test.stopTest();
+
+        System.assertEquals(true, out.isSuccess, '' + out.errorMessage);
+        Account updated = [
+            SELECT BillingStreet FROM Account WHERE Name = 'MCP Prospect Need Address'
+        ];
+        System.assertEquals('1 Market St', updated.BillingStreet);
+    }
+
+    @IsTest
     static void asksBeforeFuzzyCreate() {
         insert new Account(Name = 'MCP Prospect Similar Holdings');
         RLM_MCP_CreateProspect.ProspectInput input =

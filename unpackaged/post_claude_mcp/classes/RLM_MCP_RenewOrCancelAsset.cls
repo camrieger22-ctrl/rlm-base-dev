@@ -28,6 +28,12 @@ global with sharing class RLM_MCP_RenewOrCancelAsset {
             description='yyyy-mm-dd. Required for cancel. Required for early or expired renewals. Do not assume today.'
         )
         global String startDate;
+
+        @InvocableVariable(
+            label='Opportunity Name'
+            description='Optional open Opportunity to hang the renew/cancel quote on.'
+        )
+        global String opportunityName;
     }
 
     global class ChangeOutput {
@@ -180,7 +186,7 @@ global with sharing class RLM_MCP_RenewOrCancelAsset {
                 out.errorMessage = 'Start date must be yyyy-mm-dd.';
                 return out;
             }
-            Id opportunityId = findOpenOpportunity(asset.AccountId);
+            Id opportunityId = resolveOpportunityId(asset.AccountId, input.opportunityName);
             InvokeResult created = invoker.start(actionName, asset.Id, startDay, opportunityId);
             if (created == null || created.isSuccess != true) {
                 out.errorMessage = created != null && String.isNotBlank(created.errorMessage)
@@ -318,17 +324,22 @@ global with sharing class RLM_MCP_RenewOrCancelAsset {
         return null;
     }
 
-    private static Id findOpenOpportunity(Id accountId) {
+    private static Id resolveOpportunityId(Id accountId, String opportunityName) {
         if (accountId == null) {
             return null;
         }
+        if (String.isNotBlank(opportunityName)) {
+            return RLM_MCP_DealResolver.findNamedOpenOpportunity(accountId, opportunityName);
+        }
         List<Opportunity> opps = [
-            SELECT Id FROM Opportunity
+            SELECT Id
+            FROM Opportunity
             WHERE AccountId = :accountId AND IsClosed = false
+            WITH USER_MODE
             ORDER BY LastModifiedDate DESC
-            LIMIT 1
+            LIMIT 2
         ];
-        return opps.isEmpty() ? null : opps[0].Id;
+        return opps.size() == 1 ? opps[0].Id : null;
     }
 
     private static Quote findLatestActionQuote(Id accountId, String actionName) {
