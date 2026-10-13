@@ -297,6 +297,8 @@ private class RLM_MCP_PreviewQuoteDocumentTest {
         Assert.areEqual(String.valueOf(cv.ContentDocumentId), out.contentDocumentId);
         Assert.areEqual(String.valueOf(dgp.Id), out.documentGenerationProcessId);
         Assert.areEqual(0, fake.calls);
+        Assert.isTrue(String.isNotBlank(out.bodyDisplay), out.bodyDisplay);
+        Assert.isTrue(String.isNotBlank(out.subject), out.subject);
     }
 
     @IsTest
@@ -353,6 +355,48 @@ private class RLM_MCP_PreviewQuoteDocumentTest {
         );
         Assert.isTrue(out.message.contains('Open PDF'), out.message);
         Assert.areEqual(String.valueOf(cv.ContentDocumentId), out.contentDocumentId);
+        Assert.isTrue(String.isNotBlank(out.bodyDisplay), out.bodyDisplay);
+        Assert.isTrue(String.isNotBlank(out.subject), out.subject);
+    }
+
+    @IsTest
+    static void includeCustomerDraftReturnsEmailBody() {
+        Quote q = pricedQuote();
+        DocumentTemplate dt = activeTemplate();
+        ContentVersion cv = insertFile('ZMCP Preview PDF', 'preview.pdf');
+        insert new ContentDocumentLink(
+            LinkedEntityId = q.Id,
+            ContentDocumentId = cv.ContentDocumentId,
+            ShareType = 'V',
+            Visibility = 'AllUsers'
+        );
+        DocumentGenerationProcess dgp = insertProcess(
+            q.Id,
+            dt.Id,
+            'Success',
+            String.valueOf(cv.Id)
+        );
+
+        RLM_MCP_PreviewQuoteDocument.PreviewInput input =
+            new RLM_MCP_PreviewQuoteDocument.PreviewInput();
+        input.quoteId = String.valueOf(q.Id);
+        input.templateName = 'ZMCP_Preview_Proposal';
+        input.documentGenerationProcessId = String.valueOf(dgp.Id);
+        Test.startTest();
+        RLM_MCP_PreviewQuoteDocument.PreviewOutput out = run(input);
+        Test.stopTest();
+
+        Assert.isTrue(out.isSuccess == true, String.valueOf(out.errorMessage) + ' ' + out.message);
+        Assert.isTrue(out.isPartial != true, out.message);
+        Assert.isTrue(String.isNotBlank(out.bodyDisplay), out.bodyDisplay);
+        Assert.isTrue(String.isNotBlank(out.subject), out.subject);
+        Assert.isTrue(!out.bodyDisplay.contains('/lightning/r/'), out.bodyDisplay);
+        Assert.isTrue(
+            out.bodyDisplay.contains('proposal PDF (attached)')
+                || (out.bodyDisplay.contains('<a href=')
+                    && out.bodyDisplay.contains('>proposal PDF</a>')),
+            out.bodyDisplay
+        );
     }
 
     @IsTest

@@ -16,7 +16,7 @@ global with sharing class RLM_MCP_UpdateQuoteLines {
 
         @InvocableVariable(
             label='Quantities JSON'
-            description='JSON array of existing lines to patch: [{"product":"QuantumBit Database","quantity":20}]. Never add a new line.'
+            description='JSON array of existing lines to patch or remove: [{"product":"QuantumBit Database","quantity":20}]. Quantity 0 or {"remove":true} deletes that parent line. Never add a new line.'
         )
         global String quantitiesJson;
 
@@ -37,6 +37,12 @@ global with sharing class RLM_MCP_UpdateQuoteLines {
             description='Optional quote start date yyyy-mm-dd (e.g. 2026-12-01). Convert 12/1/2026 first. Recalculates end date from termMonths or the current term.'
         )
         global String startDate;
+
+        @InvocableVariable(
+            label='Quote Name'
+            description='Optional new Quote.Name (e.g. Acme Quote - 36 Months). Use when they ask to rename. Does not create a quote.'
+        )
+        global String quoteName;
     }
 
     global class UpdateOutput {
@@ -62,11 +68,12 @@ global with sharing class RLM_MCP_UpdateQuoteLines {
     private class QtySpec {
         String product;
         Decimal quantity;
+        Boolean remove;
     }
 
     @InvocableMethod(
         label='Update Revenue Cloud Quote Lines'
-        description='Patches quantity, termMonths, startDate (yyyy-mm-dd), and/or percent discount on an existing Draft in one call. 5 years = 60. Never rebuild or SObject-update Quote.'
+        description='Patches quantity, termMonths, startDate (yyyy-mm-dd), discount, and/or quoteName on an existing Draft. Quantity 0 removes that parent line. 5 years = 60. Never rebuild.'
     )
     global static List<UpdateOutput> updateLines(List<UpdateInput> inputs) {
         List<UpdateOutput> results = new List<UpdateOutput>();
@@ -103,6 +110,12 @@ global with sharing class RLM_MCP_UpdateQuoteLines {
             }
             Boolean hasTerm = input.termMonths != null;
             Boolean hasStart = String.isNotBlank(input.startDate);
+            String newName = String.isBlank(input.quoteName) ? null : input.quoteName.trim();
+            Boolean hasRename = String.isNotBlank(newName);
+            if (hasRename && newName.length() > 255) {
+                out.errorMessage = 'Quote name must be 255 characters or fewer.';
+                return out;
+            }
             Date startDate;
             Date endDate;
             Integer effectiveTerm = input.termMonths;
@@ -141,43 +154,79 @@ global with sharing class RLM_MCP_UpdateQuoteLines {
             if (String.isNotBlank(out.errorMessage)) {
                 return out;
             }
-            if (specs.isEmpty() && !hasDiscount && !hasTerm && !hasStart) {
-                out.errorMessage = 'Pass quantitiesJson, discountPercentage, termMonths, and/or startDate.';
+            if (specs.isEmpty() && !hasDiscount && !hasTerm && !hasStart && !hasRename) {
+                out.errorMessage =
+                    'Pass quantitiesJson, discountPercentage, termMonths, startDate, and/or quoteName.';
                 return out;
             }
 
-            List<QuoteLineItem> lines = [
-                SELECT Id, Quantity, Discount, Product2.Name, Product2.StockKeepingUnit,
-                       StartDate, EndDate, SubscriptionTerm, SubscriptionTermUnit,
-                       ProductSellingModel.SellingModelType,
-                       ProductSellingModel.PricingTermUnit
-                FROM QuoteLineItem
-                WHERE QuoteId = :quoteId
-                LIMIT 200
-            ];
-            if (lines.isEmpty()) {
-                out.errorMessage = 'Quote has no lines to update.';
-                return out;
+            Boolean lineWork = !specs.isEmpty() || hasDiscount || hasTerm || hasStart;
+            List<QuoteLineItem> lines = new List<QuoteLineItem>();
+            if (lineWork) {
+                lines = [
+                    SELECT Id, Quantity, Discount, Product2.Name, Product2.StockKeepingUnit,
+                           StartDate, EndDate, SubscriptionTerm, SubscriptionTermUnit,
+                           ParentQuoteLineItemId,
+                           ProductSellingModel.SellingModelType,
+                           ProductSellingModel.PricingTermUnit
+                    FROM QuoteLineItem
+                    WHERE QuoteId = :quoteId
+                    LIMIT 200
+                ];
+                if (lines.isEmpty()) {
+                    out.errorMessage = 'Quote has no lines to update.';
+                    return out;
+                }
             }
 
             Map<Id, Decimal> qtyByLine = new Map<Id, Decimal>();
+            Set<Id> removeIds = new Set<Id>();
             for (QtySpec spec : specs) {
                 QuoteLineItem matched = matchLine(spec.product, lines, out);
                 if (matched == null) {
                     return out;
                 }
-                qtyByLine.put(matched.Id, spec.quantity);
+                if (spec.remove == true || spec.quantity == 0) {
+                    if (matched.ParentQuoteLineItemId != null) {
+                        out.errorMessage = '"'
+                            + spec.product
+                            + '" is a bundle component. Remove the parent product or reconfigure the bundle.';
+                        return out;
+                    }
+                    removeIds.add(matched.Id);
+                } else {
+                    qtyByLine.put(matched.Id, spec.quantity);
+                }
             }
 
-            String persistError = persist(
-                quoteId,
-                lines,
-                qtyByLine,
-                input.discountPercentage,
-                effectiveTerm,
-                startDate,
-                endDate
-            );
+            String persistError;
+            if (lineWork) {
+                persistError = persist(
+                    quoteId,
+                    lines,
+                    qtyByLine,
+                    removeIds,
+                    input.discountPercentage,
+                    effectiveTerm,
+                    startDate,
+                    endDate,
+                    newName
+                );
+                if (String.isBlank(persistError) && hasRename) {
+                    persistError = renameQuote(quoteId, newName);
+                }
+                if (String.isNotBlank(persistError)
+                    && !removeIds.isEmpty()
+                    && qtyByLine.isEmpty()
+                    && !hasDiscount
+                    && !hasTerm
+                    && !hasStart
+                ) {
+                    persistError = deleteRemovedLines(lines, removeIds);
+                }
+            } else {
+                persistError = renameQuote(quoteId, newName);
+            }
             if (String.isNotBlank(persistError)) {
                 out.errorMessage = persistError;
                 return out;
@@ -186,8 +235,12 @@ global with sharing class RLM_MCP_UpdateQuoteLines {
             out.isSuccess = true;
             out.quoteUrl = RLM_MCP_RecordLinks.lightningUrl('Quote', quoteId);
             List<String> rows = new List<String>();
-            rows.add('Updated quote lines:');
+            rows.add('Updated quote:');
             Integer updates = 0;
+            if (hasRename) {
+                rows.add('- Name: ' + newName);
+                updates++;
+            }
             if (hasTerm || hasStart) {
                 if (effectiveTerm != null) {
                     rows.add('- Term: ' + String.valueOf(effectiveTerm) + ' months');
@@ -201,13 +254,19 @@ global with sharing class RLM_MCP_UpdateQuoteLines {
                 updates++;
             }
             for (QuoteLineItem line : lines) {
+                if (line.ParentQuoteLineItemId != null) {
+                    continue;
+                }
                 String name = line.Product2 == null ? String.valueOf(line.Id) : line.Product2.Name;
                 List<String> bits = new List<String>();
-                if (qtyByLine.containsKey(line.Id)) {
+                if (removeIds.contains(line.Id)) {
+                    bits.add('removed');
+                    updates++;
+                } else if (qtyByLine.containsKey(line.Id)) {
                     bits.add('qty ' + String.valueOf(qtyByLine.get(line.Id)));
                     updates++;
                 }
-                if (hasDiscount) {
+                if (hasDiscount && !removeIds.contains(line.Id)) {
                     bits.add(String.valueOf(input.discountPercentage) + '% off');
                     if (!qtyByLine.containsKey(line.Id)) {
                         updates++;
@@ -257,13 +316,22 @@ global with sharing class RLM_MCP_UpdateQuoteLines {
             QtySpec spec = new QtySpec();
             spec.product = asString(first(row, new List<String>{ 'product', 'name', 'sku' }));
             spec.quantity = asDecimal(first(row, new List<String>{ 'quantity', 'qty' }));
+            spec.remove = asBoolean(first(row, new List<String>{ 'remove', 'delete' }));
             if (String.isBlank(spec.product)) {
                 continue;
             }
-            if (spec.quantity == null || spec.quantity <= 0) {
-                out.errorMessage = 'Quantity for "' + spec.product + '" must be greater than 0.';
+            if (spec.remove == true) {
+                spec.quantity = 0;
+            }
+            if (spec.quantity == null) {
+                out.errorMessage = 'Quantity for "' + spec.product + '" is required (use 0 to remove).';
                 return specs;
             }
+            if (spec.quantity < 0) {
+                out.errorMessage = 'Quantity for "' + spec.product + '" cannot be negative.';
+                return specs;
+            }
+            spec.remove = spec.quantity == 0;
             specs.add(spec);
         }
         if (specs.isEmpty()) {
@@ -320,11 +388,12 @@ global with sharing class RLM_MCP_UpdateQuoteLines {
         String sku = line.Product2 == null || line.Product2.StockKeepingUnit == null
             ? ''
             : line.Product2.StockKeepingUnit.toLowerCase();
+        Integer parentBonus = line.ParentQuoteLineItemId == null ? 5 : 0;
         if (name == term || sku == term) {
-            return 100;
+            return 100 + parentBonus;
         }
         if ((name != '' && name.contains(term)) || (sku != '' && sku.contains(term))) {
-            return 90;
+            return 90 + parentBonus;
         }
         Integer tokenHits = 0;
         for (String token : term.split('\\s+')) {
@@ -335,29 +404,86 @@ global with sharing class RLM_MCP_UpdateQuoteLines {
                 tokenHits++;
             }
         }
-        return tokenHits > 0 ? tokenHits * 20 : -1;
+        return tokenHits > 0 ? tokenHits * 20 + parentBonus : -1;
+    }
+
+    private static String deleteRemovedLines(List<QuoteLineItem> lines, Set<Id> removeIds) {
+        if (removeIds == null || removeIds.isEmpty() || lines == null) {
+            return null;
+        }
+        List<QuoteLineItem> children = new List<QuoteLineItem>();
+        List<QuoteLineItem> parents = new List<QuoteLineItem>();
+        for (QuoteLineItem line : lines) {
+            if (removeIds.contains(line.Id)) {
+                if (line.ParentQuoteLineItemId != null) {
+                    children.add(new QuoteLineItem(Id = line.Id));
+                } else {
+                    parents.add(new QuoteLineItem(Id = line.Id));
+                }
+            } else if (line.ParentQuoteLineItemId != null && removeIds.contains(line.ParentQuoteLineItemId)) {
+                children.add(new QuoteLineItem(Id = line.Id));
+            }
+        }
+        try {
+            if (!children.isEmpty()) {
+                delete children;
+            }
+            if (!parents.isEmpty()) {
+                delete parents;
+            }
+            return null;
+        } catch (Exception e) {
+            return e.getMessage() == null ? 'Could not remove the quote line.' : e.getMessage();
+        }
+    }
+
+    private static String renameQuote(Id quoteId, String newName) {
+        try {
+            update new Quote(Id = quoteId, Name = newName);
+            return null;
+        } catch (Exception e) {
+            return e.getMessage() == null ? 'Could not rename the quote.' : e.getMessage();
+        }
     }
 
     private static String persist(
         Id quoteId,
         List<QuoteLineItem> lines,
         Map<Id, Decimal> qtyByLine,
+        Set<Id> removeIds,
         Decimal percent,
         Integer termMonths,
         Date startDate,
-        Date endDate
+        Date endDate,
+        String newName
     ) {
         Boolean hasTerm = termMonths != null && termMonths > 0 && endDate != null;
+        Boolean hasRename = String.isNotBlank(newName);
         if (Test.isRunningTest()) {
-            if (hasTerm) {
-                Quote header = new Quote(Id = quoteId, StartDate = startDate, EndDate = endDate);
+            if (hasTerm || hasRename) {
+                Quote header = new Quote(Id = quoteId);
+                if (hasTerm) {
+                    header.StartDate = startDate;
+                    header.EndDate = endDate;
+                }
+                if (hasRename) {
+                    header.Name = newName;
+                }
                 try {
                     update header;
                 } catch (Exception e) {
                     return e.getMessage();
                 }
             }
+            String deleteError = deleteRemovedLines(lines, removeIds);
+            if (String.isNotBlank(deleteError)) {
+                return deleteError;
+            }
+            List<QuoteLineItem> toUpdate = new List<QuoteLineItem>();
             for (QuoteLineItem line : lines) {
+                if (removeIds != null && removeIds.contains(line.Id)) {
+                    continue;
+                }
                 if (qtyByLine.containsKey(line.Id)) {
                     line.Quantity = qtyByLine.get(line.Id);
                 }
@@ -369,9 +495,12 @@ global with sharing class RLM_MCP_UpdateQuoteLines {
                     line.EndDate = endDate;
                     line.SubscriptionTerm = termCount(termMonths, termUnit(line));
                 }
+                toUpdate.add(line);
             }
             try {
-                update lines;
+                if (!toUpdate.isEmpty()) {
+                    update toUpdate;
+                }
             } catch (Exception e) {
                 return e.getMessage();
             }
@@ -388,10 +517,21 @@ global with sharing class RLM_MCP_UpdateQuoteLines {
             }
             quoteFields.put('EndDate', String.valueOf(endDate));
         }
+        if (hasRename) {
+            quoteFields.put('Name', newName);
+        }
         quoteNode.fieldValues = quoteFields;
         records.add(new RevSalesTrxn.RecordWithReferenceRequest('refQuoteUpd', quoteNode));
         Integer i = 0;
         for (QuoteLineItem line : lines) {
+            if (removeIds != null && removeIds.contains(line.Id)) {
+                RevSalesTrxn.RecordResource gone = new RevSalesTrxn.RecordResource(
+                    QuoteLineItem.getSObjectType(), 'DELETE', line.Id);
+                records.add(new RevSalesTrxn.RecordWithReferenceRequest(
+                    'refLineDel' + String.valueOf(i), gone));
+                i++;
+                continue;
+            }
             Map<String, Object> fields = new Map<String, Object>();
             if (qtyByLine.containsKey(line.Id)) {
                 fields.put('Quantity', qtyByLine.get(line.Id));
@@ -427,6 +567,14 @@ global with sharing class RLM_MCP_UpdateQuoteLines {
         options.validateAmendRenewCancel = false;
         options.addDefaultConfiguration = false;
         RevSalesTrxn.GraphRequest graph = new RevSalesTrxn.GraphRequest('McpQuoteLineUpdate', records);
+        Boolean deleteOnly = removeIds != null
+            && !removeIds.isEmpty()
+            && (qtyByLine == null || qtyByLine.isEmpty())
+            && percent == null
+            && !hasTerm;
+        if (deleteOnly) {
+            return executeGraph(graph, options, RevSalesTrxn.PricingPreferenceEnum.SKIP);
+        }
         String systemError = executeGraph(graph, options, RevSalesTrxn.PricingPreferenceEnum.SYSTEM);
         if (systemError == null) {
             return null;
@@ -541,6 +689,17 @@ global with sharing class RLM_MCP_UpdateQuoteLines {
 
     private static String asString(Object value) {
         return value == null ? null : String.valueOf(value).trim();
+    }
+
+    private static Boolean asBoolean(Object value) {
+        if (value == null) {
+            return false;
+        }
+        if (value instanceof Boolean) {
+            return (Boolean) value;
+        }
+        String raw = String.valueOf(value).trim().toLowerCase();
+        return raw == 'true' || raw == '1' || raw == 'yes';
     }
 
     private static Decimal asDecimal(Object value) {

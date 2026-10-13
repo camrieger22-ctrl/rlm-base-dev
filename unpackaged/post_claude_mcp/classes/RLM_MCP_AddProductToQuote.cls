@@ -53,6 +53,12 @@ global with sharing class RLM_MCP_AddProductToQuote {
             description='Optional. Only when the user names a selling model, e.g. Term Annual.'
         )
         global String sellingModelName;
+
+        @InvocableVariable(
+            label='Term Months'
+            description='Optional. Only when this SKU should use a different term than the quote. Omit to inherit quote StartDate/EndDate.'
+        )
+        global Integer termMonths;
     }
 
     global class AddOutput {
@@ -83,7 +89,7 @@ global with sharing class RLM_MCP_AddProductToQuote {
 
     @InvocableMethod(
         label='Add Product To Revenue Cloud Quote'
-        description='Adds products to an existing Draft quote. Pass linesJson ([{product, quantity}]) to add every new SKU in this call. Do not add-product per SKU when linesJson is set.'
+        description='Adds products to an existing Draft on the quote term (StartDate/EndDate), not 12 months. Pass linesJson ([{product, quantity}]). Optional termMonths only when this SKU should differ. Call once; recap Open Quote; do not explain or preview.'
     )
     global static List<AddOutput> addProduct(List<AddInput> inputs) {
         List<AddOutput> results = new List<AddOutput>();
@@ -103,10 +109,11 @@ global with sharing class RLM_MCP_AddProductToQuote {
             out.errorMessage = 'Quote Id is required.';
             return out;
         }
+        QuoteTerm quoteTerm = quoteTermOf(input.quoteId);
         List<RLM_AI_AddProductToQuoteService.AddInput> serviceInputs =
             new List<RLM_AI_AddProductToQuoteService.AddInput>();
         if (String.isNotBlank(input.linesJson)) {
-            String parseError = parseLinesJson(input, serviceInputs);
+            String parseError = parseLinesJson(input, serviceInputs, quoteTerm);
             if (parseError != null) {
                 out.errorMessage = parseError;
                 return out;
@@ -119,9 +126,12 @@ global with sharing class RLM_MCP_AddProductToQuote {
             mapped.productName = input.productName;
             mapped.quantity = input.quantity;
             mapped.sellingModelName = input.sellingModelName;
+            stampTerm(mapped, quoteTerm, input.termMonths, null, null);
             serviceInputs.add(mapped);
         }
-        List<RLM_AI_AddProductToQuoteService.AddOutput> rawResults = lineAdder.add(serviceInputs);
+        List<String> retryNotes = new List<String>();
+        List<RLM_AI_AddProductToQuoteService.AddOutput> rawResults =
+            RLM_MCP_LineAddRetry.addWithRetry(new LineAddBridge(), serviceInputs, retryNotes);
         if (rawResults == null || rawResults.isEmpty()) {
             out.errorMessage = 'Add product returned no result.';
             return out;
@@ -161,13 +171,97 @@ global with sharing class RLM_MCP_AddProductToQuote {
                 recap.add(link);
             }
         }
+        recap.addAll(retryNotes);
+        String termRecap = termRecapOf(serviceInputs);
+        if (String.isNotBlank(termRecap)) {
+            recap.add(termRecap);
+        }
         out.lineSummaryDisplay = recap.isEmpty() ? last.lineSummaryDisplay : String.join(recap, '\n');
         return out;
     }
 
+    private class QuoteTerm {
+        Date startDate;
+        Date endDate;
+    }
+
+    private static QuoteTerm quoteTermOf(String quoteIdStr) {
+        QuoteTerm term = new QuoteTerm();
+        Id quoteId;
+        try {
+            quoteId = Id.valueOf(quoteIdStr);
+        } catch (Exception e) {
+            return term;
+        }
+        List<Quote> headers = [
+            SELECT StartDate, EndDate
+            FROM Quote
+            WHERE Id = :quoteId
+            WITH USER_MODE
+            LIMIT 1
+        ];
+        if (headers.isEmpty()) {
+            return term;
+        }
+        term.startDate = headers[0].StartDate;
+        term.endDate = headers[0].EndDate;
+        return term;
+    }
+
+    private static void stampTerm(
+        RLM_AI_AddProductToQuoteService.AddInput mapped,
+        QuoteTerm quoteTerm,
+        Integer overrideMonths,
+        Date overrideStart,
+        Date overrideEnd
+    ) {
+        if (mapped == null) {
+            return;
+        }
+        mapped.startDate = overrideStart != null
+            ? overrideStart
+            : (quoteTerm == null ? null : quoteTerm.startDate);
+        mapped.endDate = overrideEnd != null
+            ? overrideEnd
+            : (quoteTerm == null ? null : quoteTerm.endDate);
+        if (overrideMonths != null && overrideMonths > 0) {
+            Date start = mapped.startDate != null ? mapped.startDate : Date.today();
+            mapped.startDate = start;
+            mapped.endDate = start.addMonths(overrideMonths);
+        }
+    }
+
+    private static String termRecapOf(
+        List<RLM_AI_AddProductToQuoteService.AddInput> inputs
+    ) {
+        if (inputs == null || inputs.isEmpty() || inputs[0] == null) {
+            return null;
+        }
+        Date startDate = inputs[0].startDate;
+        Date endDate = inputs[0].endDate;
+        if (startDate == null || endDate == null) {
+            return null;
+        }
+        Integer months = startDate.monthsBetween(endDate);
+        if (months < 0) {
+            months = 0;
+        }
+        return 'Term: ' + String.valueOf(startDate) + ' – ' + String.valueOf(endDate)
+            + ' (' + String.valueOf(months) + ' months).';
+    }
+
+    private class LineAddBridge implements RLM_MCP_LineAddRetry.Adder {
+        public List<RLM_AI_AddProductToQuoteService.AddOutput> add(
+            List<RLM_AI_AddProductToQuoteService.AddInput> inputs
+        ) {
+            return lineAdder.add(inputs);
+        }
+    }
+
     private static String parseLinesJson(
         AddInput input,
-        List<RLM_AI_AddProductToQuoteService.AddInput> serviceInputs
+        List<RLM_AI_AddProductToQuoteService.AddInput> serviceInputs,
+        QuoteTerm quoteTerm
     ) {
         Object parsed;
         try {
@@ -198,6 +292,19 @@ global with sharing class RLM_MCP_AddProductToQuote {
             mapped.sellingModelName = asString(first(row, new List<String>{
                 'sellingModel', 'sellingModelName'
             }));
+            Integer rowTerm = asPositiveInteger(first(row, new List<String>{
+                'termMonths', 'term'
+            }));
+            if (rowTerm == null) {
+                rowTerm = input.termMonths;
+            }
+            stampTerm(
+                mapped,
+                quoteTerm,
+                rowTerm,
+                parseDate(asString(first(row, new List<String>{ 'startDate', 'start' }))),
+                parseDate(asString(first(row, new List<String>{ 'endDate', 'end' })))
+            );
             serviceInputs.add(mapped);
         }
         if (serviceInputs.isEmpty()) {
@@ -231,5 +338,40 @@ global with sharing class RLM_MCP_AddProductToQuote {
         } catch (Exception e) {
             return 1;
         }
+    }
+
+    private static Integer asPositiveInteger(Object value) {
+        if (value == null) {
+            return null;
+        }
+        Decimal parsed;
+        if (value instanceof Decimal) {
+            parsed = (Decimal) value;
+        } else {
+            try {
+                parsed = Decimal.valueOf(String.valueOf(value).trim());
+            } catch (Exception e) {
+                return null;
+            }
+        }
+        if (parsed == null || parsed <= 0) {
+            return null;
+        }
+        return parsed.intValue();
+    }
+
+    private static Date parseDate(String raw) {
+        if (String.isBlank(raw)) {
+            return null;
+        }
+        String day = raw.trim();
+        if (day.length() >= 10 && day.indexOf('-') == 4) {
+            try {
+                return Date.valueOf(day.substring(0, 10));
+            } catch (Exception e) {
+                return null;
+            }
+        }
+        return null;
     }
 }

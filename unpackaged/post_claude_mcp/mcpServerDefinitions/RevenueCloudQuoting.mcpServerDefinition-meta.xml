@@ -48,7 +48,7 @@
             <apiSource>API_CATALOG</apiSource>
             <operation>RLM_MCP_AddProductToQuote</operation>
         </apiDefinition>
-        <descriptionOverride>Adds products to an existing Draft. Pass linesJson ([{product, quantity}]) for every new SKU in this call. Do not add-product per SKU when linesJson is set.</descriptionOverride>
+        <descriptionOverride>Adds products to an existing Draft on the quote term. Pass linesJson ([{product, quantity}]). Optional termMonths only if this SKU should differ. Call once; recap Open Quote. Do not explain or preview after add.</descriptionOverride>
         <toolName>addProductToRevenueCloudQuote</toolName>
         <toolTitle>Add Product To Quote</toolTitle>
     </tools>
@@ -68,7 +68,7 @@
             <apiSource>API_CATALOG</apiSource>
             <operation>RLM_MCP_UpdateQuoteLines</operation>
         </apiDefinition>
-        <descriptionOverride>Patches quantity, termMonths, startDate (yyyy-mm-dd), and/or discount on an existing Draft in one Place Sales Transaction. 5 years = 60. Never rebuild or SObject-update Quote.</descriptionOverride>
+        <descriptionOverride>Patches quantity, termMonths, startDate, discount, and/or quoteName on a Draft. Quantity 0 removes that parent line — call once, do not retry formats. 5 years = 60. Never rebuild.</descriptionOverride>
         <toolName>updateRevenueCloudQuoteLines</toolName>
         <toolTitle>Update Quote Lines</toolTitle>
     </tools>
@@ -218,7 +218,7 @@
             <apiSource>API_CATALOG</apiSource>
             <operation>RLM_MCP_DraftCustomerReply</operation>
         </apiDefinition>
-        <descriptionOverride>Drafts an unsent customer email. If Gmail has a draft/create tool, put subject and bodyDisplay there. Never send_message. Leave unsent.</descriptionOverride>
+        <descriptionOverride>Drafts unsent HTML customer email with a customer-safe PDF link. Use this only when you are not generating a PDF. After previewRevenueCloudQuoteDocument, use its bodyDisplay — do not call this. Never send.</descriptionOverride>
         <toolName>draftRevenueCloudCustomerReply</toolName>
         <toolTitle>Draft Customer Reply</toolTitle>
     </tools>
@@ -248,7 +248,7 @@
             <apiSource>API_CATALOG</apiSource>
             <operation>RLM_MCP_PreviewQuoteDocument</operation>
         </apiDefinition>
-        <descriptionOverride>Generates the Quote Proposal PDF (RLM_QuoteProposal). Reuses the last PDF when the quote is unchanged. If isPartial, immediately call again with quoteId and documentGenerationProcessId; do not reply to the user. Never insert ContentVersion rows yourself.</descriptionOverride>
+        <descriptionOverride>Generates Quote Proposal PDF and HTML bodyDisplay. Finish email in this turn. If isPartial, call again immediately with process Id — never wait or ask the user to retry. When bodyDisplay is set, update Gmail; do not call draftRevenueCloudCustomerReply.</descriptionOverride>
         <toolName>previewRevenueCloudQuoteDocument</toolName>
         <toolTitle>Preview Quote Document</toolTitle>
     </tools>

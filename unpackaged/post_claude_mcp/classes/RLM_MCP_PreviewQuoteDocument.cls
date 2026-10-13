@@ -7,6 +7,11 @@ global with sharing class RLM_MCP_PreviewQuoteDocument {
     private static final Integer MAX_CANDIDATES = 50;
     private static final String DEFAULT_TEMPLATE = 'RLM_QuoteProposal';
     private static final Set<String> IN_FLIGHT = new Set<String>{ 'InProgress', 'Waiting' };
+    private static final Integer POLL_WAIT_MS = 8000;
+    private static final Integer POLL_STEP_MS = 1000;
+
+    @TestVisible
+    static Boolean skipPollWait = false;
 
     global class PreviewInput {
         @InvocableVariable(
@@ -38,6 +43,12 @@ global with sharing class RLM_MCP_PreviewQuoteDocument {
             description='Pass back documentGenerationProcessId when isPartial is true so the same run is polled.'
         )
         global String documentGenerationProcessId;
+
+        @InvocableVariable(
+            label='Include Customer Draft'
+            description='True when refreshing an email after generating the PDF. Returns subject and HTML bodyDisplay so you can skip draftRevenueCloudCustomerReply.'
+        )
+        global Boolean includeCustomerDraft;
     }
 
     global class PreviewOutput {
@@ -45,7 +56,7 @@ global with sharing class RLM_MCP_PreviewQuoteDocument {
         global Boolean isSuccess;
         @InvocableVariable(
             label='Is Partial'
-            description='True when the PDF is still generating. Immediately call this tool again with quoteId and documentGenerationProcessId. Do not write a wait message to the user.'
+            description='True when the PDF is still generating. Immediately call this tool again with quoteId and documentGenerationProcessId. Never wait, sleep, or use a Wait tool. Do not write a wait message to the user.'
         )
         global Boolean isPartial;
         @InvocableVariable(label='Message')
@@ -72,6 +83,20 @@ global with sharing class RLM_MCP_PreviewQuoteDocument {
             description='Lightning Files page for the PDF. Render as [Open PDF](pdfUrl) in the chat reply.'
         )
         global String pdfUrl;
+        @InvocableVariable(
+            label='Public Pdf Url'
+            description='Customer-safe proposal PDF link. Use this in Gmail, not pdfUrl.'
+        )
+        global String publicPdfUrl;
+        @InvocableVariable(label='Subject')
+        global String subject;
+        @InvocableVariable(
+            label='Body Display'
+            description='HTML customer email. Always set when the PDF is ready. Put this in Gmail verbatim. Do not call draftRevenueCloudCustomerReply.'
+        )
+        global String bodyDisplay;
+        @InvocableVariable(label='Coach Display')
+        global String coachDisplay;
         @InvocableVariable(label='Needs Disambiguation')
         global Boolean needsDisambiguation;
         @InvocableVariable(label='Candidate Summaries Display')
@@ -115,7 +140,7 @@ global with sharing class RLM_MCP_PreviewQuoteDocument {
 
     @InvocableMethod(
         label='Preview Revenue Cloud Quote Document'
-        description='Generates the Quote Proposal PDF (RLM_QuoteProposal). Reuses the last PDF when the quote is unchanged. If isPartial, immediately call again with quoteId and documentGenerationProcessId; do not reply to the user. Never insert ContentVersion rows yourself.'
+        description='Generates Quote Proposal PDF and HTML bodyDisplay. Finish email in this turn. If isPartial, call again immediately with process Id — never wait or ask the user to retry. When bodyDisplay is set, update Gmail; do not call draftRevenueCloudCustomerReply.'
     )
     global static List<PreviewOutput> preview(List<PreviewInput> inputs) {
         List<PreviewOutput> results = new List<PreviewOutput>();
@@ -181,7 +206,7 @@ global with sharing class RLM_MCP_PreviewQuoteDocument {
             out.documentGenerationProcessId = processId;
 
             List<DocumentGenerationProcess> processes = [
-                SELECT Id, Status, ResponseText, ReferenceObject
+                SELECT Id, Status, ResponseText, ReferenceObject, CreatedDate
                 FROM DocumentGenerationProcess
                 WHERE Id = :processId
                 LIMIT 1
@@ -190,7 +215,7 @@ global with sharing class RLM_MCP_PreviewQuoteDocument {
                 out.errorMessage = 'Document generation process ' + processId + ' was not found.';
                 return out;
             }
-            DocumentGenerationProcess dgp = processes[0];
+            DocumentGenerationProcess dgp = awaitProcess(processId, processes[0]);
             String status = String.valueOf(dgp.Status);
             if (IN_FLIGHT.contains(status)) {
                 out.isPartial = true;
@@ -213,6 +238,9 @@ global with sharing class RLM_MCP_PreviewQuoteDocument {
 
             ContentVersion pdf = pdfFromResponse(dgp.ResponseText);
             if (pdf == null) {
+                pdf = latestPdfOnQuoteSince(q.Id, dgp.CreatedDate);
+            }
+            if (pdf == null) {
                 out.isPartial = true;
                 out.isSuccess = true;
                 out.message = retryNowMessage(q.Id, processId, template.Name, q.Name);
@@ -221,6 +249,7 @@ global with sharing class RLM_MCP_PreviewQuoteDocument {
             out.contentDocumentId = pdf.ContentDocumentId;
             out.contentVersionId = pdf.Id;
             out.pdfUrl = RLM_MCP_RecordLinks.lightningUrl('ContentDocument', pdf.ContentDocumentId);
+            attachPdfAndDraft(out, pdf, q);
             out.isSuccess = true;
             List<String> bits = new List<String>();
             String pdfLink = RLM_MCP_RecordLinks.markdown('Open PDF', 'ContentDocument', pdf.ContentDocumentId);
@@ -248,7 +277,9 @@ global with sharing class RLM_MCP_PreviewQuoteDocument {
     }
 
     private static String retryNowMessage(Id quoteId, Id processId, String templateName, String quoteName) {
-        return 'RETRY_NOW. Do not reply to the user. Immediately call previewRevenueCloudQuoteDocument with quoteId='
+        return 'RETRY_NOW. Do not reply to the user. Do not wait, sleep, Pause, '
+            + 'or ask them to prompt again. Immediately call '
+            + 'previewRevenueCloudQuoteDocument with quoteId='
             + quoteId
             + ' and documentGenerationProcessId='
             + processId
@@ -256,7 +287,8 @@ global with sharing class RLM_MCP_PreviewQuoteDocument {
             + templateName
             + ' for '
             + quoteName
-            + ').';
+            + '). When bodyDisplay is set, update Gmail and stop. '
+            + 'Do not call draftRevenueCloudCustomerReply.';
     }
 
     private static Id existingProcessId(String rawProcessId, Quote q, Id templateId) {
@@ -273,11 +305,11 @@ global with sharing class RLM_MCP_PreviewQuoteDocument {
             ];
             return byId.isEmpty() ? null : byId[0].Id;
         }
-        String quoteKey = String.valueOf(q.Id);
+        Set<String> quoteKeys = quoteKeysOf(q.Id);
         List<DocumentGenerationProcess> openJobs = [
             SELECT Id
             FROM DocumentGenerationProcess
-            WHERE ReferenceObject = :quoteKey
+            WHERE ReferenceObject IN :quoteKeys
             AND DocumentTemplateId = :templateId
             AND Status IN :IN_FLIGHT
             ORDER BY CreatedDate DESC
@@ -289,7 +321,7 @@ global with sharing class RLM_MCP_PreviewQuoteDocument {
         List<DocumentGenerationProcess> doneJobs = [
             SELECT Id, LastModifiedDate, ResponseText
             FROM DocumentGenerationProcess
-            WHERE ReferenceObject = :quoteKey
+            WHERE ReferenceObject IN :quoteKeys
             AND DocumentTemplateId = :templateId
             AND Status = 'Success'
             ORDER BY LastModifiedDate DESC
@@ -306,6 +338,117 @@ global with sharing class RLM_MCP_PreviewQuoteDocument {
             return null;
         }
         return done.Id;
+    }
+
+    private static DocumentGenerationProcess awaitProcess(
+        Id processId,
+        DocumentGenerationProcess dgp
+    ) {
+        if (dgp == null || processId == null) {
+            return dgp;
+        }
+        if (Test.isRunningTest() || skipPollWait) {
+            return dgp;
+        }
+        if (!IN_FLIGHT.contains(String.valueOf(dgp.Status))) {
+            return dgp;
+        }
+        Long deadline = DateTime.now().getTime() + POLL_WAIT_MS;
+        Integer queries = 0;
+        while (DateTime.now().getTime() < deadline
+            && Limits.getCpuTime() < 8500
+            && queries < 10
+            && IN_FLIGHT.contains(String.valueOf(dgp.Status))) {
+            Long stepStart = DateTime.now().getTime();
+            while (DateTime.now().getTime() - stepStart < POLL_STEP_MS
+                && Limits.getCpuTime() < 8500) {
+                Integer spin = Crypto.getRandomInteger();
+                spin++;
+            }
+            queries++;
+            List<DocumentGenerationProcess> again = [
+                SELECT Id, Status, ResponseText, ReferenceObject, CreatedDate
+                FROM DocumentGenerationProcess
+                WHERE Id = :processId
+                LIMIT 1
+            ];
+            if (again.isEmpty()) {
+                return dgp;
+            }
+            dgp = again[0];
+        }
+        return dgp;
+    }
+
+    private static Set<String> quoteKeysOf(Id quoteId) {
+        Set<String> keys = new Set<String>{ String.valueOf(quoteId) };
+        String raw = String.valueOf(quoteId);
+        if (raw.length() == 18) {
+            keys.add(raw.substring(0, 15));
+        }
+        return keys;
+    }
+
+    private static ContentVersion latestPdfOnQuoteSince(Id quoteId, Datetime sinceWhen) {
+        if (quoteId == null) {
+            return null;
+        }
+        List<ContentDocumentLink> links = [
+            SELECT ContentDocumentId
+            FROM ContentDocumentLink
+            WHERE LinkedEntityId = :quoteId
+            ORDER BY SystemModstamp DESC
+            LIMIT 20
+        ];
+        if (links.isEmpty()) {
+            return null;
+        }
+        Set<Id> docIds = new Set<Id>();
+        for (ContentDocumentLink link : links) {
+            docIds.add(link.ContentDocumentId);
+        }
+        List<ContentVersion> pdfs = [
+            SELECT Id, ContentDocumentId, FileType, Title, CreatedDate
+            FROM ContentVersion
+            WHERE ContentDocumentId IN :docIds
+            AND IsLatest = true
+            AND FileType = 'PDF'
+            ORDER BY CreatedDate DESC
+            LIMIT 1
+        ];
+        if (pdfs.isEmpty()) {
+            return null;
+        }
+        if (sinceWhen != null && pdfs[0].CreatedDate < sinceWhen) {
+            return null;
+        }
+        return pdfs[0];
+    }
+
+    private static void attachPdfAndDraft(
+        PreviewOutput out,
+        ContentVersion pdf,
+        Quote q
+    ) {
+        out.publicPdfUrl = RLM_MCP_DraftCustomerReply.publicUrlFor(pdf, q);
+        RLM_MCP_DraftCustomerReply.ReplyInput draftIn =
+            new RLM_MCP_DraftCustomerReply.ReplyInput();
+        draftIn.quoteId = q.Id;
+        List<RLM_MCP_DraftCustomerReply.ReplyOutput> drafted =
+            RLM_MCP_DraftCustomerReply.draft(
+                new List<RLM_MCP_DraftCustomerReply.ReplyInput>{ draftIn }
+            );
+        if (drafted == null || drafted.isEmpty() || drafted[0] == null
+            || drafted[0].isSuccess != true) {
+            return;
+        }
+        RLM_MCP_DraftCustomerReply.ReplyOutput d = drafted[0];
+        out.subject = d.subject;
+        out.bodyDisplay = d.bodyDisplay;
+        out.coachDisplay = d.coachDisplay;
+        if (String.isNotBlank(d.publicPdfUrl)) {
+            out.publicPdfUrl = d.publicPdfUrl;
+        }
     }
 
     private static ContentVersion pdfFromResponse(String responseText) {

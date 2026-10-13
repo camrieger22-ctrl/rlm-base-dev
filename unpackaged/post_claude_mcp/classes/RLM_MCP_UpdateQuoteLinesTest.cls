@@ -228,6 +228,49 @@ private class RLM_MCP_UpdateQuoteLinesTest {
     }
 
     @IsTest
+    static void renamesQuote() {
+        Id qid = quoteId();
+        RLM_MCP_UpdateQuoteLines.UpdateInput input =
+            new RLM_MCP_UpdateQuoteLines.UpdateInput();
+        input.quoteId = String.valueOf(qid);
+        input.quoteName = 'Acme Quote - 36 Months';
+
+        Test.startTest();
+        RLM_MCP_UpdateQuoteLines.UpdateOutput out = run(input);
+        Test.stopTest();
+
+        System.assertEquals(true, out.isSuccess, String.valueOf(out.errorMessage) + ' ' + out.resultsDisplay);
+        System.assert(out.resultsDisplay.contains('Acme Quote - 36 Months'), out.resultsDisplay);
+        Quote after = [SELECT Name FROM Quote WHERE Id = :qid];
+        System.assertEquals('Acme Quote - 36 Months', after.Name);
+    }
+
+    @IsTest
+    static void removesParentLine() {
+        Id qid = quoteId();
+        RLM_MCP_UpdateQuoteLines.UpdateInput input =
+            new RLM_MCP_UpdateQuoteLines.UpdateInput();
+        input.quoteId = String.valueOf(qid);
+        input.quantitiesJson = '[{"product":"Software Maintenance","quantity":0}]';
+
+        Test.startTest();
+        RLM_MCP_UpdateQuoteLines.UpdateOutput out = run(input);
+        Test.stopTest();
+
+        System.assertEquals(true, out.isSuccess, String.valueOf(out.errorMessage) + ' ' + out.resultsDisplay);
+        System.assert(out.resultsDisplay.contains('Software Maintenance'), out.resultsDisplay);
+        System.assert(out.resultsDisplay.contains('removed'), out.resultsDisplay);
+        System.assertEquals(
+            0,
+            [SELECT COUNT() FROM QuoteLineItem WHERE QuoteId = :qid AND Product2.Name = 'Software Maintenance']
+        );
+        System.assertEquals(
+            2,
+            [SELECT COUNT() FROM QuoteLineItem WHERE QuoteId = :qid]
+        );
+    }
+
+    @IsTest
     static void unknownProduct() {
         RLM_MCP_UpdateQuoteLines.UpdateInput input =
             new RLM_MCP_UpdateQuoteLines.UpdateInput();

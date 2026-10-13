@@ -306,7 +306,9 @@ global with sharing class RLM_MCP_CreateQuote {
             addIn.endDate = endDate;
             inputs.add(addIn);
         }
-        List<RLM_AI_AddProductToQuoteService.AddOutput> added = lineAdder.add(inputs);
+        List<String> retryNotes = new List<String>();
+        List<RLM_AI_AddProductToQuoteService.AddOutput> added =
+            RLM_MCP_LineAddRetry.addWithRetry(new LineAddBridge(), inputs, retryNotes);
         List<String> addedLines = new List<String>();
         if (added == null) {
             recap.add('Could not add lines.');
@@ -329,7 +331,16 @@ global with sharing class RLM_MCP_CreateQuote {
                 recap.add('- ' + product + ': ' + err);
             }
         }
+        recap.addAll(retryNotes);
         out.linesDisplay = addedLines.isEmpty() ? null : String.join(addedLines, '\n');
+    }
+
+    private class LineAddBridge implements RLM_MCP_LineAddRetry.Adder {
+        public List<RLM_AI_AddProductToQuoteService.AddOutput> add(
+            List<RLM_AI_AddProductToQuoteService.AddInput> inputs
+        ) {
+            return lineAdder.add(inputs);
+        }
     }
 
     private static Object first(Map<String, Object> raw, List<String> keys) {
