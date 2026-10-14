@@ -18,9 +18,73 @@ private class RLM_MCP_QuoteActionsTest {
             RLM_MCP_CreateQuote.createQuote(new List<RLM_MCP_CreateQuote.CreateInput>{ input });
         System.assertEquals(false, results[0].isSuccess);
         System.assert(
-            results[0].message.contains('createRevenueCloudProspect'),
+            results[0].message.contains('contactEmail'),
             '' + results[0].message
         );
+        System.assert(
+            results[0].message.contains('Do not call createRevenueCloudProspect first'),
+            '' + results[0].message
+        );
+    }
+
+    @IsTest
+    static void createQuote_unknownAccountCreatesProspectInline() {
+        update new Pricebook2(Id = Test.getStandardPricebookId(), IsActive = true);
+        RLM_MCP_CreateQuote.CreateInput input = new RLM_MCP_CreateQuote.CreateInput();
+        input.accountName = 'MCP Inline Prospect Analytics';
+        input.quoteName = 'MCP Inline 36-Month Quote';
+        input.opportunityName = 'MCP Inline Prospect New Business';
+        input.contactFirstName = 'Priya';
+        input.contactLastName = 'Shah';
+        input.contactEmail = 'priya.shah.mcp.inline@example.test';
+        input.billingStreet = '1200 Market Street';
+        input.billingCity = 'San Francisco';
+        input.billingState = 'CA';
+        input.billingPostalCode = '94102';
+        input.billingCountry = 'United States';
+        input.termMonths = 36;
+
+        Test.startTest();
+        List<RLM_MCP_CreateQuote.CreateOutput> results =
+            RLM_MCP_CreateQuote.createQuote(new List<RLM_MCP_CreateQuote.CreateInput>{ input });
+        Test.stopTest();
+
+        System.assertEquals(true, results[0].isSuccess, results[0].message);
+        System.assertNotEquals(null, results[0].quoteId);
+        System.assertNotEquals(null, results[0].opportunityId);
+        System.assertNotEquals(null, results[0].contactId);
+        System.assertEquals('MCP Inline Prospect Analytics', results[0].accountName);
+        System.assert(
+            results[0].accountUrl != null
+                && results[0].accountUrl.contains('/lightning/r/Account/'),
+            results[0].accountUrl
+        );
+        System.assert(
+            results[0].contactUrl != null
+                && results[0].contactUrl.contains('/lightning/r/Contact/'),
+            results[0].contactUrl
+        );
+        System.assert(results[0].message.contains('Open Account'), results[0].message);
+        System.assert(results[0].message.contains('Open Contact'), results[0].message);
+        System.assertEquals(
+            1,
+            [SELECT COUNT() FROM Account WHERE Name = 'MCP Inline Prospect Analytics']
+        );
+        System.assertEquals(
+            1,
+            [
+                SELECT COUNT()
+                FROM Contact
+                WHERE Email = 'priya.shah.mcp.inline@example.test'
+            ]
+        );
+        Quote quote = [
+            SELECT ContactId, Opportunity.Name
+            FROM Quote
+            WHERE Id = :results[0].quoteId
+        ];
+        System.assertEquals(Id.valueOf(results[0].contactId), quote.ContactId);
+        System.assertEquals('MCP Inline Prospect New Business', quote.Opportunity.Name);
     }
 
     @IsTest
@@ -234,13 +298,16 @@ private class RLM_MCP_QuoteActionsTest {
 
     private class FakeLineAdder implements RLM_MCP_CreateQuote.LineAdder {
         Integer calls = 0;
+        List<String> productOrder = new List<String>();
         public List<RLM_AI_AddProductToQuoteService.AddOutput> add(
             List<RLM_AI_AddProductToQuoteService.AddInput> inputs
         ) {
             calls++;
+            productOrder = new List<String>();
             List<RLM_AI_AddProductToQuoteService.AddOutput> outs =
                 new List<RLM_AI_AddProductToQuoteService.AddOutput>();
             for (RLM_AI_AddProductToQuoteService.AddInput addIn : inputs) {
+                productOrder.add(addIn.productName);
                 RLM_AI_AddProductToQuoteService.AddOutput row =
                     new RLM_AI_AddProductToQuoteService.AddOutput();
                 row.isSuccess = true;
@@ -266,9 +333,9 @@ private class RLM_MCP_QuoteActionsTest {
         input.opportunityName = 'Claude Email Test 4';
         input.termMonths = 12;
         input.linesJson =
-            '[{"product":"QuantumBit Database","quantity":10},'
-            + '{"product":"Software Maintenance","quantity":5},'
-            + '{"product":"Q-Rack 750","quantity":1}]';
+            '[{"product":"Q-Rack 750","quantity":1},'
+            + '{"product":"QuantumBit Database","quantity":10},'
+            + '{"product":"Software Maintenance","quantity":5}]';
 
         Test.startTest();
         List<RLM_MCP_CreateQuote.CreateOutput> results =
@@ -277,6 +344,10 @@ private class RLM_MCP_QuoteActionsTest {
 
         System.assertEquals(true, results[0].isSuccess, results[0].message);
         System.assertEquals(1, fake.calls);
+        System.assertEquals(3, fake.productOrder.size());
+        System.assertEquals('QuantumBit Database', fake.productOrder[0]);
+        System.assertEquals('Software Maintenance', fake.productOrder[1]);
+        System.assertEquals('Q-Rack 750', fake.productOrder[2]);
         System.assert(
             results[0].linesDisplay != null
                 && results[0].linesDisplay.contains('QuantumBit Database'),

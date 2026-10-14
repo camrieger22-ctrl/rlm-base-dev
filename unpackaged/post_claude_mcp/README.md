@@ -1,8 +1,9 @@
 # Claude Hosted MCP — Revenue Cloud quoting
 
 Custom Hosted MCP tools so Claude Desktop can ping the quoting catalog
-after reconnect, create a prospect Account/Contact (confirm first; optional
-billing address or confirmed demo address), create a Draft quote or **reuse**
+after reconnect, create a Draft quote (and Account/Contact/Opportunity
+when the company is new — pass contact names, email, and address on
+Create Quote; do not call Create Prospect first), or **reuse**
 the Draft on the same Opportunity and quote name, add several products
 to an existing Draft via `linesJson`, list open Drafts filtered by
 Opportunity, recap deal/approval status, approve or reject an assigned
@@ -39,7 +40,10 @@ Document starts `RLM_DocumentGenerationCreate` for **RLM_QuoteProposal**
 after the transaction commits, so the first preview returns `isPartial`
 (retry with the process Id until `pdfUrl` in the same turn). Later previews reuse that Success PDF when the quote has not
 changed. Build Quote Options creates 2–5 Draft quotes on one named
-Opportunity.
+Opportunity. Same mix with a new term or discount: `cloneRevenueCloudQuote`
+once per option (in-process Place copy of the source lines) with
+`clonedQuoteName`, `termMonths`, and `discountPercentage`. Do not rebuild
+via Build Quote Options. Build Quote Options is for a **new** product mix only.
 
 Deploy to the target org, activate the server in Setup → MCP Servers, then
 add a Claude connector at:
@@ -165,9 +169,14 @@ Put a product/qty request in that inbox, then ask:
 
 > Build a quote from the latest Acme email.
 
-Claude should search mail, then **one** Create Quote with `opportunityName`,
+Claude should search `in:inbox` newest (not a 30-day keyword OR), skip the
+quoting catalog, then **one** Create Quote with `opportunityName`,
 `quoteName`, and `linesJson` (no per-SKU add, no Product2 SObject queries)
-and return **Open Quote**. If that mail has a Drive Sheet or PDF, it
+and return **Open Quote**. If that company is not in Salesforce, and you
+already asked it to create the account and contact from the email, it
+should still be **one** Create Quote (pass contact names, email, and
+address on that call — it creates Account + Contact + Opportunity). Do
+not call Create Prospect first. If that mail has a Drive Sheet or PDF, it
 should open Drive and take product/qty from that file without being
 asked. A PDF dropped in the Claude chat should do the same. A second ask
 for the same named deal **reuses**
@@ -191,9 +200,9 @@ Opportunity name, then **one** Update Quote Lines on that Draft (qty,
 Drafts exist on that Opportunity, it should ask which one. New SKUs in that
 mail are **one** Add Product with `linesJson`, not a second quote. New
 lines inherit the quote term. A sender
-with no Account: confirm, then Create Prospect (address or confirmed demo
-address), then Create Quote. They already own the SKU: amend, not a new
-sale.
+with no Account: confirm, then **one** Create Quote with contact names,
+email, and address (or confirmed demo address). They already own the SKU:
+amend, not a new sale.
 
 A meeting / call recap is the same Create Quote path, from Calendar
 instead of Gmail. Put an event on the connected calendar (title

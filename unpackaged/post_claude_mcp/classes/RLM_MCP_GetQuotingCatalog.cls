@@ -3,8 +3,8 @@
  * connector is obvious after reconnect.
  */
 global with sharing class RLM_MCP_GetQuotingCatalog {
-    public static final String SKILL_VERSION = '2026-10-12.10';
-    public static final String CATALOG_DATE = '2026-10-12';
+    public static final String SKILL_VERSION = '2026-10-13.8';
+    public static final String CATALOG_DATE = '2026-10-13';
 
     global class CatalogInput {
         @InvocableVariable(
@@ -53,6 +53,7 @@ global with sharing class RLM_MCP_GetQuotingCatalog {
         return new List<String>{
             'getRevenueCloudQuotingCatalog',
             'buildRevenueCloudQuoteOptions',
+            'cloneRevenueCloudQuote',
             'createRevenueCloudQuote',
             'createRevenueCloudProspect',
             'addProductToRevenueCloudQuote',

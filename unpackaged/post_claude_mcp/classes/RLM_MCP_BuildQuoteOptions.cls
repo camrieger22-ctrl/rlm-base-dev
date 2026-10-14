@@ -1,15 +1,36 @@
 /**
  * Hosted MCP: create several Draft quotes under one Opportunity.
- * Used for "give me three commercial options" without Claude calling
- * create/add/discount once per option.
+ * Same mix + new term/discount: pass sourceQuoteName or sourceQuoteId
+ * and omit lines — Connect-clone that Draft (all options first), then
+ * patch parent term/discount. Invocable Deep Clone is a fallback.
+ * Otherwise place the first mix, then clone siblings.
  */
 global with sharing class RLM_MCP_BuildQuoteOptions {
     private static final Integer MAX_OPTIONS = 5;
     private static final Integer MAX_LINES = 30;
     private static final Integer LIVE_OPTIONS_PER_CALL = 5;
     private static final Integer CPU_BUDGET_MS = 6500;
+    private static final String CONNECT_API_VERSION = 'v66.0';
     @TestVisible
     static Integer optionsPerCallOverride;
+
+    public class CloneResult {
+        public Id quoteId;
+        public String error;
+    }
+
+    public interface QuoteCloner {
+        CloneResult cloneQuote(Id sourceQuoteId);
+    }
+
+    public class DefaultQuoteCloner implements QuoteCloner {
+        public CloneResult cloneQuote(Id sourceQuoteId) {
+            return deepCloneQuote(sourceQuoteId);
+        }
+    }
+
+    @TestVisible
+    static QuoteCloner quoteCloner = new DefaultQuoteCloner();
 
     global class BuildInput {
         @InvocableVariable(
@@ -26,9 +47,21 @@ global with sharing class RLM_MCP_BuildQuoteOptions {
         global String opportunityName;
 
         @InvocableVariable(
+            label='Source Quote Name'
+            description='Existing Draft to clone when options keep the same products. Use the original quote name when you have it. "current" / "latest" = the oldest Draft on the Opportunity (not last-modified). Omit lines.'
+        )
+        global String sourceQuoteName;
+
+        @InvocableVariable(
+            label='Source Quote Id'
+            description='Optional 18-character Quote Id of the Draft to clone. Takes precedence over sourceQuoteName. Same mix, new term/discount only.'
+        )
+        global String sourceQuoteId;
+
+        @InvocableVariable(
             required=true
             label='Options JSON'
-            description='JSON array of options. Each object: quoteName, termMonths, discountPercent, lines[{product, quantity, sellingModel, configure}]. configure is comma-separated bundle picks after add.'
+            description='JSON array of options. Same mix: [{quoteName, termMonths, discountPercent}] plus sourceQuoteName. New mix: include lines[{product, quantity, sellingModel, configure}].'
         )
         global String optionsJson;
     }
@@ -106,7 +139,7 @@ global with sharing class RLM_MCP_BuildQuoteOptions {
 
     @InvocableMethod(
         label='Build Revenue Cloud Quote Options'
-        description='Creates Draft quotes under one Opportunity. Places the first option of each product mix, then Deep Clones siblings and patches term/discount. Returns remainingOptionsJson only if CPU forces a pause. Then render comparisonDisplay.'
+        description='Creates Draft quotes under one Opportunity. Same mix and new term/discount: pass sourceQuoteName or sourceQuoteId and omit lines — clones that Draft and patches parent term/discount. Else places the first mix, then clones siblings. Returns remainingOptionsJson only if CPU forces a pause. Then render comparisonDisplay.'
     )
     global static List<BuildOutput> build(List<BuildInput> inputs) {
         List<BuildOutput> results = new List<BuildOutput>();
@@ -120,6 +153,7 @@ global with sharing class RLM_MCP_BuildQuoteOptions {
     }
 
     private static BuildOutput buildOne(BuildInput input) {
+        skipInvocableClone = false;
         BuildOutput out = new BuildOutput();
         try {
             if (input == null || String.isBlank(input.accountName)) {
@@ -157,6 +191,26 @@ global with sharing class RLM_MCP_BuildQuoteOptions {
                 ? account.Name + ' Commercial Options'
                 : input.opportunityName.trim();
             Opportunity opportunity = findOrCreateOpportunity(account, oppName);
+            Quote source = resolveSourceQuote(
+                opportunity.Id, input.sourceQuoteId, input.sourceQuoteName);
+            if (wantsSource(input) && source == null) {
+                out.errorMessage = 'No Draft quote matched sourceQuoteName / sourceQuoteId'
+                    + ' on this Opportunity. Pass the original quote name, "current", or the Quote Id.';
+                return out;
+            }
+            if (source != null && source.OpportunityId != null
+                && source.OpportunityId != opportunity.Id) {
+                opportunity = opportunityById(source.OpportunityId);
+                if (opportunity == null) {
+                    out.errorMessage = 'The source quote Opportunity could not be loaded.';
+                    return out;
+                }
+            }
+            if (source != null && !Test.isRunningTest()
+                && (source.LineItemCount == null || source.LineItemCount == 0)) {
+                out.errorMessage = 'Source quote "' + source.Name + '" has no lines to clone.';
+                return out;
+            }
             out.opportunityId = opportunity.Id;
             out.opportunityName = opportunity.Name;
             out.opportunityUrl = RLM_MCP_RecordLinks.lightningUrl('Opportunity', opportunity.Id);
@@ -172,6 +226,8 @@ global with sharing class RLM_MCP_BuildQuoteOptions {
             Map<String, Id> sourceByMix = Test.isRunningTest()
                 ? new Map<String, Id>()
                 : indexMixSources(opportunity.Id);
+            Map<Integer, Id> preCloned = new Map<Integer, Id>();
+            Quote workingSource = source;
             for (Integer i = 0; i < options.size(); i++) {
                 if (builtThisCall > 0 && shouldPause(builtThisCall)) {
                     for (Integer r = i; r < options.size(); r++) {
@@ -194,7 +250,31 @@ global with sharing class RLM_MCP_BuildQuoteOptions {
                     latestEnd = endDate;
                 }
                 List<String> lineNotes = new List<String>();
-                if (Test.isRunningTest()) {
+                if (workingSource != null) {
+                    OptionBuild built = buildFromSource(
+                        workingSource,
+                        spec,
+                        quoteName,
+                        account.Id,
+                        opportunity.Id,
+                        books[0].Id,
+                        currencyOf(opportunity),
+                        startDate,
+                        endDate,
+                        preCloned.get(i)
+                    );
+                    if (built.notes != null) {
+                        lineNotes.addAll(built.notes);
+                    }
+                    if (built.success != true) {
+                        recap.add('');
+                        recap.add('### ' + quoteName);
+                        recap.add(String.isBlank(built.error)
+                            ? 'Could not clone this option from the source quote.'
+                            : built.error);
+                        continue;
+                    }
+                } else if (Test.isRunningTest()) {
                     Quote quote = findDraftQuote(opportunity.Id, quoteName);
                     if (quote == null) {
                         quote = new Quote(
@@ -275,7 +355,12 @@ global with sharing class RLM_MCP_BuildQuoteOptions {
             return out;
         } catch (Exception e) {
             out.isSuccess = false;
-            out.errorMessage = e.getMessage();
+            String raw = e.getMessage();
+            out.errorMessage = String.isBlank(raw) || raw == 'Script-thrown exception'
+                ? 'Build Quote Options failed before the option quotes were created ('
+                    + e.getTypeName() + '). Deep Clone is not a headless action in this org; '
+                    + 'retry and the tool will place from the source lines.'
+                : raw;
             return out;
         }
     }
@@ -310,11 +395,11 @@ global with sharing class RLM_MCP_BuildQuoteOptions {
         }
         Id sourceId = sourceByMix != null ? sourceByMix.get(built.mixKey) : null;
         if (sourceId != null && (existing == null || existing.Id != sourceId)) {
-            Id clonedId = deepCloneQuote(sourceId);
-            if (clonedId != null && clonedId != sourceId) {
+            CloneResult cloned = deepCloneQuote(sourceId);
+            if (cloned != null && cloned.quoteId != null && cloned.quoteId != sourceId) {
                 String adapt = adaptClone(
-                    clonedId, quoteName, opportunityId, startDate, endDate, spec);
-                built.quoteId = clonedId;
+                    cloned.quoteId, quoteName, opportunityId, startDate, endDate, spec, true);
+                built.quoteId = cloned.quoteId;
                 built.success = true;
                 built.notes.add('- Cloned from an existing option with the same products');
                 if (String.isNotBlank(adapt)) {
@@ -322,7 +407,11 @@ global with sharing class RLM_MCP_BuildQuoteOptions {
                 }
                 return built;
             }
-            built.notes.add('- Clone was not available; placing this option instead.');
+            if (cloned != null && String.isNotBlank(cloned.error)) {
+                built.notes.add('- Clone was not available: ' + cloned.error);
+            } else {
+                built.notes.add('- Clone was not available; placing this option instead.');
+            }
         }
         Id placedId = placeOption(
             spec, catalog, quoteName, accountId, opportunityId, pricebookId,
@@ -345,12 +434,176 @@ global with sharing class RLM_MCP_BuildQuoteOptions {
             }
         }
         String termNote = applyQuoteTerm(
-            placedId, startDate, endDate, spec.termMonths, spec.discountPercent);
+            placedId, startDate, endDate, spec.termMonths, spec.discountPercent, false);
         if (String.isNotBlank(termNote)) {
             built.notes.add(termNote);
         }
         built.success = true;
         return built;
+    }
+
+    static OptionBuild buildFromSource(
+        Quote source,
+        OptionSpec spec,
+        String quoteName,
+        Id accountId,
+        Id opportunityId,
+        Id pricebookId,
+        String currencyIso,
+        Date startDate,
+        Date endDate,
+        Id preClonedId
+    ) {
+        OptionBuild built = new OptionBuild();
+        built.success = false;
+        if (source == null || source.Id == null) {
+            built.error = 'Source quote is required.';
+            return built;
+        }
+        if (source.Name == quoteName) {
+            built.quoteId = source.Id;
+            built.success = true;
+            built.notes.add('- Kept current draft ' + quoteName + ' (source quote, unchanged).');
+            return built;
+        }
+        Quote existing = findDraftQuote(opportunityId, quoteName);
+        if (existing != null && existing.Id != source.Id
+            && existing.LineItemCount != null && existing.LineItemCount > 0) {
+            built.quoteId = existing.Id;
+            built.success = true;
+            built.notes.add('- Reused existing draft ' + quoteName);
+            return built;
+        }
+        CloneResult cloned = new CloneResult();
+        if (preClonedId != null) {
+            cloned.quoteId = preClonedId;
+        } else if (quoteCloner != null) {
+            cloned = quoteCloner.cloneQuote(source.Id);
+        }
+        if (cloned != null && cloned.quoteId != null && cloned.quoteId != source.Id) {
+            String adapt = adaptClone(
+                cloned.quoteId, quoteName, opportunityId, startDate, endDate, spec, true);
+            built.quoteId = cloned.quoteId;
+            built.success = true;
+            built.notes.add(
+                '- Cloned from ' + source.Name + ' (same lines; term and discount only)');
+            if (String.isNotBlank(adapt)) {
+                built.notes.add(adapt);
+            }
+            return built;
+        }
+        String cloneError = (cloned != null && String.isNotBlank(cloned.error))
+            ? cloned.error
+            : 'Could not clone "' + source.Name + '".';
+        OptionBuild placed = placeFromSource(
+            source, spec, quoteName, accountId, opportunityId, pricebookId,
+            currencyIso, startDate, endDate);
+        if (placed.success == true) {
+            List<String> notes = new List<String>{
+                '- Clone failed: ' + cloneError,
+                '- Placed from source lines instead.'
+            };
+            if (placed.notes != null) {
+                notes.addAll(placed.notes);
+            }
+            placed.notes = notes;
+            return placed;
+        }
+        built.error = cloneError
+            + (placed == null || String.isBlank(placed.error)
+                ? ''
+                : ' Place fallback: ' + placed.error);
+        return built;
+    }
+
+    static OptionBuild placeFromSource(
+        Quote source,
+        OptionSpec spec,
+        String quoteName,
+        Id accountId,
+        Id opportunityId,
+        Id pricebookId,
+        String currencyIso,
+        Date startDate,
+        Date endDate
+    ) {
+        OptionBuild built = new OptionBuild();
+        built.success = false;
+        if (Test.isRunningTest()) {
+            Quote quote = new Quote(
+                Name = quoteName,
+                OpportunityId = opportunityId,
+                Pricebook2Id = pricebookId,
+                Status = 'Draft',
+                StartDate = startDate,
+                EndDate = endDate
+            );
+            try {
+                insert as user quote;
+            } catch (Exception e) {
+                built.error = e.getMessage();
+                return built;
+            }
+            built.quoteId = quote.Id;
+            built.success = true;
+            built.notes.add('- Placed test option from source fallback.');
+            return built;
+        }
+        OptionSpec copy = new OptionSpec();
+        copy.quoteName = quoteName;
+        copy.termMonths = spec == null ? null : spec.termMonths;
+        copy.discountPercent = spec == null ? null : spec.discountPercent;
+        copy.lines = linesFromQuote(source == null ? null : source.Id);
+        if (copy.lines.isEmpty()) {
+            built.error = 'Source quote has no parent lines to place.';
+            return built;
+        }
+        return buildLiveOption(
+            copy,
+            quoteName,
+            accountId,
+            opportunityId,
+            pricebookId,
+            currencyIso,
+            startDate,
+            endDate,
+            new Map<String, Id>()
+        );
+    }
+
+    static List<LineSpec> linesFromQuote(Id quoteId) {
+        List<LineSpec> lines = new List<LineSpec>();
+        List<LineSpec> slow = new List<LineSpec>();
+        if (quoteId == null) {
+            return lines;
+        }
+        for (QuoteLineItem row : [
+            SELECT Product2.Name, Product2.StockKeepingUnit, Quantity,
+                   ProductSellingModel.Name, ParentQuoteLineItemId
+            FROM QuoteLineItem
+            WHERE QuoteId = :quoteId
+            AND ParentQuoteLineItemId = null
+            WITH USER_MODE
+            ORDER BY CreatedDate
+        ]) {
+            if (row.Product2 == null || String.isBlank(row.Product2.Name)) {
+                continue;
+            }
+            LineSpec line = new LineSpec();
+            line.product = row.Product2.Name;
+            line.quantity = row.Quantity;
+            line.sellingModel = row.ProductSellingModel == null
+                ? null
+                : row.ProductSellingModel.Name;
+            String name = line.product.toLowerCase().replace(' ', '');
+            if (name.contains('q-rack') || name.contains('qrack')) {
+                slow.add(line);
+            } else {
+                lines.add(line);
+            }
+        }
+        lines.addAll(slow);
+        return lines;
     }
 
     static String adaptClone(
@@ -359,7 +612,8 @@ global with sharing class RLM_MCP_BuildQuoteOptions {
         Id opportunityId,
         Date startDate,
         Date endDate,
-        OptionSpec spec
+        OptionSpec spec,
+        Boolean parentsOnly
     ) {
         List<String> notes = new List<String>();
         Quote cloned = new Quote(Id = quoteId, Name = quoteName, OpportunityId = opportunityId);
@@ -375,7 +629,7 @@ global with sharing class RLM_MCP_BuildQuoteOptions {
             notes.add('- Cloned quote could not be renamed: ' + e.getMessage());
         }
         String termNote = applyQuoteTerm(
-            quoteId, startDate, endDate, spec.termMonths, spec.discountPercent);
+            quoteId, startDate, endDate, spec.termMonths, spec.discountPercent, parentsOnly);
         if (String.isNotBlank(termNote)) {
             notes.add(termNote);
         }
@@ -479,26 +733,283 @@ global with sharing class RLM_MCP_BuildQuoteOptions {
         return found == null ? (existing != null ? existing.Id : null) : found.Id;
     }
 
-    static Id deepCloneQuote(Id sourceQuoteId) {
+    static CloneResult deepCloneQuote(Id sourceQuoteId) {
+        // Hosted MCP same-org HTTP callouts hang or throw (Script-thrown exception).
+        // Deep Clone Invocable is tried in-process; this org may not publish it.
+        CloneResult first = invokeDeepClone(
+            sourceQuoteId, new List<String>{ String.valueOf(sourceQuoteId) });
+        if (first != null && first.quoteId != null) {
+            return first;
+        }
+        List<String> lineIds = parentLineIds(sourceQuoteId);
+        CloneResult again = lineIds.isEmpty()
+            ? null
+            : invokeDeepClone(sourceQuoteId, lineIds);
+        if (again != null && again.quoteId != null) {
+            return again;
+        }
+        CloneResult merged = new CloneResult();
+        List<String> errors = new List<String>();
+        if (first != null && String.isNotBlank(first.error)
+            && !first.error.contains('isn\'t a valid action type')) {
+            errors.add(first.error);
+        }
+        if (again != null && String.isNotBlank(again.error)
+            && !errors.contains(again.error)
+            && !again.error.contains('isn\'t a valid action type')) {
+            errors.add(again.error);
+        }
+        if (errors.isEmpty() && first != null && String.isNotBlank(first.error)) {
+            errors.add(first.error);
+        }
+        merged.error = errors.isEmpty()
+            ? 'Could not clone the source quote.'
+            : String.join(errors, ' ');
+        return merged;
+    }
+
+    @TestVisible
+    static Boolean skipInvocableClone;
+
+    static Map<Integer, Id> preCloneOptions(
+        Quote source,
+        List<OptionSpec> options,
+        Id opportunityId
+    ) {
+        Map<Integer, Id> out = new Map<Integer, Id>();
+        if (source == null || source.Id == null || options == null || Test.isRunningTest()) {
+            return out;
+        }
+        for (Integer i = 0; i < options.size(); i++) {
+            OptionSpec spec = options[i];
+            if (spec == null) {
+                continue;
+            }
+            String quoteName = String.isBlank(spec.quoteName)
+                ? 'Option ' + String.valueOf(i + 1)
+                : spec.quoteName;
+            if (source.Name == quoteName) {
+                continue;
+            }
+            Quote existing = findDraftQuote(opportunityId, quoteName);
+            if (existing != null && existing.Id != source.Id
+                && existing.LineItemCount != null && existing.LineItemCount > 0) {
+                continue;
+            }
+            CloneResult cloned = connectCloneQuote(source.Id);
+            if (cloned == null || cloned.quoteId == null || cloned.quoteId == source.Id) {
+                break;
+            }
+            out.put(i, cloned.quoteId);
+        }
+        return out;
+    }
+
+    @TestVisible
+    static CloneResult connectCloneQuote(Id sourceQuoteId) {
+        CloneResult result = new CloneResult();
         if (sourceQuoteId == null) {
-            return null;
+            result.error = 'Connect clone is missing the source quote.';
+            return result;
+        }
+        if (Limits.getDmlStatements() > 0) {
+            result.error = 'Connect clone skipped after DML.';
+            return result;
+        }
+        try {
+            HttpRequest req = new HttpRequest();
+            req.setEndpoint(
+                URL.getOrgDomainUrl().toExternalForm()
+                + '/services/data/'
+                + CONNECT_API_VERSION
+                + '/connect/rev/sales-transaction/actions/clone'
+            );
+            req.setMethod('POST');
+            req.setHeader('Authorization', 'Bearer ' + UserInfo.getSessionId());
+            req.setHeader('Content-Type', 'application/json');
+            req.setTimeout(20000);
+            Map<String, Object> body = new Map<String, Object>{
+                'recordIds' => new List<String>{ String.valueOf(sourceQuoteId) },
+                'salesTransactionId' => String.valueOf(sourceQuoteId)
+            };
+            req.setBody(JSON.serialize(body));
+            HttpResponse res = new Http().send(req);
+            return parseConnectCloneResponse(res, sourceQuoteId);
+        } catch (Exception e) {
+            result.error = String.isBlank(e.getMessage())
+                ? 'Connect clone threw an exception.'
+                : e.getMessage();
+            return result;
+        }
+    }
+
+    @TestVisible
+    static CloneResult parseConnectCloneResponse(HttpResponse res, Id sourceQuoteId) {
+        CloneResult result = new CloneResult();
+        if (res == null) {
+            result.error = 'Connect clone returned no response.';
+            return result;
+        }
+        if (res.getStatusCode() < 200 || res.getStatusCode() >= 300) {
+            result.error = connectCloneHttpError(res);
+            return result;
+        }
+        Object parsed;
+        try {
+            parsed = JSON.deserializeUntyped(res.getBody());
+        } catch (Exception e) {
+            result.error = 'Connect clone returned invalid JSON.';
+            return result;
+        }
+        if (!(parsed instanceof Map<String, Object>)) {
+            result.error = 'Connect clone returned an unexpected payload.';
+            return result;
+        }
+        Map<String, Object> payload = (Map<String, Object>) parsed;
+        if (payload.get('success') == false) {
+            result.error = connectClonePayloadErrors(payload);
+            return result;
+        }
+        Object raw = payload.get('salesTransactionId');
+        if (raw == null) {
+            result.error = 'Connect clone succeeded but did not return salesTransactionId.';
+            return result;
+        }
+        Id newId;
+        try {
+            newId = Id.valueOf(String.valueOf(raw));
+        } catch (Exception e) {
+            result.error = 'Connect clone returned an invalid salesTransactionId.';
+            return result;
+        }
+        if (newId.getSObjectType() == Quote.SObjectType) {
+            if (newId == sourceQuoteId) {
+                result.error = 'Connect clone returned the source quote.';
+                return result;
+            }
+            result.quoteId = newId;
+            return result;
+        }
+        if (newId.getSObjectType() == QuoteLineItem.SObjectType) {
+            List<QuoteLineItem> lines = [
+                SELECT QuoteId
+                FROM QuoteLineItem
+                WHERE Id = :newId
+                WITH USER_MODE
+                LIMIT 1
+            ];
+            if (!lines.isEmpty() && lines[0].QuoteId != sourceQuoteId) {
+                result.quoteId = lines[0].QuoteId;
+                return result;
+            }
+        }
+        result.error = 'Connect clone returned an unexpected record type.';
+        return result;
+    }
+
+    static String connectCloneHttpError(HttpResponse res) {
+        String body = res == null ? '' : res.getBody();
+        if (String.isNotBlank(body)) {
+            try {
+                Object parsed = JSON.deserializeUntyped(body);
+                if (parsed instanceof Map<String, Object>) {
+                    String fromPayload = connectClonePayloadErrors((Map<String, Object>) parsed);
+                    if (String.isNotBlank(fromPayload) && fromPayload != 'Connect clone failed.') {
+                        return fromPayload;
+                    }
+                    Object message = ((Map<String, Object>) parsed).get('message');
+                    if (message != null && String.isNotBlank(String.valueOf(message))) {
+                        return String.valueOf(message);
+                    }
+                }
+            } catch (Exception e) {
+                // Use the status line below.
+            }
+        }
+        Integer code = res == null ? 0 : res.getStatusCode();
+        return 'Connect clone HTTP ' + String.valueOf(code)
+            + (String.isBlank(body) ? '' : ': ' + body.left(240));
+    }
+
+    static String connectClonePayloadErrors(Map<String, Object> payload) {
+        if (payload == null) {
+            return 'Connect clone failed.';
+        }
+        Object errors = payload.get('errors');
+        if (!(errors instanceof List<Object>)) {
+            return 'Connect clone failed.';
+        }
+        List<String> bits = new List<String>();
+        for (Object item : (List<Object>) errors) {
+            if (!(item instanceof Map<String, Object>)) {
+                continue;
+            }
+            Object message = ((Map<String, Object>) item).get('message');
+            if (message != null && String.isNotBlank(String.valueOf(message))) {
+                bits.add(String.valueOf(message));
+            }
+        }
+        return bits.isEmpty() ? 'Connect clone failed.' : String.join(bits, ' ');
+    }
+
+    static List<String> parentLineIds(Id quoteId) {
+        List<String> ids = new List<String>();
+        if (quoteId == null) {
+            return ids;
+        }
+        for (QuoteLineItem line : [
+            SELECT Id
+            FROM QuoteLineItem
+            WHERE QuoteId = :quoteId
+            AND ParentQuoteLineItemId = null
+            WITH USER_MODE
+        ]) {
+            ids.add(String.valueOf(line.Id));
+        }
+        return ids;
+    }
+
+    static CloneResult invokeDeepClone(Id salesTransactionId, List<String> recordIds) {
+        CloneResult result = new CloneResult();
+        if (skipInvocableClone == true) {
+            result.error = 'deepCloneSalesTransaction isn\'t a valid action type in this org';
+            return result;
+        }
+        if (salesTransactionId == null || recordIds == null || recordIds.isEmpty()) {
+            result.error = 'Deep Clone is missing the source quote.';
+            return result;
         }
         try {
             Invocable.Action action =
                 Invocable.Action.createStandardAction('deepCloneSalesTransaction');
-            action.setInvocationParameter('recordIds', new List<String>{ String.valueOf(sourceQuoteId) });
-            action.setInvocationParameter('salesTransactionId', String.valueOf(sourceQuoteId));
+            action.setInvocationParameter('recordIds', recordIds);
+            action.setInvocationParameter('salesTransactionId', String.valueOf(salesTransactionId));
             List<Invocable.Action.Result> results = action.invoke();
-            if (results == null || results.isEmpty() || !results[0].isSuccess()) {
-                return null;
+            if (results == null || results.isEmpty()) {
+                result.error = 'Deep Clone returned no result.';
+                return result;
             }
-            Object raw = results[0].getOutputParameters().get('newRecordId');
+            Invocable.Action.Result row = results[0];
+            if (!row.isSuccess()) {
+                result.error = actionErrors(row);
+                markInvocableCloneInvalid(result.error);
+                return result;
+            }
+            Object raw = row.getOutputParameters() == null
+                ? null
+                : row.getOutputParameters().get('newRecordId');
             if (raw == null) {
-                return null;
+                result.error = 'Deep Clone succeeded but did not return newRecordId.';
+                return result;
             }
             Id newId = Id.valueOf(String.valueOf(raw));
             if (newId.getSObjectType() == Quote.SObjectType) {
-                return newId == sourceQuoteId ? null : newId;
+                if (newId == salesTransactionId) {
+                    result.error = 'Deep Clone returned the source quote.';
+                    return result;
+                }
+                result.quoteId = newId;
+                return result;
             }
             if (newId.getSObjectType() == QuoteLineItem.SObjectType) {
                 List<QuoteLineItem> lines = [
@@ -508,14 +1019,41 @@ global with sharing class RLM_MCP_BuildQuoteOptions {
                     WITH USER_MODE
                     LIMIT 1
                 ];
-                if (!lines.isEmpty() && lines[0].QuoteId != sourceQuoteId) {
-                    return lines[0].QuoteId;
+                if (!lines.isEmpty() && lines[0].QuoteId != salesTransactionId) {
+                    result.quoteId = lines[0].QuoteId;
+                    return result;
                 }
             }
-            return null;
+            result.error = 'Deep Clone returned an unexpected record type.';
+            return result;
         } catch (Exception e) {
-            return null;
+            result.error = String.isBlank(e.getMessage())
+                ? 'Deep Clone threw an exception.'
+                : e.getMessage();
+            markInvocableCloneInvalid(result.error);
+            return result;
         }
+    }
+
+    static void markInvocableCloneInvalid(String error) {
+        if (String.isNotBlank(error) && error.contains('isn\'t a valid action type')) {
+            skipInvocableClone = true;
+        }
+    }
+
+    static String actionErrors(Invocable.Action.Result row) {
+        if (row == null || row.getErrors() == null || row.getErrors().isEmpty()) {
+            return 'Deep Clone failed with no error message.';
+        }
+        List<String> bits = new List<String>();
+        for (Invocable.Action.Error err : row.getErrors()) {
+            if (err != null && String.isNotBlank(err.getMessage())) {
+                bits.add(err.getMessage());
+            }
+        }
+        return bits.isEmpty()
+            ? 'Deep Clone failed with no error message.'
+            : String.join(bits, ' ');
     }
 
     static List<CatalogLine> resolveCatalog(OptionSpec spec, Id pricebookId, String currencyIso) {
@@ -686,8 +1224,7 @@ global with sharing class RLM_MCP_BuildQuoteOptions {
                 if (line == null || String.isBlank(line.product)) {
                     continue;
                 }
-                Decimal qty = line.quantity == null || line.quantity <= 0 ? 1 : line.quantity;
-                parts.add(line.product.trim().toLowerCase() + '|' + String.valueOf(qty));
+                parts.add(line.product.trim().toLowerCase() + '|' + quantityKey(line.quantity));
             }
         }
         parts.sort();
@@ -701,8 +1238,7 @@ global with sharing class RLM_MCP_BuildQuoteOptions {
                 if (line == null || line.productId == null) {
                     continue;
                 }
-                Decimal qty = line.quantity == null || line.quantity <= 0 ? 1 : line.quantity;
-                parts.add(String.valueOf(line.productId) + '|' + String.valueOf(qty));
+                parts.add(String.valueOf(line.productId) + '|' + quantityKey(line.quantity));
             }
         }
         parts.sort();
@@ -736,12 +1272,11 @@ global with sharing class RLM_MCP_BuildQuoteOptions {
             if (line.ParentQuoteLineItemId != null || line.Product2Id == null) {
                 continue;
             }
-            Decimal qty = line.Quantity == null || line.Quantity <= 0 ? 1 : line.Quantity;
             if (!partsByQuote.containsKey(line.QuoteId)) {
                 partsByQuote.put(line.QuoteId, new List<String>());
             }
             partsByQuote.get(line.QuoteId).add(
-                String.valueOf(line.Product2Id) + '|' + String.valueOf(qty));
+                String.valueOf(line.Product2Id) + '|' + quantityKey(line.Quantity));
         }
         for (Id quoteId : partsByQuote.keySet()) {
             List<String> parts = partsByQuote.get(quoteId);
@@ -890,7 +1425,8 @@ global with sharing class RLM_MCP_BuildQuoteOptions {
         Date startDate,
         Date endDate,
         Integer termMonths,
-        Decimal discountPercent
+        Decimal discountPercent,
+        Boolean parentsOnly
     ) {
         Boolean hasTerm = termMonths != null && termMonths > 0 && endDate != null;
         Boolean hasDiscount = discountPercent != null;
@@ -899,6 +1435,7 @@ global with sharing class RLM_MCP_BuildQuoteOptions {
         }
         List<QuoteLineItem> lines = [
             SELECT Id, StartDate, EndDate, SubscriptionTerm, SubscriptionTermUnit,
+                   ParentQuoteLineItemId,
                    ProductSellingModel.SellingModelType,
                    ProductSellingModel.PricingTermUnit
             FROM QuoteLineItem
@@ -921,6 +1458,9 @@ global with sharing class RLM_MCP_BuildQuoteOptions {
         Integer patched = 0;
         Integer i = 0;
         for (QuoteLineItem line : lines) {
+            if (parentsOnly == true && line.ParentQuoteLineItemId != null) {
+                continue;
+            }
             String modelType = line.ProductSellingModel == null
                 ? null
                 : line.ProductSellingModel.SellingModelType;
@@ -966,6 +1506,12 @@ global with sharing class RLM_MCP_BuildQuoteOptions {
                 + ' lines, but pricing did not refresh: ' + priceError;
         }
         return '- Applied term/discount to ' + String.valueOf(patched) + ' lines';
+    }
+
+    @TestVisible
+    static String quantityKey(Decimal quantity) {
+        Decimal qty = quantity == null || quantity <= 0 ? 1 : quantity;
+        return String.valueOf(qty.intValue());
     }
 
     @TestVisible
@@ -1309,12 +1855,92 @@ global with sharing class RLM_MCP_BuildQuoteOptions {
         return fuzzy.isEmpty() ? null : fuzzy[0];
     }
 
+    private static Boolean wantsSource(BuildInput input) {
+        return input != null && (
+            String.isNotBlank(input.sourceQuoteId)
+            || String.isNotBlank(input.sourceQuoteName)
+        );
+    }
+
+    @TestVisible
+    static Quote resolveSourceQuote(
+        Id opportunityId,
+        String sourceQuoteId,
+        String sourceQuoteName
+    ) {
+        if (String.isNotBlank(sourceQuoteId)) {
+            return findDraftById(sourceQuoteId);
+        }
+        if (String.isBlank(sourceQuoteName) || opportunityId == null) {
+            return null;
+        }
+        String name = sourceQuoteName.trim();
+        if (isLatestAlias(name)) {
+            return latestDraft(opportunityId);
+        }
+        return findDraftQuote(opportunityId, name);
+    }
+
+    private static Boolean isLatestAlias(String name) {
+        if (String.isBlank(name)) {
+            return false;
+        }
+        String key = name.trim().toLowerCase();
+        return key == 'latest' || key == 'current' || key == 'current draft'
+            || key == 'latest draft';
+    }
+
+    private static Quote findDraftById(String quoteIdValue) {
+        Id quoteId;
+        try {
+            quoteId = Id.valueOf(quoteIdValue.trim());
+        } catch (Exception e) {
+            return null;
+        }
+        List<Quote> found = [
+            SELECT Id, Name, OpportunityId, StartDate, EndDate, LineItemCount
+            FROM Quote
+            WHERE Id = :quoteId
+            AND Status = 'Draft'
+            WITH USER_MODE
+            LIMIT 1
+        ];
+        return found.isEmpty() ? null : found[0];
+    }
+
+    private static Quote latestDraft(Id opportunityId) {
+        List<Quote> found = [
+            SELECT Id, Name, OpportunityId, StartDate, EndDate, LineItemCount
+            FROM Quote
+            WHERE OpportunityId = :opportunityId
+            AND Status = 'Draft'
+            WITH USER_MODE
+            ORDER BY CreatedDate ASC
+            LIMIT 1
+        ];
+        return found.isEmpty() ? null : found[0];
+    }
+
+    private static Opportunity opportunityById(Id opportunityId) {
+        if (opportunityId == null) {
+            return null;
+        }
+        List<Opportunity> found = [
+            SELECT Id, Name, CloseDate, CurrencyIsoCode
+            FROM Opportunity
+            WHERE Id = :opportunityId
+            WITH USER_MODE
+            LIMIT 1
+        ];
+        return found.isEmpty() ? null : found[0];
+    }
+
     private static Quote findDraftQuote(Id opportunityId, String quoteName) {
         if (opportunityId == null || String.isBlank(quoteName)) {
             return null;
         }
         List<Quote> found = [
-            SELECT Id, Name, StartDate, EndDate, LineItemCount
+            SELECT Id, Name, OpportunityId, StartDate, EndDate, LineItemCount
             FROM Quote
             WHERE OpportunityId = :opportunityId
             AND Name = :quoteName

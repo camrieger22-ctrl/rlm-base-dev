@@ -18,9 +18,19 @@
             <apiSource>API_CATALOG</apiSource>
             <operation>RLM_MCP_BuildQuoteOptions</operation>
         </apiDefinition>
-        <descriptionOverride>Creates Draft quotes under one Opportunity. Places the first option of each product mix, then Deep Clones siblings and patches term/discount. Returns remainingOptionsJson only if CPU forces a pause. Then render comparisonDisplay as a visual card.</descriptionOverride>
+        <descriptionOverride>New product mix only. Same mix + new term/discount: cloneRevenueCloudQuote once per option with clonedQuoteName, termMonths, discountPercentage. Never use this tool to clone.</descriptionOverride>
         <toolName>buildRevenueCloudQuoteOptions</toolName>
         <toolTitle>Build Quote Options</toolTitle>
+    </tools>
+    <tools>
+        <apiDefinition>
+            <apiIdentifier>aa:apex-RLM_MCP_CloneQuote</apiIdentifier>
+            <apiSource>API_CATALOG</apiSource>
+            <operation>RLM_MCP_CloneQuote</operation>
+        </apiDefinition>
+        <descriptionOverride>Copy one Draft in-process (same lines). Pass clonedQuoteName, termMonths, discountPercentage. Never wait. Never Build Quote Options. Do not resend lines.</descriptionOverride>
+        <toolName>cloneRevenueCloudQuote</toolName>
+        <toolTitle>Clone Quote</toolTitle>
     </tools>
     <tools>
         <apiDefinition>
@@ -28,7 +38,7 @@
             <apiSource>API_CATALOG</apiSource>
             <operation>RLM_MCP_CreateQuote</operation>
         </apiDefinition>
-        <descriptionOverride>Creates a Draft, or reuses the Draft on the same Opportunity and quote name. Pass opportunityName. Do not create a second quote for the same email. linesJson adds every product.</descriptionOverride>
+        <descriptionOverride>Creates a Draft and the Opportunity if needed, or reuses the Draft. No account: pass contact names, email, and address here (creates Account+Contact). Do not call Create Prospect first. Pass opportunityName and linesJson.</descriptionOverride>
         <toolName>createRevenueCloudQuote</toolName>
         <toolTitle>Create Revenue Cloud Quote</toolTitle>
     </tools>
@@ -38,7 +48,7 @@
             <apiSource>API_CATALOG</apiSource>
             <operation>RLM_MCP_CreateProspect</operation>
         </apiDefinition>
-        <descriptionOverride>Creates or reuses Account and Contact. Optional billing address or useDemoAddress after confirm. Then createRevenueCloudQuote. Never SObject-insert Account.</descriptionOverride>
+        <descriptionOverride>Account+Contact only when you are not quoting. If quoting, pass contact names/email/address on createRevenueCloudQuote instead. Never SObject-insert Account.</descriptionOverride>
         <toolName>createRevenueCloudProspect</toolName>
         <toolTitle>Create Revenue Cloud Prospect</toolTitle>
     </tools>

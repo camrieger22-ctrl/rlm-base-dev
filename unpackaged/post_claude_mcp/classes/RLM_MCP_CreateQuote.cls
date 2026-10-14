@@ -1,7 +1,10 @@
 /**
  * Global invocable for Hosted MCP: create a Draft Revenue Cloud Quote
- * from an account name. Optional linesJson adds every product in the same
- * call so Claude does not round-trip add-product once per SKU.
+ * from an account name. When no Account exists, the same call creates
+ * Account + Contact (do not call Create Prospect first). Optional
+ * linesJson adds every product in the same call so Claude does not
+ * round-trip add-product once per SKU. Configured hardware bundles
+ * (Q-Rack) add last so cheaper lines land first.
  */
 global with sharing class RLM_MCP_CreateQuote {
     private static final Integer MAX_LINES = 20;
@@ -45,9 +48,51 @@ global with sharing class RLM_MCP_CreateQuote {
 
         @InvocableVariable(
             label='Contact Email'
-            description='Optional sender email. Sets Quote.ContactId so activate can stamp Bill-to.'
+            description='Optional sender email. Sets Quote.ContactId so activate can stamp Bill-to. When no Account exists, pass this with contact names so this call can create Account + Contact.'
         )
         global String contactEmail;
+
+        @InvocableVariable(
+            label='Contact First Name'
+            description='Prospect first name from the email. Required with last name or email when no Account exists.'
+        )
+        global String contactFirstName;
+
+        @InvocableVariable(
+            label='Contact Last Name'
+            description='Prospect last name from the email. Required with first name or email when no Account exists.'
+        )
+        global String contactLastName;
+
+        @InvocableVariable(label='Phone')
+        global String phone;
+
+        @InvocableVariable(label='Website')
+        global String website;
+
+        @InvocableVariable(
+            label='Billing Street'
+            description='Optional billing street from the email. Needed so activate can stamp the order.'
+        )
+        global String billingStreet;
+
+        @InvocableVariable(label='Billing City')
+        global String billingCity;
+
+        @InvocableVariable(label='Billing State')
+        global String billingState;
+
+        @InvocableVariable(label='Billing Postal Code')
+        global String billingPostalCode;
+
+        @InvocableVariable(label='Billing Country')
+        global String billingCountry;
+
+        @InvocableVariable(
+            label='Use Demo Address'
+            description='True only after the user confirms a demo billing address. Do not invent a customer HQ.'
+        )
+        global Boolean useDemoAddress;
 
         @InvocableVariable(
             label='Term Months'
@@ -81,6 +126,21 @@ global with sharing class RLM_MCP_CreateQuote {
         @InvocableVariable(label='Account Name')
         global String accountName;
 
+        @InvocableVariable(
+            label='Account Url'
+            description='Lightning Account page. Render as [Open Account](accountUrl) in the chat reply.'
+        )
+        global String accountUrl;
+
+        @InvocableVariable(label='Contact Id')
+        global String contactId;
+
+        @InvocableVariable(
+            label='Contact Url'
+            description='Lightning Contact page. Render as [Open Contact](contactUrl) in the chat reply.'
+        )
+        global String contactUrl;
+
         @InvocableVariable(label='Opportunity Id')
         global String opportunityId;
 
@@ -113,7 +173,7 @@ global with sharing class RLM_MCP_CreateQuote {
 
     @InvocableMethod(
         label='Create Revenue Cloud Quote'
-        description='Creates a Draft quote, or reuses the Draft on the same Opportunity and quote name. Pass opportunityName, termMonths, and linesJson. Do not pre-query Product2 or call add-product per SKU.'
+        description='Creates a Draft quote, or reuses the Draft on the same Opportunity and quote name. If no Account, pass contact names, email, and address on this call — it creates Account and Contact. Do not call createRevenueCloudProspect first. Pass opportunityName, termMonths, and linesJson. Do not pre-query Product2 or call add-product per SKU.'
     )
     global static List<CreateOutput> createQuote(List<CreateInput> inputs) {
         List<CreateOutput> results = new List<CreateOutput>();
@@ -149,11 +209,19 @@ global with sharing class RLM_MCP_CreateQuote {
             return out;
         }
         if (deal.account == null) {
-            out.message = 'No account matched "' + input.accountName
-                + '". Confirm with the user, then call createRevenueCloudProspect, then retry Create Quote.';
+            deal = createMissingAccount(input, out);
+            if (out.message != null && out.isSuccess != true) {
+                return out;
+            }
+        }
+        if (deal == null || deal.account == null) {
+            if (String.isBlank(out.message)) {
+                out.message = 'No account matched "' + input.accountName + '".';
+            }
             return out;
         }
         out.accountName = deal.account.Name;
+        out.accountUrl = RLM_MCP_RecordLinks.lightningUrl('Account', deal.account.Id);
 
         List<Pricebook2> books = [
             SELECT Id
@@ -193,13 +261,25 @@ global with sharing class RLM_MCP_CreateQuote {
         Date endDate = (input.termMonths != null && input.termMonths > 0)
             ? startDate.addMonths(input.termMonths)
             : null;
+        Id contactId = contactIdFor(deal.account.Id, input.contactEmail);
+        if (contactId == null && String.isNotBlank(out.contactId)) {
+            try {
+                contactId = Id.valueOf(out.contactId);
+            } catch (Exception e) {
+                contactId = null;
+            }
+        }
+        if (contactId != null) {
+            out.contactId = String.valueOf(contactId);
+            out.contactUrl = RLM_MCP_RecordLinks.lightningUrl('Contact', contactId);
+        }
         Quote quote = new Quote(
             Name = name,
             OpportunityId = opportunity.Id,
             Pricebook2Id = books[0].Id,
             Status = 'Draft',
             StartDate = startDate,
-            ContactId = contactIdFor(deal.account.Id, input.contactEmail)
+            ContactId = contactId
         );
         if (endDate != null) {
             quote.EndDate = endDate;
@@ -226,15 +306,7 @@ global with sharing class RLM_MCP_CreateQuote {
                 lines.add(overlap);
             }
         }
-        String quoteLink = RLM_MCP_RecordLinks.markdown('Open Quote', 'Quote', quote.Id);
-        String oppLink = RLM_MCP_RecordLinks.markdown(
-            'Open Opportunity', 'Opportunity', opportunity.Id);
-        if (String.isNotBlank(quoteLink)) {
-            lines.add(quoteLink);
-        }
-        if (String.isNotBlank(oppLink)) {
-            lines.add(oppLink);
-        }
+        appendRecordLinks(lines, deal.account.Id, contactId, opportunity.Id, quote.Id);
         out.message = String.join(lines, '\n');
         return out;
     }
@@ -293,9 +365,10 @@ global with sharing class RLM_MCP_CreateQuote {
         Date endDate,
         List<String> recap
     ) {
+        List<LineSpec> ordered = orderLinesForAdd(specs);
         List<RLM_AI_AddProductToQuoteService.AddInput> inputs =
             new List<RLM_AI_AddProductToQuoteService.AddInput>();
-        for (LineSpec spec : specs) {
+        for (LineSpec spec : ordered) {
             RLM_AI_AddProductToQuoteService.AddInput addIn =
                 new RLM_AI_AddProductToQuoteService.AddInput();
             addIn.quoteId = String.valueOf(quoteId);
@@ -316,7 +389,7 @@ global with sharing class RLM_MCP_CreateQuote {
         }
         for (Integer i = 0; i < added.size(); i++) {
             RLM_AI_AddProductToQuoteService.AddOutput row = added[i];
-            String product = (i < specs.size()) ? specs[i].product : 'line';
+            String product = (i < ordered.size()) ? ordered[i].product : 'line';
             if (row != null && row.isSuccess == true) {
                 String bit = (row.quantityAdded == null ? '' : String.valueOf(row.quantityAdded) + ' × ')
                     + (String.isBlank(row.productNameAdded) ? product : row.productNameAdded);
@@ -425,17 +498,127 @@ global with sharing class RLM_MCP_CreateQuote {
             'Reused existing draft quote ' + deal.draft.Name + ' on ' + deal.account.Name + '.',
             'Do not create another. Call updateRevenueCloudQuoteLines or addProductToRevenueCloudQuote if quantities or SKUs changed.'
         };
-        String quoteLink = RLM_MCP_RecordLinks.markdown('Open Quote', 'Quote', deal.draft.Id);
-        String oppLink = RLM_MCP_RecordLinks.markdown(
-            'Open Opportunity', 'Opportunity', opportunity.Id);
-        if (String.isNotBlank(quoteLink)) {
-            lines.add(quoteLink);
-        }
-        if (String.isNotBlank(oppLink)) {
-            lines.add(oppLink);
-        }
+        appendRecordLinks(lines, deal.account.Id, null, opportunity.Id, deal.draft.Id);
         out.message = String.join(lines, '\n');
         return out;
+    }
+
+    private static RLM_MCP_DealResolver.Result createMissingAccount(
+        CreateInput input,
+        CreateOutput out
+    ) {
+        if (!canCreateProspect(input)) {
+            out.message = 'No account matched "' + input.accountName
+                + '". Pass contactFirstName, contactLastName, and contactEmail on this same Create Quote call (plus billing address from the email). Do not call createRevenueCloudProspect first.';
+            return null;
+        }
+        List<RLM_MCP_CreateProspect.ProspectOutput> created =
+            RLM_MCP_CreateProspect.createProspect(
+                new List<RLM_MCP_CreateProspect.ProspectInput>{ prospectFrom(input) }
+            );
+        if (created == null || created.isEmpty() || created[0] == null) {
+            out.message = 'Could not create the prospect account.';
+            return null;
+        }
+        RLM_MCP_CreateProspect.ProspectOutput prospect = created[0];
+        if (prospect.needsDisambiguation == true || prospect.isSuccess != true) {
+            out.message = String.isNotBlank(prospect.errorMessage)
+                ? prospect.errorMessage
+                : 'Could not create the prospect account.';
+            return null;
+        }
+        out.accountUrl = prospect.accountUrl;
+        if (String.isNotBlank(prospect.contactId)) {
+            out.contactId = prospect.contactId;
+            out.contactUrl = prospect.contactUrl;
+        }
+        RLM_MCP_DealResolver.Result again = RLM_MCP_DealResolver.resolve(
+            input.accountName.trim(),
+            input.opportunityName,
+            String.isBlank(input.quoteName) ? null : input.quoteName.trim()
+        );
+        if (again == null || again.account == null) {
+            out.message = 'Created the account but could not resolve it for quoting.';
+            return null;
+        }
+        return again;
+    }
+
+    private static Boolean canCreateProspect(CreateInput input) {
+        return input != null && (
+            String.isNotBlank(input.contactEmail)
+            || String.isNotBlank(input.contactFirstName)
+            || String.isNotBlank(input.contactLastName)
+        );
+    }
+
+    private static RLM_MCP_CreateProspect.ProspectInput prospectFrom(CreateInput input) {
+        RLM_MCP_CreateProspect.ProspectInput prospect =
+            new RLM_MCP_CreateProspect.ProspectInput();
+        prospect.accountName = input.accountName;
+        prospect.contactFirstName = input.contactFirstName;
+        prospect.contactLastName = input.contactLastName;
+        prospect.contactEmail = input.contactEmail;
+        prospect.phone = input.phone;
+        prospect.website = input.website;
+        prospect.billingStreet = input.billingStreet;
+        prospect.billingCity = input.billingCity;
+        prospect.billingState = input.billingState;
+        prospect.billingPostalCode = input.billingPostalCode;
+        prospect.billingCountry = input.billingCountry;
+        prospect.useDemoAddress = input.useDemoAddress;
+        return prospect;
+    }
+
+    private static List<LineSpec> orderLinesForAdd(List<LineSpec> specs) {
+        if (specs == null || specs.size() < 2) {
+            return specs;
+        }
+        List<LineSpec> simple = new List<LineSpec>();
+        List<LineSpec> slow = new List<LineSpec>();
+        for (LineSpec spec : specs) {
+            if (isSlowBundle(spec.product)) {
+                slow.add(spec);
+            } else {
+                simple.add(spec);
+            }
+        }
+        if (slow.isEmpty()) {
+            return specs;
+        }
+        simple.addAll(slow);
+        return simple;
+    }
+
+    private static Boolean isSlowBundle(String product) {
+        if (String.isBlank(product)) {
+            return false;
+        }
+        String name = product.toLowerCase().replace(' ', '');
+        return name.contains('q-rack') || name.contains('qrack');
+    }
+
+    private static void appendRecordLinks(
+        List<String> lines,
+        Id accountId,
+        Id contactId,
+        Id opportunityId,
+        Id quoteId
+    ) {
+        addLink(lines, 'Open Account', 'Account', accountId);
+        addLink(lines, 'Open Contact', 'Contact', contactId);
+        addLink(lines, 'Open Opportunity', 'Opportunity', opportunityId);
+        addLink(lines, 'Open Quote', 'Quote', quoteId);
+    }
+
+    private static void addLink(List<String> lines, String label, String objectApi, Id recordId) {
+        if (recordId == null) {
+            return;
+        }
+        String link = RLM_MCP_RecordLinks.markdown(label, objectApi, recordId);
+        if (String.isNotBlank(link)) {
+            lines.add(link);
+        }
     }
 
     private static Id contactIdFor(Id accountId, String email) {

@@ -3,18 +3,18 @@ name: revenue-cloud-quoting
 description: >
   Route Salesforce Revenue Cloud quoting in Claude Desktop. After reconnect
   call getRevenueCloudQuotingCatalog, then findOpenQuotes with opportunityName.
-  Quotes, options, bundles, recaps, PDF, submit/decide approval, order,
-  amend, renew/cancel, unsent Gmail draft, first-ramp in chat. Never insert
-  Quote/Order/Asset/Account; never update Asset; never send mail. Dates
-  yyyy-mm-dd. New mix: one create with linesJson + opportunityName + quoteName.
-  Same email again: reuse or update, never a second Draft. No account: confirm
-  then prospect (address or useDemoAddress). Own SKU: amend, not create.
-  Email with a Drive Sheet or PDF: open Drive and quote those lines; do
-  not wait to be told. Call or calendar recap: open Calendar (and Drive
-  notes) and quote; do not wait to be told. Close a named deal: submit,
-  order, activate. Customer pack: explain, PDF, unsent draft
-  (bodyDisplay as-is; no Lightning URLs). Q-Rack qty 1. Add-line
-  inherits quote term. PDF+email in one turn; never Draft after Preview.
+  Inbound email: skip catalog. Gmail in:inbox newest, then one
+  createRevenueCloudQuote (contact names/email/address if no Account).
+  Never Create Prospect first when quoting. Never insert
+  Quote/Order/Asset/Account; never send mail. Dates yyyy-mm-dd.
+  Same email again: reuse or update. Own SKU: amend.
+  Drive Sheet/PDF: open and quote. Calendar recap: open and quote.
+  Close named deal: submit, order, activate. Customer pack: explain, PDF,
+  unsent draft (bodyDisplay as-is; no Lightning URLs). Q-Rack qty 1.
+  Add-line inherits quote term. Same-mix options: one
+  cloneRevenueCloudQuote per option with clonedQuoteName, termMonths,
+  discountPercentage. Never wait. Never Build Quote Options.
+  PDF+email in one turn; never Draft after Preview.
 ---
 
 # Revenue Cloud quoting
@@ -38,14 +38,17 @@ base — call `explainRevenueCloudQuotePrice` or
 
 After reconnect, or when a tool parameter such as `startDate` is “unknown”,
 call **`getRevenueCloudQuotingCatalog` first**. If that tool is missing,
-stop and tell the user to reconnect MCP and re-upload this skill.
+stop and tell the user to reconnect MCP and re-upload this skill. Do **not**
+call the catalog on an inbound-email or calendar quote unless a quoting
+tool is missing.
 
 | User intent | Tool |
 |---|---|
 | After reconnect / stale tools / skill version | `getRevenueCloudQuotingCatalog` |
-| Two or more commercial alternatives under **one Opportunity** (term, mix, discount) | `buildRevenueCloudQuoteOptions` |
+| Same products, new term and/or discount | One `cloneRevenueCloudQuote` per option with `clonedQuoteName`, `termMonths`, and `discountPercentage`. **Never wait. Never Build Quote Options.** Do not resend `lines` |
+| Two or more **new mixes** under one Opportunity | `buildRevenueCloudQuoteOptions` with `lines` on each option |
 | One new Draft quote | `createRevenueCloudQuote` (always pass `opportunityName` + `quoteName` + `linesJson`) |
-| Prospect / sender not in Salesforce | Confirm with the user, then `createRevenueCloudProspect`, then Create Quote — never SObject-insert Account |
+| Prospect / sender not in Salesforce | One `createRevenueCloudQuote` with `contactFirstName`, `contactLastName`, `contactEmail`, and billing address. That call creates Account + Contact + Opportunity + Draft. Do **not** call `createRevenueCloudProspect` first. If this prompt already said to create them from the email, that is the confirm — do not wait again. Never SObject-insert Account, Contact, Opportunity, or Quote |
 | Add catalog products to an existing Draft quote | `addProductToRevenueCloudQuote` with `linesJson` for every new SKU in that call. New lines inherit the quote `StartDate`/`EndDate` (do not pass `termMonths` unless this SKU should differ). Recap `lineSummaryDisplay` + Open Quote. Do **not** explain or preview after add. Q-Rack 750 / One-Time hardware bundle: quantity 1. If Salesforce returns fractional quantity and qty > 1, immediately add again at quantity 1 — do not stop the quote |
 | Which Draft quote / reconnect / several Acme deals | `findRevenueCloudOpenQuotes` with `opportunityName` from the email — ask only if several rows |
 | See bundle option groups / current picks | `describeRevenueCloudBundleConfiguration` |
@@ -72,19 +75,17 @@ stop and tell the user to reconnect MCP and re-upload this skill.
 | Draft / refresh the email for the current quote | `previewRevenueCloudQuoteDocument` until `bodyDisplay` **in this turn**, then update Gmail. Never wait. Never ask them to prompt again. **Never** `draftRevenueCloudCustomerReply` |
 | Ramp 10/20/30 on an existing Draft | `applyRevenueCloudQuoteRamp` — describe, create the first yearly schedule, or patch qty |
 | Next bill / TCV / usage | `getRevenueCloudBillingAndUsage` — TCV is quote GrandTotal, not ARR |
-| Build a quote from a customer email | Search Gmail or Outlook. If the mail has a Drive Sheet or PDF (link or Drive-attached), open it with **Google Drive** and take product/qty from that file — do not wait for “read the sheet/PDF.” A PDF uploaded in this chat: read it the same way. Then one `createRevenueCloudQuote` with `opportunityName`, `quoteName`, and `linesJson`. If `alreadyExisted`, update — do not create again |
-| Quote from a meeting / call / calendar recap | Search **Google Calendar** (or Microsoft 365 calendar if that is what is on). Open the event description and any Drive notes now — do not wait for “read the recap.” Then one `createRevenueCloudQuote` with `opportunityName`, `quoteName`, `linesJson`, `startDate` from the event, `contactEmail` from a customer attendee. If `alreadyExisted`, update — do not create again |
+| Build a quote from a customer email | Skip catalog. Gmail `in:inbox` newest (not a 30-day OR search). Open Drive Sheet/PDF now if present. Then **one** `createRevenueCloudQuote` (`opportunityName`, `quoteName`, `linesJson`, `contactEmail`; plus contact names/address if no Account). Recap only after it returns. If `alreadyExisted`, update — do not create again |
+| Quote from a meeting / call / calendar recap | Skip catalog. Search **Google Calendar** (or Microsoft 365 calendar if that is what is on). Open the event description and any Drive notes now — do not wait for “read the recap.” Then one `createRevenueCloudQuote` with `opportunityName`, `quoteName`, `linesJson`, `startDate` from the event, `contactEmail` from a customer attendee (plus contact names/address if no Account). If `alreadyExisted`, update — do not create again |
 | Later email / reconnect on an existing quote | `findRevenueCloudOpenQuotes` with that `opportunityName`, then `updateRevenueCloudQuoteLines` — never a second quote |
 
-If the user asks for “three options”, “alternatives”, “good / better / best”,
-or several quotes on the same deal, call **Build Quote Options** with every
-option in `optionsJson` **once**. The tool places the first option of each
-product mix, then Deep Clones siblings and patches term/discount. It only
-returns `remainingOptionsJson` if Salesforce CPU forces a pause. In that case
-**immediately call again** with the same `accountName`, same `opportunityName`,
-and `optionsJson` = `remainingOptionsJson`. Do not ask the user. Do not create a
-new Opportunity. Repeat until `remainingOptionsJson` is blank, then render
-the visual card. Do not loop Create Quote yourself.
+If they said **same products / current mix / just term and discount**, do
+**not** call Build Quote Options. For each option: one
+`cloneRevenueCloudQuote` (original Draft, or `current` / `latest` = oldest
+Draft; pass `accountName` + `opportunityName`) with `clonedQuoteName`,
+`termMonths`, and `discountPercentage`. Do not resend products. **Never
+wait / Pause.** If clone fails, stop — do not rebuild. A **new mix** still
+uses Build Quote Options with `lines`. Do not loop Create Quote yourself.
 
 ## Record links (required)
 
@@ -100,7 +101,7 @@ links, put those in the user-facing reply as markdown links:
 
 Do this after create, add-line, configure, discount, summary, explain,
 preview document, submit, create-order, activate, amend, prospect,
-find-open-quotes, compare, and Build Quote Options. Echo markdown already
+find-open-quotes, compare, clone, and Build Quote Options. Echo markdown already
 present in `message`, `comparisonDisplay`, `resultsDisplay`,
 `summaryDisplay`, or `assetsDisplay`. Never paste a raw Salesforce Id as
 the thing to click. Also render `[Open Account](accountUrl)` /
@@ -115,7 +116,7 @@ or Outlook draft — the customer cannot log in. Use `coachDisplay` from
 
 After every **successful** create, add-line, update-lines, discount, ramp,
 configure, submit, decide, create-order, activate, amend, renew/cancel,
-customer pack, or Build Quote Options, end the user-facing reply with
+customer pack, clone, or Build Quote Options, end the user-facing reply with
 **one** short Next line. Do not add it after catalog ping, explain-only,
 deal-status-only, or when you stopped to ask a question.
 
@@ -130,10 +131,27 @@ deal-status-only, or when you stopped to ask a question.
 
 Do not list every option. Use the matching row. Keep it one sentence.
 
+## Clone Quote
+
+Same mix, new term / discount. Call **once per option**:
+
+`cloneRevenueCloudQuote` with `accountName`, `opportunityName`,
+`quoteName` = the **original** Draft (or `current` / `latest` = oldest
+Draft), plus `clonedQuoteName`, `termMonths`, and `discountPercentage`.
+
+Do not resend products. Do not Update Quote Lines unless clone said to.
+**Never wait / Pause. Never Build Quote Options.** If clone fails, stop.
+
 ## Build Quote Options
 
 Pass `accountName`, optional `opportunityName` (defaults to
-`<Account> Commercial Options`), and `optionsJson`:
+`<Account> Commercial Options`), and `optionsJson`.
+
+**Same mix, new term / discount:** do **not** use this tool. Call
+`cloneRevenueCloudQuote` once per option with `clonedQuoteName`,
+`termMonths`, and `discountPercentage`.
+
+**New mix** (different products): pass `lines`:
 
 ```json
 [
@@ -252,10 +270,13 @@ When the user asks to **build a new quote** from email (“latest Acme email”,
 “the customer request in my inbox”, a named sender):
 
 1. Use **Gmail** or **Microsoft 365 / Outlook** — not Salesforce — to find
-   and read the message.
-   - Gmail: `search_threads` (account name, quote/pricing, newest first),
-     then `get_thread` on the match.
-   - Outlook: the mail search/read tools that connector exposes. Same intent.
+   and read the message. Skip `getRevenueCloudQuotingCatalog`.
+   - Gmail: `search_threads` with `in:inbox newer_than:2d` (add the company
+     name from the prompt when they named one), newest first. Then
+     `get_thread` on the first match. Do **not** search
+     `quote OR pricing OR quotation` over 30 days.
+   - Outlook: the mail search/read tools that connector exposes. Same
+     intent — newest inbox, not a month of keyword OR.
    - Search narrowly. Do not dump the inbox.
    - If those connectors are missing or off, say so and ask them to enable
      Gmail or Microsoft 365 on this chat, or paste the email. Do not invent
@@ -300,34 +321,50 @@ When the user asks to **build a new quote** from email (“latest Acme email”,
 3. Extract: sender name and email, account hint, products and quantities
    (from the sheet or PDF when step 2 ran),
    term, discount language, **new sale vs change to something they already
-   own**. If they already own that SKU (`getRevenueCloudInstalledBase`),
-   this is an **amend** (`amendRevenueCloudAsset` with a delta and
-   `startDate`), not a new quote. Pass `opportunityName`.
+   own**. If this company is **not in Salesforce**, skip
+   `getRevenueCloudInstalledBase`. If they already own that SKU
+   (`getRevenueCloudInstalledBase`), this is an **amend**
+   (`amendRevenueCloudAsset` with a delta and `startDate`), not a new
+   quote. Pass `opportunityName`.
 4. Do **not** query `Product2` (or the catalog) with SObject All. Create Quote
    resolves product names. Use SObject All only when the sender is unclear,
    or Asset when this looks like an amendment. If **no Account** matches the
-   company: show the parsed company/contact, **wait for confirm**, then
-   `createRevenueCloudProspect` (never SObject-insert Account), then Create
-   Quote. If a similar account exists, the tool asks — do not create a
-   duplicate.
-5. If they already named a **new** Opportunity, do **not** stop to confirm
-   the Opportunity and do **not** ask which existing Opportunity to use.
+   company:
+   - If this prompt already asked to create the account / contact /
+     opportunity / quote from the email, **that is the confirm**. Go to
+     step 6 in **this turn**. Do not wait for a second yes. Do **not**
+     call `createRevenueCloudProspect`.
+   - Otherwise show the parsed company/contact/lines and wait, then
+     step 6.
+   Never SObject-insert `Account`, `Contact`, `Opportunity`, or `Quote`.
+   Create Quote creates Account, Contact, and Opportunity when those
+   fields are passed. If a similar account exists, Create Quote asks —
+   do not create a duplicate.
+5. If they already named a **new** Opportunity, or already said to create
+   the deal from this email, do **not** stop to confirm the Opportunity
+   and do **not** ask which existing Opportunity to use.
    Otherwise show a short confirmation card (account, lines) and wait.
 6. One mix: **one** `createRevenueCloudQuote` call. Do **not** call
-   `addProductToRevenueCloudQuote` per SKU. Do **not** call
+   `createRevenueCloudProspect`. Do **not** recap, discuss mailing the
+   customer, or call any other quoting tool until it returns. Do **not**
+   call `addProductToRevenueCloudQuote` per SKU. Do **not** call
    `buildRevenueCloudQuoteOptions`. Pass:
    - `accountName`
    - `quoteName` (stable name from the subject or the name they chose)
    - `opportunityName` (**required** when the account has several open
      deals — never omit it on Acme)
-   - `contactEmail` when you have the sender
+   - `contactFirstName` / `contactLastName` / `contactEmail` from the
+     email (required when the company is not in Salesforce)
+   - billing street/city/state/postal/country from the email when present
+     (`useDemoAddress=true` only if they confirmed a demo address)
    - `termMonths` from the email (12 if they asked for 12 months)
    - `linesJson`: `[{"product":"QuantumBit Database","quantity":10}, ...]`
      using the names from the sheet or PDF when step 2 ran, otherwise the
-     email body. **Q-Rack 750** (and other One-Time hardware bundles):
-     pass `quantity` **1**, even if the mail asked for 8. Qty > 1 fails
-     Salesforce bundle validation (`Cannot have a fractional quantity` on
-     a child component). If Create Quote still reports that error, immediately
+     email body. Put **Q-Rack 750** last in that array. **Q-Rack 750**
+     (and other One-Time hardware bundles): pass `quantity` **1**, even
+     if the mail asked for 8. Qty > 1 fails Salesforce bundle validation
+     (`Cannot have a fractional quantity` on a child component). If Create
+     Quote still reports that error, immediately
      `addProductToRevenueCloudQuote` with that product at quantity 1. Do
      not create another quote. Say it is sold per rack.
    If Create Quote returns `alreadyExisted=true`, **do not add lines**.
@@ -336,8 +373,10 @@ When the user asks to **build a new quote** from email (“latest Acme email”,
    sale before submitting.
    - Describe/configure only if a returned line is a bundle that still needs
      picks. Discount only if the email, sheet, or PDF asked for one.
-7. Recap `linesDisplay` (or the line list in `message`) and render
-   **Open Quote** / **Open Opportunity**. Do **not** call
+7. Recap only after Create Quote returns. Use `linesDisplay` (or the
+   line list in `message`) and render **Open Account** / **Open Contact** /
+   **Open Opportunity** / **Open Quote**. Do **not** discuss mailing the
+   customer. Do **not** call
    `previewRevenueCloudQuoteDocument` unless they asked for the order form,
    proposal, or PDF. Do **not** call `getRevenueCloudQuoteSummary`.
 8. **Never** `send_message`, `reply`, Outlook send, or email a PDF to the
@@ -474,16 +513,21 @@ they add on:
 When Create Quote says no account matched, or the email is from a company
 that is not in Salesforce:
 
-1. Show the company name, contact, and email you extracted. **Stop and
-   confirm** before creating records.
-2. After they confirm, call **`createRevenueCloudProspect`** with
-   `accountName`, `contactFirstName` / `contactLastName`, and `contactEmail`.
-   If the account has no billing street, pass the address from the email
-   or `useDemoAddress=true` **only after they confirm** a demo address
-   (do not invent a customer HQ). Never SObject-insert `Account` or `Contact`.
-3. If `needsDisambiguation`, ask reuse vs create. Do not insert a duplicate.
-4. Then **one** `createRevenueCloudQuote` with `linesJson` as usual.
-5. Render **Open Account** / **Open Contact** / **Open Quote**.
+1. If this prompt already asked to create the account, contact,
+   opportunity, and quote from the email, **skip a second confirm**.
+   Otherwise show the company name, contact, and email you extracted and
+   **stop** before creating records.
+2. **One** `createRevenueCloudQuote` with `accountName`,
+   `contactFirstName` / `contactLastName`, `contactEmail`, billing
+   address from the email (or `useDemoAddress=true` only after they
+   confirm a demo address), `opportunityName`, `quoteName`, `termMonths`,
+   and `linesJson`. That call creates Account, Contact, Opportunity, and
+   Draft. Do **not** call `createRevenueCloudProspect`. Never
+   SObject-insert `Account`, `Contact`, or `Opportunity`.
+3. If the message asks which similar account to use, ask reuse vs create.
+   Do not insert a duplicate.
+4. Recap only after that call returns. Render **Open Account** /
+   **Open Contact** / **Open Opportunity** / **Open Quote**.
 
 ## Which quote (several Drafts)
 
@@ -765,10 +809,10 @@ order-only or activate-only:
    asynchronously after activation; an empty first activate is normal.
 
 The account must have a Contact (Bill to Contact) and a billing or shipping
-address. Create Prospect writes those when you pass an address or confirmed
-`useDemoAddress`. Create Quote stamps `Quote.ContactId` from `contactEmail`
-or the account contact. If activation still says those are missing, tell
-the user — do not invent a customer HQ.
+address. Create Quote writes those when you pass an address or confirmed
+`useDemoAddress` on a new-prospect create. It stamps `Quote.ContactId` from
+`contactEmail` or the account contact. If activation still says those are
+missing, tell the user — do not invent a customer HQ.
 
 ## Amend an asset
 
@@ -859,8 +903,13 @@ What start date should I use?
   Always pass `opportunityName` + `quoteName`. New mix: one create with
   `linesJson`. Same request again: `alreadyExisted` or
   `findRevenueCloudOpenQuotes` then update — never a second Draft. No
-  account: confirm, then `createRevenueCloudProspect` (address or
-  confirmed `useDemoAddress`). They already own the SKU: amend, not
+  account: one Create Quote with contact names, email, and address
+  (that call creates Account + Contact + Opportunity). Skip catalog.
+  Gmail `in:inbox` newest — not a 30-day OR search. Recap only after
+  Create Quote returns. If they already said to create them from the
+  email, do not wait for a second confirm. Never call
+  createRevenueCloudProspect when quoting. Never SObject-insert
+  Account, Contact, or Opportunity. They already own the SKU: amend, not
   create. Follow-up qty email: newest message (and its sheet/PDF if
   present), find with `opportunityName`, then one
   `updateRevenueCloudQuoteLines`. New SKUs on that Draft: one add with
