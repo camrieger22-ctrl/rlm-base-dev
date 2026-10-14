@@ -7,11 +7,6 @@ global with sharing class RLM_MCP_PreviewQuoteDocument {
     private static final Integer MAX_CANDIDATES = 50;
     private static final String DEFAULT_TEMPLATE = 'RLM_QuoteProposal';
     private static final Set<String> IN_FLIGHT = new Set<String>{ 'InProgress', 'Waiting' };
-    private static final Integer POLL_WAIT_MS = 8000;
-    private static final Integer POLL_STEP_MS = 1000;
-
-    @TestVisible
-    static Boolean skipPollWait = false;
 
     global class PreviewInput {
         @InvocableVariable(
@@ -49,6 +44,12 @@ global with sharing class RLM_MCP_PreviewQuoteDocument {
             description='True when refreshing an email after generating the PDF. Returns subject and HTML bodyDisplay so you can skip draftRevenueCloudCustomerReply.'
         )
         global Boolean includeCustomerDraft;
+
+        @InvocableVariable(
+            label='Regenerate'
+            description='True only when they asked for a new PDF after quote edits. Default reuses the latest proposal file on the quote. Do not set this to hyperlink an existing Gmail draft.'
+        )
+        global Boolean regenerate;
     }
 
     global class PreviewOutput {
@@ -140,7 +141,7 @@ global with sharing class RLM_MCP_PreviewQuoteDocument {
 
     @InvocableMethod(
         label='Preview Revenue Cloud Quote Document'
-        description='Generates Quote Proposal PDF and HTML bodyDisplay. Finish email in this turn. If isPartial, call again immediately with process Id — never wait or ask the user to retry. When bodyDisplay is set, update Gmail; do not call draftRevenueCloudCustomerReply.'
+        description='Proposal PDF. Hyperlink an existing Gmail draft: do not call this — use draftRevenueCloudCustomerReply. Default reuses the latest file. regenerate=true only for a new PDF. If isPartial, call again immediately with process Id.'
     )
     global static List<PreviewOutput> preview(List<PreviewInput> inputs) {
         List<PreviewOutput> results = new List<PreviewOutput>();
@@ -185,7 +186,20 @@ global with sharing class RLM_MCP_PreviewQuoteDocument {
                 return out;
             }
 
-            Id processId = existingProcessId(input.documentGenerationProcessId, q, template.Id);
+            Boolean regenerate = input.regenerate == true;
+            if (!regenerate && String.isBlank(input.documentGenerationProcessId)) {
+                ContentVersion existingPdf = latestPdfOnQuoteSince(q.Id, null);
+                if (existingPdf != null) {
+                    return finishWithPdf(out, existingPdf, q, template.Name, null);
+                }
+            }
+
+            Id processId = existingProcessId(
+                input.documentGenerationProcessId,
+                q,
+                template.Id,
+                regenerate
+            );
             if (processId == null) {
                 String title = q.Name + ' - ' + template.Name;
                 StartResult started = starter.start(q.Id, template.Id, title);
@@ -215,7 +229,7 @@ global with sharing class RLM_MCP_PreviewQuoteDocument {
                 out.errorMessage = 'Document generation process ' + processId + ' was not found.';
                 return out;
             }
-            DocumentGenerationProcess dgp = awaitProcess(processId, processes[0]);
+            DocumentGenerationProcess dgp = processes[0];
             String status = String.valueOf(dgp.Status);
             if (IN_FLIGHT.contains(status)) {
                 out.isPartial = true;
@@ -246,26 +260,7 @@ global with sharing class RLM_MCP_PreviewQuoteDocument {
                 out.message = retryNowMessage(q.Id, processId, template.Name, q.Name);
                 return out;
             }
-            out.contentDocumentId = pdf.ContentDocumentId;
-            out.contentVersionId = pdf.Id;
-            out.pdfUrl = RLM_MCP_RecordLinks.lightningUrl('ContentDocument', pdf.ContentDocumentId);
-            attachPdfAndDraft(out, pdf, q);
-            out.isSuccess = true;
-            List<String> bits = new List<String>();
-            String pdfLink = RLM_MCP_RecordLinks.markdown('Open PDF', 'ContentDocument', pdf.ContentDocumentId);
-            String quoteLink = RLM_MCP_RecordLinks.markdown('Open Quote', 'Quote', q.Id);
-            if (String.isNotBlank(pdfLink)) {
-                bits.add(pdfLink);
-            }
-            if (String.isNotBlank(quoteLink)) {
-                bits.add(quoteLink);
-            }
-            out.message = 'Preview of **'
-                + template.Name
-                + '** for **'
-                + q.Name
-                + '** is ready.\n'
-                + String.join(bits, '\n');
+            return finishWithPdf(out, pdf, q, template.Name, processId);
         } catch (Exception e) {
             out.isSuccess = false;
             out.isPartial = false;
@@ -291,7 +286,46 @@ global with sharing class RLM_MCP_PreviewQuoteDocument {
             + 'Do not call draftRevenueCloudCustomerReply.';
     }
 
-    private static Id existingProcessId(String rawProcessId, Quote q, Id templateId) {
+    private static PreviewOutput finishWithPdf(
+        PreviewOutput out,
+        ContentVersion pdf,
+        Quote q,
+        String templateName,
+        Id processId
+    ) {
+        out.documentGenerationProcessId = processId == null
+            ? out.documentGenerationProcessId
+            : String.valueOf(processId);
+        out.contentDocumentId = pdf.ContentDocumentId;
+        out.contentVersionId = pdf.Id;
+        out.pdfUrl = RLM_MCP_RecordLinks.lightningUrl('ContentDocument', pdf.ContentDocumentId);
+        attachPdfAndDraft(out, pdf, q);
+        out.isSuccess = true;
+        out.isPartial = false;
+        List<String> bits = new List<String>();
+        String pdfLink = RLM_MCP_RecordLinks.markdown('Open PDF', 'ContentDocument', pdf.ContentDocumentId);
+        String quoteLink = RLM_MCP_RecordLinks.markdown('Open Quote', 'Quote', q.Id);
+        if (String.isNotBlank(pdfLink)) {
+            bits.add(pdfLink);
+        }
+        if (String.isNotBlank(quoteLink)) {
+            bits.add(quoteLink);
+        }
+        out.message = 'Preview of **'
+            + templateName
+            + '** for **'
+            + q.Name
+            + '** is ready.\n'
+            + String.join(bits, '\n');
+        return out;
+    }
+
+    private static Id existingProcessId(
+        String rawProcessId,
+        Quote q,
+        Id templateId,
+        Boolean regenerate
+    ) {
         if (String.isNotBlank(rawProcessId)) {
             Id parsed = RLM_MCP_RecordLinks.toId(rawProcessId);
             if (parsed == null) {
@@ -331,53 +365,16 @@ global with sharing class RLM_MCP_PreviewQuoteDocument {
             return null;
         }
         DocumentGenerationProcess done = doneJobs[0];
-        if (q.LastModifiedDate != null && done.LastModifiedDate < q.LastModifiedDate) {
+        if (regenerate == true
+            && q.LastModifiedDate != null
+            && done.LastModifiedDate < q.LastModifiedDate
+        ) {
             return null;
         }
         if (pdfFromResponse(done.ResponseText) == null) {
             return null;
         }
         return done.Id;
-    }
-
-    private static DocumentGenerationProcess awaitProcess(
-        Id processId,
-        DocumentGenerationProcess dgp
-    ) {
-        if (dgp == null || processId == null) {
-            return dgp;
-        }
-        if (Test.isRunningTest() || skipPollWait) {
-            return dgp;
-        }
-        if (!IN_FLIGHT.contains(String.valueOf(dgp.Status))) {
-            return dgp;
-        }
-        Long deadline = DateTime.now().getTime() + POLL_WAIT_MS;
-        Integer queries = 0;
-        while (DateTime.now().getTime() < deadline
-            && Limits.getCpuTime() < 8500
-            && queries < 10
-            && IN_FLIGHT.contains(String.valueOf(dgp.Status))) {
-            Long stepStart = DateTime.now().getTime();
-            while (DateTime.now().getTime() - stepStart < POLL_STEP_MS
-                && Limits.getCpuTime() < 8500) {
-                Integer spin = Crypto.getRandomInteger();
-                spin++;
-            }
-            queries++;
-            List<DocumentGenerationProcess> again = [
-                SELECT Id, Status, ResponseText, ReferenceObject, CreatedDate
-                FROM DocumentGenerationProcess
-                WHERE Id = :processId
-                LIMIT 1
-            ];
-            if (again.isEmpty()) {
-                return dgp;
-            }
-            dgp = again[0];
-        }
-        return dgp;
     }
 
     private static Set<String> quoteKeysOf(Id quoteId) {

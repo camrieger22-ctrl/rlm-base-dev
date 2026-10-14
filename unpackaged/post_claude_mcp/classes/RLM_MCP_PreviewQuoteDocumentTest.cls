@@ -302,6 +302,47 @@ private class RLM_MCP_PreviewQuoteDocumentTest {
     }
 
     @IsTest
+    static void quoteEditsReuseLinkedPdfUnlessRegenerate() {
+        Quote q = pricedQuote();
+        DocumentTemplate dt = activeTemplate();
+        ContentVersion cv = insertFile('ZMCP Preview PDF', 'preview.pdf');
+        insert new ContentDocumentLink(
+            LinkedEntityId = q.Id,
+            ContentDocumentId = cv.ContentDocumentId,
+            ShareType = 'V',
+            Visibility = 'AllUsers'
+        );
+        DocumentGenerationProcess placeholder = insertProcess(
+            q.Id,
+            dt.Id,
+            'Success',
+            null
+        );
+        update new Quote(Id = q.Id, Name = 'Zephyr Preview Priced edited');
+        FakeStarter fake = new FakeStarter(placeholder.Id);
+        RLM_MCP_PreviewQuoteDocument.starter = fake;
+
+        RLM_MCP_PreviewQuoteDocument.PreviewInput reuse =
+            new RLM_MCP_PreviewQuoteDocument.PreviewInput();
+        reuse.quoteId = String.valueOf(q.Id);
+        reuse.templateName = 'ZMCP_Preview_Proposal';
+        RLM_MCP_PreviewQuoteDocument.PreviewOutput reused = run(reuse);
+        Assert.isTrue(reused.isSuccess == true, '' + reused.errorMessage);
+        Assert.isTrue(reused.isPartial != true, reused.message);
+        Assert.areEqual(0, fake.calls);
+        Assert.areEqual(String.valueOf(cv.ContentDocumentId), reused.contentDocumentId);
+
+        RLM_MCP_PreviewQuoteDocument.PreviewInput regen =
+            new RLM_MCP_PreviewQuoteDocument.PreviewInput();
+        regen.quoteId = String.valueOf(q.Id);
+        regen.templateName = 'ZMCP_Preview_Proposal';
+        regen.regenerate = true;
+        RLM_MCP_PreviewQuoteDocument.PreviewOutput started = run(regen);
+        Assert.isTrue(started.isPartial == true, started.message);
+        Assert.areEqual(1, fake.calls);
+    }
+
+    @IsTest
     static void startWhenNoCachedPdfReturnsPartialWithoutPolling() {
         Quote q = pricedQuote();
         DocumentTemplate dt = activeTemplate();

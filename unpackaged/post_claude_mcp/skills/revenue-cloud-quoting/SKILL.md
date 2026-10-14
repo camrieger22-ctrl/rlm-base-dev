@@ -2,21 +2,16 @@
 name: revenue-cloud-quoting
 description: >
   Route Salesforce Revenue Cloud quoting in Claude Desktop. After reconnect
-  call getRevenueCloudQuotingCatalog, then findOpenQuotes with opportunityName.
-  Inbound email: skip catalog. Gmail in:inbox newest, then one
+  call getRevenueCloudQuotingCatalog. Inbound email: Gmail newest, then one
   createRevenueCloudQuote (contact names/email/address if no Account).
-  Never Create Prospect first when quoting. Never insert
-  Quote/Order/Asset/Account; never send mail. Dates yyyy-mm-dd.
-  Same email again: reuse or update. Own SKU: amend.
-  Drive Sheet/PDF: open and quote. Calendar recap: open and quote.
-  Close named deal: submit, order, activate. Customer pack: explain, PDF,
-  unsent draft (bodyDisplay as-is; no Lightning URLs). Q-Rack qty 1.
-  Add-line inherits quote term. Same-mix options: one
-  cloneRevenueCloudQuote per option with clonedQuoteName, termMonths,
-  discountPercentage. Never wait. Never Build Quote Options.
-  Derived-price AE note is chat-only, never Gmail.
-  Wait on AE numbered options; do not auto-add.
-  PDF+email in one turn; never Draft after Preview.
+  Follow-up: updateQuoteLines with fromEmail=Gmail From; add Contact with
+  signature title/phone/address. Never invent email. Never Create Prospect
+  first. Never insert Quote/Order/Asset/Account; never send mail.
+  Same-mix: cloneRevenueCloudQuote per option. Never wait. Never Build
+  Quote Options. AE notes are chat-only. Quote change + draft + PDF
+  link: one prompt, one turn. Never a later "now add the PDF". Ramp
+  schedule: createRevenueCloudRampSchedule (preview then confirm). Qty
+  on segments: applyRevenueCloudQuoteRamp. Never Ramp Builder.
 ---
 
 # Revenue Cloud quoting
@@ -51,6 +46,7 @@ tool is missing.
 | Two or more **new mixes** under one Opportunity | `buildRevenueCloudQuoteOptions` with `lines` on each option |
 | One new Draft quote | `createRevenueCloudQuote` (always pass `opportunityName` + `quoteName` + `linesJson`) |
 | Prospect / sender not in Salesforce | One `createRevenueCloudQuote` with `contactFirstName`, `contactLastName`, `contactEmail`, and billing address. That call creates Account + Contact + Opportunity + Draft. Do **not** call `createRevenueCloudProspect` first. If this prompt already said to create them from the email, that is the confirm — do not wait again. Never SObject-insert Account, Contact, Opportunity, or Quote |
+| Sender From: not a Contact on an existing Account | On the same `updateRevenueCloudQuoteLines` / add-product call, pass `fromEmail` = Gmail **From** mailbox + `fromName`. Recap the sender picker in `resultsDisplay`. If `needsAction`, wait. Then `addRevenueCloudAccountContact`. Quote Contact is not the sender. Never skip. Never invent email |
 | Add catalog products to an existing Draft quote | `addProductToRevenueCloudQuote` with `linesJson` for every new SKU in that call. New lines inherit the quote `StartDate`/`EndDate` (do not pass `termMonths` unless this SKU should differ). Recap `lineSummaryDisplay` + Open Quote. If `lineSummaryDisplay` has an **AE note**, say it in chat (never Gmail). Do **not** explain or preview after add. Q-Rack 750 / One-Time hardware bundle: quantity 1. If Salesforce returns fractional quantity and qty > 1, immediately add again at quantity 1 — do not stop the quote |
 | Which Draft quote / reconnect / several Acme deals | `findRevenueCloudOpenQuotes` with `opportunityName` from the email — ask only if several rows |
 | See bundle option groups / current picks | `describeRevenueCloudBundleConfiguration` |
@@ -58,6 +54,7 @@ tool is missing.
 | Percent off | `applyRevenueCloudQuoteDiscount` (discount only) or `updateRevenueCloudQuoteLines` when also changing qty or term |
 | Change quantity, term, start date, quote name, or remove a line on an existing Draft | `updateRevenueCloudQuoteLines` with `quantitiesJson` (quantity 0 or `"remove":true` drops that parent line), `termMonths`, `startDate`, and/or `quoteName` — never rebuild, never SObject-delete QuoteLineItem |
 | What-if on a live Draft (36 months, 15% off, 20 more seats, TCV) | One `updateRevenueCloudQuoteLines`, then `getRevenueCloudBillingAndUsage` for TCV (GrandTotal). Never rebuild, never Build Quote Options |
+| Change the quote **and** refresh the unsent email + PDF | **One turn.** `updateRevenueCloudQuoteLines`, then preview until `bodyDisplay`, then **update the existing Gmail draft**. Do not stop after the line update. Do not wait for a second “add the PDF” prompt |
 | Customer pack (explain + proposal PDF + unsent email) | Explain once, then preview until `bodyDisplay` in **this turn**. **Never wait/Pause. Never ask the user to prompt again.** Gmail that HTML. **Never** `draftRevenueCloudCustomerReply` after preview. Never send |
 | Close / take a named deal to order and activate | Find the quote, `getRevenueCloudDealStatus`, submit if Draft, decide only if this user is the assignee, `createRevenueCloudOrderFromQuote`, `activateRevenueCloudOrder`, then installed base. Stop if approval is waiting on someone else |
 | Recap lines and prices | `getRevenueCloudQuoteSummary` |
@@ -75,11 +72,12 @@ tool is missing.
 | Draft a customer reply | `draftRevenueCloudCustomerReply` — Gmail draft/create with `bodyDisplay` verbatim. No Lightning URLs in the email. Never send |
 | Add a PDF link to an existing unsent Gmail draft | `draftRevenueCloudCustomerReply` **once**, then **update that Gmail draft** with the proposal PDF `<a href>`. Do **not** preview. Do **not** explain. Do **not** create a second draft |
 | Draft / refresh the email for the current quote | `previewRevenueCloudQuoteDocument` until `bodyDisplay` **in this turn**, then update Gmail. Never wait. Never ask them to prompt again. **Never** `draftRevenueCloudCustomerReply` |
-| Ramp 10/20/30 on an existing Draft | `applyRevenueCloudQuoteRamp` — describe, create the first yearly schedule, or patch qty |
+| Preview or create a ramp schedule (Annual/Custom, trial, prorated) | `createRevenueCloudRampSchedule` — preview first, then `confirm=true`. Never Ramp Builder |
+| Add a product or 10/20/30 qty on existing ramp segments | `applyRevenueCloudQuoteRamp` — describe, AddProducts, or patch qty. Create the schedule first |
 | Next bill / TCV / usage | `getRevenueCloudBillingAndUsage` — TCV is quote GrandTotal, not ARR |
 | Build a quote from a customer email | Skip catalog. Gmail `in:inbox` newest (not a 30-day OR search). Open Drive Sheet/PDF now if present. Then **one** `createRevenueCloudQuote` (`opportunityName`, `quoteName`, `linesJson`, `contactEmail`; plus contact names/address if no Account). Recap only after it returns. If `alreadyExisted`, update — do not create again |
 | Quote from a meeting / call / calendar recap | Skip catalog. Search **Google Calendar** (or Microsoft 365 calendar if that is what is on). Open the event description and any Drive notes now — do not wait for “read the recap.” Then one `createRevenueCloudQuote` with `opportunityName`, `quoteName`, `linesJson`, `startDate` from the event, `contactEmail` from a customer attendee (plus contact names/address if no Account). If `alreadyExisted`, update — do not create again |
-| Later email / reconnect on an existing quote | `findRevenueCloudOpenQuotes` with that `opportunityName`, then `updateRevenueCloudQuoteLines` — never a second quote |
+| Later email / reconnect on an existing quote | `findRevenueCloudOpenQuotes` with that `opportunityName`, then `updateRevenueCloudQuoteLines` with `fromEmail` = Gmail From — never a second quote |
 
 If they said **same products / current mix / just term and discount**, do
 **not** call Build Quote Options. For each option: one
@@ -163,9 +161,27 @@ deal-status-only, or when you stopped to ask a question.
 | Activated / amend or renew quote ready | Next: recap installed base, or compare this quote to what they own. (After amend/renew quote: create the order and activate.) |
 
 Do not list every option. Use the matching row. Keep it one sentence.
-If the recap includes an AE derived-price numbered picker, that picker
-**is** the Next line — wait for their choice. Do not also add ramp /
-submit / customer pack.
+If the recap includes an AE derived-price numbered picker **or** a
+sender-contact `promptDisplay` with `needsAction`, that picker **is**
+the Next line — wait for their choice. Do not also add ramp / submit /
+customer pack.
+
+## How to prompt (one turn)
+
+When they change the quote **and** want the customer email / proposal
+PDF updated, do **all of it in this turn**. Verified 2026-10-14: one
+prompt (`80% off` + draft + PDF link) finished quickly. A later
+standalone “hyperlink the PDF” prompt started a second generate, took
+~2.5 minutes, and failed.
+
+- **Do:** `update the quote to 80% off and add the proposal PDF to the existing draft`
+- **Do not:** update first, then in a new message `now hyperlink the PDF`
+- **Do:** `preview a 40-month annual ramp with a 30-day trial starting October 15 2026 on the 8-year quote`
+- **Do:** `create that ramp schedule and add QuantumBit Database at 10, 20, then 30`
+- **Do not:** open Ramp Builder, or create the schedule by applying 10/20/30 before `createRevenueCloudRampSchedule`
+
+After the line update, preview until `bodyDisplay` and patch the
+existing Gmail draft. Do not stop. Do not ask them to prompt again.
 
 ## Clone Quote
 
@@ -223,8 +239,8 @@ from this org, not products from another demo.
 hardware is not given an end date.
 
 Year-over-year **group ramps** (qty 10 / 20 / 30 as segments) are not in this
-tool. Build the quotes here, then `applyRevenueCloudQuoteRamp` with
-`segmentsJson` to create or patch the yearly schedule.
+tool. Create the empty schedule with `createRevenueCloudRampSchedule`, then
+`applyRevenueCloudQuoteRamp` with `segmentsJson` to add or patch product qty.
 
 ### Visual recap (required)
 
@@ -517,6 +533,10 @@ When a later email from the same customer has updated quantities or term
      and do **not** create another quote.
 4. Call **`updateRevenueCloudQuoteLines` once** with that `quoteId`,
    `quantitiesJson`, and `termMonths` / `discountPercentage` when present.
+   **Required:** `fromEmail` = Gmail/Outlook **From mailbox** (e.g.
+   `crieger@salesforce.com`) and `fromName` = From display (e.g. Bryce
+   Majors). Do **not** omit this. Quote Contact (Jordan Hale) is **not**
+   the sender unless From matches.
 5. Do **not** `createRevenueCloudQuote`. Do **not** rebuild. Do **not** call
    `buildRevenueCloudQuoteOptions`. Do **not** add delta lines. Products in
    the follow-up that are **not** on the quote: **one**
@@ -524,8 +544,33 @@ When a later email from the same customer has updated quantities or term
    Do not add-product per SKU. New lines inherit the quote term; do
    not pass `termMonths` unless they asked for a different term on
    that SKU. Do not explain or preview after add.
-6. Recap `resultsDisplay` / `lineSummaryDisplay` and **Open Quote**.
-   No PDF unless they asked. Never send mail to the customer.
+6. Recap `resultsDisplay` / `lineSummaryDisplay` (including the sender
+   picker) and **Open Quote**. No PDF unless they asked. Never send mail
+   to the customer.
+7. If `needsAction` is true, that sender picker **is** the Next line —
+   **wait**. Do not add ramp / submit / pack. Do not skip because the
+   quote already has a Contact.
+8. If the recap has no sender picker, call
+   `checkRevenueCloudSenderContact` with the same From. Never invent
+   email from the body. If Gmail did not return From, say so and stop.
+
+## Sender contact on an existing account (required)
+
+When you just applied a follow-up email to an existing Account:
+
+1. The update/add result already includes the sender picker when you
+   passed `fromEmail`. Recap it. If you omitted From, the recap will
+   say Quote Contact is not the sender — call again with `fromEmail`.
+2. If `needsAction`, **stop and wait**.
+3. After they pick: **one** `addRevenueCloudAccountContact` with
+   `accountName`, names from From display, `contactEmail` = From,
+   `quoteId` when you have it, `action=setEmail` only when they chose
+   set. If the email signature or body has a **title**, **phone**, or
+   **mailing address**, pass `title`, `phone`, and `mailingStreet` /
+   `mailingCity` / `mailingState` / `mailingPostalCode` /
+   `mailingCountry`. Omit any that are not in the email. Never invent.
+   Recap `resultsDisplay` + Open Contact.
+4. Skip = stop. Never Create Prospect. Never SObject-insert Contact.
 
 ## Installed base (what they own)
 
@@ -659,7 +704,8 @@ or **explain + PDF + email** for a named quote:
 1. Resolve the quote (`quoteId` in this chat, else Find Open Quotes with
    `opportunityName`). Ask only if several Drafts match.
 2. Call **`explainRevenueCloudQuotePrice` once**. Render `explanationDisplay`.
-3. Call **`previewRevenueCloudQuoteDocument`** (RLM_QuoteProposal). On
+3. Call **`previewRevenueCloudQuoteDocument`** (RLM_QuoteProposal) with
+   `regenerate=true` only when they asked for a **new** PDF. On
    `isPartial` or `RETRY_NOW`, call again **immediately** with `quoteId`
    and `documentGenerationProcessId`. **Never** wait, sleep, Pause, or
    ask the user to prompt again. Keep going until `bodyDisplay` is set
@@ -699,14 +745,24 @@ the deal**, or **activate** a named quote (not a cancel):
 
 ## Ramp on an existing quote
 
-Year-over-year qty (10 / 20 / 30) on a Draft:
+Create Ramp Schedule (the standard Salesforce modal — not Ramp Builder):
 
-1. Call **`applyRevenueCloudQuoteRamp`** with `quoteId` to describe.
-2. To create the first schedule or set quantities: same tool with
-   `productName` and
+1. Call **`createRevenueCloudRampSchedule`** with `quoteId`, `segmentType`
+   (`Annual` or `Custom`), `startDate`, `durationMonths`, optional
+   `prorationPosition` (`End` or `Beginning`), and optional `trial` +
+   `trialDuration` / `trialUnit`. Default is preview only.
+2. Recap the preview table. If they asked to create, call again with
+   `confirm=true` in **this turn**. If they are comparing scenarios,
+   preview each option and wait with a numbered picker.
+3. The created schedule is **empty**. Then
+   **`applyRevenueCloudQuoteRamp`** with `productName` and
    `segmentsJson` `[{"quantity":10},{"quantity":20},{"quantity":30}]`.
-3. Do not open Ramp Builder for the first schedule. Do not
-   SObject-insert `QuoteLineGroup`. Do not rebuild the quote.
+   10/20/30 is Years 1–3. Also put the product on Trial (Year 1 qty,
+   trial discount) and on a prorated stub (last year qty). A trial
+   without the SKU is empty.
+4. Describe only: `applyRevenueCloudQuoteRamp` with `quoteId`.
+5. Do not open Ramp Builder. Do not SObject-insert `QuoteLineGroup`.
+   Do not rebuild the quote. Create does not edit an existing schedule.
 
 ## Next bill, TCV, and usage
 
@@ -821,7 +877,7 @@ When they do ask:
 
 When they ask to **regenerate the PDF and refresh the email draft**:
 
-1. Call `previewRevenueCloudQuoteDocument` (no extra flags required).
+1. Call `previewRevenueCloudQuoteDocument` with `regenerate=true`.
 2. Poll as above — **immediately**, never wait/Pause. Stay in this turn
    until `bodyDisplay` is set.
 3. When `bodyDisplay` is set, **update the existing Gmail draft** with
@@ -947,13 +1003,16 @@ What start date should I use?
   email, do not wait for a second confirm. Never call
   createRevenueCloudProspect when quoting. Never SObject-insert
   Account, Contact, or Opportunity. They already own the SKU: amend, not
-  create. Follow-up qty email: newest message (and its sheet/PDF if
+  create.   Follow-up qty email: newest message (and its sheet/PDF if
   present), find with `opportunityName`, then one
-  `updateRevenueCloudQuoteLines`. New SKUs on that Draft: one add with
-  `linesJson` (inherits quote term; recap only — never explain or
-  preview after add). Never SObject-insert Account. Never SObject All on
-  Product2, never add-product per SKU, never Build Quote Options, never
-  summary, never preview unless they ask.
+  `updateRevenueCloudQuoteLines` with `fromEmail` = Gmail From. New SKUs
+  on that Draft: one add with `linesJson` (inherits quote term; recap
+  only — never explain or preview after add). Recap the sender picker
+  (never invent email). After they pick: `addRevenueCloudAccountContact`
+  with title/phone/address from the signature (omit if absent; never invent).
+  Never Create Prospect. Never SObject-insert Account or Contact.
+  Never SObject All on Product2, never add-product per SKU, never Build
+  Quote Options, never summary, never preview unless they ask.
 - Quote vs owned: `compareRevenueCloudQuoteToInstalledBase`. Do not mix
   quote Discount with `AssetStatePeriod.Discount`.
 - Deal status: one `getRevenueCloudDealStatus`. Read only.
@@ -967,8 +1026,9 @@ What start date should I use?
 - Add a PDF link to an existing unsent Gmail draft: one
   `draftRevenueCloudCustomerReply`, then update that Gmail draft.
   Never preview. Never explain. Never a second draft. Never send.
-- Ramp: `applyRevenueCloudQuoteRamp` creates the first yearly schedule
-  or patches existing segments. Do not open Ramp Builder for 10/20/30.
+- Ramp: `createRevenueCloudRampSchedule` previews then creates the
+  empty schedule. `applyRevenueCloudQuoteRamp` adds a product or
+  patches qty on existing segments. Never Ramp Builder.
 - Approver: `decideRevenueCloudQuoteApproval`. Never PATCH Quote.Status.
 - After reconnect: `getRevenueCloudQuotingCatalog`, then find with
   `opportunityName`.

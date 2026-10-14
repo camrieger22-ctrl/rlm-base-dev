@@ -8,8 +8,8 @@ the Draft on the same Opportunity and quote name, add several products
 to an existing Draft via `linesJson`, list open Drafts filtered by
 Opportunity, recap deal/approval status, approve or reject an assigned
 work item, renew or cancel an asset, draft an unsent customer reply
-(Gmail draft/create when that connector tool exists), create the first
-yearly ramp or patch segment quantities, recap next bill/TCV/usage, compare a quote
+(Gmail draft/create when that connector tool exists), preview or create
+a standard ramp schedule then add products or patch segment quantities, recap next bill/TCV/usage, compare a quote
 to installed base, patch quantity, term, and/or a percent
 discount on existing Draft lines in one Place Sales Transaction, configure a
 bundle, recap the quote, explain how a quote price was calculated, preview the
@@ -26,9 +26,11 @@ Create Order calls `createOrdersFromQuote`. Activate sets
 `Order.Status = Activated` and lists resulting assets. Amend Asset calls
 `initiateAmendment` (quote output); closing the amendment still uses create
 order + activate. Decide Quote Approval calls `reviewApprovalWorkItem`
-(approve/reject); the connected user must be an assignee. Apply Quote Ramp
-creates the first yearly schedule via Ramp Builder `ApplyPlan` when no
-segments exist, then patches quantities. Get Quoting Catalog returns the
+(approve/reject); the connected user must be an assignee. Create Ramp
+Schedule previews then persists the standard empty group-ramp structure
+(Annual/Custom, trial, prorated stub) through Place Sales Transaction —
+not Ramp Builder. Apply Quote Ramp then adds a product across those
+segments or patches quantities. Get Quoting Catalog returns the
 skill version and tool list so a stale Claude connector is obvious. Explain Quote Price reads Quote / QuoteLineItem /
 QuoteLineDetail (list, header discount, amendment slices, proration,
 amount due) so a rep can walk the price even when amendment Net Unit
@@ -54,6 +56,16 @@ and asks the rep to add one, add both, add/configure a bundle that
 already includes those SKUs, or leave the line at $0. Claude must wait;
 it does not auto-add. It does not offer “add Complete” on top of an
 existing standalone mix (Database + Q-Rack + Maintenance).
+
+A follow-up email on an existing account applies the quote tweaks
+on `updateRevenueCloudQuoteLines` and **must** pass `fromEmail` =
+Gmail **From**. The update recap includes the AE picker when that
+address is not a Contact (the quote Contact may be someone else,
+e.g. Jordan Hale). Claude waits; it does not invent an email from
+the body. `addRevenueCloudAccountContact` does the write and can
+stamp `Quote.ContactId`. It never creates an Account. Title, phone,
+and mailing address from the email signature are passed through when
+present; they are never invented.
 
 Deploy to the target org, activate the server in Setup → MCP Servers, then
 add a Claude connector at:
@@ -86,7 +98,21 @@ explain the price or preview a PDF.
 Adding a PDF link to an existing Gmail draft is **one** Draft Customer
 Reply (public link on the latest proposal file) then a Gmail draft
 update. Do **not** Preview Quote Document for that — generating a PDF
-is the slow path.
+is the slow OmniStudio path. Preview now reuses the latest file on the
+quote unless `regenerate=true`.
+
+**Prompting — one turn.** When the demo is “change the quote and
+refresh the email + PDF,” put it in **one** Claude prompt. Verified
+2026-10-14: `update the quote to 80% off, generate a draft that
+reflects it, and add a proposal PDF link` finished quickly. A later
+standalone “hyperlink the PDF” prompt started a second generate, took
+~2.5 minutes, and failed. Do not split update and PDF into two chats.
+
+Ramp modeling is the same rule. Preview or create the schedule and add
+products in **one** prompt (`preview a 40-month annual ramp with a
+30-day trial…` then `create that schedule and add Database at 10, 20,
+then 30`). Do not open Ramp Builder. Do not apply 10/20/30 before the
+schedule exists.
 
 Drafting or refreshing the email for the current quote is Preview
 until `bodyDisplay` **in that same turn** (Apex waits on the in-flight

@@ -280,4 +280,35 @@ private class RLM_MCP_UpdateQuoteLinesTest {
         System.assertEquals(false, out.isSuccess);
         System.assert(out.errorMessage.contains('No quote line matched'), out.errorMessage);
     }
+
+    @IsTest
+    static void emailFromUnknownPromptsAdd() {
+        Id accountId = [SELECT Id FROM Account WHERE Name = 'MCP Update Lines Account'].Id;
+        insert new Contact(
+            AccountId = accountId,
+            FirstName = 'Jordan',
+            LastName = 'Hale',
+            Email = 'jordan.hale.mcp@example.test'
+        );
+        RLM_MCP_UpdateQuoteLines.UpdateInput input =
+            new RLM_MCP_UpdateQuoteLines.UpdateInput();
+        input.quoteId = String.valueOf(quoteId());
+        input.discountPercentage = 55;
+        input.fromEmail = 'crieger@salesforce.com';
+        input.fromName = 'Bryce Majors';
+        Test.startTest();
+        RLM_MCP_UpdateQuoteLines.UpdateOutput out = run(input);
+        Test.stopTest();
+        System.assertEquals(true, out.isSuccess, '' + out.errorMessage);
+        System.assertEquals(true, out.needsAction);
+        System.assert(out.resultsDisplay.contains('crieger@salesforce.com'), out.resultsDisplay);
+        System.assert(
+            out.resultsDisplay.contains('Add Bryce Majors as a Contact'),
+            out.resultsDisplay
+        );
+        System.assert(
+            out.resultsDisplay.contains('Ask the rep (do not add a Contact yet)'),
+            out.resultsDisplay
+        );
+    }
 }

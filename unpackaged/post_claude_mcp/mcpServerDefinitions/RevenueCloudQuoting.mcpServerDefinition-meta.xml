@@ -54,11 +54,31 @@
     </tools>
     <tools>
         <apiDefinition>
+            <apiIdentifier>aa:apex-RLM_MCP_AddAccountContact</apiIdentifier>
+            <apiSource>API_CATALOG</apiSource>
+            <operation>RLM_MCP_AddAccountContact</operation>
+        </apiDefinition>
+        <descriptionOverride>Adds a Contact from Gmail From. Pass title, phone, mailing address from the signature when present (never invent). Confirm first. Never creates an Account. Optional quoteId stamps Quote.ContactId.</descriptionOverride>
+        <toolName>addRevenueCloudAccountContact</toolName>
+        <toolTitle>Add Account Contact</toolTitle>
+    </tools>
+    <tools>
+        <apiDefinition>
+            <apiIdentifier>aa:apex-RLM_MCP_CheckSenderContact</apiIdentifier>
+            <apiSource>API_CATALOG</apiSource>
+            <operation>RLM_MCP_CheckSenderContact</operation>
+        </apiDefinition>
+        <descriptionOverride>Required after a follow-up customer email. Pass Gmail From mailbox + accountName. Returns an AE picker when that address is not a Contact. Never invent email. Do not skip. Never Gmail this note.</descriptionOverride>
+        <toolName>checkRevenueCloudSenderContact</toolName>
+        <toolTitle>Check Sender Contact</toolTitle>
+    </tools>
+    <tools>
+        <apiDefinition>
             <apiIdentifier>aa:apex-RLM_MCP_AddProductToQuote</apiIdentifier>
             <apiSource>API_CATALOG</apiSource>
             <operation>RLM_MCP_AddProductToQuote</operation>
         </apiDefinition>
-        <descriptionOverride>Adds products to an existing Draft on the quote term. Pass linesJson ([{product, quantity}]). Optional termMonths only if this SKU should differ. Call once; recap Open Quote. Do not explain or preview after add.</descriptionOverride>
+        <descriptionOverride>Adds products to a Draft. Customer email: pass fromEmail=Gmail From. Recap sender picker; wait if needsAction. Quote Contact is not the sender. Call once; recap Open Quote.</descriptionOverride>
         <toolName>addProductToRevenueCloudQuote</toolName>
         <toolTitle>Add Product To Quote</toolTitle>
     </tools>
@@ -78,7 +98,7 @@
             <apiSource>API_CATALOG</apiSource>
             <operation>RLM_MCP_UpdateQuoteLines</operation>
         </apiDefinition>
-        <descriptionOverride>Patches quantity, termMonths, startDate, discount, and/or quoteName on a Draft. Quantity 0 removes that parent line — call once, do not retry formats. 5 years = 60. Never rebuild.</descriptionOverride>
+        <descriptionOverride>Patches qty/term/discount/name. Customer email: pass fromEmail=Gmail From (required). Recap sender picker; wait if needsAction. Quote Contact is not the sender. Never rebuild.</descriptionOverride>
         <toolName>updateRevenueCloudQuoteLines</toolName>
         <toolTitle>Update Quote Lines</toolTitle>
     </tools>
@@ -228,9 +248,19 @@
             <apiSource>API_CATALOG</apiSource>
             <operation>RLM_MCP_DraftCustomerReply</operation>
         </apiDefinition>
-        <descriptionOverride>Drafts unsent HTML customer email with a customer-safe PDF link. Use this only when you are not generating a PDF. After previewRevenueCloudQuoteDocument, use its bodyDisplay — do not call this. Never send.</descriptionOverride>
+        <descriptionOverride>Hyperlink the latest proposal PDF on an existing Gmail draft: call this once, then update Gmail. Do not preview. After preview, use that bodyDisplay instead. Never send.</descriptionOverride>
         <toolName>draftRevenueCloudCustomerReply</toolName>
         <toolTitle>Draft Customer Reply</toolTitle>
+    </tools>
+    <tools>
+        <apiDefinition>
+            <apiIdentifier>aa:apex-RLM_MCP_CreateRampSchedule</apiIdentifier>
+            <apiSource>API_CATALOG</apiSource>
+            <operation>RLM_MCP_CreateRampSchedule</operation>
+        </apiDefinition>
+        <descriptionOverride>Preview or create the standard empty group ramp schedule (Annual/Custom, trial, prorated stub). confirm=false previews. confirm=true persists. Never Ramp Builder. Never edit an existing schedule.</descriptionOverride>
+        <toolName>createRevenueCloudRampSchedule</toolName>
+        <toolTitle>Create Ramp Schedule</toolTitle>
     </tools>
     <tools>
         <apiDefinition>
@@ -238,7 +268,7 @@
             <apiSource>API_CATALOG</apiSource>
             <operation>RLM_MCP_ApplyQuoteRamp</operation>
         </apiDefinition>
-        <descriptionOverride>Describes ramp segments, creates the first yearly schedule from segmentsJson, or patches qty on existing groups. Never SObject-insert QuoteLineGroup. Never rebuild the quote.</descriptionOverride>
+        <descriptionOverride>Describes ramp segments, adds a product across an existing Create Ramp Schedule, or patches qty. Never creates the schedule. Never Ramp Builder. Never SObject-insert QuoteLineGroup.</descriptionOverride>
         <toolName>applyRevenueCloudQuoteRamp</toolName>
         <toolTitle>Apply Quote Ramp</toolTitle>
     </tools>
@@ -258,7 +288,7 @@
             <apiSource>API_CATALOG</apiSource>
             <operation>RLM_MCP_PreviewQuoteDocument</operation>
         </apiDefinition>
-        <descriptionOverride>Generates Quote Proposal PDF and HTML bodyDisplay. Finish email in this turn. If isPartial, call again immediately with process Id — never wait or ask the user to retry. When bodyDisplay is set, update Gmail; do not call draftRevenueCloudCustomerReply.</descriptionOverride>
+        <descriptionOverride>New proposal PDF only. Do not use to hyperlink an existing Gmail draft (use draftRevenueCloudCustomerReply). Default reuses the latest file. regenerate=true after quote edits. If isPartial, call again immediately with process Id.</descriptionOverride>
         <toolName>previewRevenueCloudQuoteDocument</toolName>
         <toolTitle>Preview Quote Document</toolTitle>
     </tools>

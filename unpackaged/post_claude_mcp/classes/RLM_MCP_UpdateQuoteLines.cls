@@ -43,6 +43,18 @@ global with sharing class RLM_MCP_UpdateQuoteLines {
             description='Optional new Quote.Name (e.g. Acme Quote - 36 Months). Use when they ask to rename. Does not create a quote.'
         )
         global String quoteName;
+
+        @InvocableVariable(
+            label='From Email'
+            description='Required when this update came from a customer email. Pass the Gmail/Outlook From mailbox (e.g. crieger@salesforce.com). Never the body. Never the quote Contact. Omitting this skips adding the sender.'
+        )
+        global String fromEmail;
+
+        @InvocableVariable(
+            label='From Name'
+            description='Gmail/Outlook From display name (e.g. Bryce Majors). Pass with fromEmail. Quote Contact (e.g. Jordan Hale) is not the sender unless From matches.'
+        )
+        global String fromName;
     }
 
     global class UpdateOutput {
@@ -57,6 +69,11 @@ global with sharing class RLM_MCP_UpdateQuoteLines {
         global String quoteUrl;
         @InvocableVariable(label='Results Display')
         global String resultsDisplay;
+        @InvocableVariable(
+            label='Needs Action'
+            description='True when the AE must pick a sender-contact option. That picker is the Next line. Wait. Never Gmail this note.'
+        )
+        global Boolean needsAction;
         @InvocableVariable(label='Needs Disambiguation')
         global Boolean needsDisambiguation;
         @InvocableVariable(label='Candidate Summaries Display')
@@ -73,7 +90,7 @@ global with sharing class RLM_MCP_UpdateQuoteLines {
 
     @InvocableMethod(
         label='Update Revenue Cloud Quote Lines'
-        description='Patches quantity, termMonths, startDate (yyyy-mm-dd), discount, and/or quoteName on an existing Draft. Quantity 0 removes that parent line. 5 years = 60. Never rebuild.'
+        description='Patches quantity, term, discount, and/or quoteName on a Draft. Customer email: pass fromEmail=Gmail From (required). Recap the sender picker in resultsDisplay; wait if needsAction. Quote Contact is not the sender. Never rebuild.'
     )
     global static List<UpdateOutput> updateLines(List<UpdateInput> inputs) {
         List<UpdateOutput> results = new List<UpdateOutput>();
@@ -90,6 +107,7 @@ global with sharing class RLM_MCP_UpdateQuoteLines {
         UpdateOutput out = new UpdateOutput();
         out.isSuccess = false;
         out.updatedCount = 0;
+        out.needsAction = false;
         out.needsDisambiguation = false;
         try {
             if (input == null || String.isBlank(input.quoteId)) {
@@ -285,6 +303,19 @@ global with sharing class RLM_MCP_UpdateQuoteLines {
                 String.join(rows, '\n'),
                 quoteId
             );
+            RLM_MCP_CheckSenderContact.CheckOutput sender =
+                RLM_MCP_CheckSenderContact.forQuote(
+                    quoteId,
+                    input.fromEmail,
+                    input.fromName
+                );
+            out.resultsDisplay = RLM_MCP_CheckSenderContact.append(
+                out.resultsDisplay,
+                sender
+            );
+            if (sender != null && sender.needsAction == true) {
+                out.needsAction = true;
+            }
         } catch (Exception e) {
             out.isSuccess = false;
             out.errorMessage = e.getMessage() == null ? 'Update failed.' : e.getMessage();

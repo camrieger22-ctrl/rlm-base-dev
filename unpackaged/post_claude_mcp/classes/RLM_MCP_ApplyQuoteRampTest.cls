@@ -95,79 +95,26 @@ private class RLM_MCP_ApplyQuoteRampTest {
         System.assert(out.resultsDisplay.contains('2 ramp segments'), '' + out.resultsDisplay);
     }
 
-    private class FakePlanInvoker implements RLM_MCP_ApplyQuoteRamp.PlanInvoker {
-        public String errorMessage;
-        public Integer calls = 0;
-        public String lastPlanJson;
-        public String applyPlan(Id quoteId, String planJson) {
-            calls++;
-            lastPlanJson = planJson;
-            if (String.isNotBlank(errorMessage)) {
-                return errorMessage;
-            }
-            Date start = Date.today();
-            QuoteLineGroup year1 = new QuoteLineGroup(
-                QuoteId = quoteId,
-                Name = 'Year 1',
-                SortOrder = 1,
-                IsRamped = true,
-                SegmentType = 'Yearly',
-                StartDate = start,
-                EndDate = start.addYears(1).addDays(-1)
-            );
-            QuoteLineGroup year2 = new QuoteLineGroup(
-                QuoteId = quoteId,
-                Name = 'Year 2',
-                SortOrder = 2,
-                IsRamped = true,
-                SegmentType = 'Yearly',
-                StartDate = start.addYears(1),
-                EndDate = start.addYears(2).addDays(-1)
-            );
-            insert new List<QuoteLineGroup>{ year1, year2 };
-            return null;
-        }
-    }
-
     @IsTest
-    static void createsFirstScheduleWhenNoSegments() {
+    static void refusesCreateWhenNoSchedule() {
         Id pbId = Test.getStandardPricebookId();
-        Account account = new Account(Name = 'MCP First Ramp Acme');
+        Account account = new Account(Name = 'MCP Empty Ramp Acme');
         insert account;
         Opportunity opp = new Opportunity(
-            Name = 'MCP First Ramp Opp',
+            Name = 'MCP Empty Ramp Opp',
             AccountId = account.Id,
             StageName = 'Proposal/Quote',
             CloseDate = Date.today().addDays(30)
         );
         insert opp;
-        Product2 product = new Product2(
-            Name = 'QuantumBit Database',
-            StockKeepingUnit = 'ZMCP-1ST-DB',
-            IsActive = true
-        );
-        insert product;
-        PricebookEntry pbe = new PricebookEntry(
-            Pricebook2Id = pbId, Product2Id = product.Id, UnitPrice = 12000, IsActive = true
-        );
-        insert pbe;
         Quote quote = new Quote(
-            Name = 'MCP First Ramp Quote',
+            Name = 'MCP Empty Ramp Quote',
             OpportunityId = opp.Id,
             Pricebook2Id = pbId,
             Status = 'Draft',
             StartDate = Date.today()
         );
         insert quote;
-        insert new QuoteLineItem(
-            QuoteId = quote.Id,
-            PricebookEntryId = pbe.Id,
-            Product2Id = product.Id,
-            Quantity = 10,
-            UnitPrice = 12000
-        );
-        FakePlanInvoker fake = new FakePlanInvoker();
-        RLM_MCP_ApplyQuoteRamp.planInvoker = fake;
         RLM_MCP_ApplyQuoteRamp.RampInput input = new RLM_MCP_ApplyQuoteRamp.RampInput();
         input.quoteId = String.valueOf(quote.Id);
         input.productName = 'QuantumBit Database';
@@ -175,14 +122,84 @@ private class RLM_MCP_ApplyQuoteRampTest {
         Test.startTest();
         RLM_MCP_ApplyQuoteRamp.RampOutput out = run(input);
         Test.stopTest();
-        System.assertEquals(true, out.isSuccess, '' + out.errorMessage);
-        System.assertEquals(1, fake.calls);
-        System.assert(fake.lastPlanJson.contains('Year 1'), fake.lastPlanJson);
-        System.assert(out.resultsDisplay.contains('Created a 2-year ramp'), '' + out.resultsDisplay);
-        System.assertEquals(
-            2,
-            [SELECT COUNT() FROM QuoteLineGroup WHERE QuoteId = :quote.Id AND IsRamped = true]
+        System.assertEquals(false, out.isSuccess);
+        System.assert(
+            out.errorMessage.contains('createRevenueCloudRampSchedule'),
+            '' + out.errorMessage
         );
+        System.assertEquals(
+            0,
+            [SELECT COUNT() FROM QuoteLineGroup WHERE QuoteId = :quote.Id]
+        );
+    }
+
+    @IsTest
+    static void addsProductWhenScheduleExistsWithoutLines() {
+        Id pbId = Test.getStandardPricebookId();
+        Account account = new Account(Name = 'MCP Add Ramp Acme');
+        insert account;
+        Opportunity opp = new Opportunity(
+            Name = 'MCP Add Ramp Opp',
+            AccountId = account.Id,
+            StageName = 'Proposal/Quote',
+            CloseDate = Date.today().addDays(30)
+        );
+        insert opp;
+        Product2 product = new Product2(
+            Name = 'ZMCP Ramp Add Database',
+            StockKeepingUnit = 'ZMCP-ADD-DB',
+            IsActive = true
+        );
+        insert product;
+        insert new PricebookEntry(
+            Pricebook2Id = pbId, Product2Id = product.Id, UnitPrice = 12000, IsActive = true
+        );
+        Quote quote = new Quote(
+            Name = 'MCP Add Ramp Quote',
+            OpportunityId = opp.Id,
+            Pricebook2Id = pbId,
+            Status = 'Draft',
+            StartDate = Date.today()
+        );
+        insert quote;
+        insert new List<QuoteLineGroup>{
+            new QuoteLineGroup(
+                QuoteId = quote.Id,
+                Name = 'Year 1',
+                SortOrder = 1,
+                IsRamped = true,
+                SegmentType = 'Yearly',
+                StartDate = Date.newInstance(2026, 1, 1),
+                EndDate = Date.newInstance(2026, 12, 31)
+            ),
+            new QuoteLineGroup(
+                QuoteId = quote.Id,
+                Name = 'Year 2',
+                SortOrder = 2,
+                IsRamped = true,
+                SegmentType = 'Yearly',
+                StartDate = Date.newInstance(2027, 1, 1),
+                EndDate = Date.newInstance(2027, 12, 31)
+            )
+        };
+        RLM_MCP_ApplyQuoteRamp.RampInput input = new RLM_MCP_ApplyQuoteRamp.RampInput();
+        input.quoteId = String.valueOf(quote.Id);
+        input.productName = 'ZMCP Ramp Add Database';
+        input.segmentsJson = '[{"quantity":10},{"quantity":20}]';
+        Test.startTest();
+        RLM_MCP_ApplyQuoteRamp.RampOutput out = run(input);
+        Test.stopTest();
+        System.assertEquals(true, out.isSuccess, '' + out.errorMessage);
+        System.assert(out.resultsDisplay.contains('qty 20'), '' + out.resultsDisplay);
+        List<QuoteLineItem> lines = [
+            SELECT Quantity, QuoteLineGroup.SortOrder
+            FROM QuoteLineItem
+            WHERE QuoteId = :quote.Id
+            ORDER BY QuoteLineGroup.SortOrder
+        ];
+        System.assertEquals(2, lines.size());
+        System.assertEquals(10, lines[0].Quantity);
+        System.assertEquals(20, lines[1].Quantity);
     }
 
     @IsTest
@@ -205,5 +222,40 @@ private class RLM_MCP_ApplyQuoteRampTest {
         ];
         System.assertEquals(10, lines[0].Quantity);
         System.assertEquals(20, lines[1].Quantity);
+    }
+
+    @IsTest
+    static void mapsThreeQtysOntoTrialYearsAndProratedStub() {
+        List<QuoteLineGroup> ramped = new List<QuoteLineGroup>{
+            groupOf('Trial', 'FreeTrial', 1),
+            groupOf('Year 1', 'Yearly', 2),
+            groupOf('Year 2', 'Yearly', 3),
+            groupOf('Year 3', 'Yearly', 4),
+            groupOf('Year 4 - Pro-rated', 'Prorated', 5)
+        };
+        RLM_MCP_ApplyQuoteRamp.RampOutput out = new RLM_MCP_ApplyQuoteRamp.RampOutput();
+        RLM_MCP_ApplyQuoteRamp.QtyPlan plan = RLM_MCP_ApplyQuoteRamp.planSegmentQuantities(
+            ramped,
+            new List<Decimal>{ 10, 20, 30 },
+            out
+        );
+        System.assert(String.isBlank(out.errorMessage), 'segment match failed');
+        System.assertEquals(5, plan.targets.size());
+        System.assertEquals('Trial', plan.targets[0].Name);
+        System.assertEquals('Year 4 - Pro-rated', plan.targets[4].Name);
+        System.assertEquals(10, plan.qtys[0]);
+        System.assertEquals(10, plan.qtys[1]);
+        System.assertEquals(20, plan.qtys[2]);
+        System.assertEquals(30, plan.qtys[3]);
+        System.assertEquals(30, plan.qtys[4]);
+    }
+
+    private static QuoteLineGroup groupOf(String name, String segmentType, Integer sortOrder) {
+        return new QuoteLineGroup(
+            Name = name,
+            SegmentType = segmentType,
+            SortOrder = sortOrder,
+            IsRamped = true
+        );
     }
 }

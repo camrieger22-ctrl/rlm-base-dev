@@ -15,6 +15,8 @@ private class RLM_MCP_GetQuotingCatalogTest {
         System.assertEquals(RLM_MCP_GetQuotingCatalog.SKILL_VERSION, results[0].skillVersion);
         System.assert(results[0].summaryDisplay.contains('getRevenueCloudQuotingCatalog'),
             results[0].summaryDisplay);
+        System.assert(results[0].summaryDisplay.contains('createRevenueCloudRampSchedule'),
+            results[0].summaryDisplay);
         System.assert(results[0].toolCount > 20, '' + results[0].toolCount);
     }
 }

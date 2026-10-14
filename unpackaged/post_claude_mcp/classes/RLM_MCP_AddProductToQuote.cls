@@ -59,6 +59,18 @@ global with sharing class RLM_MCP_AddProductToQuote {
             description='Optional. Only when this SKU should use a different term than the quote. Omit to inherit quote StartDate/EndDate.'
         )
         global Integer termMonths;
+
+        @InvocableVariable(
+            label='From Email'
+            description='Required when this add came from a customer email. Pass the Gmail/Outlook From mailbox. Never the body. Never the quote Contact.'
+        )
+        global String fromEmail;
+
+        @InvocableVariable(
+            label='From Name'
+            description='Gmail/Outlook From display name. Pass with fromEmail. Quote Contact is not the sender unless From matches.'
+        )
+        global String fromName;
     }
 
     global class AddOutput {
@@ -79,6 +91,11 @@ global with sharing class RLM_MCP_AddProductToQuote {
         global String sellingModelName;
         @InvocableVariable(label='Line Summary Display')
         global String lineSummaryDisplay;
+        @InvocableVariable(
+            label='Needs Action'
+            description='True when the AE must pick a sender-contact option. That picker is the Next line. Wait. Never Gmail this note.'
+        )
+        global Boolean needsAction;
         @InvocableVariable(label='Needs Disambiguation')
         global Boolean needsDisambiguation;
         @InvocableVariable(label='Candidate Summaries Display')
@@ -105,6 +122,7 @@ global with sharing class RLM_MCP_AddProductToQuote {
     private static AddOutput addOne(AddInput input) {
         AddOutput out = new AddOutput();
         out.isSuccess = false;
+        out.needsAction = false;
         if (input == null || String.isBlank(input.quoteId)) {
             out.errorMessage = 'Quote Id is required.';
             return out;
@@ -182,6 +200,19 @@ global with sharing class RLM_MCP_AddProductToQuote {
                 out.lineSummaryDisplay,
                 quoteId
             );
+            RLM_MCP_CheckSenderContact.CheckOutput sender =
+                RLM_MCP_CheckSenderContact.forQuote(
+                    quoteId,
+                    input.fromEmail,
+                    input.fromName
+                );
+            out.lineSummaryDisplay = RLM_MCP_CheckSenderContact.append(
+                out.lineSummaryDisplay,
+                sender
+            );
+            if (sender != null && sender.needsAction == true) {
+                out.needsAction = true;
+            }
         }
         return out;
     }
