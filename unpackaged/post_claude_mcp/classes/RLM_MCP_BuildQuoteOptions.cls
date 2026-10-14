@@ -137,6 +137,13 @@ global with sharing class RLM_MCP_BuildQuoteOptions {
         List<String> notes = new List<String>();
     }
 
+    private static void appendDerivedPriceCoach(List<String> notes, Id quoteId) {
+        String coach = RLM_MCP_DerivedPriceCoach.forQuote(quoteId);
+        if (String.isNotBlank(coach)) {
+            notes.add(coach);
+        }
+    }
+
     @InvocableMethod(
         label='Build Revenue Cloud Quote Options'
         description='Creates Draft quotes under one Opportunity. Same mix and new term/discount: pass sourceQuoteName or sourceQuoteId and omit lines — clones that Draft and patches parent term/discount. Else places the first mix, then clones siblings. Returns remainingOptionsJson only if CPU forces a pause. Then render comparisonDisplay.'
@@ -274,6 +281,7 @@ global with sharing class RLM_MCP_BuildQuoteOptions {
                             : built.error);
                         continue;
                     }
+                    appendDerivedPriceCoach(lineNotes, built.quoteId);
                 } else if (Test.isRunningTest()) {
                     Quote quote = findDraftQuote(opportunity.Id, quoteName);
                     if (quote == null) {
@@ -320,6 +328,7 @@ global with sharing class RLM_MCP_BuildQuoteOptions {
                             : built.error);
                         continue;
                     }
+                    appendDerivedPriceCoach(lineNotes, built.quoteId);
                 }
                 anySuccess = true;
                 builtThisCall++;

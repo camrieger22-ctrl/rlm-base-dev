@@ -45,6 +45,16 @@ once per option (in-process Place copy of the source lines) with
 `clonedQuoteName`, `termMonths`, and `discountPercentage`. Do not rebuild
 via Build Quote Options. Build Quote Options is for a **new** product mix only.
 
+Create, add-line, clone, update-lines, Build Quote Options, and quote
+summary append an **AE note** when a derived-price product (for example
+Software Maintenance) is on the quote without its contributing SKUs.
+That note is for Claude chat only — never the customer email. It names
+the contributing products from live `PricebookEntryDerivedPrice` rows
+and asks the rep to add one, add both, add/configure a bundle that
+already includes those SKUs, or leave the line at $0. Claude must wait;
+it does not auto-add. It does not offer “add Complete” on top of an
+existing standalone mix (Database + Q-Rack + Maintenance).
+
 Deploy to the target org, activate the server in Setup → MCP Servers, then
 add a Claude connector at:
 

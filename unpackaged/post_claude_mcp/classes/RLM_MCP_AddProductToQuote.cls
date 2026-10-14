@@ -177,6 +177,12 @@ global with sharing class RLM_MCP_AddProductToQuote {
             recap.add(termRecap);
         }
         out.lineSummaryDisplay = recap.isEmpty() ? last.lineSummaryDisplay : String.join(recap, '\n');
+        if (allOk && quoteId != null) {
+            out.lineSummaryDisplay = RLM_MCP_DerivedPriceCoach.append(
+                out.lineSummaryDisplay,
+                quoteId
+            );
+        }
         return out;
     }
 

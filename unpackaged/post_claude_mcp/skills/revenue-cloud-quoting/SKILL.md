@@ -14,6 +14,8 @@ description: >
   Add-line inherits quote term. Same-mix options: one
   cloneRevenueCloudQuote per option with clonedQuoteName, termMonths,
   discountPercentage. Never wait. Never Build Quote Options.
+  Derived-price AE note is chat-only, never Gmail.
+  Wait on AE numbered options; do not auto-add.
   PDF+email in one turn; never Draft after Preview.
 ---
 
@@ -49,7 +51,7 @@ tool is missing.
 | Two or more **new mixes** under one Opportunity | `buildRevenueCloudQuoteOptions` with `lines` on each option |
 | One new Draft quote | `createRevenueCloudQuote` (always pass `opportunityName` + `quoteName` + `linesJson`) |
 | Prospect / sender not in Salesforce | One `createRevenueCloudQuote` with `contactFirstName`, `contactLastName`, `contactEmail`, and billing address. That call creates Account + Contact + Opportunity + Draft. Do **not** call `createRevenueCloudProspect` first. If this prompt already said to create them from the email, that is the confirm — do not wait again. Never SObject-insert Account, Contact, Opportunity, or Quote |
-| Add catalog products to an existing Draft quote | `addProductToRevenueCloudQuote` with `linesJson` for every new SKU in that call. New lines inherit the quote `StartDate`/`EndDate` (do not pass `termMonths` unless this SKU should differ). Recap `lineSummaryDisplay` + Open Quote. Do **not** explain or preview after add. Q-Rack 750 / One-Time hardware bundle: quantity 1. If Salesforce returns fractional quantity and qty > 1, immediately add again at quantity 1 — do not stop the quote |
+| Add catalog products to an existing Draft quote | `addProductToRevenueCloudQuote` with `linesJson` for every new SKU in that call. New lines inherit the quote `StartDate`/`EndDate` (do not pass `termMonths` unless this SKU should differ). Recap `lineSummaryDisplay` + Open Quote. If `lineSummaryDisplay` has an **AE note**, say it in chat (never Gmail). Do **not** explain or preview after add. Q-Rack 750 / One-Time hardware bundle: quantity 1. If Salesforce returns fractional quantity and qty > 1, immediately add again at quantity 1 — do not stop the quote |
 | Which Draft quote / reconnect / several Acme deals | `findRevenueCloudOpenQuotes` with `opportunityName` from the email — ask only if several rows |
 | See bundle option groups / current picks | `describeRevenueCloudBundleConfiguration` |
 | Save bundle picks the user chose from describe | `configureRevenueCloudBundle` |
@@ -112,6 +114,37 @@ only. Never put `/lightning/r/` links, Open Quote, or Open PDF in a Gmail
 or Outlook draft — the customer cannot log in. Use `coachDisplay` from
 `draftRevenueCloudCustomerReply` for those AE links.
 
+## Derived-price AE note (required)
+
+Create, add-line, clone, update-lines, Build Quote Options, and quote
+summary can return an **AE note (chat only, never the customer email)**
+when a derived-price SKU is on the quote without its contributing
+products — for example Software Maintenance at 20% of Additional API
+and/or QB API Management Solution.
+
+- Put that note in the **Claude chat** recap so the rep sees which
+  products the line is supposed to go with.
+- Render the numbered options as a picker (same chip rules as bundle
+  configure). **Stop and wait.** Do **not** add products until they pick.
+- After they pick: `addProductToRevenueCloudQuote` with `linesJson` for
+  the named SKU(s). One contributor is enough for a non-zero price; both
+  only if they chose “add both.”
+- **Add bundle** only when that option is in the AE note. Then add the
+  bundle parent and `describeRevenueCloudBundleConfiguration` — do not
+  configure until they pick components. Do **not** add Complete (or any
+  bundle) on top of an existing standalone mix if the note omitted that
+  option.
+- **Configure bundle** when that option is in the note: describe, then
+  wait, then configure those contributing SKUs. Do not add them as
+  extra standalone lines.
+- Do **not** copy the AE note into Gmail/Outlook `bodyDisplay`, the
+  proposal PDF, or any customer email.
+- Do not invent pairing rules or extra bundle options. If the recap has
+  no AE note, the live derived-price rules are already satisfied (or
+  this SKU is not derived).
+- If they pick leave at $0, recap that Instant Pricing will warn and
+  stop.
+
 ## Next-best-action (required after mutates)
 
 After every **successful** create, add-line, update-lines, discount, ramp,
@@ -130,6 +163,9 @@ deal-status-only, or when you stopped to ask a question.
 | Activated / amend or renew quote ready | Next: recap installed base, or compare this quote to what they own. (After amend/renew quote: create the order and activate.) |
 
 Do not list every option. Use the matching row. Keep it one sentence.
+If the recap includes an AE derived-price numbered picker, that picker
+**is** the Next line — wait for their choice. Do not also add ramp /
+submit / customer pack.
 
 ## Clone Quote
 
@@ -881,6 +917,7 @@ What start date should I use?
   **Never** `draftRevenueCloudCustomerReply` after preview.
 - Customer pack: explain once, preview until `bodyDisplay` in this
   turn, then Gmail that HTML. Never Draft after Preview. Never send.
+  Never put an AE derived-price note in the customer email.
 - Close this deal: deal status first; submit Draft; decide only if this
   user is the assignee; else stop. Then order + activate + installed
   base. Never PATCH Quote.Status or Asset.

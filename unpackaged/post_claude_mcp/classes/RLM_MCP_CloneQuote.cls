@@ -174,6 +174,7 @@ global with sharing class RLM_MCP_CloneQuote {
             + RLM_MCP_RecordLinks.markdown('Open Quote', 'Quote', created.Id)
             + '. Do not resend lines. Do not wait. Do not Build Quote Options.'
             + (String.isBlank(adaptNote) ? '' : ' ' + adaptNote);
+        out.resultsDisplay = RLM_MCP_DerivedPriceCoach.append(out.resultsDisplay, created.Id);
         return out;
     }
 

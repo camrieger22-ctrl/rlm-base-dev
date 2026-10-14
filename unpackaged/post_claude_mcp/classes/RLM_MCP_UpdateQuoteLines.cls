@@ -281,7 +281,10 @@ global with sharing class RLM_MCP_UpdateQuoteLines {
             if (String.isNotBlank(quoteLink)) {
                 rows.add(quoteLink);
             }
-            out.resultsDisplay = String.join(rows, '\n');
+            out.resultsDisplay = RLM_MCP_DerivedPriceCoach.append(
+                String.join(rows, '\n'),
+                quoteId
+            );
         } catch (Exception e) {
             out.isSuccess = false;
             out.errorMessage = e.getMessage() == null ? 'Update failed.' : e.getMessage();

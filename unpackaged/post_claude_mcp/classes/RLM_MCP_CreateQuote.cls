@@ -307,7 +307,7 @@ global with sharing class RLM_MCP_CreateQuote {
             }
         }
         appendRecordLinks(lines, deal.account.Id, contactId, opportunity.Id, quote.Id);
-        out.message = String.join(lines, '\n');
+        out.message = RLM_MCP_DerivedPriceCoach.append(String.join(lines, '\n'), quote.Id);
         return out;
     }
 
@@ -499,7 +499,10 @@ global with sharing class RLM_MCP_CreateQuote {
             'Do not create another. Call updateRevenueCloudQuoteLines or addProductToRevenueCloudQuote if quantities or SKUs changed.'
         };
         appendRecordLinks(lines, deal.account.Id, null, opportunity.Id, deal.draft.Id);
-        out.message = String.join(lines, '\n');
+        out.message = RLM_MCP_DerivedPriceCoach.append(
+            String.join(lines, '\n'),
+            deal.draft.Id
+        );
         return out;
     }
 

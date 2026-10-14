@@ -60,6 +60,10 @@ global with sharing class RLM_MCP_GetQuoteSummary {
                             ? link
                             : link + '\n\n' + out.summaryDisplay;
                     }
+                    out.summaryDisplay = RLM_MCP_DerivedPriceCoach.append(
+                        out.summaryDisplay,
+                        quoteId
+                    );
                 }
             }
             results.add(out);
