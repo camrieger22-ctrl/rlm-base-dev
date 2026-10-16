@@ -7,6 +7,7 @@ private class RLM_MCP_BundleConfigTest {
         String lastSelectionJson;
         Integer loadCalls = 0;
         Integer saveCalls = 0;
+        List<String> savedLineIds = new List<String>();
         String loadMessage;
 
         public RLM_RampConfiguratorAction.ConfigResult load(String quoteId, String quoteLineItemId) {
@@ -28,6 +29,7 @@ private class RLM_MCP_BundleConfigTest {
         ) {
             saveCalls++;
             lastSelectionJson = selectionJson;
+            savedLineIds.add(quoteLineItemId);
             return saveResult == null ? loadResult : saveResult;
         }
     }
@@ -152,14 +154,130 @@ private class RLM_MCP_BundleConfigTest {
         Test.stopTest();
 
         System.assertEquals(true, out.isSuccess, 'describe failed: ' + out.errorMessage);
+        System.assertEquals(true, out.needsAction);
         System.assertEquals(1, fake.loadCalls);
         System.assertEquals(0, fake.saveCalls);
+        System.assert(out.configurationDisplay.contains('Wait'));
         System.assert(out.configurationDisplay.contains('MCP Complete Bundle'));
         System.assert(out.configurationDisplay.contains('[x] QuantumBit Database'));
         System.assert(out.configurationDisplay.contains('required; must stay selected'));
         System.assert(out.configurationDisplay.contains('catalog default'));
         System.assert(out.configurationDisplay.contains('[x] QB Memory 32GB'));
         System.assert(out.configurationDisplay.contains('Pick 1 consumption product'));
+        System.assert(out.configurationDisplay.contains('Step 1 of 2'), out.configurationDisplay);
+        System.assert(out.configurationDisplay.contains('Attributes'), out.configurationDisplay);
+        System.assert(out.configurationDisplay.contains('Keep all current attributes'), out.configurationDisplay);
+        System.assert(out.configurationDisplay.contains('which attributes to change'), out.configurationDisplay);
+        System.assert(out.configurationDisplay.contains('Step 2 of 2'), out.configurationDisplay);
+        System.assert(out.configurationDisplay.contains('Add-on products'), out.configurationDisplay);
+        System.assert(out.configurationDisplay.contains('Keep all catalog add-ons'), out.configurationDisplay);
+        System.assert(
+            !out.configurationDisplay.contains('other values grouped under each attribute'),
+            out.configurationDisplay);
+        System.assert(out.configurationDisplay.contains('attributePicksJson'));
+        System.assert(
+            !out.configurationDisplay.contains('one numbered list per attribute'),
+            out.configurationDisplay);
+    }
+
+    @IsTest
+    static void describe_priceImpactingShowsAffectsPrice() {
+        FakeEngine fake = new FakeEngine();
+        fake.loadResult = sampleConfig(true);
+        addPriceTier(fake.loadResult, false);
+        RLM_MCP_BundleConfigService.engine = fake;
+        RLM_MCP_DescribeBundleConfiguration.DescribeInput input =
+            new RLM_MCP_DescribeBundleConfiguration.DescribeInput();
+        input.quoteName = 'Config MCP Quote';
+        input.productName = 'MCP-CFG-COMPLETE';
+
+        RLM_MCP_DescribeBundleConfiguration.DescribeOutput out =
+            RLM_MCP_DescribeBundleConfiguration.describe(
+                new List<RLM_MCP_DescribeBundleConfiguration.DescribeInput>{ input }
+            )[0];
+
+        System.assertEquals(true, out.isSuccess, 'describe failed: ' + out.errorMessage);
+        System.assertEquals(true, out.needsAction);
+        System.assert(out.configurationDisplay.contains('Performance Tier'), out.configurationDisplay);
+        System.assert(out.configurationDisplay.contains('(not set)'), out.configurationDisplay);
+        System.assert(out.configurationDisplay.contains('affects price'), out.configurationDisplay);
+        System.assert(out.configurationDisplay.contains('Step 1 of 2'), out.configurationDisplay);
+    }
+
+    @IsTest
+    static void configure_priceImpactingWithoutPicksKeepsNeedsAction() {
+        FakeEngine fake = new FakeEngine();
+        fake.loadResult = sampleConfig(true);
+        addPriceTier(fake.loadResult, true);
+        fake.saveResult = sampleConfig(true);
+        addPriceTier(fake.saveResult, true);
+        fake.saveResult.messages = new List<RLM_RampConfiguratorAction.ConfigMessage>();
+        RLM_MCP_BundleConfigService.engine = fake;
+        RLM_MCP_ConfigureBundle.ConfigureInput input = new RLM_MCP_ConfigureBundle.ConfigureInput();
+        input.quoteName = 'Config MCP Quote';
+        input.productName = 'MCP Complete Bundle';
+        input.selectedProducts = 'QB-MEM 32GB';
+
+        RLM_MCP_ConfigureBundle.ConfigureOutput out =
+            RLM_MCP_ConfigureBundle.configure(
+                new List<RLM_MCP_ConfigureBundle.ConfigureInput>{ input }
+            )[0];
+
+        System.assertEquals(true, out.isSuccess, 'configure failed: ' + out.errorMessage);
+        System.assertEquals(true, out.needsAction);
+        System.assert(out.configurationDisplay.contains('attributePicksJson'), out.configurationDisplay);
+        System.assertEquals(1, fake.saveCalls);
+    }
+
+    @IsTest
+    static void configure_attributePicksJsonClearsNeedsAction() {
+        FakeEngine fake = new FakeEngine();
+        fake.loadResult = sampleConfig(true);
+        addPriceTier(fake.loadResult, false);
+        fake.saveResult = sampleConfig(true);
+        addPriceTier(fake.saveResult, true);
+        fake.saveResult.messages = new List<RLM_RampConfiguratorAction.ConfigMessage>();
+        RLM_MCP_BundleConfigService.engine = fake;
+        RLM_MCP_ConfigureBundle.ConfigureInput input = new RLM_MCP_ConfigureBundle.ConfigureInput();
+        input.quoteName = 'Config MCP Quote';
+        input.productName = 'MCP Complete Bundle';
+        input.selectedProducts = 'QB-MEM 32GB';
+        input.attributePicksJson = '{"Performance Tier":"Performance"}';
+
+        RLM_MCP_ConfigureBundle.ConfigureOutput out =
+            RLM_MCP_ConfigureBundle.configure(
+                new List<RLM_MCP_ConfigureBundle.ConfigureInput>{ input }
+            )[0];
+
+        System.assertEquals(true, out.isSuccess, 'configure failed: ' + out.errorMessage);
+        System.assertEquals(false, out.needsAction);
+        System.assert(fake.lastSelectionJson.contains('Performance'), fake.lastSelectionJson);
+        System.assertEquals(1, fake.saveCalls);
+    }
+
+    @IsTest
+    static void configure_requiredAttributeBlankKeepsNeedsAction() {
+        FakeEngine fake = new FakeEngine();
+        fake.loadResult = sampleConfig(true);
+        fake.loadResult.attributes[0].value = null;
+        fake.loadResult.attributes[0].picklistValueId = null;
+        fake.saveResult = sampleConfig(true);
+        fake.saveResult.attributes[0].value = null;
+        fake.saveResult.attributes[0].picklistValueId = null;
+        fake.saveResult.messages = new List<RLM_RampConfiguratorAction.ConfigMessage>();
+        RLM_MCP_BundleConfigService.engine = fake;
+        RLM_MCP_ConfigureBundle.ConfigureInput input = new RLM_MCP_ConfigureBundle.ConfigureInput();
+        input.quoteName = 'Config MCP Quote';
+        input.productName = 'MCP Complete Bundle';
+        input.selectedProducts = 'QB-MEM 32GB';
+
+        RLM_MCP_ConfigureBundle.ConfigureOutput out =
+            RLM_MCP_ConfigureBundle.configure(
+                new List<RLM_MCP_ConfigureBundle.ConfigureInput>{ input }
+            )[0];
+
+        System.assertEquals(true, out.isSuccess, 'configure failed: ' + out.errorMessage);
+        System.assertEquals(true, out.needsAction);
     }
 
     @IsTest
@@ -182,10 +300,152 @@ private class RLM_MCP_BundleConfigTest {
         Test.stopTest();
 
         System.assertEquals(true, out.isSuccess, 'configure failed: ' + out.errorMessage);
+        System.assertEquals(false, out.needsAction);
         System.assertEquals(1, fake.loadCalls);
         System.assertEquals(1, fake.saveCalls);
         System.assert(fake.lastSelectionJson.contains('01t000000000MEMAAA'));
         System.assert(out.configurationDisplay.contains('[x] QB Memory 32GB'));
+    }
+
+    @IsTest
+    static void describe_pinsQuoteLineItemId() {
+        QuoteLineItem rack = [
+            SELECT Id, QuoteId FROM QuoteLineItem
+            WHERE Product2.StockKeepingUnit = 'MCP-CFG-RACK'
+        ];
+        FakeEngine fake = new FakeEngine();
+        fake.loadResult = sampleConfig(true);
+        RLM_MCP_BundleConfigService.engine = fake;
+        RLM_MCP_DescribeBundleConfiguration.DescribeInput input =
+            new RLM_MCP_DescribeBundleConfiguration.DescribeInput();
+        input.quoteId = rack.QuoteId;
+        input.productName = 'MCP Complete Bundle';
+        input.quoteLineItemId = String.valueOf(rack.Id);
+
+        RLM_MCP_DescribeBundleConfiguration.DescribeOutput out =
+            RLM_MCP_DescribeBundleConfiguration.describe(
+                new List<RLM_MCP_DescribeBundleConfiguration.DescribeInput>{ input }
+            )[0];
+
+        System.assertEquals(true, out.isSuccess, 'describe failed: ' + out.errorMessage);
+        System.assertEquals(String.valueOf(rack.Id), out.quoteLineItemId);
+        System.assertEquals(true, out.needsAction);
+    }
+
+    @IsTest
+    static void configure_cannotUnselectRequired() {
+        FakeEngine fake = new FakeEngine();
+        fake.loadResult = sampleConfig(true);
+        RLM_MCP_BundleConfigService.engine = fake;
+        RLM_MCP_ConfigureBundle.ConfigureInput input = new RLM_MCP_ConfigureBundle.ConfigureInput();
+        input.quoteName = 'Config MCP Quote';
+        input.productName = 'MCP-CFG-COMPLETE';
+        input.unselectedProducts = 'QuantumBit Database';
+
+        RLM_MCP_ConfigureBundle.ConfigureOutput out =
+            RLM_MCP_ConfigureBundle.configure(
+                new List<RLM_MCP_ConfigureBundle.ConfigureInput>{ input }
+            )[0];
+
+        System.assertEquals(false, out.isSuccess);
+        System.assertEquals(true, out.needsAction);
+        System.assert(out.errorMessage.contains('required'), out.errorMessage);
+        System.assertEquals(0, fake.saveCalls);
+    }
+
+    @IsTest
+    static void configure_cmlErrorKeepsNeedsAction() {
+        FakeEngine fake = new FakeEngine();
+        fake.loadResult = sampleConfig(true);
+        fake.saveResult = sampleConfig(true);
+        RLM_RampConfiguratorAction.ConfigMessage errorMsg =
+            new RLM_RampConfiguratorAction.ConfigMessage();
+        errorMsg.messageType = 'error';
+        errorMsg.text = 'CPU and GPU cannot be combined.';
+        fake.saveResult.messages = new List<RLM_RampConfiguratorAction.ConfigMessage>{ errorMsg };
+        RLM_MCP_BundleConfigService.engine = fake;
+        RLM_MCP_ConfigureBundle.ConfigureInput input = new RLM_MCP_ConfigureBundle.ConfigureInput();
+        input.quoteName = 'Config MCP Quote';
+        input.productName = 'MCP-CFG-COMPLETE';
+        input.selectedProducts = 'QB-MEM 32GB';
+
+        RLM_MCP_ConfigureBundle.ConfigureOutput out =
+            RLM_MCP_ConfigureBundle.configure(
+                new List<RLM_MCP_ConfigureBundle.ConfigureInput>{ input }
+            )[0];
+
+        System.assertEquals(true, out.isSuccess, 'configure failed: ' + out.errorMessage);
+        System.assertEquals(true, out.needsAction);
+        System.assert(out.configurationDisplay.contains('CPU and GPU cannot be combined'));
+        System.assert(out.configurationDisplay.contains('constraints still fail'));
+        System.assertEquals(1, fake.saveCalls);
+    }
+
+    @IsTest
+    static void configure_copiesMixToRampSiblings() {
+        Quote quote = [SELECT Id, OpportunityId, Pricebook2Id FROM Quote WHERE Name = 'Config MCP Other'];
+        Product2 rack = [SELECT Id FROM Product2 WHERE StockKeepingUnit = 'MCP-CFG-RACK'];
+        Id rackPbe = [SELECT Id FROM PricebookEntry WHERE Product2Id = :rack.Id].Id;
+        QuoteLineGroup year2 = new QuoteLineGroup(
+            QuoteId = quote.Id,
+            Name = 'Year 2',
+            SortOrder = 2,
+            IsRamped = true,
+            SegmentType = 'Yearly',
+            StartDate = Date.newInstance(2027, 1, 1),
+            EndDate = Date.newInstance(2027, 12, 31)
+        );
+        QuoteLineGroup year3 = new QuoteLineGroup(
+            QuoteId = quote.Id,
+            Name = 'Year 3',
+            SortOrder = 3,
+            IsRamped = true,
+            SegmentType = 'Yearly',
+            StartDate = Date.newInstance(2028, 1, 1),
+            EndDate = Date.newInstance(2028, 12, 31)
+        );
+        insert new List<QuoteLineGroup>{ year2, year3 };
+        QuoteLineItem parent2 = new QuoteLineItem(
+            QuoteId = quote.Id,
+            QuoteLineGroupId = year2.Id,
+            PricebookEntryId = rackPbe,
+            Product2Id = rack.Id,
+            Quantity = 1,
+            UnitPrice = 500
+        );
+        QuoteLineItem parent3 = new QuoteLineItem(
+            QuoteId = quote.Id,
+            QuoteLineGroupId = year3.Id,
+            PricebookEntryId = rackPbe,
+            Product2Id = rack.Id,
+            Quantity = 1,
+            UnitPrice = 500
+        );
+        insert new List<QuoteLineItem>{ parent2, parent3 };
+
+        FakeEngine fake = new FakeEngine();
+        fake.loadResult = sampleConfig(true);
+        fake.saveResult = sampleConfig(true);
+        fake.saveResult.messages = new List<RLM_RampConfiguratorAction.ConfigMessage>();
+        RLM_MCP_BundleConfigService.engine = fake;
+        RLM_MCP_ConfigureBundle.ConfigureInput input = new RLM_MCP_ConfigureBundle.ConfigureInput();
+        input.quoteId = quote.Id;
+        input.quoteLineItemId = String.valueOf(parent2.Id);
+        input.selectedProducts = 'QB-MEM 32GB';
+
+        Test.startTest();
+        RLM_MCP_ConfigureBundle.ConfigureOutput out =
+            RLM_MCP_ConfigureBundle.configure(
+                new List<RLM_MCP_ConfigureBundle.ConfigureInput>{ input }
+            )[0];
+        Test.stopTest();
+
+        System.assertEquals(true, out.isSuccess, 'configure failed: ' + out.errorMessage);
+        System.assertEquals(false, out.needsAction);
+        System.assertEquals(2, fake.saveCalls);
+        System.assert(fake.savedLineIds.contains(String.valueOf(parent2.Id)));
+        System.assert(fake.savedLineIds.contains(String.valueOf(parent3.Id)));
+        System.assert(out.configurationDisplay.contains('Year 3'), out.configurationDisplay);
     }
 
     @IsTest
@@ -300,5 +560,39 @@ private class RLM_MCP_BundleConfigTest {
         os.options = new List<RLM_RampConfiguratorAction.ConfigPicklistOption>{ opt };
         config.attributes = new List<RLM_RampConfiguratorAction.ConfigAttribute>{ os };
         return config;
+    }
+
+    private static void addPriceTier(
+        RLM_RampConfiguratorAction.ConfigResult config,
+        Boolean withValue
+    ) {
+        RLM_RampConfiguratorAction.ConfigAttribute tier =
+            new RLM_RampConfiguratorAction.ConfigAttribute();
+        tier.label = 'Performance Tier';
+        tier.attributeName = 'PerformanceTier';
+        tier.attributeKey = '0tj000000000PTAAA';
+        tier.priceImpacting = true;
+        tier.required = false;
+        RLM_RampConfiguratorAction.ConfigPicklistOption entry =
+            new RLM_RampConfiguratorAction.ConfigPicklistOption();
+        entry.label = 'Entry';
+        entry.value = 'Entry';
+        entry.picklistValueId = '0tv000000000ENAAA';
+        RLM_RampConfiguratorAction.ConfigPicklistOption performance =
+            new RLM_RampConfiguratorAction.ConfigPicklistOption();
+        performance.label = 'Performance';
+        performance.value = 'Performance';
+        performance.picklistValueId = '0tv000000000PAAAA';
+        tier.options = new List<RLM_RampConfiguratorAction.ConfigPicklistOption>{
+            entry, performance
+        };
+        if (withValue) {
+            tier.value = 'Performance';
+            tier.picklistValueId = performance.picklistValueId;
+        }
+        if (config.attributes == null) {
+            config.attributes = new List<RLM_RampConfiguratorAction.ConfigAttribute>();
+        }
+        config.attributes.add(tier);
     }
 }

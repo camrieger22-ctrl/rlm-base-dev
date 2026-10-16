@@ -165,9 +165,16 @@ global with sharing class RLM_MCP_CreateQuote {
         @InvocableVariable(label='Message')
         global String message;
 
+        @InvocableVariable(
+            label='Needs Action'
+            description='True when a bundle was added unconfigured. Describe now, wait, then configure. That picker is the Next line. Never Gmail this note.'
+        )
+        global Boolean needsAction;
+
         global CreateOutput() {
             this.isSuccess = false;
             this.alreadyExisted = false;
+            this.needsAction = false;
         }
     }
 
@@ -308,6 +315,7 @@ global with sharing class RLM_MCP_CreateQuote {
         }
         appendRecordLinks(lines, deal.account.Id, contactId, opportunity.Id, quote.Id);
         out.message = RLM_MCP_DerivedPriceCoach.append(String.join(lines, '\n'), quote.Id);
+        appendBundleGate(out, quote.Id);
         return out;
     }
 
@@ -503,6 +511,7 @@ global with sharing class RLM_MCP_CreateQuote {
             String.join(lines, '\n'),
             deal.draft.Id
         );
+        appendBundleGate(out, deal.draft.Id);
         return out;
     }
 
@@ -599,6 +608,14 @@ global with sharing class RLM_MCP_CreateQuote {
         }
         String name = product.toLowerCase().replace(' ', '');
         return name.contains('q-rack') || name.contains('qrack');
+    }
+
+    private static void appendBundleGate(CreateOutput out, Id quoteId) {
+        RLM_MCP_BundleCoach.Result gate = RLM_MCP_BundleCoach.forQuote(quoteId);
+        out.message = RLM_MCP_BundleCoach.append(out.message, gate);
+        if (gate != null && gate.needsAction == true) {
+            out.needsAction = true;
+        }
     }
 
     private static void appendRecordLinks(

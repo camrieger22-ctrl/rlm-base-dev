@@ -29,6 +29,12 @@ global with sharing class RLM_MCP_ConfigureBundle {
         global String productName;
 
         @InvocableVariable(
+            label='Quote Line Item Id'
+            description='Optional parent QuoteLineItem Id. Required when the same SKU is on more than one ramp year.'
+        )
+        global String quoteLineItemId;
+
+        @InvocableVariable(
             label='Selected Products'
             description='Comma-separated product names or SKUs to select, e.g. QB-MEM 32GB, QuantumBit Database. Required options stay selected.'
         )
@@ -42,7 +48,7 @@ global with sharing class RLM_MCP_ConfigureBundle {
 
         @InvocableVariable(
             label='Attribute Picks JSON'
-            description='Optional JSON object of attribute label to value, e.g. {"Operating System":"Redhat Enterprise Linux"}.'
+            description='JSON object of attribute label to value. Required when describe listed attributes. Keep current attribute values = send the describe values. Never invent values. Example {"Performance Tier":"Performance"}.'
         )
         global String attributePicksJson;
 
@@ -74,6 +80,11 @@ global with sharing class RLM_MCP_ConfigureBundle {
             description='Updated names-only option groups, picks, attributes, and constraint messages after save.'
         )
         global String configurationDisplay;
+        @InvocableVariable(
+            label='Needs Action'
+            description='True when constraints still fail after save. Wait and configure again. Do not PDF, email, or submit.'
+        )
+        global Boolean needsAction;
         @InvocableVariable(label='Needs Disambiguation')
         global Boolean needsDisambiguation;
         @InvocableVariable(label='Candidate Summaries Display')
@@ -84,7 +95,7 @@ global with sharing class RLM_MCP_ConfigureBundle {
 
     @InvocableMethod(
         label='Configure Revenue Cloud Bundle'
-        description='Applies named bundle options and attributes, then saves them as child quote lines. Call Describe first. Never insert child QuoteLineItem rows yourself.'
+        description='Saves named bundle options and attributePicksJson. Pass quoteLineItemId. If needsAction, required or price-impacting attrs still blank — wait and configure again. Never skip required options. Never invent values. Never insert child QuoteLineItem rows.'
     )
     global static List<ConfigureOutput> configure(List<ConfigureInput> inputs) {
         List<ConfigureOutput> results = new List<ConfigureOutput>();
@@ -98,6 +109,7 @@ global with sharing class RLM_MCP_ConfigureBundle {
                 req.quoteName = input.quoteName;
                 req.accountName = input.accountName;
                 req.productName = input.productName;
+                req.quoteLineItemId = input.quoteLineItemId;
                 req.selectedProducts = input.selectedProducts;
                 req.unselectedProducts = input.unselectedProducts;
                 req.attributePicksJson = input.attributePicksJson;
@@ -118,6 +130,7 @@ global with sharing class RLM_MCP_ConfigureBundle {
         out.quoteLineItemId = raw.quoteLineItemId;
         out.productName = raw.productName;
         out.configurationDisplay = raw.configurationDisplay;
+        out.needsAction = raw.needsAction;
         out.needsDisambiguation = raw.needsDisambiguation;
         out.candidateSummariesDisplay = raw.candidateSummariesDisplay;
         out.errorMessage = raw.errorMessage;

@@ -70,6 +70,7 @@ public with sharing class RLM_RampConfiguratorAction {
         @AuraEnabled public String value;
         @AuraEnabled public String picklistValueId;
         @AuraEnabled public Boolean required;
+        @AuraEnabled public Boolean priceImpacting;
         @AuraEnabled public List<ConfigPicklistOption> options;
     }
 
@@ -263,6 +264,8 @@ public with sharing class RLM_RampConfiguratorAction {
                 owned.Quote == null ? null : owned.Quote.Pricebook2Id,
                 queryChildren(qId, lineId)
             );
+            out.attributes = loadCatalogAttributes(owned.Product2Id, lineId);
+            overlayPriceImpacting(out.attributes, owned.Product2Id);
             out.success = true;
             out.message = 'Loaded bundle options from the product catalog.';
             return out;
@@ -308,6 +311,7 @@ public with sharing class RLM_RampConfiguratorAction {
             String persistError = persistSelection(
                 qId, lineId, selection, childrenByProduct, false, true);
             ConfigResult loaded = loadCatalogConfiguration(quoteId, quoteLineItemId);
+            applySelectionAttributeValues(loaded, selection);
             if (persistError != null) {
                 loaded.success = false;
                 loaded.message = persistError;
@@ -347,6 +351,9 @@ public with sharing class RLM_RampConfiguratorAction {
         Boolean hasChildren = childrenByProduct != null && !childrenByProduct.isEmpty();
         out.groups = parseGroups(catalogProduct, childrenByProduct, hasChildren);
         out.attributes = parseAttributes(catalogProduct, contextAttributes);
+        overlayPriceImpacting(
+            out.attributes,
+            catalogProduct == null ? null : toId(asString(catalogProduct.get('id'))));
         Boolean ok = response.get('success') == true;
         if (!ok) {
             out.success = false;
@@ -499,6 +506,8 @@ public with sharing class RLM_RampConfiguratorAction {
                     asString(raw.get('name')));
                 attr.dataType = asString(raw.get('dataType'));
                 attr.required = raw.get('isRequired') == true;
+                attr.priceImpacting = asOptionalBoolean(
+                    raw.get('isPriceImpacting'), raw.get('IsPriceImpacting'));
                 attr.options = parsePicklist(raw.get('attributePicklist'));
                 ConfigAttribute current = contextAttributeFor(contextAttributes, attr);
                 if (current != null) {
@@ -990,6 +999,7 @@ public with sharing class RLM_RampConfiguratorAction {
                 i++;
             }
         }
+        i = addAttributePersistNodes(records, parentLineId, selection, i);
         if (records.size() == 1) {
             return null;
         }
@@ -1643,6 +1653,426 @@ public with sharing class RLM_RampConfiguratorAction {
 
     static Map<String, Object> asMap(Object value) {
         return value instanceof Map<String, Object> ? (Map<String, Object>) value : null;
+    }
+
+    @TestVisible
+    static List<ConfigAttribute> loadCatalogAttributes(Id product2Id, Id lineId) {
+        List<ConfigAttribute> attributes = new List<ConfigAttribute>();
+        if (product2Id == null) {
+            return attributes;
+        }
+        Id classificationId;
+        for (Product2 product : [
+            SELECT BasedOnId
+            FROM Product2
+            WHERE Id = :product2Id
+            LIMIT 1
+        ]) {
+            classificationId = product.BasedOnId;
+        }
+        Map<Id, ConfigAttribute> byDefId = new Map<Id, ConfigAttribute>();
+        List<Id> orderedDefIds = new List<Id>();
+        if (classificationId != null) {
+            for (ProductClassificationAttr pca : [
+                SELECT AttributeDefinitionId, IsRequired, IsPriceImpacting, IsHidden,
+                    IsReadOnly, AttributeNameOverride, DefaultValue, Name, Sequence
+                FROM ProductClassificationAttr
+                WHERE ProductClassificationId = :classificationId
+                AND Status = 'Active'
+                AND IsHidden = false
+                AND IsReadOnly = false
+                ORDER BY Sequence ASC NULLS LAST
+            ]) {
+                if (pca.AttributeDefinitionId == null) {
+                    continue;
+                }
+                ConfigAttribute attr = new ConfigAttribute();
+                attr.attributeKey = String.valueOf(pca.AttributeDefinitionId);
+                attr.label = firstNonBlank(pca.AttributeNameOverride, pca.Name);
+                attr.required = pca.IsRequired == true;
+                attr.priceImpacting = pca.IsPriceImpacting == true;
+                attr.value = pca.DefaultValue;
+                byDefId.put(pca.AttributeDefinitionId, attr);
+                orderedDefIds.add(pca.AttributeDefinitionId);
+            }
+        }
+        for (ProductAttributeDefinition pad : [
+            SELECT Id, Name, AttributeNameOverride, DefaultValue, IsRequired,
+                IsPriceImpacting, AttributeDefinitionId, Sequence
+            FROM ProductAttributeDefinition
+            WHERE Product2Id = :product2Id
+            AND IsHidden = false
+            AND Status = 'Active'
+            AND IsReadOnly = false
+            ORDER BY Sequence ASC NULLS LAST
+        ]) {
+            if (pad.AttributeDefinitionId == null) {
+                continue;
+            }
+            ConfigAttribute attr = byDefId.containsKey(pad.AttributeDefinitionId)
+                ? byDefId.get(pad.AttributeDefinitionId)
+                : new ConfigAttribute();
+            attr.attributeKey = String.valueOf(pad.Id);
+            attr.label = firstNonBlank(pad.AttributeNameOverride, pad.Name, attr.label);
+            attr.required = pad.IsRequired == true;
+            attr.priceImpacting = pad.IsPriceImpacting == true;
+            if (String.isBlank(attr.value)) {
+                attr.value = pad.DefaultValue;
+            }
+            if (!byDefId.containsKey(pad.AttributeDefinitionId)) {
+                orderedDefIds.add(pad.AttributeDefinitionId);
+            }
+            byDefId.put(pad.AttributeDefinitionId, attr);
+        }
+        if (byDefId.isEmpty()) {
+            return attributes;
+        }
+        Map<Id, AttributeDefinition> defs = new Map<Id, AttributeDefinition>([
+            SELECT Id, Name, DeveloperName, DataType, PicklistId
+            FROM AttributeDefinition
+            WHERE Id IN :byDefId.keySet()
+        ]);
+        Set<Id> picklistIds = new Set<Id>();
+        for (AttributeDefinition def : defs.values()) {
+            ConfigAttribute attr = byDefId.get(def.Id);
+            if (attr == null) {
+                continue;
+            }
+            attr.attributeName = def.DeveloperName;
+            if (String.isBlank(attr.label)) {
+                attr.label = def.Name;
+            }
+            attr.dataType = def.DataType;
+            if (def.PicklistId != null) {
+                picklistIds.add(def.PicklistId);
+            }
+        }
+        Map<Id, List<ConfigPicklistOption>> optionsByPicklist =
+            new Map<Id, List<ConfigPicklistOption>>();
+        if (!picklistIds.isEmpty()) {
+            for (AttributePicklistValue pv : [
+                SELECT Id, Name, Code, Value, DisplayValue, PicklistId, Status
+                FROM AttributePicklistValue
+                WHERE PicklistId IN :picklistIds
+                ORDER BY Sequence ASC NULLS LAST
+            ]) {
+                if (pv.Status == 'Inactive') {
+                    continue;
+                }
+                if (!optionsByPicklist.containsKey(pv.PicklistId)) {
+                    optionsByPicklist.put(pv.PicklistId, new List<ConfigPicklistOption>());
+                }
+                ConfigPicklistOption option = new ConfigPicklistOption();
+                option.picklistValueId = String.valueOf(pv.Id);
+                option.value = firstNonBlank(pv.Value, pv.Code, pv.Name);
+                option.label = firstNonBlank(pv.DisplayValue, pv.Name, option.value);
+                if (String.isNotBlank(option.value)) {
+                    optionsByPicklist.get(pv.PicklistId).add(option);
+                }
+            }
+        }
+        for (AttributeDefinition def : defs.values()) {
+            ConfigAttribute attr = byDefId.get(def.Id);
+            if (attr == null) {
+                continue;
+            }
+            if (def.PicklistId != null && optionsByPicklist.containsKey(def.PicklistId)) {
+                attr.options = optionsByPicklist.get(def.PicklistId);
+            }
+            if (String.isBlank(attr.picklistValueId)) {
+                attr.picklistValueId = picklistIdForValue(attr.options, attr.value);
+            }
+        }
+        if (lineId != null) {
+            for (QuoteLineItemAttribute qlia : [
+                SELECT Id, AttributeDefinitionId, AttributeName, AttributeValue,
+                    AttributePicklistValueId, IsPriceImpacting
+                FROM QuoteLineItemAttribute
+                WHERE QuoteLineItemId = :lineId
+            ]) {
+                ConfigAttribute attr = qlia.AttributeDefinitionId == null
+                    ? null
+                    : byDefId.get(qlia.AttributeDefinitionId);
+                if (attr == null) {
+                    continue;
+                }
+                attr.attributeRecordId = String.valueOf(qlia.Id);
+                if (String.isNotBlank(qlia.AttributeValue)) {
+                    attr.value = qlia.AttributeValue;
+                }
+                if (qlia.AttributePicklistValueId != null) {
+                    attr.picklistValueId = String.valueOf(qlia.AttributePicklistValueId);
+                }
+                if (attr.priceImpacting != true && qlia.IsPriceImpacting == true) {
+                    attr.priceImpacting = true;
+                }
+            }
+        }
+        for (Id defId : orderedDefIds) {
+            ConfigAttribute attr = byDefId.get(defId);
+            if (attr != null) {
+                attributes.add(attr);
+            }
+        }
+        return attributes;
+    }
+
+    @TestVisible
+    static void overlayPriceImpacting(List<ConfigAttribute> attributes, Id product2Id) {
+        if (attributes == null || attributes.isEmpty() || product2Id == null) {
+            return;
+        }
+        List<ConfigAttribute> missing = new List<ConfigAttribute>();
+        for (ConfigAttribute attr : attributes) {
+            if (attr != null && attr.priceImpacting == null) {
+                missing.add(attr);
+            }
+        }
+        if (missing.isEmpty()) {
+            return;
+        }
+        Map<String, Boolean> byKey = new Map<String, Boolean>();
+        for (ProductAttributeDefinition pad : [
+            SELECT Id, Name, AttributeNameOverride, IsPriceImpacting,
+                AttributeDefinition.DeveloperName
+            FROM ProductAttributeDefinition
+            WHERE Product2Id = :product2Id
+        ]) {
+            putPriceFlag(byKey, String.valueOf(pad.Id), pad.IsPriceImpacting);
+            putPriceFlag(byKey, pad.Name, pad.IsPriceImpacting);
+            putPriceFlag(byKey, pad.AttributeNameOverride, pad.IsPriceImpacting);
+            putPriceFlag(
+                byKey,
+                pad.AttributeDefinition == null ? null : pad.AttributeDefinition.DeveloperName,
+                pad.IsPriceImpacting);
+        }
+        Id classificationId;
+        for (Product2 product : [
+            SELECT BasedOnId
+            FROM Product2
+            WHERE Id = :product2Id
+            LIMIT 1
+        ]) {
+            classificationId = product.BasedOnId;
+        }
+        if (classificationId != null) {
+            for (ProductClassificationAttr pca : [
+                SELECT AttributeDefinitionId, Name, AttributeNameOverride, IsPriceImpacting,
+                    AttributeDefinition.DeveloperName
+                FROM ProductClassificationAttr
+                WHERE ProductClassificationId = :classificationId
+            ]) {
+                putPriceFlag(byKey, String.valueOf(pca.AttributeDefinitionId), pca.IsPriceImpacting);
+                putPriceFlag(byKey, pca.Name, pca.IsPriceImpacting);
+                putPriceFlag(byKey, pca.AttributeNameOverride, pca.IsPriceImpacting);
+                putPriceFlag(
+                    byKey,
+                    pca.AttributeDefinition == null ? null : pca.AttributeDefinition.DeveloperName,
+                    pca.IsPriceImpacting);
+            }
+        }
+        for (ConfigAttribute attr : missing) {
+            Boolean flagged = priceFlagFor(byKey, attr);
+            if (flagged != null) {
+                attr.priceImpacting = flagged;
+            }
+        }
+    }
+
+    static void putPriceFlag(Map<String, Boolean> byKey, String key, Boolean flagged) {
+        if (byKey == null || String.isBlank(key) || flagged == null) {
+            return;
+        }
+        byKey.put(key.toLowerCase(), flagged);
+    }
+
+    static Boolean priceFlagFor(Map<String, Boolean> byKey, ConfigAttribute attr) {
+        if (byKey == null || attr == null) {
+            return null;
+        }
+        List<String> keys = new List<String>{
+            attr.attributeKey, attr.attributeName, attr.label
+        };
+        for (String key : keys) {
+            if (String.isBlank(key)) {
+                continue;
+            }
+            String lower = key.toLowerCase();
+            if (byKey.containsKey(lower)) {
+                return byKey.get(lower);
+            }
+        }
+        return null;
+    }
+
+    static void applySelectionAttributeValues(ConfigResult loaded, Selection selection) {
+        if (loaded == null || loaded.attributes == null || selection == null
+            || selection.attributes == null) {
+            return;
+        }
+        for (ConfigAttribute picked : selection.attributes) {
+            if (picked == null) {
+                continue;
+            }
+            for (ConfigAttribute attr : loaded.attributes) {
+                if (attr == null) {
+                    continue;
+                }
+                Boolean sameKey = String.isNotBlank(picked.attributeKey)
+                    && picked.attributeKey == attr.attributeKey;
+                Boolean sameName = String.isNotBlank(picked.attributeName)
+                    && String.isNotBlank(attr.attributeName)
+                    && picked.attributeName.equalsIgnoreCase(attr.attributeName);
+                if (!sameKey && !sameName) {
+                    continue;
+                }
+                if (String.isNotBlank(picked.value)) {
+                    attr.value = picked.value;
+                }
+                if (String.isNotBlank(picked.picklistValueId)) {
+                    attr.picklistValueId = picked.picklistValueId;
+                }
+            }
+        }
+    }
+
+    @TestVisible
+    static Integer addAttributePersistNodes(
+        List<RevSalesTrxn.RecordWithReferenceRequest> records,
+        Id parentLineId,
+        Selection selection,
+        Integer startIndex
+    ) {
+        Integer i = startIndex == null ? 0 : startIndex;
+        if (records == null || parentLineId == null || selection == null
+            || selection.attributes == null || selection.attributes.isEmpty()) {
+            return i;
+        }
+        Set<String> names = new Set<String>();
+        Set<Id> keyIds = new Set<Id>();
+        for (ConfigAttribute attr : selection.attributes) {
+            if (attr == null || !canSendAttribute(attr)) {
+                continue;
+            }
+            if (String.isNotBlank(attr.attributeName)) {
+                names.add(attr.attributeName);
+            }
+            Id keyId = toId(attr.attributeKey);
+            if (keyId != null) {
+                keyIds.add(keyId);
+            }
+        }
+        Map<Id, QuoteLineItemAttribute> existingByDefId =
+            new Map<Id, QuoteLineItemAttribute>();
+        Map<String, QuoteLineItemAttribute> existingByName =
+            new Map<String, QuoteLineItemAttribute>();
+        for (QuoteLineItemAttribute qlia : [
+            SELECT Id, AttributeDefinitionId, AttributeName
+            FROM QuoteLineItemAttribute
+            WHERE QuoteLineItemId = :parentLineId
+        ]) {
+            if (qlia.AttributeDefinitionId != null) {
+                existingByDefId.put(qlia.AttributeDefinitionId, qlia);
+            }
+            if (String.isNotBlank(qlia.AttributeName)) {
+                existingByName.put(qlia.AttributeName.toLowerCase(), qlia);
+            }
+        }
+        Map<Id, Id> defIdByKey = new Map<Id, Id>();
+        Map<String, Id> defIdByName = new Map<String, Id>();
+        if (!keyIds.isEmpty()) {
+            for (ProductAttributeDefinition pad : [
+                SELECT Id, AttributeDefinitionId
+                FROM ProductAttributeDefinition
+                WHERE Id IN :keyIds
+            ]) {
+                if (pad.AttributeDefinitionId != null) {
+                    defIdByKey.put(pad.Id, pad.AttributeDefinitionId);
+                }
+            }
+        }
+        if (!keyIds.isEmpty() || !names.isEmpty()) {
+            for (AttributeDefinition def : [
+                SELECT Id, DeveloperName
+                FROM AttributeDefinition
+                WHERE Id IN :keyIds
+                OR DeveloperName IN :names
+            ]) {
+                defIdByKey.put(def.Id, def.Id);
+                if (String.isNotBlank(def.DeveloperName)) {
+                    defIdByName.put(def.DeveloperName.toLowerCase(), def.Id);
+                }
+            }
+        }
+        for (ConfigAttribute attr : selection.attributes) {
+            if (attr == null || !canSendAttribute(attr)) {
+                continue;
+            }
+            Id defId = defIdByKey.get(toId(attr.attributeKey));
+            if (defId == null && String.isNotBlank(attr.attributeName)) {
+                defId = defIdByName.get(attr.attributeName.toLowerCase());
+            }
+            QuoteLineItemAttribute existing = defId == null
+                ? null
+                : existingByDefId.get(defId);
+            if (existing == null && String.isNotBlank(attr.attributeName)) {
+                existing = existingByName.get(attr.attributeName.toLowerCase());
+            }
+            if (existing == null && String.isNotBlank(attr.attributeRecordId)) {
+                existing = new QuoteLineItemAttribute();
+                existing.Id = toId(attr.attributeRecordId);
+            }
+            RevSalesTrxn.RecordResource node;
+            if (existing != null && existing.Id != null) {
+                node = new RevSalesTrxn.RecordResource(
+                    QuoteLineItemAttribute.getSObjectType(), 'PATCH', existing.Id);
+            } else if (defId != null) {
+                node = new RevSalesTrxn.RecordResource(
+                    QuoteLineItemAttribute.getSObjectType(), 'POST');
+            } else {
+                continue;
+            }
+            Map<String, Object> fields = new Map<String, Object>{
+                'AttributeValue' => attr.value == null ? '' : attr.value
+            };
+            if (existing == null || existing.Id == null) {
+                fields.put('QuoteLineItemId', parentLineId);
+                fields.put('AttributeDefinitionId', defId);
+                if (String.isNotBlank(attr.attributeName)) {
+                    fields.put('AttributeName', attr.attributeName);
+                }
+            }
+            if (String.isNotBlank(attr.picklistValueId)) {
+                fields.put('AttributePicklistValueId', attr.picklistValueId);
+            }
+            node.fieldValues = fields;
+            records.add(new RevSalesTrxn.RecordWithReferenceRequest(
+                'refAttr' + String.valueOf(i), node));
+            i++;
+        }
+        return i;
+    }
+
+    static Boolean asOptionalBoolean(Object a, Object b) {
+        Boolean fromA = asOptionalBoolean(a);
+        return fromA != null ? fromA : asOptionalBoolean(b);
+    }
+
+    static Boolean asOptionalBoolean(Object value) {
+        if (value instanceof Boolean) {
+            return (Boolean) value;
+        }
+        if (value == null) {
+            return null;
+        }
+        String text = String.valueOf(value);
+        if (text.equalsIgnoreCase('true')) {
+            return true;
+        }
+        if (text.equalsIgnoreCase('false')) {
+            return false;
+        }
+        return null;
     }
 
     static String asString(Object value) {

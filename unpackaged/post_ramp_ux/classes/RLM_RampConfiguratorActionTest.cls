@@ -99,6 +99,7 @@ private class RLM_RampConfiguratorActionTest {
         System.assertEquals('Operating System', attrs[0].label);
         System.assertEquals('0tj000000000001AAA', attrs[0].attributeKey);
         System.assertEquals('Redhat Enterprise Linux', attrs[0].value);
+        System.assertEquals(true, attrs[0].priceImpacting);
         System.assertEquals(2, attrs[0].options.size());
 
         Map<String, Object> response = new Map<String, Object>{
@@ -194,6 +195,7 @@ private class RLM_RampConfiguratorActionTest {
         System.assertEquals(2, r.groups.size());
         System.assertEquals(1, r.attributes.size());
         System.assertEquals('0tj000000000001AAA', r.attributes[0].attributeKey);
+        System.assertEquals(true, r.attributes[0].priceImpacting);
         System.assertEquals('ctx-1', r.transactionContextId);
     }
 
@@ -275,6 +277,46 @@ private class RLM_RampConfiguratorActionTest {
         System.assertEquals(true, r.success, String.valueOf(r.message));
         System.assertNotEquals(null, r.groups);
         System.assertEquals(0, r.groups.size());
+        System.assertNotEquals(null, r.attributes);
+        System.assertEquals(0, r.attributes.size());
+    }
+
+    @IsTest
+    static void overlayPriceImpactingLeavesCatalogFlag() {
+        Map<String, Object> catalog = sampleCatalog();
+        List<RLM_RampConfiguratorAction.ConfigAttribute> attrs =
+            RLM_RampConfiguratorAction.parseAttributes(
+                catalog, new Map<String, RLM_RampConfiguratorAction.ConfigAttribute>());
+        System.assertEquals(true, attrs[0].priceImpacting);
+        QuoteLineItem qli = insertBundleLine();
+        RLM_RampConfiguratorAction.overlayPriceImpacting(attrs, qli.Product2Id);
+        System.assertEquals(true, attrs[0].priceImpacting);
+        attrs[0].priceImpacting = null;
+        RLM_RampConfiguratorAction.overlayPriceImpacting(attrs, qli.Product2Id);
+        System.assertEquals(null, attrs[0].priceImpacting);
+    }
+
+    @IsTest
+    static void addAttributePersistNodesSkipsEmptySelection() {
+        QuoteLineItem qli = insertBundleLine();
+        List<RevSalesTrxn.RecordWithReferenceRequest> records =
+            new List<RevSalesTrxn.RecordWithReferenceRequest>();
+        RLM_RampConfiguratorAction.Selection selection =
+            new RLM_RampConfiguratorAction.Selection();
+        selection.attributes = new List<RLM_RampConfiguratorAction.ConfigAttribute>();
+        Integer next = RLM_RampConfiguratorAction.addAttributePersistNodes(
+            records, qli.Id, selection, 0);
+        System.assertEquals(0, next);
+        System.assertEquals(0, records.size());
+
+        RLM_RampConfiguratorAction.ConfigAttribute blank =
+            new RLM_RampConfiguratorAction.ConfigAttribute();
+        blank.attributeName = 'Operating_System';
+        selection.attributes.add(blank);
+        next = RLM_RampConfiguratorAction.addAttributePersistNodes(
+            records, qli.Id, selection, 0);
+        System.assertEquals(0, next);
+        System.assertEquals(0, records.size());
     }
 
     @IsTest
@@ -347,6 +389,7 @@ private class RLM_RampConfiguratorActionTest {
                             'dataType' => 'Picklist',
                             'defaultValue' => 'Amazon Linux 2',
                             'isRequired' => false,
+                            'isPriceImpacting' => true,
                             'isHidden' => false,
                             'attributePicklist' => new Map<String, Object>{
                                 'values' => new List<Object>{

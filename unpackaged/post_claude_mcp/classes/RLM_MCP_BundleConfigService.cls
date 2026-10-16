@@ -15,6 +15,7 @@ public with sharing class RLM_MCP_BundleConfigService {
         public String quoteName;
         public String accountName;
         public String productName;
+        public String quoteLineItemId;
         public String selectedProducts;
         public String unselectedProducts;
         public String attributePicksJson;
@@ -23,6 +24,7 @@ public with sharing class RLM_MCP_BundleConfigService {
 
     public class Response {
         public Boolean isSuccess;
+        public Boolean needsAction;
         public Boolean needsDisambiguation;
         public String quoteId;
         public String quoteName;
@@ -33,6 +35,7 @@ public with sharing class RLM_MCP_BundleConfigService {
         public String errorMessage;
         public Response() {
             this.isSuccess = false;
+            this.needsAction = false;
             this.needsDisambiguation = false;
         }
     }
@@ -84,7 +87,7 @@ public with sharing class RLM_MCP_BundleConfigService {
             }
             out.quoteId = quote.Id;
             out.quoteName = quote.Name;
-            QuoteLineItem line = resolveBundleLine(quote.Id, input.productName, out);
+            QuoteLineItem line = resolveBundleLine(quote.Id, input, out);
             if (line == null) {
                 return out;
             }
@@ -103,25 +106,48 @@ public with sharing class RLM_MCP_BundleConfigService {
                 String applyError = applyPicks(loaded, input);
                 if (applyError != null) {
                     out.errorMessage = applyError;
+                    out.needsAction = true;
                     out.configurationDisplay = formatDisplay(quote, line, loaded);
                     return out;
                 }
+                String selectionJson = toSelectionJson(loaded);
                 RLM_RampConfiguratorAction.ConfigResult saved = engine.save(
                     String.valueOf(quote.Id),
                     String.valueOf(line.Id),
-                    toSelectionJson(loaded)
+                    selectionJson
                 );
                 if (saved == null || saved.success != true) {
                     out.errorMessage = saved == null || String.isBlank(saved.message)
                         ? 'Configurator could not save this bundle.'
                         : saved.message;
+                    out.needsAction = true;
                     out.configurationDisplay = formatDisplay(quote, line, loaded);
                     return out;
                 }
                 loaded = saved;
+                out.isSuccess = true;
+                out.configurationDisplay = formatDisplay(quote, line, loaded);
+                if (hasBlockingIssues(loaded, confirmedAttributeKeys(input.attributePicksJson))) {
+                    out.needsAction = true;
+                    out.configurationDisplay += '\n\nConfiguration saved but constraints still fail. Required or price-impacting attributes still need values in attributePicksJson (Keep current attribute values is the describe values). Fix the picks and call configureRevenueCloudBundle again. Do not PDF or email.';
+                    return out;
+                }
+                String copied = copyToRampSiblings(quote, line, selectionJson);
+                if (String.isNotBlank(copied)) {
+                    out.configurationDisplay += '\n\n' + copied;
+                }
+                return out;
             }
             out.isSuccess = true;
             out.configurationDisplay = formatDisplay(quote, line, loaded);
+            Boolean unconfigured = !hasChildren(quote.Id, line.Id);
+            if (isConfigurable(loaded) && (unconfigured || hasBlockingIssues(loaded))) {
+                out.needsAction = true;
+                out.configurationDisplay +=
+                    '\n\nWait. Keep-or-drill picker — never dump values or SKUs on the overview. Step 1 of 2 — Attributes: bullet current values; Keep all current attributes, or pick which attributes to change (names only); drill only those; required blanks still get a card; mark affects price. Step 2 of 2 — Add-on products: leaf groups only; Keep all catalog add-ons, or pick which groups to change (names only); drill only those. Then one configureRevenueCloudBundle with quoteLineItemId '
+                    + String.valueOf(line.Id)
+                    + ', selectedProducts, and attributePicksJson. Do not PDF, email, or submit.';
+            }
             return out;
         } catch (Exception e) {
             out.isSuccess = false;
@@ -220,12 +246,35 @@ public with sharing class RLM_MCP_BundleConfigService {
         ];
     }
 
-    private static QuoteLineItem resolveBundleLine(Id quoteId, String productName, Response out) {
-        String term = blankToNull(productName);
+    private static QuoteLineItem resolveBundleLine(Id quoteId, Request input, Response out) {
+        if (input != null && String.isNotBlank(input.quoteLineItemId)) {
+            Id lineId = toQuoteLineItemId(input.quoteLineItemId);
+            if (lineId == null) {
+                out.errorMessage = 'Invalid Quote Line Item Id: ' + input.quoteLineItemId;
+                return null;
+            }
+            List<QuoteLineItem> byId = [
+                SELECT Id, Product2Id, Product2.Name, Product2.StockKeepingUnit, Product2.Type,
+                    Quantity, QuoteLineGroup.Name, QuoteLineGroup.IsRamped
+                FROM QuoteLineItem
+                WHERE Id = :lineId
+                AND QuoteId = :quoteId
+                AND ParentQuoteLineItemId = null
+                WITH USER_MODE
+                LIMIT 1
+            ];
+            if (byId.isEmpty()) {
+                out.errorMessage = 'No parent line ' + lineId + ' is on this quote.';
+                return null;
+            }
+            return byId[0];
+        }
+        String term = input == null ? null : blankToNull(input.productName);
         List<QuoteLineItem> lines;
         if (term == null) {
             lines = [
-                SELECT Id, Product2.Name, Product2.StockKeepingUnit, Product2.Type, Quantity
+                SELECT Id, Product2Id, Product2.Name, Product2.StockKeepingUnit, Product2.Type,
+                    Quantity, QuoteLineGroup.Name, QuoteLineGroup.IsRamped
                 FROM QuoteLineItem
                 WHERE QuoteId = :quoteId
                 AND ParentQuoteLineItemId = null
@@ -241,7 +290,8 @@ public with sharing class RLM_MCP_BundleConfigService {
         } else {
             String likeTerm = '%' + term + '%';
             lines = [
-                SELECT Id, Product2.Name, Product2.StockKeepingUnit, Product2.Type, Quantity
+                SELECT Id, Product2Id, Product2.Name, Product2.StockKeepingUnit, Product2.Type,
+                    Quantity, QuoteLineGroup.Name, QuoteLineGroup.IsRamped
                 FROM QuoteLineItem
                 WHERE QuoteId = :quoteId
                 AND ParentQuoteLineItemId = null
@@ -437,6 +487,9 @@ public with sharing class RLM_MCP_BundleConfigService {
                 String label = String.isNotBlank(attr.label) ? attr.label : attr.attributeName;
                 String row = '- ' + label + ': '
                     + (String.isBlank(attr.value) ? '(not set)' : attr.value);
+                if (attr.priceImpacting == true) {
+                    row += ' — affects price';
+                }
                 if (attr.required == true) {
                     row += ' — required';
                 }
@@ -688,7 +741,7 @@ public with sharing class RLM_MCP_BundleConfigService {
 
     private static String buildLineCandidates(List<QuoteLineItem> lines) {
         List<String> rows = new List<String>();
-        rows.add('Multiple bundle lines match. Which product should I configure?');
+        rows.add('Multiple bundle lines match. Pass quoteLineItemId for the year to configure.');
         Integer ordinal = 1;
         for (QuoteLineItem line : lines) {
             String name = line.Product2 == null ? 'Line' : line.Product2.Name;
@@ -697,6 +750,10 @@ public with sharing class RLM_MCP_BundleConfigService {
             if (String.isNotBlank(sku)) {
                 row += ' (' + sku + ')';
             }
+            if (line.QuoteLineGroup != null && String.isNotBlank(line.QuoteLineGroup.Name)) {
+                row += ' on ' + line.QuoteLineGroup.Name;
+            }
+            row += ' — quoteLineItemId ' + String.valueOf(line.Id);
             rows.add(row);
             ordinal++;
         }
@@ -782,5 +839,206 @@ public with sharing class RLM_MCP_BundleConfigService {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private static Id toQuoteLineItemId(String raw) {
+        try {
+            Id parsed = Id.valueOf(raw.trim());
+            return parsed.getSObjectType() == QuoteLineItem.SObjectType ? parsed : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    @TestVisible
+    static Boolean hasChildren(Id quoteId, Id parentId) {
+        if (quoteId == null || parentId == null) {
+            return false;
+        }
+        return [
+            SELECT Id
+            FROM QuoteLineItem
+            WHERE QuoteId = :quoteId
+            AND ParentQuoteLineItemId = :parentId
+            WITH USER_MODE
+            LIMIT 1
+        ].size() > 0;
+    }
+
+    @TestVisible
+    static Boolean isConfigurable(RLM_RampConfiguratorAction.ConfigResult config) {
+        if (config == null) {
+            return false;
+        }
+        if (config.groups != null && !config.groups.isEmpty()) {
+            return true;
+        }
+        return config.attributes != null && !config.attributes.isEmpty();
+    }
+
+    @TestVisible
+    static Boolean hasBlockingIssues(RLM_RampConfiguratorAction.ConfigResult config) {
+        return hasBlockingIssues(config, null);
+    }
+
+    @TestVisible
+    static Boolean hasBlockingIssues(
+        RLM_RampConfiguratorAction.ConfigResult config,
+        Set<String> confirmedAttributeKeys
+    ) {
+        if (config == null) {
+            return false;
+        }
+        if (config.messages != null) {
+            for (RLM_RampConfiguratorAction.ConfigMessage msg : config.messages) {
+                if (msg == null || String.isBlank(msg.text)) {
+                    continue;
+                }
+                String kind = String.isBlank(msg.messageType) ? '' : msg.messageType.toLowerCase();
+                if (kind == 'error' || kind == 'constraint' || kind.contains('error')) {
+                    return true;
+                }
+            }
+        }
+        if (config.groups != null) {
+            for (RLM_RampConfiguratorAction.ConfigGroup optionGroup : config.groups) {
+                if (optionGroup == null || optionGroup.components == null) {
+                    continue;
+                }
+                for (RLM_RampConfiguratorAction.ConfigComponent component : optionGroup.components) {
+                    if (component != null && component.required == true && component.selected != true) {
+                        return true;
+                    }
+                }
+            }
+        }
+        if (config.attributes != null) {
+            for (RLM_RampConfiguratorAction.ConfigAttribute attr : config.attributes) {
+                if (attr == null) {
+                    continue;
+                }
+                Boolean mustHaveValue = attr.required == true || attr.priceImpacting == true;
+                if (!mustHaveValue) {
+                    continue;
+                }
+                if (String.isBlank(attr.value) && String.isBlank(attr.picklistValueId)) {
+                    return true;
+                }
+                if (attr.priceImpacting == true
+                    && confirmedAttributeKeys != null
+                    && !attributeIsConfirmed(attr, confirmedAttributeKeys)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    static Set<String> confirmedAttributeKeys(String raw) {
+        Map<String, String> values = parseStringMap(raw);
+        Set<String> keys = new Set<String>();
+        if (values == null) {
+            return keys;
+        }
+        for (String key : values.keySet()) {
+            if (String.isNotBlank(key)) {
+                keys.add(key.trim().toLowerCase());
+            }
+        }
+        return keys;
+    }
+
+    static Boolean attributeIsConfirmed(
+        RLM_RampConfiguratorAction.ConfigAttribute attr,
+        Set<String> confirmedAttributeKeys
+    ) {
+        if (attr == null || confirmedAttributeKeys == null || confirmedAttributeKeys.isEmpty()) {
+            return false;
+        }
+        List<String> names = new List<String>{ attr.label, attr.attributeName, attr.attributeKey };
+        for (String name : names) {
+            if (String.isNotBlank(name) && confirmedAttributeKeys.contains(name.trim().toLowerCase())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String copyToRampSiblings(
+        Quote quote,
+        QuoteLineItem source,
+        String selectionJson
+    ) {
+        if (quote == null || source == null || source.Product2Id == null
+            || String.isBlank(selectionJson)) {
+            return null;
+        }
+        List<QuoteLineItem> candidates = [
+            SELECT Id, QuoteLineGroup.Name, QuoteLineGroup.IsRamped, Product2Id
+            FROM QuoteLineItem
+            WHERE QuoteId = :quote.Id
+            AND Product2Id = :source.Product2Id
+            AND ParentQuoteLineItemId = null
+            AND Id != :source.Id
+            WITH USER_MODE
+            LIMIT 20
+        ];
+        List<QuoteLineItem> siblings = new List<QuoteLineItem>();
+        Set<Id> siblingIds = new Set<Id>();
+        for (QuoteLineItem candidate : candidates) {
+            if (candidate.QuoteLineGroup == null || candidate.QuoteLineGroup.IsRamped != true) {
+                continue;
+            }
+            siblings.add(candidate);
+            siblingIds.add(candidate.Id);
+        }
+        if (siblings.isEmpty()) {
+            return null;
+        }
+        Set<Id> configured = new Set<Id>();
+        for (QuoteLineItem child : [
+            SELECT ParentQuoteLineItemId
+            FROM QuoteLineItem
+            WHERE QuoteId = :quote.Id
+            AND ParentQuoteLineItemId IN :siblingIds
+            WITH USER_MODE
+            LIMIT 200
+        ]) {
+            configured.add(child.ParentQuoteLineItemId);
+        }
+        List<String> copied = new List<String>();
+        List<String> failed = new List<String>();
+        for (QuoteLineItem sibling : siblings) {
+            if (configured.contains(sibling.Id)) {
+                continue;
+            }
+            String yearName = sibling.QuoteLineGroup == null
+                || String.isBlank(sibling.QuoteLineGroup.Name)
+                ? 'another year' : sibling.QuoteLineGroup.Name;
+            RLM_RampConfiguratorAction.ConfigResult saved = engine.save(
+                String.valueOf(quote.Id),
+                String.valueOf(sibling.Id),
+                selectionJson
+            );
+            if (saved != null && saved.success == true) {
+                copied.add(yearName);
+            } else {
+                String why = saved == null || String.isBlank(saved.message)
+                    ? 'save failed' : saved.message;
+                failed.add(yearName + ' (' + why + ')');
+            }
+        }
+        if (copied.isEmpty() && failed.isEmpty()) {
+            return null;
+        }
+        List<String> recap = new List<String>();
+        if (!copied.isEmpty()) {
+            recap.add('Same mix copied to ' + String.join(copied, ', ') + '.');
+        }
+        if (!failed.isEmpty()) {
+            recap.add('Could not copy to ' + String.join(failed, '; ') + '.');
+        }
+        recap.add('If they asked for a different mix per year, describe that year’s quoteLineItemId instead.');
+        return String.join(recap, ' ');
     }
 }

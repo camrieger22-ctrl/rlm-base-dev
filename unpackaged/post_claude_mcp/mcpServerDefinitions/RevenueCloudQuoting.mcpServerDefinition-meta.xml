@@ -78,7 +78,7 @@
             <apiSource>API_CATALOG</apiSource>
             <operation>RLM_MCP_AddProductToQuote</operation>
         </apiDefinition>
-        <descriptionOverride>Adds products to a Draft. Customer email: pass fromEmail=Gmail From. Recap sender picker; wait if needsAction. Quote Contact is not the sender. Call once; recap Open Quote.</descriptionOverride>
+        <descriptionOverride>Adds products to a Draft. Customer email: pass fromEmail=Gmail From. Recap sender picker; wait if needsAction. If recap says configure, describe then wait. Quote Contact is not the sender. Call once; recap Open Quote.</descriptionOverride>
         <toolName>addProductToRevenueCloudQuote</toolName>
         <toolTitle>Add Product To Quote</toolTitle>
     </tools>
@@ -148,7 +148,7 @@
             <apiSource>API_CATALOG</apiSource>
             <operation>RLM_MCP_DescribeBundleConfiguration</operation>
         </apiDefinition>
-        <descriptionOverride>Loads configurator option groups, current picks, attributes, and constraint messages for a bundle on a Draft quote. Does not save. Ask the user about unanswered groups, then call configureRevenueCloudBundle. Never insert child QuoteLineItem rows.</descriptionOverride>
+        <descriptionOverride>Loads groups and attributes. Pass quoteLineItemId. Keep-or-drill: names then cards. Never dump every value. Never invent values. Never skip. Never insert child QuoteLineItem rows.</descriptionOverride>
         <toolName>describeRevenueCloudBundleConfiguration</toolName>
         <toolTitle>Describe Bundle Configuration</toolTitle>
     </tools>
@@ -158,7 +158,7 @@
             <apiSource>API_CATALOG</apiSource>
             <operation>RLM_MCP_ConfigureBundle</operation>
         </apiDefinition>
-        <descriptionOverride>Applies named bundle options and attributes, then saves through the Revenue Cloud configurator. Call describe first. Pass product names or SKUs, not child QuoteLineItem inserts.</descriptionOverride>
+        <descriptionOverride>Saves named picks. Pass quoteLineItemId and attributePicksJson. If needsAction, required or price-impacting attrs still blank — wait and configure again. Never skip. Never invent values. Never insert child QuoteLineItem rows.</descriptionOverride>
         <toolName>configureRevenueCloudBundle</toolName>
         <toolTitle>Configure Bundle</toolTitle>
     </tools>
@@ -268,7 +268,7 @@
             <apiSource>API_CATALOG</apiSource>
             <operation>RLM_MCP_ApplyQuoteRamp</operation>
         </apiDefinition>
-        <descriptionOverride>Describes ramp segments, adds a product across an existing Create Ramp Schedule, or patches qty. Never creates the schedule. Never Ramp Builder. Never SObject-insert QuoteLineGroup.</descriptionOverride>
+        <descriptionOverride>Ramp years: first-add 10/20/30 or editsJson add/remove/qty/discount. Year blanket: omit product. Named SKU overlays, including children. If recap says configure, describe then wait. Never Ramp Builder.</descriptionOverride>
         <toolName>applyRevenueCloudQuoteRamp</toolName>
         <toolTitle>Apply Quote Ramp</toolTitle>
     </tools>

@@ -27,6 +27,12 @@ global with sharing class RLM_MCP_DescribeBundleConfiguration {
             description='Bundle name or SKU, e.g. QuantumBit Complete or QB-COMPLETE. If blank, uses the only bundle parent line on the quote.'
         )
         global String productName;
+
+        @InvocableVariable(
+            label='Quote Line Item Id'
+            description='Optional parent QuoteLineItem Id. Required when the same SKU is on more than one ramp year.'
+        )
+        global String quoteLineItemId;
     }
 
     global class DescribeOutput {
@@ -47,9 +53,14 @@ global with sharing class RLM_MCP_DescribeBundleConfiguration {
         global String productName;
         @InvocableVariable(
             label='Configuration Display'
-            description='Names-only option groups, current picks, attributes, and constraint messages. Ask the user about unanswered groups, then call Configure Bundle.'
+            description='Names-only option groups, picks, and attributes. Keep-or-drill: current picks then names; drill only those. Never dump every value. Then Configure with attributePicksJson.'
         )
         global String configurationDisplay;
+        @InvocableVariable(
+            label='Needs Action'
+            description='True when this bundle still needs picks. Run the keep-or-drill picker (attributes, then add-on products) and wait. Do not PDF, email, or submit.'
+        )
+        global Boolean needsAction;
         @InvocableVariable(label='Needs Disambiguation')
         global Boolean needsDisambiguation;
         @InvocableVariable(label='Candidate Summaries Display')
@@ -60,7 +71,7 @@ global with sharing class RLM_MCP_DescribeBundleConfiguration {
 
     @InvocableMethod(
         label='Describe Revenue Cloud Bundle Configuration'
-        description='Loads option groups for a bundle on a Draft quote. Does not save. Checked items include a reason (required, catalog default, or already on the quote). Explain those reasons to the user. Ask them to pick, then call Configure Bundle. Never insert child QuoteLineItem rows yourself.'
+        description='Loads groups and attributes. Pass quoteLineItemId. Keep-or-drill: names then cards. Never dump every value. Never invent values. Never skip. Never insert child QuoteLineItem rows.'
     )
     global static List<DescribeOutput> describe(List<DescribeInput> inputs) {
         List<DescribeOutput> results = new List<DescribeOutput>();
@@ -74,6 +85,7 @@ global with sharing class RLM_MCP_DescribeBundleConfiguration {
                 req.quoteName = input.quoteName;
                 req.accountName = input.accountName;
                 req.productName = input.productName;
+                req.quoteLineItemId = input.quoteLineItemId;
             }
             results.add(toOutput(RLM_MCP_BundleConfigService.describe(req)));
         }
@@ -90,6 +102,7 @@ global with sharing class RLM_MCP_DescribeBundleConfiguration {
         out.quoteLineItemId = raw.quoteLineItemId;
         out.productName = raw.productName;
         out.configurationDisplay = raw.configurationDisplay;
+        out.needsAction = raw.needsAction;
         out.needsDisambiguation = raw.needsDisambiguation;
         out.candidateSummariesDisplay = raw.candidateSummariesDisplay;
         out.errorMessage = raw.errorMessage;

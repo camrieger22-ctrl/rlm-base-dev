@@ -93,7 +93,7 @@ global with sharing class RLM_MCP_AddProductToQuote {
         global String lineSummaryDisplay;
         @InvocableVariable(
             label='Needs Action'
-            description='True when the AE must pick a sender-contact option. That picker is the Next line. Wait. Never Gmail this note.'
+            description='True when a bundle needs configure or a sender is not a Contact. That picker is the Next line. Wait. Never Gmail this note.'
         )
         global Boolean needsAction;
         @InvocableVariable(label='Needs Disambiguation')
@@ -200,6 +200,14 @@ global with sharing class RLM_MCP_AddProductToQuote {
                 out.lineSummaryDisplay,
                 quoteId
             );
+            RLM_MCP_BundleCoach.Result bundleGate = RLM_MCP_BundleCoach.forQuote(quoteId);
+            out.lineSummaryDisplay = RLM_MCP_BundleCoach.append(
+                out.lineSummaryDisplay,
+                bundleGate
+            );
+            if (bundleGate != null && bundleGate.needsAction == true) {
+                out.needsAction = true;
+            }
             RLM_MCP_CheckSenderContact.CheckOutput sender =
                 RLM_MCP_CheckSenderContact.forQuote(
                     quoteId,

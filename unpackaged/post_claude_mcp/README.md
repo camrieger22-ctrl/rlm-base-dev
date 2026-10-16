@@ -30,7 +30,8 @@ order + activate. Decide Quote Approval calls `reviewApprovalWorkItem`
 Schedule previews then persists the standard empty group-ramp structure
 (Annual/Custom, trial, prorated stub) through Place Sales Transaction —
 not Ramp Builder. Apply Quote Ramp then adds a product across those
-segments or patches quantities. Get Quoting Catalog returns the
+segments, patches quantities, or applies `editsJson` (add / remove /
+qty / line discount on Trial, Year N, or the prorated stub). Get Quoting Catalog returns the
 skill version and tool list so a stale Claude connector is obvious. Explain Quote Price reads Quote / QuoteLineItem /
 QuoteLineDetail (list, header discount, amendment slices, proration,
 amount due) so a rep can walk the price even when amendment Net Unit
@@ -111,8 +112,17 @@ standalone “hyperlink the PDF” prompt started a second generate, took
 Ramp modeling is the same rule. Preview or create the schedule and add
 products in **one** prompt (`preview a 40-month annual ramp with a
 30-day trial…` then `create that schedule and add Database at 10, 20,
-then 30`). Do not open Ramp Builder. Do not apply 10/20/30 before the
-schedule exists.
+then 30`). After the schedule exists, per-year add / remove / qty /
+discount is also one prompt (`add Q-Rack to Year 2 and Year 3, remove
+Database from Trial, and 20% off Database in Year 2`). Q-Rack on a ramp
+is a **bundle gate**, not a finished $3,980 parent: Claude must describe,
+stop on keep-or-drill (current picks then names — not a 22-value dump
+and not a 69-item list), then configure (constraints stay on). Per-year
+discount is the same `editsJson` path: `Year 2 25% off
+all lines. Year 3 35% except QB-PowerSafe 1000D at 20%` — blanket then
+named exception, including nested bundle children. Do not open Ramp
+Builder. Do not apply 10/20/30 before the schedule exists. Do not use
+update-lines or add-product to target a ramp year.
 
 Drafting or refreshing the email for the current quote is Preview
 until `bodyDisplay` **in that same turn** (Apex waits on the in-flight
@@ -269,6 +279,15 @@ Ask:
 
 Claude should **one** Add Product, inherit the quote term (36 months if
 the quote is 36 months), recap Open Quote, and skip explain / PDF.
+
+On a ramped Draft (for example **Bryce Majors Ramp Trial Oct14**), ask:
+
+> Add Q-Rack to Year 2 and Year 3.
+
+Claude must **stop** on keep-or-drill (not a 22-value dump and not a
+69-item list): first wait is current values + attribute **names**, then
+add-on **group names**. Catalog `2026-10-14.17`. Re-upload the skill
+zip and reconnect MCP after deploy.
 
 The **customer pack** and **close the deal** beats (still never send
 mail):

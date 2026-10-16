@@ -10,8 +10,11 @@ description: >
   Same-mix: cloneRevenueCloudQuote per option. Never wait. Never Build
   Quote Options. AE notes are chat-only. Quote change + draft + PDF
   link: one prompt, one turn. Never a later "now add the PDF". Ramp
-  schedule: createRevenueCloudRampSchedule (preview then confirm). Qty
-  on segments: applyRevenueCloudQuoteRamp. Never Ramp Builder.
+  schedule: createRevenueCloudRampSchedule (preview then confirm). Ramp
+  edits: applyRevenueCloudQuoteRamp editsJson. Never Ramp Builder.
+  Bundle add: describe, wait, configure; never skip constraints.
+  Bundle picker: keep or drill attrs then add-ons.
+  Ramp year: blanket discount then named exception.
 ---
 
 # Revenue Cloud quoting
@@ -47,12 +50,12 @@ tool is missing.
 | One new Draft quote | `createRevenueCloudQuote` (always pass `opportunityName` + `quoteName` + `linesJson`) |
 | Prospect / sender not in Salesforce | One `createRevenueCloudQuote` with `contactFirstName`, `contactLastName`, `contactEmail`, and billing address. That call creates Account + Contact + Opportunity + Draft. Do **not** call `createRevenueCloudProspect` first. If this prompt already said to create them from the email, that is the confirm — do not wait again. Never SObject-insert Account, Contact, Opportunity, or Quote |
 | Sender From: not a Contact on an existing Account | On the same `updateRevenueCloudQuoteLines` / add-product call, pass `fromEmail` = Gmail **From** mailbox + `fromName`. Recap the sender picker in `resultsDisplay`. If `needsAction`, wait. Then `addRevenueCloudAccountContact`. Quote Contact is not the sender. Never skip. Never invent email |
-| Add catalog products to an existing Draft quote | `addProductToRevenueCloudQuote` with `linesJson` for every new SKU in that call. New lines inherit the quote `StartDate`/`EndDate` (do not pass `termMonths` unless this SKU should differ). Recap `lineSummaryDisplay` + Open Quote. If `lineSummaryDisplay` has an **AE note**, say it in chat (never Gmail). Do **not** explain or preview after add. Q-Rack 750 / One-Time hardware bundle: quantity 1. If Salesforce returns fractional quantity and qty > 1, immediately add again at quantity 1 — do not stop the quote |
+| Add catalog products to an existing Draft quote | `addProductToRevenueCloudQuote` with `linesJson` for every new SKU in that call. New lines inherit the quote `StartDate`/`EndDate` (do not pass `termMonths` unless this SKU should differ). Recap `lineSummaryDisplay` + Open Quote. If `lineSummaryDisplay` has an **AE note**, say it in chat (never Gmail). If `needsAction` for a **bundle**, call `describeRevenueCloudBundleConfiguration` **in this turn**, render the picker, and **wait** — do not skip because Instant Pricing priced the parent. Do **not** explain or preview after add. Q-Rack 750 / One-Time hardware bundle: quantity 1. If Salesforce returns fractional quantity and qty > 1, immediately add again at quantity 1 — do not stop the quote. **Ramped quote:** `applyRevenueCloudQuoteRamp` `editsJson` instead |
 | Which Draft quote / reconnect / several Acme deals | `findRevenueCloudOpenQuotes` with `opportunityName` from the email — ask only if several rows |
-| See bundle option groups / current picks | `describeRevenueCloudBundleConfiguration` |
-| Save bundle picks the user chose from describe | `configureRevenueCloudBundle` |
-| Percent off | `applyRevenueCloudQuoteDiscount` (discount only) or `updateRevenueCloudQuoteLines` when also changing qty or term |
-| Change quantity, term, start date, quote name, or remove a line on an existing Draft | `updateRevenueCloudQuoteLines` with `quantitiesJson` (quantity 0 or `"remove":true` drops that parent line), `termMonths`, `startDate`, and/or `quoteName` — never rebuild, never SObject-delete QuoteLineItem |
+| See bundle option groups / current picks / attributes | `describeRevenueCloudBundleConfiguration` (keep-or-drill: current picks then names — never dump every value) |
+| Save bundle picks the user chose from describe | `configureRevenueCloudBundle` (`attributePicksJson` for attribute values) |
+| Percent off | `applyRevenueCloudQuoteDiscount` (discount only) or `updateRevenueCloudQuoteLines` when also changing qty or term. **Ramped quote:** `applyRevenueCloudQuoteRamp` `editsJson` — year blanket omits `product`; named SKU overlays (including bundle children). Never `applyRevenueCloudQuoteDiscount` on a ramped quote |
+| Change quantity, term, start date, quote name, or remove a line on an existing Draft | `updateRevenueCloudQuoteLines` with `quantitiesJson` (quantity 0 or `"remove":true` drops that parent line), `termMonths`, `startDate`, and/or `quoteName` — never rebuild, never SObject-delete QuoteLineItem. **Ramped quote:** `applyRevenueCloudQuoteRamp` `editsJson` instead |
 | What-if on a live Draft (36 months, 15% off, 20 more seats, TCV) | One `updateRevenueCloudQuoteLines`, then `getRevenueCloudBillingAndUsage` for TCV (GrandTotal). Never rebuild, never Build Quote Options |
 | Change the quote **and** refresh the unsent email + PDF | **One turn.** `updateRevenueCloudQuoteLines`, then preview until `bodyDisplay`, then **update the existing Gmail draft**. Do not stop after the line update. Do not wait for a second “add the PDF” prompt |
 | Customer pack (explain + proposal PDF + unsent email) | Explain once, then preview until `bodyDisplay` in **this turn**. **Never wait/Pause. Never ask the user to prompt again.** Gmail that HTML. **Never** `draftRevenueCloudCustomerReply` after preview. Never send |
@@ -73,7 +76,7 @@ tool is missing.
 | Add a PDF link to an existing unsent Gmail draft | `draftRevenueCloudCustomerReply` **once**, then **update that Gmail draft** with the proposal PDF `<a href>`. Do **not** preview. Do **not** explain. Do **not** create a second draft |
 | Draft / refresh the email for the current quote | `previewRevenueCloudQuoteDocument` until `bodyDisplay` **in this turn**, then update Gmail. Never wait. Never ask them to prompt again. **Never** `draftRevenueCloudCustomerReply` |
 | Preview or create a ramp schedule (Annual/Custom, trial, prorated) | `createRevenueCloudRampSchedule` — preview first, then `confirm=true`. Never Ramp Builder |
-| Add a product or 10/20/30 qty on existing ramp segments | `applyRevenueCloudQuoteRamp` — describe, AddProducts, or patch qty. Create the schedule first |
+| Add / remove / qty / % off on ramp years (or first-add 10/20/30) | `applyRevenueCloudQuoteRamp` — `editsJson` for Trial/Year N/stub; omit `product` for a year blanket then named SKU exceptions; `segmentsJson` for 10/20/30. If `needsAction` for a bundle, describe in this turn, wait, then configure. Never `updateRevenueCloudQuoteLines` or `addProductToRevenueCloudQuote` on a ramped quote. Create the schedule first |
 | Next bill / TCV / usage | `getRevenueCloudBillingAndUsage` — TCV is quote GrandTotal, not ARR |
 | Build a quote from a customer email | Skip catalog. Gmail `in:inbox` newest (not a 30-day OR search). Open Drive Sheet/PDF now if present. Then **one** `createRevenueCloudQuote` (`opportunityName`, `quoteName`, `linesJson`, `contactEmail`; plus contact names/address if no Account). Recap only after it returns. If `alreadyExisted`, update — do not create again |
 | Quote from a meeting / call / calendar recap | Skip catalog. Search **Google Calendar** (or Microsoft 365 calendar if that is what is on). Open the event description and any Drive notes now — do not wait for “read the recap.” Then one `createRevenueCloudQuote` with `opportunityName`, `quoteName`, `linesJson`, `startDate` from the event, `contactEmail` from a customer attendee (plus contact names/address if no Account). If `alreadyExisted`, update — do not create again |
@@ -161,10 +164,11 @@ deal-status-only, or when you stopped to ask a question.
 | Activated / amend or renew quote ready | Next: recap installed base, or compare this quote to what they own. (After amend/renew quote: create the order and activate.) |
 
 Do not list every option. Use the matching row. Keep it one sentence.
-If the recap includes an AE derived-price numbered picker **or** a
-sender-contact `promptDisplay` with `needsAction`, that picker **is**
-the Next line — wait for their choice. Do not also add ramp / submit /
-customer pack.
+If the recap includes an AE derived-price numbered picker, a
+sender-contact `promptDisplay` with `needsAction`, **or** a bundle
+configure picker (`needsAction` after create / add / ramp / describe /
+configure), that picker **is** the Next line — wait for their choice.
+Do not also add ramp / submit / customer pack.
 
 ## How to prompt (one turn)
 
@@ -240,7 +244,9 @@ hardware is not given an end date.
 
 Year-over-year **group ramps** (qty 10 / 20 / 30 as segments) are not in this
 tool. Create the empty schedule with `createRevenueCloudRampSchedule`, then
-`applyRevenueCloudQuoteRamp` with `segmentsJson` to add or patch product qty.
+`applyRevenueCloudQuoteRamp`. First-add uses `segmentsJson`. Per-year add,
+remove, qty, or discount uses `editsJson`. Never `updateRevenueCloudQuoteLines`
+or `addProductToRevenueCloudQuote` on a ramped quote.
 
 ### Visual recap (required)
 
@@ -760,8 +766,21 @@ Create Ramp Schedule (the standard Salesforce modal — not Ramp Builder):
    10/20/30 is Years 1–3. Also put the product on Trial (Year 1 qty,
    trial discount) and on a prorated stub (last year qty). A trial
    without the SKU is empty.
-4. Describe only: `applyRevenueCloudQuoteRamp` with `quoteId`.
-5. Do not open Ramp Builder. Do not SObject-insert `QuoteLineGroup`.
+4. After the schedule exists, **one** `applyRevenueCloudQuoteRamp` with
+   `editsJson` for per-year add / remove / qty / discount. Examples:
+   `[{"product":"Q-Rack 750","segments":["Year 2","Year 3"],"quantity":1}]`,
+   `[{"product":"QuantumBit Database","segments":["Trial"],"remove":true}]`,
+   `[{"segments":["Year 2"],"discount":25},{"segments":["Year 3"],"discount":35},{"product":"QB-PowerSafe 1000D","segments":["Year 3"],"discount":20}]`.
+   Omit `product` = stamp that percent on **every** line in those years
+   (parents and bundle children). A later named row overlays that SKU
+   only. Qty / remove still require a parent SKU — never a child.
+   Omit `segments` (or `all`) = every ramped group. `paid` skips Trial.
+   Aliases: Trial, Y2, year 2, prorated, stub, Year 4. Combined add +
+   remove + discount in **one** `editsJson`. Do **not** call
+   `updateRevenueCloudQuoteLines`, `addProductToRevenueCloudQuote`, or
+   `applyRevenueCloudQuoteDiscount` — those cannot target a year.
+5. Describe only: `applyRevenueCloudQuoteRamp` with `quoteId`.
+6. Do not open Ramp Builder. Do not SObject-insert `QuoteLineGroup`.
    Do not rebuild the quote. Create does not edit an existing schedule.
 
 ## Next bill, TCV, and usage
@@ -777,53 +796,116 @@ When they ask what they will be billed next, TCV, or usage consumed:
 
 ## Bundle configuration
 
-1. Describe first. If it fails, show the error and stop.
-2. Offer **only** the groups and products describe returned. Never invent groups.
+After create / add / ramp, if the recap `needsAction` for a bundle (parent
+only, Instant Pricing on the parent is not done): describe **in this turn**
+with `quoteId` and `quoteLineItemId` from the recap, then **wait**. Do not
+skip because the parent has a price. Do not use add-product to “add CPU as
+a standalone line.” Do not PDF / email / submit until configure returns
+`needsAction` false.
+
+1. Describe first (`quoteLineItemId` when the same SKU is on more than one
+   ramp year). If it fails, show the error and stop.
+2. Offer **only** the groups and products describe returned. Never invent
+   groups or SKUs. Required options stay selected.
 3. Tell the user why items are already checked: required, catalog default
    (the bundle’s starting mix), or already saved on the quote. Do not imply
    they configured those themselves unless the line says already on this quote.
-4. **Stop. Do not call Configure yet.** Show a picker (below) and wait.
-5. After they pick, Configure with those names/SKUs. Never insert child
-   `QuoteLineItem`s. Do not add the same bundle parent twice.
+4. **Stop. Do not call Configure yet.** Run the keep-or-drill picker
+   (below). Hold picks in chat. **One configure after Step 2** — do not
+   persist between waits.
+5. After Step 2, Configure with those names/SKUs, `attributePicksJson`,
+   and the same `quoteLineItemId`. Never insert child `QuoteLineItem`s. Do
+   not add the same bundle parent twice. Never invent attribute values.
+6. If configure `needsAction` is still true (CML / required / price-impacting
+   attributes still blank), show those messages, wait, and configure again.
+   Do not proceed.
+7. After a clean save, the same mix is copied to other unconfigured ramp
+   years of that SKU. Recap which years were copied. If they asked for a
+   different mix per year, describe that year’s `quoteLineItemId` instead.
 
 ### Picker (required after every successful describe)
 
-The chat cannot host a true checkbox widget. Make choosing as close to a click
-as Claude allows:
+The chat cannot host a true checkbox widget. **Do not** dump every
+alternate value or SKU on the overview (no 22-chip wall, no 1–69 list).
+**Do not** ask them to pick a category as a meta-step. Describe is for
+you to read; the user sees a **keep-or-drill** flow. Hold picks until
+the end, then **one** `configureRevenueCloudBundle`.
 
-- End your message with a **multiple-choice question**.
-- One **optional** product per numbered line. Short **product name** only
-  (SKU in parentheses is fine). Keep each line under ~60 characters so the
-  client can show it as a tappable suggestion.
-- Skip required items in the numbered list; mention them above as already on.
-- Catalog defaults that are optional: include them as “keep default” vs
-  “remove” where that helps, or list only adds and say defaults stay unless
-  they say to remove.
-- Number continuously across groups (1, 2, 3…) so they can answer `2 and 5`.
-- Last lines of the numbered list should include:
-  - `Keep the catalog defaults`
-  - `Don't change anything`
-- Then ask: **What do you want to add or change?** If suggestion chips
-  appear, they can click those. Otherwise they can reply with numbers or names.
+**Step 1 of 2 — Attributes.** Opening line: we are setting product
+attributes (some affect price). Bullet every current value; mark
+**affects price**; `(not set)` on blanks. Chips: `Keep all current
+attributes`, then each **attribute name** (not its values). Ask: **Keep
+these, or pick which attributes to change?** They can answer `1` or
+`3 and 6` in one reply.
 
-Example shape (use real names from describe, not this sample):
+Keep all → go to Step 2, except **required blanks still get a card**.
+Change named attrs → one card each: current value, Keep that value,
+other options (~60 chars). Unnamed attrs keep describe values. Never
+invent. Skip hidden / read-only (already omitted).
+
+**Step 2 of 2 — Add-on products.** Same shape. Bullet what’s already
+`[x]` per **leaf group** that has SKUs (skip empty parents like
+Computing). Chips: `Keep all catalog add-ons`, then each **group name**
+(not SKUs). Named groups get one card: Keep this group, then optional
+adds (and optional remove of a non-required default). Required
+mentioned, not removable.
+
+After Step 2, configure with current `[x]` items plus
+`attributePicksJson`. Send **every** attribute key — Keep all still
+sends the describe values. A defaulted price-impacting attribute is not
+done until it is sent.
+
+Example Step 1 overview (use real names from describe, not this sample):
 
 ```
-Catalog defaults are already selected (required Database; default API mix).
-Optional adds:
+**Step 1 of 2 — Attributes**
+These specify the rack. Workload affects price. Current:
 
-1. Software Maintenance
-2. QuantumBit Essentials Training
-3. Additional API
-4. Keep the catalog defaults
-5. Don't change anything
+- Workload: General — affects price
+- Performance Tier: Standard
+- Socket: Single
+- Redundancy: (not set) — needs a pick
 
-What do you want to add or change? Click a suggestion or reply with numbers.
+1. Keep all current attributes
+2. Workload
+3. Performance Tier
+4. Socket
+5. Redundancy
+
+Keep these, or pick which attributes to change?
 ```
 
-Only call `configureRevenueCloudBundle` after that reply. Map numbers back to
-the describe names. If they click/type “Keep the catalog defaults”, configure
-with the current [x] items (required + defaults) and no extra optionals.
+Example drill card after they pick Workload:
+
+```
+Workload is General — affects price. Keep it, or pick another?
+
+1. Keep General
+2. AI
+3. High Performance Computing
+
+Keep this attribute or change it?
+```
+
+Example Step 2 overview:
+
+```
+**Step 2 of 2 — Add-on products**
+Catalog defaults already on. Keep them, or pick which groups to change.
+
+- Memory: QB-MEM 32GB
+- GPUs: none
+- Power Supply: PowerSafe 2000D
+
+1. Keep all catalog add-ons
+2. Memory
+3. GPUs
+4. Power Supply
+
+Keep these add-ons, or pick which groups to change?
+```
+
+Never invent values. Never persist between waits.
 
 ## Explain quote price
 
@@ -1027,8 +1109,10 @@ What start date should I use?
   `draftRevenueCloudCustomerReply`, then update that Gmail draft.
   Never preview. Never explain. Never a second draft. Never send.
 - Ramp: `createRevenueCloudRampSchedule` previews then creates the
-  empty schedule. `applyRevenueCloudQuoteRamp` adds a product or
-  patches qty on existing segments. Never Ramp Builder.
+  empty schedule. `applyRevenueCloudQuoteRamp` first-add 10/20/30 or
+  `editsJson` add/remove/qty/discount by year. Never
+  `updateRevenueCloudQuoteLines` or add-product on a ramped quote.
+  Never Ramp Builder.
 - Approver: `decideRevenueCloudQuoteApproval`. Never PATCH Quote.Status.
 - After reconnect: `getRevenueCloudQuotingCatalog`, then find with
   `opportunityName`.
