@@ -15,6 +15,15 @@ public with sharing class RLM_RampConfiguratorAction {
     static final String DUAL_GOLD_FIX =
         'Dual cannot use a Gold CPU. Pick a Platinum, or switch Socket to Single.';
     @TestVisible
+    static final String SINGLE_WORKLOAD_FIX =
+        'Socket is Single and Workload is not General. Set Workload to General, or switch Socket back to Dual.';
+    @TestVisible
+    static final String SINGLE_DUAL_QTY_FIX =
+        'Socket is Single but the rack still has two CPUs or two liquid coolers. Set each to quantity 1, or switch Socket back to Dual.';
+    @TestVisible
+    static final String SINGLE_GPU_FIX =
+        'Socket is Single but a Dual-only GPU is still on the rack. Remove the GPU, or switch Socket back to Dual.';
+    @TestVisible
     static Boolean forceAsyncConfigure = false;
     /**
      * Hosted MCP describe/configure must never Http.send in the tool
@@ -1760,6 +1769,15 @@ public with sharing class RLM_RampConfiguratorAction {
         if (isDualWithGold(result)) {
             appendUnique(steps, DUAL_GOLD_FIX);
         }
+        if (isSingleWithDualHardware(result)) {
+            appendUnique(steps, SINGLE_DUAL_QTY_FIX);
+        }
+        if (isSingleWithNonGeneral(result)) {
+            appendUnique(steps, SINGLE_WORKLOAD_FIX);
+        }
+        if (isSingleWithDualGpu(result)) {
+            appendUnique(steps, SINGLE_GPU_FIX);
+        }
         if (result.messages != null) {
             for (ConfigMessage msg : result.messages) {
                 if (msg == null || String.isBlank(msg.text) || !isBlockingMessage(msg)) {
@@ -1768,7 +1786,10 @@ public with sharing class RLM_RampConfiguratorAction {
                 if (isSolverLeftoverMessage(msg.text)) {
                     continue;
                 }
-                appendUnique(steps, rewriteKnownConstraint(stripConstraintPrefix(msg.text)));
+                appendUnique(
+                    steps,
+                    rewriteKnownConstraint(stripConstraintPrefix(msg.text), result)
+                );
             }
         }
         appendUnique(steps, laneDomainFixStep(result));
@@ -1954,6 +1975,98 @@ public with sharing class RLM_RampConfiguratorAction {
         return hasSelectedGoldCpu(result);
     }
 
+    static Boolean isSingleWithNonGeneral(ConfigResult result) {
+        if (!equalsIgnore(socketValue(result), 'Single')) {
+            return false;
+        }
+        String workload = workloadValue(result);
+        return String.isNotBlank(workload) && !equalsIgnore(workload, 'General');
+    }
+
+    static Boolean isSingleWithDualHardware(ConfigResult result) {
+        if (!equalsIgnore(socketValue(result), 'Single')) {
+            return false;
+        }
+        return selectedQty(result, 'cpu') >= 2 || selectedQty(result, 'liquid') >= 2;
+    }
+
+    static Boolean isSingleWithDualGpu(ConfigResult result) {
+        return equalsIgnore(socketValue(result), 'Single') && selectedQty(result, 'gpu') >= 1;
+    }
+
+    static String socketValue(ConfigResult result) {
+        return attributeValue(
+            result,
+            new List<String>{ 'SocketConfiguration', 'Socket Configuration', 'Socket' }
+        );
+    }
+
+    static String workloadValue(ConfigResult result) {
+        return attributeValue(result, new List<String>{ 'Workload' });
+    }
+
+    static Decimal selectedQty(ConfigResult result, String kind) {
+        Decimal total = 0;
+        if (result == null || result.groups == null || String.isBlank(kind)) {
+            return total;
+        }
+        for (ConfigGroup optionGroup : result.groups) {
+            if (optionGroup == null || optionGroup.components == null) {
+                continue;
+            }
+            for (ConfigComponent component : optionGroup.components) {
+                if (component == null || component.selected != true) {
+                    continue;
+                }
+                Boolean match = (kind == 'cpu' && isCpu(component))
+                    || (kind == 'liquid' && isLiquidCooler(component))
+                    || (kind == 'gpu' && isGpu(component));
+                if (!match) {
+                    continue;
+                }
+                total += component.quantity == null ? 1 : component.quantity;
+            }
+        }
+        return total;
+    }
+
+    static Boolean isCpu(ConfigComponent component) {
+        if (component == null) {
+            return false;
+        }
+        String name = component.name == null ? '' : component.name;
+        String sku = component.sku == null ? '' : component.sku;
+        if (name.containsIgnoreCase('Heat Sink') || sku.containsIgnoreCase('HEATSINK')) {
+            return false;
+        }
+        return name.containsIgnoreCase('Xeon')
+            || sku.containsIgnoreCase('INTEL-PLAT')
+            || sku.containsIgnoreCase('INTEL-GOLD')
+            || sku.containsIgnoreCase('XEON')
+            || (sku.containsIgnoreCase('CPU') && !sku.containsIgnoreCase('COOL'));
+    }
+
+    static Boolean isLiquidCooler(ConfigComponent component) {
+        if (component == null) {
+            return false;
+        }
+        String name = component.name == null ? '' : component.name;
+        String sku = component.sku == null ? '' : component.sku;
+        return name.containsIgnoreCase('Liquid Cooler') || sku.containsIgnoreCase('LIQUIDCOOL');
+    }
+
+    static Boolean isGpu(ConfigComponent component) {
+        if (component == null) {
+            return false;
+        }
+        String name = component.name == null ? '' : component.name;
+        String sku = component.sku == null ? '' : component.sku;
+        return name.containsIgnoreCase('Nova')
+            || name.containsIgnoreCase('Accel')
+            || sku.containsIgnoreCase('Nova')
+            || sku.containsIgnoreCase('Accel');
+    }
+
     static Boolean hasSelectedGoldCpu(ConfigResult result) {
         if (result == null || result.groups == null) {
             return false;
@@ -2011,13 +2124,58 @@ public with sharing class RLM_RampConfiguratorAction {
     }
 
     static String rewriteKnownConstraint(String text) {
-        if (String.isBlank(text)) {
-            return text;
+        return rewriteKnownConstraint(text, null);
+    }
+
+    static String rewriteKnownConstraint(String text, ConfigResult result) {
+        if (String.isBlank(text) || !constraintAppliesToMix(result, text)) {
+            return null;
         }
-        if (text.containsIgnoreCase('Dual CPUs are only available for Platinum')) {
+        if (isGoldConstraintText(text)) {
             return DUAL_GOLD_FIX;
         }
+        if (isDualWorkloadConstraintText(text) && isSingleWithNonGeneral(result)) {
+            return SINGLE_WORKLOAD_FIX;
+        }
         return text;
+    }
+
+    static Boolean constraintAppliesToMix(ConfigResult result, String text) {
+        if (String.isBlank(text)) {
+            return false;
+        }
+        if (isGoldConstraintText(text)) {
+            return goldConstraintApplies(result);
+        }
+        if (text.containsIgnoreCase('two liquid coolers')
+            && equalsIgnore(socketValue(result), 'Single')) {
+            return false;
+        }
+        return true;
+    }
+
+    static Boolean isGoldConstraintText(String text) {
+        if (String.isBlank(text)) {
+            return false;
+        }
+        return text.containsIgnoreCase('Gold CPU')
+            || text.containsIgnoreCase('only available for Platinum');
+    }
+
+    static Boolean isDualWorkloadConstraintText(String text) {
+        return String.isNotBlank(text) && text.containsIgnoreCase('Dual sockets need Workload');
+    }
+
+    static Boolean goldConstraintApplies(ConfigResult result) {
+        if (equalsIgnore(socketValue(result), 'Single')) {
+            return false;
+        }
+        if (equalsIgnore(socketValue(result), 'Dual')
+            && selectedQty(result, 'cpu') > 0
+            && !hasSelectedGoldCpu(result)) {
+            return false;
+        }
+        return true;
     }
 
     static void mergeConfigureMessages(ConfigResult target, ConfigResult source) {
@@ -2036,6 +2194,9 @@ public with sharing class RLM_RampConfiguratorAction {
             }
             for (ConfigMessage msg : source.messages) {
                 if (msg == null || String.isBlank(msg.text)) {
+                    continue;
+                }
+                if (!constraintAppliesToMix(target, msg.text)) {
                     continue;
                 }
                 if (seen.contains(msg.text.toLowerCase())) {

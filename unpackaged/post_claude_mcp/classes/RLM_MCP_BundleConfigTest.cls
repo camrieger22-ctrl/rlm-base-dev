@@ -272,6 +272,70 @@ private class RLM_MCP_BundleConfigTest {
     }
 
     @IsTest
+    static void formatDisplayFlagsSingleLeftoverDualHardware() {
+        Quote quote = [
+            SELECT Id, Name, Account.Name
+            FROM Quote
+            WHERE Name = 'Config MCP Quote'
+            LIMIT 1
+        ];
+        QuoteLineItem line = [
+            SELECT Id, Product2.Name, Product2.StockKeepingUnit
+            FROM QuoteLineItem
+            WHERE QuoteId = :quote.Id
+            LIMIT 1
+        ];
+        RLM_RampConfiguratorAction.ConfigResult config = sampleQRackConfig(true);
+        config.attributes[0].value = 'Single';
+        RLM_RampConfiguratorAction.ConfigMessage staleGold =
+            new RLM_RampConfiguratorAction.ConfigMessage();
+        staleGold.messageType = 'constraint';
+        staleGold.text = 'Dual cannot use a Gold CPU. Pick a Platinum, or switch Socket to Single.';
+        config.messages = new List<RLM_RampConfiguratorAction.ConfigMessage>{ staleGold };
+
+        String display = RLM_MCP_BundleConfigService.formatDisplay(quote, line, config);
+        System.assert(display.startsWith('### Fix this'), display);
+        System.assert(display.contains('two CPUs or two liquid coolers'), display);
+        System.assert(display.contains('Workload is not General'), display);
+        System.assertEquals(false, display.contains('Gold CPU'), display);
+        System.assertEquals(
+            true,
+            RLM_MCP_BundleConfigService.hasBlockingIssues(config)
+        );
+    }
+
+    @IsTest
+    static void configure_flagsSingleLeftoverAfterDualPersist() {
+        FakeEngine fake = new FakeEngine();
+        fake.loadResult = sampleQRackConfig(true);
+        fake.saveResult = sampleQRackConfig(true);
+        fake.saveResult.attributes[0].value = 'Single';
+        RLM_RampConfiguratorAction.ConfigMessage staleGold =
+            new RLM_RampConfiguratorAction.ConfigMessage();
+        staleGold.messageType = 'constraint';
+        staleGold.text = 'Dual cannot use a Gold CPU. Pick a Platinum, or switch Socket to Single.';
+        fake.saveResult.messages = new List<RLM_RampConfiguratorAction.ConfigMessage>{ staleGold };
+        RLM_MCP_BundleConfigService.engine = fake;
+        RLM_MCP_ConfigureBundle.ConfigureInput input = new RLM_MCP_ConfigureBundle.ConfigureInput();
+        input.quoteName = 'Config MCP Quote';
+        input.productName = 'MCP Complete Bundle';
+        input.attributePicksJson = '{"Socket Configuration":"Single"}';
+
+        RLM_MCP_ConfigureBundle.ConfigureOutput out =
+            RLM_MCP_ConfigureBundle.configure(
+                new List<RLM_MCP_ConfigureBundle.ConfigureInput>{ input }
+            )[0];
+
+        System.assertEquals(true, out.isSuccess, 'configure failed: ' + out.errorMessage);
+        System.assertEquals(true, out.needsAction);
+        System.assert(out.configurationDisplay.contains('### Fix this'), out.configurationDisplay);
+        System.assert(out.configurationDisplay.contains('two CPUs or two liquid coolers'),
+            out.configurationDisplay);
+        System.assertEquals(false, out.configurationDisplay.contains('Gold CPU'),
+            out.configurationDisplay);
+    }
+
+    @IsTest
     static void formatDisplayMapsDomainLeftoverToPlatform() {
         Quote quote = [
             SELECT Id, Name, Account.Name

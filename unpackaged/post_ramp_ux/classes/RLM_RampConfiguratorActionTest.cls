@@ -722,6 +722,60 @@ private class RLM_RampConfiguratorActionTest {
         System.assertEquals(RLM_RampConfiguratorAction.DUAL_GOLD_FIX, goldLeft.fixSteps[0]);
         System.assertEquals(1, goldLeft.fixSteps.size());
 
+        RLM_RampConfiguratorAction.ConfigAttribute singleSocket =
+            new RLM_RampConfiguratorAction.ConfigAttribute();
+        singleSocket.attributeName = 'SocketConfiguration';
+        singleSocket.label = 'Socket';
+        singleSocket.value = 'Single';
+        RLM_RampConfiguratorAction.ConfigComponent leftoverGpu =
+            new RLM_RampConfiguratorAction.ConfigComponent();
+        leftoverGpu.name = 'QB-Accel NovaX150';
+        leftoverGpu.sku = 'QB-NovaX150';
+        leftoverGpu.selected = true;
+        leftoverGpu.quantity = 1;
+        RLM_RampConfiguratorAction.ConfigGroup gpuGroup =
+            new RLM_RampConfiguratorAction.ConfigGroup();
+        gpuGroup.name = 'GPU';
+        gpuGroup.components = new List<RLM_RampConfiguratorAction.ConfigComponent>{ leftoverGpu };
+        RLM_RampConfiguratorAction.ConfigMessage staleGold =
+            new RLM_RampConfiguratorAction.ConfigMessage();
+        staleGold.messageType = 'constraint';
+        staleGold.text = 'Dual cannot use a Gold CPU. Pick a Platinum, or switch Socket to Single.';
+        RLM_RampConfiguratorAction.ConfigResult singleLeft =
+            new RLM_RampConfiguratorAction.ConfigResult();
+        singleLeft.success = true;
+        singleLeft.attributes = new List<RLM_RampConfiguratorAction.ConfigAttribute>{
+            singleSocket, dualHpc
+        };
+        leftoverGold.selected = false;
+        platinumCpu.quantity = 2;
+        RLM_RampConfiguratorAction.ConfigComponent leftoverLiquid =
+            new RLM_RampConfiguratorAction.ConfigComponent();
+        leftoverLiquid.name = 'QB Liquid Cooler';
+        leftoverLiquid.sku = 'QB-LIQUIDCOOL';
+        leftoverLiquid.selected = true;
+        leftoverLiquid.quantity = 2;
+        RLM_RampConfiguratorAction.ConfigGroup coolingGroup =
+            new RLM_RampConfiguratorAction.ConfigGroup();
+        coolingGroup.name = 'Cooling';
+        coolingGroup.components = new List<RLM_RampConfiguratorAction.ConfigComponent>{ leftoverLiquid };
+        singleLeft.groups = new List<RLM_RampConfiguratorAction.ConfigGroup>{
+            cpuGroup, coolingGroup, gpuGroup
+        };
+        singleLeft.messages = new List<RLM_RampConfiguratorAction.ConfigMessage>{ staleGold };
+        RLM_RampConfiguratorAction.attachFixGuidance(singleLeft);
+        System.assertEquals('change_picks', singleLeft.fixKind);
+        System.assertEquals(
+            RLM_RampConfiguratorAction.SINGLE_DUAL_QTY_FIX,
+            singleLeft.fixSteps[0]
+        );
+        System.assert(String.join(singleLeft.fixSteps, ' ').contains('Workload is not General'));
+        System.assert(String.join(singleLeft.fixSteps, ' ').contains('Dual-only GPU'));
+        System.assertEquals(
+            false,
+            String.join(singleLeft.fixSteps, ' ').contains('Gold CPU')
+        );
+
         RLM_RampConfiguratorAction.ConfigResult domain =
             new RLM_RampConfiguratorAction.ConfigResult();
         domain.success = false;
