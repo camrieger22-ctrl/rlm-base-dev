@@ -114,7 +114,7 @@ type QuantumBitCompleteSolution : LineItem {
     constraint(Operating_System == "Redhat Enterprise Linux" -> Base_Core_Count == 8, "When running RedHat Linux, a minimum of 8 Base Cores is required!");
     
 	//require(qbapimanagementsolution[QBAPIManagementSolution] >= 5 && OriginalActionType == null, additionalapi[AdditionalAPI]);
-    require(qbapimanagementsolution[QBAPIManagementSolution] >= 5, additionalapi[AdditionalAPI]);
+    require(qbapimanagementsolution[QBAPIManagementSolution] >= 5, additionalapi[AdditionalAPI], "API Management qty 5 or more needs Additional API. Add it, or lower API Management quantity below 5.");
 
 }
 

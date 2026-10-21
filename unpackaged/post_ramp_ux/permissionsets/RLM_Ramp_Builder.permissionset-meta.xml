@@ -5,9 +5,21 @@
         <enabled>true</enabled>
     </classAccesses>
     <classAccesses>
+        <apexClass>RLM_RampConfigureCallout</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <classAccesses>
+        <apexClass>RLM_RampEnqueueCreLoad</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <classAccesses>
         <apexClass>RLM_RampTransactionAction</apexClass>
         <enabled>true</enabled>
     </classAccesses>
+    <flowAccesses>
+        <enabled>true</enabled>
+        <flow>RLM_Enqueue_Cre_Load</flow>
+    </flowAccesses>
     <flowAccesses>
         <enabled>true</enabled>
         <flow>RLM_Ramp_Builder</flow>
@@ -16,8 +28,37 @@
         <enabled>true</enabled>
         <flow>RLM_Ramp_Product_Config</flow>
     </flowAccesses>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>RLM_CreCalloutCache__c.Message__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>RLM_CreCalloutCache__c.Quote_Id__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>RLM_CreCalloutCache__c.Request_Json__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>RLM_CreCalloutCache__c.Result_Json__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
     <hasActivationRequired>false</hasActivationRequired>
     <label>RLM Ramp Builder</label>
+    <objectPermissions>
+        <allowCreate>true</allowCreate>
+        <allowDelete>false</allowDelete>
+        <allowEdit>true</allowEdit>
+        <allowRead>true</allowRead>
+        <modifyAllRecords>false</modifyAllRecords>
+        <object>RLM_CreCalloutCache__c</object>
+        <viewAllRecords>true</viewAllRecords>
+    </objectPermissions>
     <pageAccesses>
         <apexPage>RLM_SessionId</apexPage>
         <enabled>true</enabled>

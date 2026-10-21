@@ -1,3 +1,5 @@
+type LineItem;
+
 type Server : LineItem {
     @(defaultValue = "false")
     boolean bigDrive;
@@ -5,11 +7,11 @@ type Server : LineItem {
     @(defaultValue = "false")
     boolean smallDrive;
 
-    @(configurable = false, defaultValue = "0")
-    decimal(2) x8Lanes=total_x8count;
+    @(configurable = false, defaultValue = "2")
+    decimal(2) x8Lanes = 2;
 
-    @(configurable = false, defaultValue = "0")
-    decimal(2) x16Lanes=total_x16count;
+    @(configurable = false, defaultValue = "4")
+    decimal(2) x16Lanes = 4;
 
     @(configurable = false, defaultValue = "0", sequence="1")
 	decimal(2) PowerDraw=gpu_PowerDraw+CPUPowerDraw_Sum + cooler_PowerDraw +RAM_PowerDraw + HDD_PowerDraw +SSD_PowerDraw + networking_PowerDraw + io_PowerDraw;
@@ -127,8 +129,8 @@ type Server : LineItem {
     relation pwr2000d : QBPowerSafe2000D[0..1];
 
     //RDIMM Rules
-    constraint(DIMMType == "3200MT/s RDIMMs" -> ram128[RAM128]==0);
-    constraint(DIMMType == "3200MT/s LRDIMMs" -> ram8[RAM8]==0 && ram16[RAM16]==0 && ram32[RAM32]==0 && ram64[RAM64]==0, "Please select compatible memory for your server.");
+    constraint(DIMMType == "3200MT/s RDIMMs" -> ram128[RAM128]==0, "RDIMM does not support 128GB modules. Pick 8, 16, 32, or 64GB RAM, or switch DIMM Type to LRDIMM.");
+    constraint(DIMMType == "3200MT/s LRDIMMs" -> ram8[RAM8]==0 && ram16[RAM16]==0 && ram32[RAM32]==0 && ram64[RAM64]==0, "LRDIMM only works with 128GB RAM. Remove 8, 16, 32, or 64GB modules, or switch DIMM Type to RDIMM.");
     preference(DIMMType == "3200MT/s LRDIMMs" -> ram128[RAM128]==2);
     //Permit one type of RAM per Server
     rule(ram8[RAM8]>0, "disable", "relation", "ram16", "type", "RAM16");
@@ -147,8 +149,8 @@ type Server : LineItem {
     //constraint(ram8[RAM8]==1 || ram8[RAM8]==3 || ram8[RAM8]==5 || ram8[RAM8]==7 , "Requires a quantity of 2,4,6,or 8 for 8GB RAM.");
 
     //CPU Rules
-    constraint(Workload != "General" <-> SocketConfiguration == "Dual");
-    constraint(SocketConfiguration == "Dual" -> gold3ghz[Gold_3Ghz_18C36T]==0 && gold21ghz[Gold_21Ghz_24C48T]==0 && gold22ghz[Gold_22Ghz_28C56T]==0, "Dual CPUs are only available for Platinum CPUs.");
+    constraint(Workload != "General" <-> SocketConfiguration == "Dual", "Dual sockets need Workload AI or High Performance Computing. General workload needs a single socket.");
+    constraint(SocketConfiguration == "Dual" -> gold3ghz[Gold_3Ghz_18C36T]==0 && gold21ghz[Gold_21Ghz_24C48T]==0 && gold22ghz[Gold_22Ghz_28C56T]==0, "Dual cannot use a Gold CPU. Pick a Platinum, or switch Socket to Single.");
 
     //Platinum CPU Rules
     preference(Workload != "General" && PerformanceTier == "Entry" -> plat22ghz[Plat_22Ghz_32C64T]==2&&liquidcooler[LiquidCooler]==2);
@@ -164,7 +166,8 @@ type Server : LineItem {
 
 	exclude(Workload != "General", aircooler[AirCooler]);
     exclude(Workload == "General" && PerformanceTier == "Accelerated", aircooler[AirCooler]);
-    require(Workload != "General" && SocketConfiguration== "Dual", liquidcooler[LiquidCooler]==2);
+    require(Workload != "General" && SocketConfiguration== "Dual", liquidcooler[LiquidCooler]==2, "Dual needs two liquid coolers. Add them, or set Socket back to Single.");
+    message(SocketConfiguration == "Dual" && Workload != "General" && (PerformanceTier == "Standard" || PerformanceTier == "Performance" || PerformanceTier == "Accelerated"), "Do not edit x16 Lanes. Dual with this Performance Tier adds a GPU. Set Performance Tier to Entry, or set Socket to Single.", "Error");
     
     //HDD constraints
     @(sequence = 1)
@@ -174,15 +177,15 @@ type Server : LineItem {
     @(sequence = 1)
     int rearDrives = [0, 2, 4];
     @(sequence = 2)
-    constraint( table(FrontStorage,RearStorage,availableDrives,frontDrives,rearDrives,{"12x3.5 inch Drives","N/A",12,12,0},{"16x2.5 inch Drives","N/A",16,16,0},{"24x2.5 inch Drives","N/A",24,24,0},{"12x3.5 inch Drives","2x2.5 inch Drives",14,12,2},{"16x2.5 inch Drives","2x2.5 inch Drives",18,16,2},{"24x2.5 inch Drives","2x2.5 inch Drives",26,24,2},{"12x3.5 inch Drives","4x2.5 inch Drives",16,12,4},{"16x2.5 inch Drives","4x2.5 inch Drives",20,16,4},{"24x2.5 inch Drives","4x2.5 inch Drives",28,24,4}) );
-	int bigDrivesCount = hdd1_big[HDD1_Big] + hdd4_big[HDD4_Big] + hdd20_big[HDD20_Big] + hdd8_big[HDD8_Big];
+    constraint( table(FrontStorage,RearStorage,availableDrives,frontDrives,rearDrives,{"12x3.5 inch Drives","N/A",12,12,0},{"16x2.5 inch Drives","N/A",16,16,0},{"24x2.5 inch Drives","N/A",24,24,0},{"12x3.5 inch Drives","2x2.5 inch Drives",14,12,2},{"16x2.5 inch Drives","2x2.5 inch Drives",18,16,2},{"24x2.5 inch Drives","2x2.5 inch Drives",26,24,2},{"12x3.5 inch Drives","4x2.5 inch Drives",16,12,4},{"16x2.5 inch Drives","4x2.5 inch Drives",20,16,4},{"24x2.5 inch Drives","4x2.5 inch Drives",28,24,4}), "Front Storage and Rear Storage do not match. Pick a listed pair, such as 12x3.5 inch Drives with Rear N/A." );
+    int bigDrivesCount = hdd1_big[HDD1_Big] + hdd4_big[HDD4_Big] + hdd20_big[HDD20_Big] + hdd8_big[HDD8_Big];
     int smallDrivesCount= hdd1_small[HDD1_Small] + hdd3_small[HDD3_Small];
     //int total_HDD_TB = (hdd1_big[HDD1_Big]*hdd1_big[HDD1_Big].HDD_TB)+(hdd4_big[HDD4_Big]*hdd4_big[HDD4_Big].HDD_TB);
-    message(FrontStorage == "12x3.5 inch Drives" && (frontDrives < bigDrivesCount || rearDrives < smallDrivesCount), "Too many drives selected", "Error");
+    message(FrontStorage == "12x3.5 inch Drives" && (frontDrives < bigDrivesCount || rearDrives < smallDrivesCount), "Too many drives for this bay. 12x3.5 inch front holds 12 large drives; add Rear Storage or lower the quantity.", "Error");
     message(FrontStorage != "12x3.5 inch Drives" && frontDrives < smallDrivesCount && RearStorage == "N/A", "Add Rear Storage for additional 2.5 inch drive space", "Error");
-    message(FrontStorage != "12x3.5 inch Drives" && RearStorage != "N/A" && availableDrives < bigDrivesCount + smallDrivesCount, "Too many HDD's selected. Please adjust the quantity", "Error");
-    constraint(FrontStorage =="12x3.5 inch Drives" && RearStorage=="N/A" -> hdd1_small[HDD1_Small]==0 && hdd3_small[HDD3_Small]==0);
-    constraint(FrontStorage != "12x3.5 inch Drives" -> hdd1_big[HDD1_Big]==0&& hdd4_big[HDD4_Big]==0 && hdd20_big[HDD20_Big]==0 && hdd8_big[HDD8_Big]==0);
+    message(FrontStorage != "12x3.5 inch Drives" && RearStorage != "N/A" && availableDrives < bigDrivesCount + smallDrivesCount, "Too many drives for the selected Front and Rear Storage. Lower the HDD quantity to fit the bay.", "Error");
+    constraint(FrontStorage =="12x3.5 inch Drives" && RearStorage=="N/A" -> hdd1_small[HDD1_Small]==0 && hdd3_small[HDD3_Small]==0, "12x3.5 inch front bays with no rear storage cannot take 2.5 inch drives. Remove those drives, or add Rear Storage.");
+    constraint(FrontStorage != "12x3.5 inch Drives" -> hdd1_big[HDD1_Big]==0&& hdd4_big[HDD4_Big]==0 && hdd20_big[HDD20_Big]==0 && hdd8_big[HDD8_Big]==0, "2.5 inch front bays cannot take 3.5 inch drives. Remove those drives, or set Front Storage to 12x3.5 inch Drives.");
 
     int total_HDD_TB = hdd1tb_big + hdd4tb_big + hdd3tb_small + hdd20tb_big + hdd8tb_big + hdd1tb_small + ssd2tb + ssd4tb + ssd8tb + ssd16tb + ssd30tb;
     int hdd1tb_big = (hdd1_big[HDD1_Big].count(totalTB > 0) * 1);
@@ -263,7 +266,7 @@ type Server : LineItem {
     int nova_watts = nova[Nova].sum(watts);
     
     //Power Supply Constraints
-    constraint(Redundancy == "High Availability" -> pwr500s[QBPowerCore500S]==0 && pwr800s[QBPowerCore800S]==0 && pwr1600s[QBPowerCore1600S]==0);
+    constraint(Redundancy == "High Availability" -> pwr500s[QBPowerCore500S]==0 && pwr800s[QBPowerCore800S]==0 && pwr1600s[QBPowerCore1600S]==0, "High Availability cannot use a single PSU. Pick a dual PowerSafe supply, or set Redundancy to Basic Uptime.");
 	
     message(PowerDraw > 500 && pwr500s[QBPowerCore500S]>0, "The QB PowerCore 500S is not compatible. Please select a higher output PSU.", "Warning");
     message(PowerDraw > 600 && pwr600d[QBPowerSafe600D]>0, "The QB PowerSafe 600D is not compatible. Please select a higher output PSU.", "Warning");
@@ -288,12 +291,12 @@ type Server : LineItem {
     preference(StorageProfile == "Balanced" && FrontStorage != "12x3.5 inch Drives"-> hdd1_small[HDD1_Small]==8 && hdd3_small[HDD3_Small]==8 && ssd16[SSD16]==4);
 
     //RAID Rules
-    require(RAID!="N/A", raid500[RAID500]);
+    require(RAID!="N/A", raid500[RAID500], "RAID needs a RAID 500 card. Add it, or set RAID to N/A.");
 
     //PCIe Slot & Lane Count
 	int total_slots = link10g_x8count + link25g_x8count + link100g_x16count + secure10g_x8count + raid500_x16count + nve_x16count + cache_x8count + nova_x16count + accel_x16count;
     message(AvailablePCIeSlots < 0, "Out of PCIe Slots. There are only 6 slots available.", "Error");
-    message(x16Lanes>4, "There are 4 x16 Lanes. Performance may be impacted", "Warning");
+    message(total_x16count>4, "This rack has 4 x16 slots. Remove a GPU, 100G NIC, RAID card, or NVMe expander.", "Warning");
     int total_x16count = link100g_x16count + raid500_x16count + nve_x16count + accel_x16count + nova_x16count;
     int total_x8count = link10g_x8count + link25g_x8count + secure10g_x8count + cache_x8count;
     
@@ -574,9 +577,9 @@ type SSD30 : LineItem {
 type Link10G : LineItem {
     int watts = 8;
 
-    int x8lane = 1;
+    int usesX8 = 1;
 
-    int x16lane = 0;
+    int usesX16 = 0;
 
     int slot = 1;
 
@@ -589,9 +592,9 @@ type Link10G : LineItem {
 type Link25G : LineItem {
     int watts = 12;
 
-    int x8lane = 1;
+    int usesX8 = 1;
 
-    int x16lane = 0;
+    int usesX16 = 0;
 
     int slot = 1;
 
@@ -604,9 +607,9 @@ type Link25G : LineItem {
 type Link100G : LineItem {
     int watts = 25;
 
-    int x8lane = 0;
+    int usesX8 = 0;
 
-    int x16lane = 1;
+    int usesX16 = 1;
 
     int slot = 1;
 
@@ -619,9 +622,9 @@ type Link100G : LineItem {
 type Secure10G : LineItem {
     int watts = 8;
 
-    int x8lane = 1;
+    int usesX8 = 1;
 
-    int x16lane = 0;
+    int usesX16 = 0;
 
     int slot = 1;
 
@@ -634,9 +637,9 @@ type Secure10G : LineItem {
 type RAID500 : LineItem {
     int watts = 15;
 
-    int x8lane = 0;
+    int usesX8 = 0;
 
-    int x16lane = 1;
+    int usesX16 = 1;
 
     int slot = 1;
 
@@ -646,12 +649,12 @@ type RAID500 : LineItem {
 
 }
 
-type NVExpand {
+type NVExpand : LineItem {
     int watts = 12;
 
-    int x8lane = 0;
+    int usesX8 = 0;
 
-    int x16lane = 1;
+    int usesX16 = 1;
 
     int slot = 1;
 
@@ -661,12 +664,12 @@ type NVExpand {
 
 }
 
-type CacheBoost {
+type CacheBoost : LineItem {
     int watts = 10;
 
-    int x8lane = 1;
+    int usesX8 = 1;
 
-    int x16lane = 0;
+    int usesX16 = 0;
 
     int slot = 1;
 
@@ -677,12 +680,12 @@ type CacheBoost {
 }
 
 //GPU types
-type Nova {
+type Nova : LineItem {
     int watts = 300;
 
-    int x8lane = 0;
+    int usesX8 = 0;
 
-    int x16lane = 1;
+    int usesX16 = 1;
 
     int slot = 1;
 
@@ -692,12 +695,12 @@ type Nova {
 
 }
 
-type Accel {
+type Accel : LineItem {
     int watts = 400;
 
-    int x8lane = 0;
+    int usesX8 = 0;
 
-    int x16lane = 1;
+    int usesX16 = 1;
 
     int slot = 1;
 
@@ -749,5 +752,3 @@ type QBPowerSafe600D : LineItem {
     string redundancy = "Dual";
 
 }
-
-type LineItem;

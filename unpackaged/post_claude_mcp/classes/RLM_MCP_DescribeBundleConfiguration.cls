@@ -1,6 +1,6 @@
 /**
- * Global MCP wrapper: load option groups, attributes, and constraint messages
- * for a bundle parent line. Does not persist. Call configure after the user picks.
+ * Global MCP wrapper: load option groups, attributes, and CRE-selected qty
+ * from Lightning Configure. Does not persist. Call configure after the user picks.
  */
 global with sharing class RLM_MCP_DescribeBundleConfiguration {
     global class DescribeInput {
@@ -53,7 +53,7 @@ global with sharing class RLM_MCP_DescribeBundleConfiguration {
         global String productName;
         @InvocableVariable(
             label='Configuration Display'
-            description='Names-only option groups, picks, and attributes. Keep-or-drill: current picks then names; drill only those. Never dump every value. Then Configure with attributePicksJson.'
+            description='Names-only option groups, picks, and attributes. Keep-or-drill: names then Keep current selection cards. Never dump every value. Then Configure with attributePicksJson.'
         )
         global String configurationDisplay;
         @InvocableVariable(
@@ -71,7 +71,7 @@ global with sharing class RLM_MCP_DescribeBundleConfiguration {
 
     @InvocableMethod(
         label='Describe Revenue Cloud Bundle Configuration'
-        description='Loads groups and attributes. Pass quoteLineItemId. Keep-or-drill: names then cards. Never dump every value. Never invent values. Never skip. Never insert child QuoteLineItem rows.'
+        description='Loads Lightning CRE mix. Pass quoteLineItemId. Keep-or-drill. Recite engine picks and hidden/required qty. Never invent Dual/Gold. Never insert child QuoteLineItem rows.'
     )
     global static List<DescribeOutput> describe(List<DescribeInput> inputs) {
         List<DescribeOutput> results = new List<DescribeOutput>();

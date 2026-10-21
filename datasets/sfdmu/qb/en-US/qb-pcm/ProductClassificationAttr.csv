@@ -33,5 +33,5 @@ C. PCIe & Power,Redundancy,Redundancy,,,,,false,false,false,false,,,,,Redundancy
 B. Storage,Storage (TB),Storage (TB),0,,,,false,false,true,false,,,,,Storage (TB),Q-Rack PC,,Active,6,,
 B. Storage,Storage Profile,Storage Profile,Capacity,,,,false,false,false,false,,,,,Storage Profile,Q-Rack PC,5,Active,,,
 A. General,Workload,Workload,General,,,,false,true,false,false,,,,,Workload,Q-Rack PC,2,Active,,,
-C. PCIe & Power,x16 Lanes,x16 Lanes,4,,,,false,false,true,false,,,,,x16 Lanes,Q-Rack PC,14,Active,,,
-C. PCIe & Power,x8 Lanes,x8 Lanes,2,,,,false,false,true,false,,,,,x8 Lanes,Q-Rack PC,13,Active,,,
+C. PCIe & Power,x16 Lanes,x16 Lanes,4,,,,false,false,true,false,,20,,0,x16 Lanes,Q-Rack PC,14,Active,,,
+C. PCIe & Power,x8 Lanes,x8 Lanes,2,,,,false,false,true,false,,20,,0,x8 Lanes,Q-Rack PC,13,Active,,,

@@ -148,7 +148,7 @@
             <apiSource>API_CATALOG</apiSource>
             <operation>RLM_MCP_DescribeBundleConfiguration</operation>
         </apiDefinition>
-        <descriptionOverride>Loads groups and attributes. Pass quoteLineItemId. Keep-or-drill: names then cards. Never dump every value. Never invent values. Never skip. Never insert child QuoteLineItem rows.</descriptionOverride>
+        <descriptionOverride>Loads Lightning CRE mix: groups, attributes, hidden/required qty. Pass quoteLineItemId. Keep-or-drill. Recite engine mix; never invent Dual/Gold. Never insert child QLIs.</descriptionOverride>
         <toolName>describeRevenueCloudBundleConfiguration</toolName>
         <toolTitle>Describe Bundle Configuration</toolTitle>
     </tools>
@@ -158,7 +158,7 @@
             <apiSource>API_CATALOG</apiSource>
             <operation>RLM_MCP_ConfigureBundle</operation>
         </apiDefinition>
-        <descriptionOverride>Saves named picks. Pass quoteLineItemId and attributePicksJson. If needsAction, required or price-impacting attrs still blank — wait and configure again. Never skip. Never invent values. Never insert child QuoteLineItem rows.</descriptionOverride>
+        <descriptionOverride>Runs Lightning configure rules then PST. Recap added/removed/qty/attr. Pass quoteLineItemId and attributePicksJson. Never infer Dual/Gold. Never insert child QLIs.</descriptionOverride>
         <toolName>configureRevenueCloudBundle</toolName>
         <toolTitle>Configure Bundle</toolTitle>
     </tools>

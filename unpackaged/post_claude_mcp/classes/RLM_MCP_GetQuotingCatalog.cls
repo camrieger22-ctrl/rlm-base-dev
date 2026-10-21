@@ -3,8 +3,8 @@
  * connector is obvious after reconnect.
  */
 global with sharing class RLM_MCP_GetQuotingCatalog {
-    public static final String SKILL_VERSION = '2026-10-14.17';
-    public static final String CATALOG_DATE = '2026-10-14';
+    public static final String SKILL_VERSION = '2026-10-20.25';
+    public static final String CATALOG_DATE = '2026-10-20';
 
     global class CatalogInput {
         @InvocableVariable(

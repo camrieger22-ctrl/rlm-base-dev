@@ -447,6 +447,17 @@
                         <lightning-button label="Back to Ramp Builder" onclick={handleCloseConfigurator}></lightning-button>
                     </div>
                 </div>
+                <template lwc:if={hasFixGuidance}>
+                    <section class="fix-this" aria-label="What to change">
+                        <h3 class="fix-this-title">Fix this</h3>
+                        <p class="fix-this-headline">{fixHeadline}</p>
+                        <ul class="fix-this-steps">
+                            <template for:each={fixStepItems} for:item="step">
+                                <li key={step.key}>{step.text}</li>
+                            </template>
+                        </ul>
+                    </section>
+                </template>
                 <template lwc:if={errorMessage}>
                     <p class="error config-error">{errorMessage}</p>
                 </template>

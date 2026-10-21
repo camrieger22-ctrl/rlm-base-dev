@@ -462,6 +462,30 @@
     padding: 0.5rem 1rem;
 }
 
+.fix-this {
+    margin: 0;
+    padding: 0.75rem 1rem;
+    background: #fef7e6;
+    border-bottom: 1px solid #e5e5e5;
+}
+
+.fix-this-title {
+    margin: 0 0 0.35rem;
+    font-size: 0.875rem;
+    font-weight: 700;
+}
+
+.fix-this-headline {
+    margin: 0 0 0.4rem;
+    font-size: 0.875rem;
+}
+
+.fix-this-steps {
+    margin: 0;
+    padding-left: 1.15rem;
+    font-size: 0.8125rem;
+}
+
 .config-flow {
     flex: 1 1 auto;
     min-height: 0;

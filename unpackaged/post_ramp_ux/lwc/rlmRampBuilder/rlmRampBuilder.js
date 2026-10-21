@@ -72,6 +72,8 @@ export default class RlmRampBuilder extends NavigationMixin(LightningElement) {
     ];
     quoteLabel = '';
     errorMessage = '';
+    fixHeadline = '';
+    fixSteps = [];
     hydrated = false;
     segmentOverrides = [];
     configuring = false;
@@ -245,6 +247,15 @@ export default class RlmRampBuilder extends NavigationMixin(LightningElement) {
     }
     get showAddonPanel() {
         return this.configuring && !this.showAdvancedConfigurator;
+    }
+    get hasFixGuidance() {
+        return Boolean(this.fixHeadline);
+    }
+    get fixStepItems() {
+        return (this.fixSteps || []).map((text, index) => ({
+            key: `fix-${index}`,
+            text
+        }));
     }
     get catalogRuleMessages() {
         const productName = this.configureProductName || 'this product';
@@ -840,6 +851,8 @@ export default class RlmRampBuilder extends NavigationMixin(LightningElement) {
         this.addonGroups = result && result.groups ? result.groups : [];
         this.addonAttributes = result && result.attributes ? result.attributes : [];
         this.engineMessages = result && result.messages ? result.messages : [];
+        this.fixHeadline = result && result.fixHeadline ? result.fixHeadline : '';
+        this.fixSteps = result && result.fixSteps ? result.fixSteps : [];
         if (result && result.transactionContextId) {
             this.addonContextId = result.transactionContextId;
         }
@@ -865,6 +878,8 @@ export default class RlmRampBuilder extends NavigationMixin(LightningElement) {
             this.errorMessage = '';
             this.applyAddonResult(result);
         } catch (error) {
+            this.fixHeadline = '';
+            this.fixSteps = [];
             this.errorMessage = error.body ? error.body.message : error.message;
         } finally {
             this.addonLoading = false;

@@ -12,16 +12,26 @@ work item, renew or cancel an asset, draft an unsent customer reply
 a standard ramp schedule then add products or patch segment quantities, recap next bill/TCV/usage, compare a quote
 to installed base, patch quantity, term, and/or a percent
 discount on existing Draft lines in one Place Sales Transaction, configure a
-bundle, recap the quote, explain how a quote price was calculated, preview the
+bundle (Lightning Constraint Rules Engine, then Place Sales Transaction), recap the quote, explain how a quote price was calculated, preview the
 quote proposal PDF, submit it for approval, create an order from a quote,
 activate that order (assets
 follow), amend an existing asset, recap installed base (current period MRR,
 derived ARR, add-ons), or build several commercial options under
 one Opportunity. Backs the tools
 with `global` invocables; add/discount/summary delegate to the existing
-Quoting Assistant services. Bundle describe/configure wrap
-`RLM_RampConfiguratorAction` catalog load plus Place Sales Transaction (no
-Configurator HTTP). Submit starts the `RLM_Quote_Smart_Approval` flow.
+Quoting Assistant services. Bundle describe/configure call Lightning
+Configure (`executeConfigurationRules=true`) so Dual/Gold/qty/auto-add come
+from Constraint Rules Engine, then persist that graph through Place Sales
+Transaction. Hosted MCP cannot `Http.send` that Configure call in the tool
+transaction (uncatchable Script-thrown). The invocable upserts a Pending
+`RLM_CreCalloutCache__c` row and returns `CRE_LOADING`; a record-triggered
+Flow async path enqueues the Queueable Named Credential callout after that
+transaction commits. The Queueable callout authenticates through Named
+Credential `RLM_SalesforceLoopback` (OAuth client credentials in the org;
+never a stored `UserInfo` session). Attribute apply uses the same
+Pending-cache path so Dual does not EventBus.publish in the Hosted MCP
+transaction. Claude retries describe/configure immediately. REST and
+anonymous Apex still call Configure synchronously. Submit starts the `RLM_Quote_Smart_Approval` flow.
 Create Order calls `createOrdersFromQuote`. Activate sets
 `Order.Status = Activated` and lists resulting assets. Amend Asset calls
 `initiateAmendment` (quote output); closing the amendment still uses create
@@ -285,9 +295,16 @@ On a ramped Draft (for example **Bryce Majors Ramp Trial Oct14**), ask:
 > Add Q-Rack to Year 2 and Year 3.
 
 Claude must **stop** on keep-or-drill (not a 22-value dump and not a
-69-item list): first wait is current values + attribute **names**, then
-add-on **group names**. Catalog `2026-10-14.17`. Re-upload the skill
-zip and reconnect MCP after deploy.
+69-item list): first wait is current values + **Keep all current
+attributes** + attribute **names**. Drill cards use **Keep current
+selection** then the other values (blanks have no keep chip). Then
+add-on **group names** the same way. Hosted MCP describe/configure call
+Lightning Configure (`executeConfigurationRules=true`) so Dual/Gold/qty
+come from Constraint Rules Engine, then persist that graph through Place
+Sales Transaction. Recap added/removed/qty/attr from the engine — do not
+infer Dual vs Gold. Attribute values copy to every ramp year. Constraint
+messages still block year-copy when present. Catalog `2026-10-20.25`.
+Reconnect MCP after deploy.
 
 The **customer pack** and **close the deal** beats (still never send
 mail):

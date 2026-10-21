@@ -2,10 +2,16 @@
  * Resolver + formatter for Claude Hosted MCP bundle configuration.
  *
  * This class does not implement the configurator. It finds the Draft quote and
- * bundle parent line the user means, then loads option groups from the product
- * catalog (ProductComponentGroup / ProductRelatedComponent) and persists picks
- * through Place Sales Transaction. Hosted MCP cannot call Configurator HTTP or
- * mint a Visualforce API session, so this path never uses those.
+ * bundle parent line the user means, then loads and mutates the mix through
+ * Lightning Configure (POST configure, executeConfigurationRules=true) so
+ * Dual/Gold/qty/auto-add come from Constraint Rules Engine. Persist is Place
+ * Sales Transaction of that CRE graph (Claude cannot save-instance). Lightning
+ * uses session HTTP; REST/anonymous and the Hosted MCP Queueable use Named
+ * Credential loopback (OAuth, no stored UserInfo session). Hosted MCP upserts
+ * a Pending cache row and returns CRE_LOADING so Claude retries. A
+ * record-triggered Flow async path enqueues the callout after that
+ * transaction commits. Do not HTTP, enqueueJob, or EventBus.publish in the
+ * Hosted MCP transaction.
  */
 public with sharing class RLM_MCP_BundleConfigService {
     private static final Integer MAX_CANDIDATES = 50;
@@ -42,6 +48,11 @@ public with sharing class RLM_MCP_BundleConfigService {
 
     public interface Engine {
         RLM_RampConfiguratorAction.ConfigResult load(String quoteId, String quoteLineItemId);
+        RLM_RampConfiguratorAction.ConfigResult applyAttributes(
+            String quoteId,
+            String quoteLineItemId,
+            Map<String, String> attributeValues
+        );
         RLM_RampConfiguratorAction.ConfigResult save(
             String quoteId,
             String quoteLineItemId,
@@ -51,14 +62,22 @@ public with sharing class RLM_MCP_BundleConfigService {
 
     public class LiveEngine implements Engine {
         public RLM_RampConfiguratorAction.ConfigResult load(String quoteId, String quoteLineItemId) {
-            return RLM_RampConfiguratorAction.loadCatalogConfiguration(quoteId, quoteLineItemId);
+            return RLM_RampConfiguratorAction.loadConfigurationForMcp(quoteId, quoteLineItemId);
+        }
+        public RLM_RampConfiguratorAction.ConfigResult applyAttributes(
+            String quoteId,
+            String quoteLineItemId,
+            Map<String, String> attributeValues
+        ) {
+            return RLM_RampConfiguratorAction.applyConfigurationAttributesForMcp(
+                quoteId, quoteLineItemId, attributeValues);
         }
         public RLM_RampConfiguratorAction.ConfigResult save(
             String quoteId,
             String quoteLineItemId,
             String selectionJson
         ) {
-            return RLM_RampConfiguratorAction.saveCatalogConfiguration(
+            return RLM_RampConfiguratorAction.persistMcpConfiguration(
                 quoteId, quoteLineItemId, selectionJson);
         }
     }
@@ -96,43 +115,101 @@ public with sharing class RLM_MCP_BundleConfigService {
 
             RLM_RampConfiguratorAction.ConfigResult loaded =
                 engine.load(String.valueOf(quote.Id), String.valueOf(line.Id));
+            if (isCreLoading(loaded)) {
+                markCreLoading(out, String.valueOf(line.Id));
+                return out;
+            }
             if (loaded == null || loaded.success != true) {
-                out.errorMessage = loaded == null || String.isBlank(loaded.message)
-                    ? 'Configurator could not load this bundle.'
-                    : loaded.message;
+                applyFixError(
+                    out,
+                    loaded,
+                    loaded == null || String.isBlank(loaded.message)
+                        ? 'Configurator could not load this bundle.'
+                        : loaded.message
+                );
                 return out;
             }
             if (persist == true) {
-                String applyError = applyPicks(loaded, input);
-                if (applyError != null) {
-                    out.errorMessage = applyError;
+                Map<String, String> attributePicks = parseStringMap(input.attributePicksJson);
+                if (attributePicks == null) {
+                    out.errorMessage = 'attributePicksJson must be a JSON object of attribute name to value.';
                     out.needsAction = true;
                     out.configurationDisplay = formatDisplay(quote, line, loaded);
                     return out;
                 }
-                String selectionJson = toSelectionJson(loaded);
+                RLM_RampConfiguratorAction.ConfigResult working = loaded;
+                if (!attributePicks.isEmpty()) {
+                    working = engine.applyAttributes(
+                        String.valueOf(quote.Id),
+                        String.valueOf(line.Id),
+                        attributePicks
+                    );
+                    if (isCreLoading(working)) {
+                        markCreLoading(out, String.valueOf(line.Id));
+                        return out;
+                    }
+                    if (working == null || working.success != true) {
+                        applyFixError(
+                            out,
+                            working,
+                            working == null || String.isBlank(working.message)
+                                ? 'Configurator could not apply those attributes.'
+                                : working.message
+                        );
+                        out.needsAction = true;
+                        out.configurationDisplay = formatDisplay(quote, line, working != null ? working : loaded);
+                        return out;
+                    }
+                }
+                String applyError = applyPicks(working, input);
+                if (applyError != null) {
+                    working.success = false;
+                    working.message = applyError;
+                    RLM_RampConfiguratorAction.attachFixGuidance(working);
+                    applyFixError(out, working, applyError);
+                    out.needsAction = true;
+                    out.configurationDisplay = formatDisplay(quote, line, working);
+                    return out;
+                }
+                String recap = recapEngineChanges(loaded, working);
+                String selectionJson = toSelectionJson(working);
                 RLM_RampConfiguratorAction.ConfigResult saved = engine.save(
                     String.valueOf(quote.Id),
                     String.valueOf(line.Id),
                     selectionJson
                 );
                 if (saved == null || saved.success != true) {
-                    out.errorMessage = saved == null || String.isBlank(saved.message)
-                        ? 'Configurator could not save this bundle.'
-                        : saved.message;
+                    applyFixError(
+                        out,
+                        saved,
+                        saved == null || String.isBlank(saved.message)
+                            ? 'Configurator could not save this bundle.'
+                            : saved.message
+                    );
                     out.needsAction = true;
-                    out.configurationDisplay = formatDisplay(quote, line, loaded);
+                    out.configurationDisplay = formatDisplay(quote, line, working);
                     return out;
                 }
+                String persistRecap = recapEngineChanges(working, saved);
+                recap = joinRecaps(recap, persistRecap);
                 loaded = saved;
+                applyLiveConfigRules(String.valueOf(quote.Id), loaded);
                 out.isSuccess = true;
                 out.configurationDisplay = formatDisplay(quote, line, loaded);
+                if (String.isNotBlank(recap)) {
+                    out.configurationDisplay += '\n\n' + recap;
+                }
                 if (hasBlockingIssues(loaded, confirmedAttributeKeys(input.attributePicksJson))) {
                     out.needsAction = true;
-                    out.configurationDisplay += '\n\nConfiguration saved but constraints still fail. Required or price-impacting attributes still need values in attributePicksJson (Keep current attribute values is the describe values). Fix the picks and call configureRevenueCloudBundle again. Do not PDF or email.';
+                    RLM_RampConfiguratorAction.attachFixGuidance(loaded);
+                    String fix = formatFixThis(loaded);
+                    if (String.isNotBlank(fix) && !out.configurationDisplay.startsWith('### Fix this')) {
+                        out.configurationDisplay = fix + '\n\n' + out.configurationDisplay;
+                    }
+                    out.configurationDisplay += '\n\nConfiguration saved but constraints still fail. Required or price-impacting attributes still need values in attributePicksJson (Keep current attribute values is the describe values). Do not copy this mix to other ramp years. Fix the picks and call configureRevenueCloudBundle again. Do not PDF or email.';
                     return out;
                 }
-                String copied = copyToRampSiblings(quote, line, selectionJson);
+                String copied = copyToRampSiblings(quote, line, toSelectionJson(saved));
                 if (String.isNotBlank(copied)) {
                     out.configurationDisplay += '\n\n' + copied;
                 }
@@ -144,7 +221,7 @@ public with sharing class RLM_MCP_BundleConfigService {
             if (isConfigurable(loaded) && (unconfigured || hasBlockingIssues(loaded))) {
                 out.needsAction = true;
                 out.configurationDisplay +=
-                    '\n\nWait. Keep-or-drill picker — never dump values or SKUs on the overview. Step 1 of 2 — Attributes: bullet current values; Keep all current attributes, or pick which attributes to change (names only); drill only those; required blanks still get a card; mark affects price. Step 2 of 2 — Add-on products: leaf groups only; Keep all catalog add-ons, or pick which groups to change (names only); drill only those. Then one configureRevenueCloudBundle with quoteLineItemId '
+                    '\n\nWait. Keep-or-drill picker — never dump values or SKUs on the overview. Step 1 of 2 — Attributes: bullet current values; Keep all current attributes, or pick which attributes to change (names only); drill only those; mark affects price. Step 2 of 2 — Add-on products: leaf groups only; Keep all catalog add-ons, or pick which groups to change (names only); drill only those. Drill cards: Keep current selection then other values; blanks have no keep chip; required blanks still get a card. Skip options hide/disable from configuration rules. Constraint messages are blocking; copy to other ramp years only after a clean engine save. Then one configureRevenueCloudBundle with quoteLineItemId '
                     + String.valueOf(line.Id)
                     + ', selectedProducts, and attributePicksJson. Do not PDF, email, or submit.';
             }
@@ -416,6 +493,14 @@ public with sharing class RLM_MCP_BundleConfigService {
         RLM_RampConfiguratorAction.ConfigResult config
     ) {
         List<String> lines = new List<String>();
+        if (config != null && String.isBlank(config.fixHeadline)) {
+            RLM_RampConfiguratorAction.attachFixGuidance(config);
+        }
+        String fix = formatFixThis(config);
+        if (String.isNotBlank(fix)) {
+            lines.add(fix);
+            lines.add('');
+        }
         String product = line.Product2 == null ? 'Bundle' : line.Product2.Name;
         String sku = line.Product2 == null ? null : line.Product2.StockKeepingUnit;
         String title = '**' + product + '**';
@@ -437,11 +522,25 @@ public with sharing class RLM_MCP_BundleConfigService {
             );
         }
         if (config.messages != null) {
+            Set<String> alreadyFixed = new Set<String>();
+            if (config.fixSteps != null) {
+                for (String step : config.fixSteps) {
+                    if (String.isNotBlank(step)) {
+                        alreadyFixed.add(step.toLowerCase());
+                    }
+                }
+            }
             for (RLM_RampConfiguratorAction.ConfigMessage msg : config.messages) {
                 if (msg == null || String.isBlank(msg.text)) {
                     continue;
                 }
+                if (alreadyFixed.contains(msg.text.toLowerCase())) {
+                    continue;
+                }
                 String kind = String.isBlank(msg.messageType) ? 'info' : msg.messageType;
+                if (kind.equalsIgnoreCase('constraint') || kind.equalsIgnoreCase('error')) {
+                    continue;
+                }
                 lines.add('- ' + kind + ': ' + msg.text);
             }
         }
@@ -460,6 +559,12 @@ public with sharing class RLM_MCP_BundleConfigService {
                 }
                 for (RLM_RampConfiguratorAction.ConfigComponent component : optionGroup.components) {
                     if (component == null) {
+                        continue;
+                    }
+                    if (component.hidden == true) {
+                        continue;
+                    }
+                    if (component.disabled == true && component.selected != true) {
                         continue;
                     }
                     String mark = component.selected == true ? '[x]' : '[ ]';
@@ -543,9 +648,481 @@ public with sharing class RLM_MCP_BundleConfigService {
         } else if (component.defaulted == true) {
             parts.add('catalog default (pre-selected by the bundle)');
         } else {
-            parts.add('selected');
+            parts.add('selected by configuration rules');
         }
         return parts.isEmpty() ? null : String.join(parts, '; ');
+    }
+
+    @TestVisible
+    static Boolean shouldFallbackToCatalog(RLM_RampConfiguratorAction.ConfigResult result) {
+        if (result == null) {
+            return true;
+        }
+        if (result.success == true) {
+            return false;
+        }
+        String message = result.message;
+        if (String.isBlank(message)) {
+            return false;
+        }
+        return message.containsIgnoreCase('configuration rules')
+            || message.containsIgnoreCase('ConfiguratorException');
+    }
+
+    @TestVisible
+    static void overlayRulesCrash(
+        RLM_RampConfiguratorAction.ConfigResult catalog,
+        RLM_RampConfiguratorAction.ConfigResult failed
+    ) {
+        if (catalog == null) {
+            return;
+        }
+        if (catalog.messages == null) {
+            catalog.messages = new List<RLM_RampConfiguratorAction.ConfigMessage>();
+        }
+        RLM_RampConfiguratorAction.ConfigMessage msg =
+            new RLM_RampConfiguratorAction.ConfigMessage();
+        msg.messageType = 'constraint';
+        msg.text = failed == null || String.isBlank(failed.message)
+            ? 'Configurator could not finish rule evaluation.'
+            : failed.message;
+        catalog.messages.add(msg);
+    }
+
+    /**
+     * Documented in-process Configurator path for Hosted MCP: standard
+     * invocable runConfigRules (Help: Use an Apex Call to Run the Run Config
+     * Rules Action). Same Invocable.Action pattern as createOrdersFromQuote.
+     * Does not HTTP /connect/cpq/configurator (Script-thrown in MCP).
+     */
+    static void applyLiveConfigRules(
+        String quoteId,
+        RLM_RampConfiguratorAction.ConfigResult catalog
+    ) {
+        if (catalog == null || catalog.success != true || String.isBlank(quoteId)) {
+            return;
+        }
+        if (Test.isRunningTest()) {
+            return;
+        }
+        try {
+            Invocable.Action action = Invocable.Action.createStandardAction('runConfigRules');
+            action.setInvocationParameter('transactionId', quoteId);
+            List<Invocable.Action.Result> results = action.invoke();
+            if (results == null || results.isEmpty() || !results[0].isSuccess()) {
+                return;
+            }
+            Map<String, Object> outs = results[0].getOutputParameters();
+            if (outs == null || !outs.containsKey('configRuleResult')) {
+                return;
+            }
+            overlayConfigRules(catalog, JSON.serialize(outs.get('configRuleResult')));
+        } catch (Exception e) {
+            // Hide/disable overlay is optional when CRE configure already ran.
+        }
+    }
+
+    @TestVisible
+    static void overlayConfigRules(
+        RLM_RampConfiguratorAction.ConfigResult catalog,
+        String configRuleResultJson
+    ) {
+        if (catalog == null || String.isBlank(configRuleResultJson)) {
+            return;
+        }
+        Map<String, Object> parsed;
+        try {
+            parsed = (Map<String, Object>) JSON.deserializeUntyped(configRuleResultJson);
+        } catch (Exception e) {
+            return;
+        }
+        if (parsed == null) {
+            return;
+        }
+        overlayMessageRules(catalog, asObjectList(parsed.get('messageRules')));
+        overlayErrorStrings(catalog, parsed.get('errors'));
+        overlayVisibility(
+            catalog,
+            asObjectList(parsed.get('visibilityRules')));
+    }
+
+    static void overlayMessageRules(
+        RLM_RampConfiguratorAction.ConfigResult catalog,
+        List<Object> rows
+    ) {
+        if (rows == null) {
+            return;
+        }
+        for (Object row : rows) {
+            Map<String, Object> raw = asObjectMap(row);
+            if (raw == null) {
+                continue;
+            }
+            String severity = firstNonBlank(
+                asText(raw.get('severity')),
+                asText(raw.get('messageType')));
+            List<String> texts = new List<String>();
+            Object messagesObj = raw.get('messages');
+            if (messagesObj instanceof List<Object>) {
+                for (Object item : (List<Object>) messagesObj) {
+                    if (item != null && String.isNotBlank(String.valueOf(item))) {
+                        texts.add(String.valueOf(item));
+                    }
+                }
+            }
+            String single = asText(raw.get('message'));
+            if (String.isNotBlank(single)) {
+                texts.add(single);
+            }
+            String kind = messageKind(severity);
+            for (String text : texts) {
+                addConfigMessage(catalog, kind, text);
+            }
+        }
+    }
+
+    static void overlayErrorStrings(
+        RLM_RampConfiguratorAction.ConfigResult catalog,
+        Object errorsObj
+    ) {
+        if (errorsObj instanceof List<Object>) {
+            for (Object item : (List<Object>) errorsObj) {
+                if (item == null) {
+                    continue;
+                }
+                String text = String.valueOf(item);
+                if (String.isNotBlank(text) && text != 'null') {
+                    addConfigMessage(catalog, 'constraint', text);
+                }
+            }
+        }
+    }
+
+    static void overlayVisibility(
+        RLM_RampConfiguratorAction.ConfigResult catalog,
+        List<Object> rows
+    ) {
+        if (rows == null || rows.isEmpty()) {
+            return;
+        }
+        Set<String> hiddenPicklistIds = new Set<String>();
+        Set<String> disabledPrcIds = new Set<String>();
+        Set<String> disabledProductIds = new Set<String>();
+        for (Object row : rows) {
+            Map<String, Object> raw = asObjectMap(row);
+            if (raw == null) {
+                continue;
+            }
+            String visType = asText(raw.get('type'));
+            if (!isHideOrDisable(visType)) {
+                continue;
+            }
+            String target = asText(raw.get('target'));
+            String pvId = asText(raw.get('attributePicklistValueId'));
+            if (String.isNotBlank(pvId)
+                && (String.isBlank(target) || target.toLowerCase().contains('attribute'))) {
+                hiddenPicklistIds.add(pvId);
+            }
+            String prcId = asText(raw.get('prcId'));
+            if (String.isNotBlank(prcId)
+                && (String.isBlank(target) || target.toLowerCase().contains('component')
+                    || target.toLowerCase().contains('product'))) {
+                disabledPrcIds.add(prcId);
+            }
+            addIds(disabledProductIds, raw.get('productId'));
+            addIds(disabledProductIds, raw.get('productIds'));
+        }
+        hidePicklistOptions(catalog, hiddenPicklistIds);
+        hideDisabledComponents(catalog, disabledPrcIds, disabledProductIds);
+    }
+
+    static void hidePicklistOptions(
+        RLM_RampConfiguratorAction.ConfigResult catalog,
+        Set<String> hiddenPicklistIds
+    ) {
+        if (catalog.attributes == null || hiddenPicklistIds == null || hiddenPicklistIds.isEmpty()) {
+            return;
+        }
+        for (RLM_RampConfiguratorAction.ConfigAttribute attr : catalog.attributes) {
+            if (attr == null || attr.options == null || attr.options.isEmpty()) {
+                continue;
+            }
+            List<RLM_RampConfiguratorAction.ConfigPicklistOption> kept =
+                new List<RLM_RampConfiguratorAction.ConfigPicklistOption>();
+            for (RLM_RampConfiguratorAction.ConfigPicklistOption option : attr.options) {
+                if (option == null) {
+                    continue;
+                }
+                Boolean hidden = String.isNotBlank(option.picklistValueId)
+                    && hiddenPicklistIds.contains(option.picklistValueId);
+                Boolean current = equalsIgnore(option.picklistValueId, attr.picklistValueId)
+                    || equalsIgnore(option.value, attr.value)
+                    || equalsIgnore(option.label, attr.value);
+                if (hidden == true && current != true) {
+                    continue;
+                }
+                kept.add(option);
+            }
+            attr.options = kept;
+        }
+    }
+
+    static void hideDisabledComponents(
+        RLM_RampConfiguratorAction.ConfigResult catalog,
+        Set<String> disabledPrcIds,
+        Set<String> disabledProductIds
+    ) {
+        if (catalog.groups == null) {
+            return;
+        }
+        Boolean noPrc = disabledPrcIds == null || disabledPrcIds.isEmpty();
+        Boolean noProd = disabledProductIds == null || disabledProductIds.isEmpty();
+        if (noPrc && noProd) {
+            return;
+        }
+        for (RLM_RampConfiguratorAction.ConfigGroup optionGroup : catalog.groups) {
+            if (optionGroup == null || optionGroup.components == null) {
+                continue;
+            }
+            List<RLM_RampConfiguratorAction.ConfigComponent> kept =
+                new List<RLM_RampConfiguratorAction.ConfigComponent>();
+            for (RLM_RampConfiguratorAction.ConfigComponent component : optionGroup.components) {
+                if (component == null) {
+                    continue;
+                }
+                Boolean disabled =
+                    (String.isNotBlank(component.productRelatedComponentId)
+                        && disabledPrcIds != null
+                        && disabledPrcIds.contains(component.productRelatedComponentId))
+                    || (String.isNotBlank(component.product2Id)
+                        && disabledProductIds != null
+                        && disabledProductIds.contains(component.product2Id));
+                if (disabled != true) {
+                    kept.add(component);
+                    continue;
+                }
+                if (component.selected == true) {
+                    kept.add(component);
+                    String name = firstNonBlank(component.name, component.sku, 'This option');
+                    addConfigMessage(
+                        catalog,
+                        'constraint',
+                        name + ' is disabled by configuration rules.');
+                }
+            }
+            optionGroup.components = kept;
+        }
+    }
+
+    static void addConfigMessage(
+        RLM_RampConfiguratorAction.ConfigResult catalog,
+        String messageType,
+        String text
+    ) {
+        if (catalog == null || String.isBlank(text)) {
+            return;
+        }
+        if (catalog.messages == null) {
+            catalog.messages = new List<RLM_RampConfiguratorAction.ConfigMessage>();
+        }
+        for (RLM_RampConfiguratorAction.ConfigMessage existing : catalog.messages) {
+            if (existing != null && existing.text == text) {
+                return;
+            }
+        }
+        RLM_RampConfiguratorAction.ConfigMessage msg =
+            new RLM_RampConfiguratorAction.ConfigMessage();
+        msg.messageType = String.isBlank(messageType) ? 'info' : messageType;
+        msg.text = text;
+        catalog.messages.add(msg);
+    }
+
+    static String messageKind(String severity) {
+        if (String.isBlank(severity)) {
+            return 'info';
+        }
+        String lower = severity.toLowerCase();
+        if (lower.contains('error') || lower.contains('constraint')) {
+            return 'constraint';
+        }
+        if (lower.contains('warn')) {
+            return 'warning';
+        }
+        return 'info';
+    }
+
+    static Boolean isHideOrDisable(String visType) {
+        if (String.isBlank(visType)) {
+            return false;
+        }
+        String lower = visType.toLowerCase();
+        return lower == 'hide' || lower == 'disable';
+    }
+
+    static void addIds(Set<String> bucket, Object raw) {
+        if (bucket == null || raw == null) {
+            return;
+        }
+        if (raw instanceof List<Object>) {
+            for (Object item : (List<Object>) raw) {
+                if (item != null && String.isNotBlank(String.valueOf(item))) {
+                    bucket.add(String.valueOf(item));
+                }
+            }
+            return;
+        }
+        String text = String.valueOf(raw);
+        if (String.isNotBlank(text) && text != 'null') {
+            bucket.add(text);
+        }
+    }
+
+    static List<Object> asObjectList(Object raw) {
+        return raw instanceof List<Object> ? (List<Object>) raw : new List<Object>();
+    }
+
+    static Map<String, Object> asObjectMap(Object raw) {
+        return raw instanceof Map<String, Object> ? (Map<String, Object>) raw : null;
+    }
+
+    static String asText(Object raw) {
+        if (raw == null) {
+            return null;
+        }
+        String text = String.valueOf(raw);
+        return text == 'null' ? null : text;
+    }
+
+    @TestVisible
+    static String recapEngineChanges(
+        RLM_RampConfiguratorAction.ConfigResult requested,
+        RLM_RampConfiguratorAction.ConfigResult saved
+    ) {
+        List<String> changes = new List<String>();
+        Map<String, String> requestedAttrs = attributeValues(requested);
+        Map<String, String> savedAttrs = attributeValues(saved);
+        Set<String> attrKeys = new Set<String>();
+        attrKeys.addAll(requestedAttrs.keySet());
+        attrKeys.addAll(savedAttrs.keySet());
+        List<String> attrNames = new List<String>(attrKeys);
+        attrNames.sort();
+        for (String key : attrNames) {
+            String before = requestedAttrs.get(key);
+            String afterVal = savedAttrs.get(key);
+            if (before == afterVal || (String.isBlank(before) && String.isBlank(afterVal))) {
+                continue;
+            }
+            changes.add(
+                '- ' + key + ': '
+                + (String.isBlank(before) ? '(not set)' : before)
+                + ' → '
+                + (String.isBlank(afterVal) ? '(not set)' : afterVal)
+            );
+        }
+        Map<String, Decimal> requestedQty = selectedQuantities(requested);
+        Map<String, Decimal> savedQty = selectedQuantities(saved);
+        Set<String> componentKeys = new Set<String>();
+        componentKeys.addAll(requestedQty.keySet());
+        componentKeys.addAll(savedQty.keySet());
+        List<String> componentNames = new List<String>(componentKeys);
+        componentNames.sort();
+        for (String key : componentNames) {
+            Boolean had = requestedQty.containsKey(key);
+            Boolean hasNow = savedQty.containsKey(key);
+            if (had && !hasNow) {
+                changes.add('- Removed ' + key);
+                continue;
+            }
+            if (!had && hasNow) {
+                Decimal qty = savedQty.get(key);
+                changes.add(
+                    '- Added ' + key
+                    + (qty != null && qty != 1 ? ' qty ' + String.valueOf(qty) : '')
+                );
+                continue;
+            }
+            Decimal beforeQty = requestedQty.get(key);
+            Decimal afterQty = savedQty.get(key);
+            if (beforeQty != afterQty) {
+                changes.add(
+                    '- ' + key + ' qty ' + String.valueOf(beforeQty)
+                    + ' → ' + String.valueOf(afterQty)
+                );
+            }
+        }
+        if (changes.isEmpty()) {
+            return null;
+        }
+        return 'Configurator updated the mix:\n' + String.join(changes, '\n');
+    }
+
+    static String joinRecaps(String first, String second) {
+        if (String.isBlank(first)) {
+            return String.isBlank(second) ? null : second;
+        }
+        if (String.isBlank(second)) {
+            return first;
+        }
+        String suffix = second;
+        if (suffix.startsWith('Configurator updated the mix:\n')) {
+            suffix = suffix.substring('Configurator updated the mix:\n'.length());
+        }
+        return first + '\n' + suffix;
+    }
+
+    static Map<String, String> attributeValues(RLM_RampConfiguratorAction.ConfigResult config) {
+        Map<String, String> values = new Map<String, String>();
+        if (config == null || config.attributes == null) {
+            return values;
+        }
+        for (RLM_RampConfiguratorAction.ConfigAttribute attr : config.attributes) {
+            if (attr == null) {
+                continue;
+            }
+            String label = firstNonBlank(attr.label, attr.attributeName, attr.attributeKey);
+            if (String.isBlank(label)) {
+                continue;
+            }
+            values.put(label, attr.value);
+        }
+        return values;
+    }
+
+    static Map<String, Decimal> selectedQuantities(RLM_RampConfiguratorAction.ConfigResult config) {
+        Map<String, Decimal> quantities = new Map<String, Decimal>();
+        if (config == null || config.groups == null) {
+            return quantities;
+        }
+        for (RLM_RampConfiguratorAction.ConfigGroup optionGroup : config.groups) {
+            if (optionGroup == null || optionGroup.components == null) {
+                continue;
+            }
+            for (RLM_RampConfiguratorAction.ConfigComponent component : optionGroup.components) {
+                if (component == null || component.selected != true) {
+                    continue;
+                }
+                String name = firstNonBlank(component.name, component.sku, component.product2Id);
+                if (String.isBlank(name)) {
+                    continue;
+                }
+                quantities.put(name, component.quantity == null ? 1 : component.quantity);
+            }
+        }
+        return quantities;
+    }
+
+    static String firstNonBlank(String a, String b) {
+        return firstNonBlank(a, b, null);
+    }
+
+    static String firstNonBlank(String a, String b, String c) {
+        if (String.isNotBlank(a)) {
+            return a;
+        }
+        if (String.isNotBlank(b)) {
+            return b;
+        }
+        return c;
     }
 
     @TestVisible
@@ -828,6 +1405,64 @@ public with sharing class RLM_MCP_BundleConfigService {
         return left != null && right != null && left.toLowerCase().contains(right.toLowerCase());
     }
 
+    @TestVisible
+    static Boolean isCreLoading(RLM_RampConfiguratorAction.ConfigResult result) {
+        return result != null
+            && result.success != true
+            && result.message == RLM_RampConfiguratorAction.CRE_LOADING;
+    }
+
+    static void markCreLoading(Response out, String lineId) {
+        if (out == null) {
+            return;
+        }
+        out.isSuccess = false;
+        out.needsAction = true;
+        out.quoteLineItemId = lineId;
+        RLM_RampConfiguratorAction.ConfigResult loading =
+            new RLM_RampConfiguratorAction.ConfigResult();
+        loading.success = false;
+        loading.message = RLM_RampConfiguratorAction.CRE_LOADING;
+        RLM_RampConfiguratorAction.attachFixGuidance(loading);
+        String fix = formatFixThis(loading);
+        out.errorMessage = String.isNotBlank(fix)
+            ? fix
+            : 'Lightning CRE is loading. Call this tool again immediately with quoteLineItemId '
+                + lineId
+                + '. Do not query QuoteLineItem children. Do not invent Dual, Gold, or Socket. Do not PDF or email.';
+    }
+
+    static void applyFixError(
+        Response out,
+        RLM_RampConfiguratorAction.ConfigResult result,
+        String fallback
+    ) {
+        if (out == null) {
+            return;
+        }
+        if (result != null && String.isBlank(result.fixHeadline)) {
+            RLM_RampConfiguratorAction.attachFixGuidance(result);
+        }
+        String fix = formatFixThis(result);
+        out.errorMessage = String.isNotBlank(fix) ? fix : fallback;
+    }
+
+    @TestVisible
+    static String formatFixThis(RLM_RampConfiguratorAction.ConfigResult config) {
+        if (config == null || String.isBlank(config.fixHeadline)) {
+            return null;
+        }
+        List<String> lines = new List<String>{ '### Fix this', config.fixHeadline };
+        if (config.fixSteps != null) {
+            for (String step : config.fixSteps) {
+                if (String.isNotBlank(step)) {
+                    lines.add('- ' + step);
+                }
+            }
+        }
+        return String.join(lines, '\n');
+    }
+
     private static String blankToNull(String value) {
         return String.isBlank(value) ? null : value.trim();
     }
@@ -888,6 +1523,12 @@ public with sharing class RLM_MCP_BundleConfigService {
     ) {
         if (config == null) {
             return false;
+        }
+        if (String.isBlank(config.fixHeadline)) {
+            RLM_RampConfiguratorAction.attachFixGuidance(config);
+        }
+        if (config.fixKind == 'change_picks' || config.fixKind == 'platform') {
+            return true;
         }
         if (config.messages != null) {
             for (RLM_RampConfiguratorAction.ConfigMessage msg : config.messages) {
@@ -1006,10 +1647,20 @@ public with sharing class RLM_MCP_BundleConfigService {
         ]) {
             configured.add(child.ParentQuoteLineItemId);
         }
+        Set<Id> attributed = new Set<Id>();
+        for (QuoteLineItemAttribute qlia : [
+            SELECT QuoteLineItemId
+            FROM QuoteLineItemAttribute
+            WHERE QuoteLineItemId IN :siblingIds
+            WITH USER_MODE
+            LIMIT 200
+        ]) {
+            attributed.add(qlia.QuoteLineItemId);
+        }
         List<String> copied = new List<String>();
         List<String> failed = new List<String>();
         for (QuoteLineItem sibling : siblings) {
-            if (configured.contains(sibling.Id)) {
+            if (siblingAlreadyHasCopiedGraph(sibling.Id, configured, attributed)) {
                 continue;
             }
             String yearName = sibling.QuoteLineGroup == null
@@ -1040,5 +1691,18 @@ public with sharing class RLM_MCP_BundleConfigService {
         }
         recap.add('If they asked for a different mix per year, describe that year’s quoteLineItemId instead.');
         return String.join(recap, ' ');
+    }
+
+    @TestVisible
+    static Boolean siblingAlreadyHasCopiedGraph(
+        Id siblingId,
+        Set<Id> configured,
+        Set<Id> attributed
+    ) {
+        return siblingId != null
+            && configured != null
+            && attributed != null
+            && configured.contains(siblingId)
+            && attributed.contains(siblingId);
     }
 }

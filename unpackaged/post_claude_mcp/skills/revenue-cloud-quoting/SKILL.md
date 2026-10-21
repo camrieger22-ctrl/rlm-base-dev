@@ -12,8 +12,10 @@ description: >
   link: one prompt, one turn. Never a later "now add the PDF". Ramp
   schedule: createRevenueCloudRampSchedule (preview then confirm). Ramp
   edits: applyRevenueCloudQuoteRamp editsJson. Never Ramp Builder.
-  Bundle add: describe, wait, configure; never skip constraints.
-  Bundle picker: keep or drill attrs then add-ons.
+  Bundle add: describe CRE mix, wait, configure; recap engine
+  add/remove/qty. Never infer Dual/Gold.
+  Bundle picker: keep or drill; skip rule-hidden options.
+  Copy attributes to every ramp year.
   Ramp year: blanket discount then named exception.
 ---
 
@@ -30,9 +32,12 @@ calendar event links to — do that without being asked. A PDF uploaded in
 this chat is the same: read it, then quote. SObject All is for lookup and
 recap only. Never insert `Quote`, `QuoteLineItem`, `Order`, `OrderItem`, or
 `Asset` rows yourself. Never update `Asset` rows to change quantity. Never use
-SObject All to explain a price, rebuild a waterfall, or recap installed
-base — call `explainRevenueCloudQuotePrice` or
-`getRevenueCloudInstalledBase` instead. Never send mail to the customer.
+SObject All to explain a price, rebuild a waterfall, recap installed
+base, or recap a bundle mix — child quote lines are not Lightning CRE.
+If describe/configure says CRE is loading, call that tool again immediately;
+do not query children and do not invent Dual/Gold/Socket. Call
+`explainRevenueCloudQuotePrice` or `getRevenueCloudInstalledBase` instead of
+SObject All for price or installed base. Never send mail to the customer.
 
 ## Which tool
 
@@ -52,8 +57,8 @@ tool is missing.
 | Sender From: not a Contact on an existing Account | On the same `updateRevenueCloudQuoteLines` / add-product call, pass `fromEmail` = Gmail **From** mailbox + `fromName`. Recap the sender picker in `resultsDisplay`. If `needsAction`, wait. Then `addRevenueCloudAccountContact`. Quote Contact is not the sender. Never skip. Never invent email |
 | Add catalog products to an existing Draft quote | `addProductToRevenueCloudQuote` with `linesJson` for every new SKU in that call. New lines inherit the quote `StartDate`/`EndDate` (do not pass `termMonths` unless this SKU should differ). Recap `lineSummaryDisplay` + Open Quote. If `lineSummaryDisplay` has an **AE note**, say it in chat (never Gmail). If `needsAction` for a **bundle**, call `describeRevenueCloudBundleConfiguration` **in this turn**, render the picker, and **wait** — do not skip because Instant Pricing priced the parent. Do **not** explain or preview after add. Q-Rack 750 / One-Time hardware bundle: quantity 1. If Salesforce returns fractional quantity and qty > 1, immediately add again at quantity 1 — do not stop the quote. **Ramped quote:** `applyRevenueCloudQuoteRamp` `editsJson` instead |
 | Which Draft quote / reconnect / several Acme deals | `findRevenueCloudOpenQuotes` with `opportunityName` from the email — ask only if several rows |
-| See bundle option groups / current picks / attributes | `describeRevenueCloudBundleConfiguration` (keep-or-drill: current picks then names — never dump every value) |
-| Save bundle picks the user chose from describe | `configureRevenueCloudBundle` (`attributePicksJson` for attribute values) |
+| See bundle option groups / current picks / attributes | `describeRevenueCloudBundleConfiguration` (Lightning CRE mix: current picks, hidden/required qty — keep-or-drill; never dump every value; never invent Dual/Gold). If it says CRE is loading, call it again immediately; never recap child QLIs as CRE |
+| Save bundle picks the user chose from describe | `configureRevenueCloudBundle` (`attributePicksJson` for attribute values). Runs Lightning Configure rules then PST. Recap added/removed/qty/attr from the engine |
 | Percent off | `applyRevenueCloudQuoteDiscount` (discount only) or `updateRevenueCloudQuoteLines` when also changing qty or term. **Ramped quote:** `applyRevenueCloudQuoteRamp` `editsJson` — year blanket omits `product`; named SKU overlays (including bundle children). Never `applyRevenueCloudQuoteDiscount` on a ramped quote |
 | Change quantity, term, start date, quote name, or remove a line on an existing Draft | `updateRevenueCloudQuoteLines` with `quantitiesJson` (quantity 0 or `"remove":true` drops that parent line), `termMonths`, `startDate`, and/or `quoteName` — never rebuild, never SObject-delete QuoteLineItem. **Ramped quote:** `applyRevenueCloudQuoteRamp` `editsJson` instead |
 | What-if on a live Draft (36 months, 15% off, 20 more seats, TCV) | One `updateRevenueCloudQuoteLines`, then `getRevenueCloudBillingAndUsage` for TCV (GrandTotal). Never rebuild, never Build Quote Options |
@@ -804,7 +809,13 @@ a standalone line.” Do not PDF / email / submit until configure returns
 `needsAction` false.
 
 1. Describe first (`quoteLineItemId` when the same SKU is on more than one
-   ramp year). If it fails, show the error and stop.
+   ramp year). If the tool says **Fix this** and configuration is still
+   running, or **Lightning CRE is loading**, call
+   `describeRevenueCloudBundleConfiguration` again **immediately** with the
+   same `quoteLineItemId` (do not wait for the user; the callout is queued).
+   Do **not** query `QuoteLineItem` children with SObject All. Do **not**
+   invent Dual, Gold, Socket, or option groups. If it fails with any other
+   error, show that error and stop.
 2. Offer **only** the groups and products describe returned. Never invent
    groups or SKUs. Required options stay selected.
 3. Tell the user why items are already checked: required, catalog default
@@ -816,12 +827,21 @@ a standalone line.” Do not PDF / email / submit until configure returns
 5. After Step 2, Configure with those names/SKUs, `attributePicksJson`,
    and the same `quoteLineItemId`. Never insert child `QuoteLineItem`s. Do
    not add the same bundle parent twice. Never invent attribute values.
-6. If configure `needsAction` is still true (CML / required / price-impacting
-   attributes still blank), show those messages, wait, and configure again.
-   Do not proceed.
-7. After a clean save, the same mix is copied to other unconfigured ramp
-   years of that SKU. Recap which years were copied. If they asked for a
-   different mix per year, describe that year’s `quoteLineItemId` instead.
+   Configure runs the **same Constraint Rules Engine as Lightning Configure**.
+   Recite the engine recap (products added/removed, qty, attributes CRE
+   changed, options now hidden). Do **not** infer Dual vs Gold, liquid-cooler
+   qty, or Platinum swaps from this skill — those come from the recap.
+6. If the tool returns **Fix this**, say that block first in plain English,
+   then the mix. Do not dump `- constraint:` lines. If configure
+   `needsAction` is still true (CML / required / price-impacting attributes
+   still blank, or constraint messages), show **Fix this**, wait, and
+   configure again. Do not proceed. Do not copy the mix to other ramp years
+   while `needsAction` is true.
+7. After a **clean** engine save, the same mix is copied to other unconfigured
+   ramp years of that SKU. Recap which years were copied, and recap any
+   configurator auto-actions (attribute flips, SKU swaps, qty changes). If
+   they asked for a different mix per year, describe that year’s
+   `quoteLineItemId` instead.
 
 ### Picker (required after every successful describe)
 
@@ -839,16 +859,21 @@ these, or pick which attributes to change?** They can answer `1` or
 `3 and 6` in one reply.
 
 Keep all → go to Step 2, except **required blanks still get a card**.
-Change named attrs → one card each: current value, Keep that value,
-other options (~60 chars). Unnamed attrs keep describe values. Never
-invent. Skip hidden / read-only (already omitted).
+Change named attrs → one card each. Current value stays in the prose,
+not as the keep-chip label. Chip 1 is `Keep current selection`, then
+the **other** catalog values (~60 chars). Do **not** also list the
+current value as another numbered choice. `(not set)` / blank: omit
+Keep current selection; only real values. Unnamed attrs keep describe
+values. Never invent. Skip hidden / read-only and any value or SKU
+hide/disable from configuration rules (already omitted from describe).
 
 **Step 2 of 2 — Add-on products.** Same shape. Bullet what’s already
 `[x]` per **leaf group** that has SKUs (skip empty parents like
 Computing). Chips: `Keep all catalog add-ons`, then each **group name**
-(not SKUs). Named groups get one card: Keep this group, then optional
-adds (and optional remove of a non-required default). Required
-mentioned, not removable.
+(not SKUs). Named groups get one card: chip 1 is `Keep current
+selection`, then optional other SKUs (and optional remove of a
+non-required default). Empty group: omit Keep current selection; only
+real SKUs. Required mentioned, not removable.
 
 After Step 2, configure with current `[x]` items plus
 `attributePicksJson`. Send **every** attribute key — Keep all still
@@ -875,16 +900,27 @@ These specify the rack. Workload affects price. Current:
 Keep these, or pick which attributes to change?
 ```
 
-Example drill card after they pick Workload:
+Example drill card after they pick Workload (has a current value):
 
 ```
-Workload is General — affects price. Keep it, or pick another?
+Workload is currently General — affects price.
 
-1. Keep General
+1. Keep current selection
 2. AI
 3. High Performance Computing
 
-Keep this attribute or change it?
+Keep this, or pick something different?
+```
+
+Example blank card (required, no current value — no keep chip):
+
+```
+Redundancy is not set — needs a pick.
+
+1. N+1
+2. N+2
+
+Pick a value.
 ```
 
 Example Step 2 overview:
@@ -903,6 +939,29 @@ Catalog defaults already on. Keep them, or pick which groups to change.
 4. Power Supply
 
 Keep these add-ons, or pick which groups to change?
+```
+
+Example add-on group card after they pick GPUs (empty — no keep chip):
+
+```
+GPUs currently has none.
+
+1. QB-GPU 1x
+2. QB-GPU 2x
+
+Pick a GPU, or skip this group if optional.
+```
+
+Example add-on group card after they pick Memory (has a current SKU):
+
+```
+Memory is currently QB-MEM 32GB.
+
+1. Keep current selection
+2. QB-MEM 64GB
+3. QB-MEM 128GB
+
+Keep this, or pick something different?
 ```
 
 Never invent values. Never persist between waits.

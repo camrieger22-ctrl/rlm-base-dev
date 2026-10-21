@@ -1,6 +1,7 @@
 /**
- * Global MCP wrapper: apply named component and attribute picks, then persist
- * through Place Sales Transaction (no Configurator HTTP).
+ * Global MCP wrapper: apply attribute picks through Lightning Configure
+ * (Constraint Rules Engine), recap the CRE graph, then persist through Place
+ * Sales Transaction.
  */
 global with sharing class RLM_MCP_ConfigureBundle {
     global class ConfigureInput {
@@ -95,7 +96,7 @@ global with sharing class RLM_MCP_ConfigureBundle {
 
     @InvocableMethod(
         label='Configure Revenue Cloud Bundle'
-        description='Saves named bundle options and attributePicksJson. Pass quoteLineItemId. If needsAction, required or price-impacting attrs still blank — wait and configure again. Never skip required options. Never invent values. Never insert child QuoteLineItem rows.'
+        description='Runs Lightning Configure rules then Place Sales Transaction. Recap added/removed/qty/attr. Pass quoteLineItemId and attributePicksJson. Never infer Dual/Gold. Never insert child QuoteLineItem rows.'
     )
     global static List<ConfigureOutput> configure(List<ConfigureInput> inputs) {
         List<ConfigureOutput> results = new List<ConfigureOutput>();
