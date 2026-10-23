@@ -148,7 +148,7 @@
             <apiSource>API_CATALOG</apiSource>
             <operation>RLM_MCP_DescribeBundleConfiguration</operation>
         </apiDefinition>
-        <descriptionOverride>Loads Lightning CRE mix: groups, attributes, hidden/required qty. Pass quoteLineItemId. Keep-or-drill. Recite engine mix; never invent Dual/Gold. Never insert child QLIs.</descriptionOverride>
+        <descriptionOverride>CRE mix. Pass quoteLineItemId. If needsAction and constraintCoachDisplay is set: paste that Rule/Now/Change card verbatim. Do not reword Dual, Gold, or lanes. Do not invent a second explanation. Wait for a number. One configure after they pick. Never insert child QLIs.</descriptionOverride>
         <toolName>describeRevenueCloudBundleConfiguration</toolName>
         <toolTitle>Describe Bundle Configuration</toolTitle>
     </tools>
@@ -158,7 +158,7 @@
             <apiSource>API_CATALOG</apiSource>
             <operation>RLM_MCP_ConfigureBundle</operation>
         </apiDefinition>
-        <descriptionOverride>Runs Lightning configure rules then PST. Recap added/removed/qty/attr. Pass quoteLineItemId and attributePicksJson. Never infer Dual/Gold. Never insert child QLIs.</descriptionOverride>
+        <descriptionOverride>Configure then PST. If needsAction and constraintCoachDisplay is set: paste that Rule/Now/Change card verbatim. Do not reword Dual, Gold, or lanes. Do not invent a second explanation. Wait for a number. One configure after they pick. Never insert child QLIs.</descriptionOverride>
         <toolName>configureRevenueCloudBundle</toolName>
         <toolTitle>Configure Bundle</toolTitle>
     </tools>

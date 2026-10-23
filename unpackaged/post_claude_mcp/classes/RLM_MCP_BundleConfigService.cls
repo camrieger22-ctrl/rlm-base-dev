@@ -37,6 +37,7 @@ public with sharing class RLM_MCP_BundleConfigService {
         public String quoteLineItemId;
         public String productName;
         public String configurationDisplay;
+        public String constraintCoachDisplay;
         public String candidateSummariesDisplay;
         public String errorMessage;
         public Response() {
@@ -135,6 +136,7 @@ public with sharing class RLM_MCP_BundleConfigService {
                     out.errorMessage = 'attributePicksJson must be a JSON object of attribute name to value.';
                     out.needsAction = true;
                     out.configurationDisplay = formatDisplay(quote, line, loaded);
+                    applyCoach(out, loaded);
                     return out;
                 }
                 RLM_RampConfiguratorAction.ConfigResult working = loaded;
@@ -158,6 +160,7 @@ public with sharing class RLM_MCP_BundleConfigService {
                         );
                         out.needsAction = true;
                         out.configurationDisplay = formatDisplay(quote, line, working != null ? working : loaded);
+                        applyCoach(out, working != null ? working : loaded);
                         return out;
                     }
                 }
@@ -165,10 +168,12 @@ public with sharing class RLM_MCP_BundleConfigService {
                 if (applyError != null) {
                     working.success = false;
                     working.message = applyError;
-                    RLM_RampConfiguratorAction.attachFixGuidance(working);
+                    RLM_RampConfiguratorAction.attachFixGuidance(
+                        working, confirmedAttributeKeys(input.attributePicksJson));
                     applyFixError(out, working, applyError);
                     out.needsAction = true;
                     out.configurationDisplay = formatDisplay(quote, line, working);
+                    applyCoach(out, working);
                     return out;
                 }
                 String recap = recapEngineChanges(loaded, working);
@@ -188,6 +193,7 @@ public with sharing class RLM_MCP_BundleConfigService {
                     );
                     out.needsAction = true;
                     out.configurationDisplay = formatDisplay(quote, line, working);
+                    applyCoach(out, saved != null ? saved : working);
                     return out;
                 }
                 String persistRecap = recapEngineChanges(working, saved);
@@ -195,19 +201,26 @@ public with sharing class RLM_MCP_BundleConfigService {
                 loaded = saved;
                 applyLiveConfigRules(String.valueOf(quote.Id), loaded);
                 out.isSuccess = true;
+                Set<String> pickKeys = confirmedAttributeKeys(input.attributePicksJson);
+                if (hasBlockingIssues(loaded, pickKeys)) {
+                    out.needsAction = true;
+                    RLM_RampConfiguratorAction.attachFixGuidance(loaded, pickKeys);
+                    out.configurationDisplay = formatDisplay(quote, line, loaded);
+                    applyCoach(out, loaded);
+                    if (String.isNotBlank(recap)) {
+                        out.configurationDisplay += '\n\n' + recap;
+                    }
+                    if (String.isBlank(out.constraintCoachDisplay)
+                        && String.isBlank(out.errorMessage)) {
+                        out.errorMessage =
+                            'Required or price-impacting attributes still need values in attributePicksJson. Do not copy this mix to other ramp years. Do not PDF or email.';
+                    }
+                    return out;
+                }
                 out.configurationDisplay = formatDisplay(quote, line, loaded);
+                applyCoach(out, loaded);
                 if (String.isNotBlank(recap)) {
                     out.configurationDisplay += '\n\n' + recap;
-                }
-                if (hasBlockingIssues(loaded, confirmedAttributeKeys(input.attributePicksJson))) {
-                    out.needsAction = true;
-                    RLM_RampConfiguratorAction.attachFixGuidance(loaded);
-                    String fix = formatFixThis(loaded);
-                    if (String.isNotBlank(fix) && !out.configurationDisplay.startsWith('### Fix this')) {
-                        out.configurationDisplay = fix + '\n\n' + out.configurationDisplay;
-                    }
-                    out.configurationDisplay += '\n\nConfiguration saved but constraints still fail. Required or price-impacting attributes still need values in attributePicksJson (Keep current attribute values is the describe values). Do not copy this mix to other ramp years. Fix the picks and call configureRevenueCloudBundle again. Do not PDF or email.';
-                    return out;
                 }
                 String copied = copyToRampSiblings(quote, line, toSelectionJson(saved));
                 if (String.isNotBlank(copied)) {
@@ -217,13 +230,18 @@ public with sharing class RLM_MCP_BundleConfigService {
             }
             out.isSuccess = true;
             out.configurationDisplay = formatDisplay(quote, line, loaded);
+            applyCoach(out, loaded);
             Boolean unconfigured = !hasChildren(quote.Id, line.Id);
-            if (isConfigurable(loaded) && (unconfigured || hasBlockingIssues(loaded))) {
+            Boolean blocking = hasBlockingIssues(loaded);
+            if (isConfigurable(loaded) && (unconfigured || blocking)) {
                 out.needsAction = true;
-                out.configurationDisplay +=
-                    '\n\nWait. Keep-or-drill picker — never dump values or SKUs on the overview. Step 1 of 2 — Attributes: bullet current values; Keep all current attributes, or pick which attributes to change (names only); drill only those; mark affects price. Step 2 of 2 — Add-on products: leaf groups only; Keep all catalog add-ons, or pick which groups to change (names only); drill only those. Drill cards: Keep current selection then other values; blanks have no keep chip; required blanks still get a card. Skip options hide/disable from configuration rules. Constraint messages are blocking; copy to other ramp years only after a clean engine save. Then one configureRevenueCloudBundle with quoteLineItemId '
-                    + String.valueOf(line.Id)
-                    + ', selectedProducts, and attributePicksJson. Do not PDF, email, or submit.';
+                applyCoach(out, loaded);
+                if (String.isBlank(loaded.constraintCoachDisplay)) {
+                    out.configurationDisplay +=
+                        '\n\nWait. Keep-or-drill picker — never dump values or SKUs on the overview. Step 1 of 2 — Attributes: bullet current values; Keep all current attributes, or pick which attributes to change (names only); drill only those; mark affects price. Step 2 of 2 — Add-on products: leaf groups only; Keep all catalog add-ons, or pick which groups to change (names only); drill only those. Drill cards: Keep current selection then other values; blanks have no keep chip; required blanks still get a card. Skip options hide/disable from configuration rules. Constraint messages are blocking; copy to other ramp years only after a clean engine save. Then one configureRevenueCloudBundle with quoteLineItemId '
+                        + String.valueOf(line.Id)
+                        + ', selectedProducts, and attributePicksJson. Do not PDF, email, or submit.';
+                }
             }
             return out;
         } catch (Exception e) {
@@ -495,6 +513,10 @@ public with sharing class RLM_MCP_BundleConfigService {
         List<String> lines = new List<String>();
         if (config != null && String.isBlank(config.fixHeadline)) {
             RLM_RampConfiguratorAction.attachFixGuidance(config);
+        }
+        if (config != null && String.isNotBlank(config.constraintCoachDisplay)) {
+            lines.add(config.constraintCoachDisplay);
+            lines.add('');
         }
         String fix = formatFixThis(config);
         if (String.isNotBlank(fix)) {
@@ -1443,8 +1465,24 @@ public with sharing class RLM_MCP_BundleConfigService {
         if (result != null && String.isBlank(result.fixHeadline)) {
             RLM_RampConfiguratorAction.attachFixGuidance(result);
         }
+        applyCoach(out, result);
+        String coach = result == null ? null : result.constraintCoachDisplay;
         String fix = formatFixThis(result);
-        out.errorMessage = String.isNotBlank(fix) ? fix : fallback;
+        if (String.isNotBlank(coach)) {
+            out.errorMessage = coach;
+        } else {
+            out.errorMessage = String.isNotBlank(fix) ? fix : fallback;
+        }
+    }
+
+    static void applyCoach(
+        Response out,
+        RLM_RampConfiguratorAction.ConfigResult config
+    ) {
+        if (out == null) {
+            return;
+        }
+        out.constraintCoachDisplay = config == null ? null : config.constraintCoachDisplay;
     }
 
     @TestVisible

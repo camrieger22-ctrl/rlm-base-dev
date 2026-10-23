@@ -209,7 +209,9 @@ private class RLM_MCP_BundleConfigTest {
         config.messages.add(gold);
 
         String display = RLM_MCP_BundleConfigService.formatDisplay(quote, line, config);
-        System.assert(display.startsWith('### Fix this'), display);
+        System.assert(display.startsWith('Constraint'), display);
+        System.assert(display.contains('Rule:'), display);
+        System.assert(display.contains('### Fix this'), display);
         System.assert(display.contains('What to change'), display);
         System.assert(display.contains('Dual sockets need Workload'), display);
         System.assert(display.contains('Dual cannot use a Gold CPU'), display);
@@ -235,7 +237,22 @@ private class RLM_MCP_BundleConfigTest {
         config.messages = new List<RLM_RampConfiguratorAction.ConfigMessage>();
 
         String display = RLM_MCP_BundleConfigService.formatDisplay(quote, line, config);
-        System.assert(display.startsWith('### Fix this'), display);
+        System.assert(display.startsWith('Constraint'), display);
+        System.assert(display.contains(
+            'Rule: Dual cannot use a Gold CPU. Pick a Platinum, or switch Socket to Single.'),
+            display);
+        System.assertEquals(
+            false,
+            display.contains('Dual sockets cannot use a Gold CPU.'),
+            display
+        );
+        System.assert(display.contains('Now:'), display);
+        System.assert(display.contains('Change one of:'), display);
+        System.assert(display.contains('Processor →'), display);
+        System.assert(display.contains('Socket Configuration → Single'), display);
+        System.assertEquals(false, display.contains('Processor → Intel Xeon Gold'), display);
+        System.assert(display.contains('I will not configure until you pick.'), display);
+        System.assert(display.contains('### Fix this'), display);
         System.assert(display.contains('Dual cannot use a Gold CPU'), display);
         System.assertEquals(
             true,
@@ -264,11 +281,28 @@ private class RLM_MCP_BundleConfigTest {
 
         System.assertEquals(true, out.isSuccess, 'configure failed: ' + out.errorMessage);
         System.assertEquals(true, out.needsAction);
+        System.assert(String.isNotBlank(out.constraintCoachDisplay), out.constraintCoachDisplay);
+        System.assert(out.constraintCoachDisplay.startsWith('Constraint'), out.constraintCoachDisplay);
+        System.assert(out.constraintCoachDisplay.contains('Rule:'), out.constraintCoachDisplay);
+        System.assert(out.constraintCoachDisplay.contains('Now:'), out.constraintCoachDisplay);
+        System.assert(out.constraintCoachDisplay.contains('Change one of:'),
+            out.constraintCoachDisplay);
+        System.assert(out.constraintCoachDisplay.contains('I will not configure until you pick.'),
+            out.constraintCoachDisplay);
+        System.assert(out.configurationDisplay.startsWith('Constraint'), out.configurationDisplay);
         System.assert(out.configurationDisplay.contains('### Fix this'), out.configurationDisplay);
         System.assert(out.configurationDisplay.contains('Dual cannot use a Gold CPU'),
             out.configurationDisplay);
-        System.assert(out.configurationDisplay.contains('constraints still fail'),
-            out.configurationDisplay);
+        System.assertEquals(
+            false,
+            out.configurationDisplay.contains('Fix the picks and call configure'),
+            out.configurationDisplay
+        );
+        System.assertEquals(
+            false,
+            out.configurationDisplay.contains('constraints still fail'),
+            out.configurationDisplay
+        );
     }
 
     @IsTest
@@ -294,9 +328,13 @@ private class RLM_MCP_BundleConfigTest {
         config.messages = new List<RLM_RampConfiguratorAction.ConfigMessage>{ staleGold };
 
         String display = RLM_MCP_BundleConfigService.formatDisplay(quote, line, config);
-        System.assert(display.startsWith('### Fix this'), display);
-        System.assert(display.contains('two CPUs or two liquid coolers'), display);
-        System.assert(display.contains('Workload is not General'), display);
+        System.assert(display.startsWith('Constraint'), display);
+        System.assert(display.contains('### Fix this'), display);
+        System.assert(display.contains(
+            'Rule: Dual sockets need Workload AI or High Performance Computing.'),
+            display);
+        System.assert(display.contains('Workload → General'), display);
+        System.assertEquals(false, display.contains('two CPUs or two liquid coolers'), display);
         System.assertEquals(false, display.contains('Gold CPU'), display);
         System.assertEquals(
             true,
@@ -329,7 +367,10 @@ private class RLM_MCP_BundleConfigTest {
         System.assertEquals(true, out.isSuccess, 'configure failed: ' + out.errorMessage);
         System.assertEquals(true, out.needsAction);
         System.assert(out.configurationDisplay.contains('### Fix this'), out.configurationDisplay);
-        System.assert(out.configurationDisplay.contains('two CPUs or two liquid coolers'),
+        System.assert(out.configurationDisplay.contains(
+            'Rule: Dual sockets need Workload AI or High Performance Computing.'),
+            out.configurationDisplay);
+        System.assertEquals(false, out.configurationDisplay.contains('two CPUs or two liquid coolers'),
             out.configurationDisplay);
         System.assertEquals(false, out.configurationDisplay.contains('Gold CPU'),
             out.configurationDisplay);
@@ -354,11 +395,136 @@ private class RLM_MCP_BundleConfigTest {
         config.message = 'Calculated value int 1 is not in domain of x16Lanes in Server_0';
 
         String display = RLM_MCP_BundleConfigService.formatDisplay(quote, line, config);
-        System.assert(display.startsWith('### Fix this'), display);
+        System.assert(display.startsWith('Constraint'), display);
+        System.assert(display.contains('### Fix this'), display);
         System.assert(display.contains('Performance Tier'), display);
         System.assert(display.contains('Socket'), display);
         System.assertEquals(false, display.contains('Server_0'), display);
         System.assertEquals('change_picks', config.fixKind);
+    }
+
+    @IsTest
+    static void formatDisplayMapsGenericCreToCoachCard() {
+        Quote quote = [
+            SELECT Id, Name, Account.Name
+            FROM Quote
+            WHERE Name = 'Config MCP Quote'
+            LIMIT 1
+        ];
+        QuoteLineItem line = [
+            SELECT Id, Product2.Name, Product2.StockKeepingUnit
+            FROM QuoteLineItem
+            WHERE QuoteId = :quote.Id
+            LIMIT 1
+        ];
+        RLM_RampConfiguratorAction.ConfigResult config = sampleConfig(true);
+        RLM_RampConfiguratorAction.ConfigAttribute raid =
+            new RLM_RampConfiguratorAction.ConfigAttribute();
+        raid.label = 'RAID';
+        raid.attributeName = 'RAID';
+        raid.value = 'RAID 1';
+        RLM_RampConfiguratorAction.ConfigPicklistOption raidNa =
+            new RLM_RampConfiguratorAction.ConfigPicklistOption();
+        raidNa.label = 'N/A';
+        raidNa.value = 'N/A';
+        RLM_RampConfiguratorAction.ConfigPicklistOption raid1 =
+            new RLM_RampConfiguratorAction.ConfigPicklistOption();
+        raid1.label = 'RAID 1';
+        raid1.value = 'RAID 1';
+        raid.options = new List<RLM_RampConfiguratorAction.ConfigPicklistOption>{
+            raidNa, raid1
+        };
+        config.attributes.add(raid);
+        RLM_RampConfiguratorAction.ConfigComponent raidCard =
+            new RLM_RampConfiguratorAction.ConfigComponent();
+        raidCard.name = 'RAID 500 card';
+        raidCard.sku = 'QB-RAID-500';
+        raidCard.selected = false;
+        RLM_RampConfiguratorAction.ConfigGroup controller =
+            new RLM_RampConfiguratorAction.ConfigGroup();
+        controller.name = 'Controller';
+        controller.components = new List<RLM_RampConfiguratorAction.ConfigComponent>{
+            raidCard
+        };
+        config.groups.add(controller);
+        RLM_RampConfiguratorAction.ConfigMessage raidMsg =
+            new RLM_RampConfiguratorAction.ConfigMessage();
+        raidMsg.messageType = 'constraint';
+        raidMsg.text = 'RAID 1 requires a RAID 500 card.';
+        config.messages.add(raidMsg);
+
+        String display = RLM_MCP_BundleConfigService.formatDisplay(quote, line, config);
+        System.assert(display.startsWith('Constraint'), display);
+        System.assert(display.contains(
+            'Rule: RAID needs a RAID 500 card. Add it, or set RAID to N/A.'), display);
+        System.assert(display.contains('Now: RAID = RAID 1'), display);
+        System.assert(display.contains('RAID → N/A'), display);
+        System.assert(display.contains('Controller → RAID 500 card'), display);
+        System.assertEquals(false, display.contains('Server_0'), display);
+    }
+
+    @IsTest
+    static void formatDisplayHidesSolverLeftoverFromCoachCard() {
+        Quote quote = [
+            SELECT Id, Name, Account.Name
+            FROM Quote
+            WHERE Name = 'Config MCP Quote'
+            LIMIT 1
+        ];
+        QuoteLineItem line = [
+            SELECT Id, Product2.Name, Product2.StockKeepingUnit
+            FROM QuoteLineItem
+            WHERE QuoteId = :quote.Id
+            LIMIT 1
+        ];
+        RLM_RampConfiguratorAction.ConfigResult config = sampleConfig(true);
+        config.success = false;
+        config.message = 'Calculated value int 1 is not in domain of FooBar in Server_0';
+
+        String display = RLM_MCP_BundleConfigService.formatDisplay(quote, line, config);
+        System.assertEquals(null, config.constraintCoachDisplay);
+        System.assertEquals('platform', config.fixKind);
+        System.assertEquals(false, display.startsWith('Constraint'), display);
+        System.assert(display.contains('### Fix this'), display);
+        System.assertEquals(false, display.contains('Server_0'), display);
+        System.assertEquals(false, display.contains('not in domain'), display);
+    }
+
+    @IsTest
+    static void describe_leftoverGoldLeadsWithCoachCard() {
+        FakeEngine fake = new FakeEngine();
+        fake.loadResult = sampleQRackConfig(true);
+        fake.loadResult.groups[0].components[0].selected = true;
+        fake.loadResult.messages = new List<RLM_RampConfiguratorAction.ConfigMessage>();
+        RLM_MCP_BundleConfigService.engine = fake;
+        RLM_MCP_DescribeBundleConfiguration.DescribeInput input =
+            new RLM_MCP_DescribeBundleConfiguration.DescribeInput();
+        input.quoteName = 'Config MCP Quote';
+        input.productName = 'MCP Complete Bundle';
+
+        RLM_MCP_DescribeBundleConfiguration.DescribeOutput out =
+            RLM_MCP_DescribeBundleConfiguration.describe(
+                new List<RLM_MCP_DescribeBundleConfiguration.DescribeInput>{ input }
+            )[0];
+
+        System.assertEquals(true, out.isSuccess, 'describe failed: ' + out.errorMessage);
+        System.assertEquals(true, out.needsAction);
+        System.assert(String.isNotBlank(out.constraintCoachDisplay), out.constraintCoachDisplay);
+        System.assert(out.constraintCoachDisplay.startsWith('Constraint'),
+            out.constraintCoachDisplay);
+        System.assert(out.configurationDisplay.startsWith('Constraint'), out.configurationDisplay);
+        System.assert(out.configurationDisplay.contains('I will not configure until you pick.'),
+            out.configurationDisplay);
+        System.assertEquals(
+            false,
+            out.configurationDisplay.contains('Keep-or-drill'),
+            out.configurationDisplay
+        );
+        System.assertEquals(
+            false,
+            out.configurationDisplay.contains('Step 1 of 2'),
+            out.configurationDisplay
+        );
     }
 
     @IsTest
@@ -450,7 +616,11 @@ private class RLM_MCP_BundleConfigTest {
         System.assert(out.configurationDisplay.contains('Performance Tier'), out.configurationDisplay);
         System.assert(out.configurationDisplay.contains('(not set)'), out.configurationDisplay);
         System.assert(out.configurationDisplay.contains('affects price'), out.configurationDisplay);
-        System.assert(out.configurationDisplay.contains('Step 1 of 2'), out.configurationDisplay);
+        System.assert(out.configurationDisplay.startsWith('Constraint'), out.configurationDisplay);
+        System.assert(out.constraintCoachDisplay.contains('Performance Tier still needs a value.'),
+            out.constraintCoachDisplay);
+        System.assert(out.constraintCoachDisplay.contains('I will not configure until you pick.'),
+            out.constraintCoachDisplay);
     }
 
     @IsTest
@@ -474,7 +644,12 @@ private class RLM_MCP_BundleConfigTest {
 
         System.assertEquals(true, out.isSuccess, 'configure failed: ' + out.errorMessage);
         System.assertEquals(true, out.needsAction);
-        System.assert(out.configurationDisplay.contains('attributePicksJson'), out.configurationDisplay);
+        System.assert(out.errorMessage.contains('attributePicksJson'), out.errorMessage);
+        System.assertEquals(
+            false,
+            out.configurationDisplay.contains('Fix the picks and call configure'),
+            out.configurationDisplay
+        );
         System.assertEquals(1, fake.saveCalls);
     }
 
@@ -627,8 +802,16 @@ private class RLM_MCP_BundleConfigTest {
         System.assertEquals(true, out.isSuccess, 'configure failed: ' + out.errorMessage);
         System.assertEquals(true, out.needsAction);
         System.assert(out.configurationDisplay.contains('CPU and GPU cannot be combined'));
-        System.assert(out.configurationDisplay.contains('constraints still fail'));
-        System.assert(out.configurationDisplay.contains('Do not copy this mix to other ramp years'));
+        System.assertEquals(
+            false,
+            out.configurationDisplay.contains('constraints still fail'),
+            out.configurationDisplay
+        );
+        System.assertEquals(
+            false,
+            out.configurationDisplay.contains('Fix the picks and call configure'),
+            out.configurationDisplay
+        );
         System.assertEquals(1, fake.saveCalls);
     }
 

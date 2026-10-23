@@ -766,14 +766,24 @@ private class RLM_RampConfiguratorActionTest {
         RLM_RampConfiguratorAction.attachFixGuidance(singleLeft);
         System.assertEquals('change_picks', singleLeft.fixKind);
         System.assertEquals(
-            RLM_RampConfiguratorAction.SINGLE_DUAL_QTY_FIX,
+            RLM_ConstraintRuleIndex.byMatch('dualWorkload').ruleText,
             singleLeft.fixSteps[0]
         );
-        System.assert(String.join(singleLeft.fixSteps, ' ').contains('Workload is not General'));
-        System.assert(String.join(singleLeft.fixSteps, ' ').contains('Dual-only GPU'));
+        System.assertEquals(1, singleLeft.fixSteps.size());
+        System.assert(singleLeft.constraintCoachDisplay.contains(
+            'Rule: Dual sockets need Workload AI or High Performance Computing.'),
+            singleLeft.constraintCoachDisplay);
         System.assertEquals(
             false,
             String.join(singleLeft.fixSteps, ' ').contains('Gold CPU')
+        );
+        System.assertEquals(
+            false,
+            String.join(singleLeft.fixSteps, ' ').contains('two CPUs or two liquid coolers')
+        );
+        System.assertEquals(
+            false,
+            String.join(singleLeft.fixSteps, ' ').contains('Dual-only GPU')
         );
 
         RLM_RampConfiguratorAction.ConfigResult domain =
@@ -782,9 +792,14 @@ private class RLM_RampConfiguratorActionTest {
         domain.message = 'Calculated value int 1 is not in domain of x16Lanes in Server_0';
         RLM_RampConfiguratorAction.attachFixGuidance(domain);
         System.assertEquals('change_picks', domain.fixKind);
-        System.assert(domain.fixSteps[0].contains('Performance Tier'), domain.fixSteps[0]);
-        System.assert(domain.fixSteps[0].contains('Socket'), domain.fixSteps[0]);
-        System.assert(domain.fixSteps[0].contains('read-only'), domain.fixSteps[0]);
+        System.assertEquals(
+            RLM_ConstraintRuleIndex.byMatch('x16Lanes').ruleText,
+            domain.fixSteps[0]
+        );
+        System.assertEquals(
+            false,
+            domain.fixSteps[0].contains('A Dual GPU is selected')
+        );
 
         RLM_RampConfiguratorAction.ConfigMessage leftover =
             new RLM_RampConfiguratorAction.ConfigMessage();
@@ -814,6 +829,205 @@ private class RLM_RampConfiguratorActionTest {
         RLM_RampConfiguratorAction.attachFixGuidance(raidResult);
         System.assertEquals('change_picks', raidResult.fixKind);
         System.assertEquals(raid.text, raidResult.fixSteps[0]);
+    }
+
+    @IsTest
+    static void attachFixGuidanceBuildsConstraintCoachCard() {
+        RLM_RampConfiguratorAction.ConfigAttribute socket =
+            new RLM_RampConfiguratorAction.ConfigAttribute();
+        socket.attributeName = 'SocketConfiguration';
+        socket.label = 'Socket Configuration';
+        socket.value = 'Dual';
+        RLM_RampConfiguratorAction.ConfigPicklistOption dual =
+            new RLM_RampConfiguratorAction.ConfigPicklistOption();
+        dual.label = 'Dual';
+        dual.value = 'Dual';
+        RLM_RampConfiguratorAction.ConfigPicklistOption single =
+            new RLM_RampConfiguratorAction.ConfigPicklistOption();
+        single.label = 'Single';
+        single.value = 'Single';
+        socket.options = new List<RLM_RampConfiguratorAction.ConfigPicklistOption>{
+            dual, single
+        };
+        RLM_RampConfiguratorAction.ConfigAttribute workload =
+            new RLM_RampConfiguratorAction.ConfigAttribute();
+        workload.attributeName = 'Workload';
+        workload.label = 'Workload';
+        workload.value = 'High Performance Computing';
+        RLM_RampConfiguratorAction.ConfigComponent gold =
+            new RLM_RampConfiguratorAction.ConfigComponent();
+        gold.name = 'Intel Xeon Gold 6330N 2.2GHz, 28C/56T';
+        gold.sku = 'QB-INTEL-GOLD-6330N';
+        gold.selected = true;
+        gold.quantity = 1;
+        RLM_RampConfiguratorAction.ConfigComponent platinum =
+            new RLM_RampConfiguratorAction.ConfigComponent();
+        platinum.name = 'Intel Xeon Platinum 8352M 2.3GHz, 32C/64T';
+        platinum.sku = 'QB-INTEL-PLAT-8352M';
+        platinum.selected = false;
+        platinum.quantity = 1;
+        RLM_RampConfiguratorAction.ConfigGroup cpuGroup =
+            new RLM_RampConfiguratorAction.ConfigGroup();
+        cpuGroup.name = 'CPU';
+        cpuGroup.components = new List<RLM_RampConfiguratorAction.ConfigComponent>{
+            gold, platinum
+        };
+        RLM_RampConfiguratorAction.ConfigResult dualGold =
+            new RLM_RampConfiguratorAction.ConfigResult();
+        dualGold.success = true;
+        dualGold.attributes = new List<RLM_RampConfiguratorAction.ConfigAttribute>{
+            socket, workload
+        };
+        dualGold.groups = new List<RLM_RampConfiguratorAction.ConfigGroup>{ cpuGroup };
+        dualGold.messages = new List<RLM_RampConfiguratorAction.ConfigMessage>();
+        RLM_RampConfiguratorAction.attachFixGuidance(
+            dualGold, new Set<String>{ 'socket configuration' });
+        System.assertEquals('change_picks', dualGold.fixKind);
+        System.assertEquals(RLM_RampConfiguratorAction.DUAL_GOLD_FIX, dualGold.fixSteps[0]);
+        System.assert(dualGold.constraintCoachDisplay.startsWith('Constraint'),
+            dualGold.constraintCoachDisplay);
+        System.assert(dualGold.constraintCoachDisplay.contains(
+            'Rule: Dual cannot use a Gold CPU. Pick a Platinum, or switch Socket to Single.'),
+            dualGold.constraintCoachDisplay);
+        System.assertEquals(
+            false,
+            dualGold.constraintCoachDisplay.contains('Dual sockets cannot use a Gold CPU.'),
+            dualGold.constraintCoachDisplay
+        );
+        System.assert(dualGold.constraintCoachDisplay.contains(
+            'Now: Socket Configuration = Dual; Processor = Intel Xeon Gold 6330N'),
+            dualGold.constraintCoachDisplay);
+        System.assert(dualGold.constraintCoachDisplay.contains(
+            'Violating: Dual requires Gold quantity 0.'),
+            dualGold.constraintCoachDisplay);
+        System.assert(dualGold.constraintCoachDisplay.contains('Change one of:'),
+            dualGold.constraintCoachDisplay);
+        System.assert(dualGold.constraintCoachDisplay.contains(
+            'Socket Configuration → Single'), dualGold.constraintCoachDisplay);
+        System.assert(dualGold.constraintCoachDisplay.contains(
+            'Processor → Intel Xeon Platinum 8352M'),
+            dualGold.constraintCoachDisplay);
+        System.assert(dualGold.constraintCoachDisplay.contains('(Gold quantity 0)'),
+            dualGold.constraintCoachDisplay);
+        System.assertEquals(
+            false,
+            dualGold.constraintCoachDisplay.containsIgnoreCase('Gold 6330N (Gold quantity 0)'),
+            dualGold.constraintCoachDisplay
+        );
+        System.assert(dualGold.constraintCoachDisplay.contains(
+            'I will not configure until you pick.'), dualGold.constraintCoachDisplay);
+        System.assertEquals(
+            false,
+            dualGold.constraintCoachDisplay.contains('not in domain'),
+            dualGold.constraintCoachDisplay
+        );
+
+        RLM_RampConfiguratorAction.ConfigAttribute raid =
+            new RLM_RampConfiguratorAction.ConfigAttribute();
+        raid.attributeName = 'RAID';
+        raid.label = 'RAID';
+        raid.value = 'RAID 1';
+        RLM_RampConfiguratorAction.ConfigPicklistOption raidNa =
+            new RLM_RampConfiguratorAction.ConfigPicklistOption();
+        raidNa.label = 'N/A';
+        raidNa.value = 'N/A';
+        RLM_RampConfiguratorAction.ConfigPicklistOption raid1 =
+            new RLM_RampConfiguratorAction.ConfigPicklistOption();
+        raid1.label = 'RAID 1';
+        raid1.value = 'RAID 1';
+        RLM_RampConfiguratorAction.ConfigPicklistOption raid5 =
+            new RLM_RampConfiguratorAction.ConfigPicklistOption();
+        raid5.label = 'RAID 5';
+        raid5.value = 'RAID 5';
+        raid.options = new List<RLM_RampConfiguratorAction.ConfigPicklistOption>{
+            raidNa, raid1, raid5
+        };
+        RLM_RampConfiguratorAction.ConfigComponent raidCard =
+            new RLM_RampConfiguratorAction.ConfigComponent();
+        raidCard.name = 'RAID 500 card';
+        raidCard.sku = 'QB-RAID-500';
+        raidCard.selected = false;
+        RLM_RampConfiguratorAction.ConfigGroup controller =
+            new RLM_RampConfiguratorAction.ConfigGroup();
+        controller.name = 'Controller';
+        controller.components = new List<RLM_RampConfiguratorAction.ConfigComponent>{
+            raidCard
+        };
+        RLM_RampConfiguratorAction.ConfigMessage raidMsg =
+            new RLM_RampConfiguratorAction.ConfigMessage();
+        raidMsg.messageType = 'constraint';
+        raidMsg.text = 'RAID 1 requires a RAID 500 card.';
+        RLM_RampConfiguratorAction.ConfigResult generic =
+            new RLM_RampConfiguratorAction.ConfigResult();
+        generic.success = true;
+        generic.attributes = new List<RLM_RampConfiguratorAction.ConfigAttribute>{ raid };
+        generic.groups = new List<RLM_RampConfiguratorAction.ConfigGroup>{ controller };
+        generic.messages = new List<RLM_RampConfiguratorAction.ConfigMessage>{ raidMsg };
+        RLM_RampConfiguratorAction.attachFixGuidance(generic);
+        System.assertEquals('change_picks', generic.fixKind);
+        System.assert(generic.constraintCoachDisplay.contains(
+            'Rule: RAID needs a RAID 500 card. Add it, or set RAID to N/A.'),
+            generic.constraintCoachDisplay);
+        System.assert(generic.constraintCoachDisplay.contains('Now: RAID = RAID 1'),
+            generic.constraintCoachDisplay);
+        System.assert(generic.constraintCoachDisplay.contains('RAID → N/A'),
+            generic.constraintCoachDisplay);
+        System.assert(generic.constraintCoachDisplay.contains('Controller → RAID 500 card'),
+            generic.constraintCoachDisplay);
+        System.assert(generic.constraintCoachDisplay.contains('I will not configure until you pick.'),
+            generic.constraintCoachDisplay);
+
+        RLM_RampConfiguratorAction.ConfigResult leftover =
+            new RLM_RampConfiguratorAction.ConfigResult();
+        leftover.success = false;
+        leftover.message = 'Calculated value int 1 is not in domain of FooBar in Server_0';
+        RLM_RampConfiguratorAction.attachFixGuidance(leftover);
+        System.assertEquals('platform', leftover.fixKind);
+        System.assertEquals(null, leftover.constraintCoachDisplay);
+
+        RLM_RampConfiguratorAction.ConfigAttribute laneSocket =
+            new RLM_RampConfiguratorAction.ConfigAttribute();
+        laneSocket.attributeName = 'SocketConfiguration';
+        laneSocket.label = 'Socket Configuration';
+        laneSocket.value = 'Dual';
+        RLM_RampConfiguratorAction.ConfigPicklistOption laneSingle =
+            new RLM_RampConfiguratorAction.ConfigPicklistOption();
+        laneSingle.label = 'Single';
+        laneSingle.value = 'Single';
+        laneSocket.options = new List<RLM_RampConfiguratorAction.ConfigPicklistOption>{
+            laneSingle
+        };
+        RLM_RampConfiguratorAction.ConfigAttribute laneTier =
+            new RLM_RampConfiguratorAction.ConfigAttribute();
+        laneTier.attributeName = 'PerformanceTier';
+        laneTier.label = 'Performance Tier';
+        laneTier.value = 'Standard';
+        RLM_RampConfiguratorAction.ConfigResult lanes =
+            new RLM_RampConfiguratorAction.ConfigResult();
+        lanes.success = false;
+        lanes.message = 'Calculated value int 1 is not in domain of x16Lanes in Server_0';
+        lanes.attributes = new List<RLM_RampConfiguratorAction.ConfigAttribute>{
+            laneSocket, laneTier
+        };
+        RLM_RampConfiguratorAction.attachFixGuidance(lanes);
+        System.assertEquals('change_picks', lanes.fixKind);
+        System.assert(lanes.constraintCoachDisplay.contains(
+            'Rule: Do not edit x16 Lanes. Dual with this Performance Tier adds a GPU. Set Performance Tier to Entry, or set Socket to Single.'),
+            lanes.constraintCoachDisplay);
+        System.assertEquals(
+            false,
+            lanes.constraintCoachDisplay.contains('A Dual GPU is selected'),
+            lanes.constraintCoachDisplay
+        );
+        System.assert(lanes.constraintCoachDisplay.contains('Performance Tier → Entry'),
+            lanes.constraintCoachDisplay);
+        System.assert(lanes.constraintCoachDisplay.contains('Socket Configuration → Single'),
+            lanes.constraintCoachDisplay);
+        System.assertEquals(
+            false,
+            lanes.constraintCoachDisplay.contains('Workload →'),
+            lanes.constraintCoachDisplay
+        );
     }
 
     @IsTest

@@ -62,6 +62,7 @@ datasets/constraints/
 │   │       └── ESDV_QuantumBitComplete_V1.ffxblob
 │   ├── Server2/
 │   │   ├── (same CSV structure)
+│   │   ├── rule-index.json          # run-time constraint messages (extract_constraint_rules.py)
 │   │   └── blobs/
 │   │       └── ESDV_Server2_V1.ffxblob
 │   ├── QuantumBitPCM/

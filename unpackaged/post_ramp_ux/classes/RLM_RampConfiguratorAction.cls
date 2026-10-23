@@ -15,15 +15,6 @@ public with sharing class RLM_RampConfiguratorAction {
     static final String DUAL_GOLD_FIX =
         'Dual cannot use a Gold CPU. Pick a Platinum, or switch Socket to Single.';
     @TestVisible
-    static final String SINGLE_WORKLOAD_FIX =
-        'Socket is Single and Workload is not General. Set Workload to General, or switch Socket back to Dual.';
-    @TestVisible
-    static final String SINGLE_DUAL_QTY_FIX =
-        'Socket is Single but the rack still has two CPUs or two liquid coolers. Set each to quantity 1, or switch Socket back to Dual.';
-    @TestVisible
-    static final String SINGLE_GPU_FIX =
-        'Socket is Single but a Dual-only GPU is still on the rack. Remove the GPU, or switch Socket back to Dual.';
-    @TestVisible
     static Boolean forceAsyncConfigure = false;
     /**
      * Hosted MCP describe/configure must never Http.send in the tool
@@ -44,6 +35,7 @@ public with sharing class RLM_RampConfiguratorAction {
         @AuraEnabled public String fixKind;
         @AuraEnabled public String fixHeadline;
         @AuraEnabled public List<String> fixSteps;
+        @AuraEnabled public String constraintCoachDisplay;
     }
 
     public class ConfigGroup {
@@ -1742,12 +1734,17 @@ public with sharing class RLM_RampConfiguratorAction {
     }
 
     public static void attachFixGuidance(ConfigResult result) {
+        attachFixGuidance(result, null);
+    }
+
+    public static void attachFixGuidance(ConfigResult result, Set<String> preferredChangeKeys) {
         if (result == null) {
             return;
         }
         result.fixKind = null;
         result.fixHeadline = null;
         result.fixSteps = null;
+        result.constraintCoachDisplay = null;
         if (result.message == CRE_LOADING) {
             result.fixKind = 'retry';
             result.fixHeadline =
@@ -1760,39 +1757,7 @@ public with sharing class RLM_RampConfiguratorAction {
         }
         List<String> steps = new List<String>();
         appendUnique(steps, invalidValueFixStep(result));
-        if (isDualWithGeneral(result)) {
-            appendUnique(
-                steps,
-                'Socket is Dual and Workload is still General. Dual sockets need Workload AI or High Performance Computing, or switch Socket back to Single.'
-            );
-        }
-        if (isDualWithGold(result)) {
-            appendUnique(steps, DUAL_GOLD_FIX);
-        }
-        if (isSingleWithDualHardware(result)) {
-            appendUnique(steps, SINGLE_DUAL_QTY_FIX);
-        }
-        if (isSingleWithNonGeneral(result)) {
-            appendUnique(steps, SINGLE_WORKLOAD_FIX);
-        }
-        if (isSingleWithDualGpu(result)) {
-            appendUnique(steps, SINGLE_GPU_FIX);
-        }
-        if (result.messages != null) {
-            for (ConfigMessage msg : result.messages) {
-                if (msg == null || String.isBlank(msg.text) || !isBlockingMessage(msg)) {
-                    continue;
-                }
-                if (isSolverLeftoverMessage(msg.text)) {
-                    continue;
-                }
-                appendUnique(
-                    steps,
-                    rewriteKnownConstraint(stripConstraintPrefix(msg.text), result)
-                );
-            }
-        }
-        appendUnique(steps, laneDomainFixStep(result));
+        appendIndexedRuleSteps(result, steps);
         appendRequiredFixSteps(result, steps);
         if (steps.isEmpty() && isChangePicksMessage(result.message)
             && !isSolverLeftoverMessage(result.message)) {
@@ -1802,6 +1767,8 @@ public with sharing class RLM_RampConfiguratorAction {
             result.fixKind = 'change_picks';
             result.fixHeadline = 'What to change';
             result.fixSteps = steps;
+            result.constraintCoachDisplay = buildConstraintCoachDisplay(
+                result, preferredChangeKeys);
             return;
         }
         if (isPlatformConfigureMessage(result.message) || hasSolverLeftover(result)) {
@@ -1809,6 +1776,780 @@ public with sharing class RLM_RampConfiguratorAction {
             result.fixHeadline = 'This is not a rack-option problem.';
             result.fixSteps = platformFixSteps(result.message);
         }
+    }
+
+    @TestVisible
+    static String buildConstraintCoachDisplay(
+        ConfigResult result,
+        Set<String> preferredChangeKeys
+    ) {
+        if (result == null || result.fixKind != 'change_picks') {
+            return null;
+        }
+        RLM_ConstraintRuleIndex.Rule rule = primaryIndexedRule(result);
+        String ruleText = rule != null ? rule.ruleText : firstUserFacingStep(result);
+        if (String.isBlank(ruleText) || isSolverLeftoverMessage(ruleText)) {
+            return null;
+        }
+        List<String> lines = new List<String>{ 'Constraint', 'Rule: ' + ruleText };
+        String nowLine = coachNow(result, rule);
+        if (String.isNotBlank(nowLine)) {
+            lines.add('Now: ' + nowLine);
+        }
+        if (rule != null && String.isNotBlank(rule.violating)) {
+            lines.add('Violating: ' + rule.violating);
+        }
+        List<String> options = coachOptions(result, rule, preferredChangeKeys);
+        if (!options.isEmpty()) {
+            lines.add('Change one of:');
+            Integer index = 1;
+            for (String option : options) {
+                lines.add(String.valueOf(index) + '. ' + option);
+                index++;
+            }
+            lines.add(coachWaitLine(options.size()));
+        }
+        return String.join(lines, '\n');
+    }
+
+    static String coachWaitLine(Integer count) {
+        if (count == null || count <= 1) {
+            return 'Reply with 1. I will not configure until you pick.';
+        }
+        if (count == 2) {
+            return 'Reply with 1 or 2. I will not configure until you pick.';
+        }
+        List<String> numbers = new List<String>();
+        for (Integer i = 1; i <= count; i++) {
+            numbers.add(String.valueOf(i));
+        }
+        String last = numbers.remove(numbers.size() - 1);
+        return 'Reply with ' + String.join(numbers, ', ') + ', or ' + last
+            + '. I will not configure until you pick.';
+    }
+
+    static String firstUserFacingStep(ConfigResult result) {
+        if (result == null || result.fixSteps == null) {
+            return null;
+        }
+        for (String step : result.fixSteps) {
+            if (String.isNotBlank(step) && !isSolverLeftoverMessage(step)) {
+                return step;
+            }
+        }
+        return null;
+    }
+
+    static String coachNow(ConfigResult result, RLM_ConstraintRuleIndex.Rule rule) {
+        List<String> parts = new List<String>();
+        String match = rule == null ? null : rule.match;
+        if (match == 'dualGold') {
+            addAttributeNow(parts, socketAttribute(result));
+            addSelectedProcessorNow(parts, result, true);
+            return joinNow(parts);
+        }
+        if (match == 'dualWorkload') {
+            addAttributeNow(parts, socketAttribute(result));
+            addAttributeNow(parts, findLoadedAttribute(result, 'Workload'));
+            return joinNow(parts);
+        }
+        if (match == 'dualLiquid') {
+            addAttributeNow(parts, socketAttribute(result));
+            addSelectedKindNow(parts, result, 'liquid', false);
+            return joinNow(parts);
+        }
+        if (match == 'x16Lanes') {
+            addAttributeNow(parts, socketAttribute(result));
+            addAttributeNow(parts, findLoadedAttribute(result, 'Performance Tier'));
+            return joinNow(parts);
+        }
+        if (match == 'raidCard') {
+            addAttributeNow(parts, findLoadedAttribute(result, 'RAID'));
+            return joinNow(parts);
+        }
+        String seed = rule != null ? rule.ruleText : firstUserFacingStep(result);
+        if (rule != null && rule.attributes != null) {
+            for (String attrName : rule.attributes) {
+                addAttributeNow(parts, findLoadedAttribute(result, attrName));
+            }
+        }
+        for (ConfigAttribute attr : attributesMentioned(result, seed)) {
+            addAttributeNow(parts, attr);
+        }
+        for (ConfigComponent component : selectedComponentsMentioned(result, seed)) {
+            addComponentNow(parts, groupNameFor(result, component), component);
+        }
+        return joinNow(parts);
+    }
+
+    static List<String> coachOptions(
+        ConfigResult result,
+        RLM_ConstraintRuleIndex.Rule rule,
+        Set<String> preferredChangeKeys
+    ) {
+        List<String> options = new List<String>();
+        if (rule != null && rule.flips != null && !rule.flips.isEmpty()) {
+            addRuleFlipOptions(options, result, rule);
+        } else {
+            String seed = rule != null ? rule.ruleText : firstUserFacingStep(result);
+            for (ConfigAttribute attr : attributesMentioned(result, seed)) {
+                addAttributeOtherOptions(options, attr);
+            }
+            for (ConfigGroup optionGroup : groupsMentioned(result, seed)) {
+                addGroupSiblingOptions(options, optionGroup);
+            }
+        }
+        return orderPreferredOptions(options, preferredChangeKeys, 6);
+    }
+
+    static String joinNow(List<String> parts) {
+        return parts == null || parts.isEmpty() ? null : String.join(parts, '; ');
+    }
+
+    static void addAttributeNow(List<String> parts, ConfigAttribute attr) {
+        if (parts == null || attr == null) {
+            return;
+        }
+        String label = firstNonBlank(attr.label, attr.attributeName, 'Attribute');
+        String value = String.isNotBlank(attr.value) ? attr.value : '(not set)';
+        appendUnique(parts, label + ' = ' + value);
+    }
+
+    static void addSelectedProcessorNow(
+        List<String> parts,
+        ConfigResult result,
+        Boolean preferGold
+    ) {
+        ConfigComponent found = firstSelectedKind(result, 'cpu', preferGold);
+        if (found == null) {
+            return;
+        }
+        addComponentNow(parts, 'Processor', found);
+    }
+
+    static void addSelectedKindNow(
+        List<String> parts,
+        ConfigResult result,
+        String kind,
+        Boolean preferGold
+    ) {
+        ConfigComponent found = firstSelectedKind(result, kind, preferGold);
+        if (found == null) {
+            return;
+        }
+        addComponentNow(parts, kindLabel(kind), found);
+    }
+
+    static void addComponentNow(List<String> parts, String label, ConfigComponent component) {
+        if (parts == null || component == null) {
+            return;
+        }
+        String name = firstNonBlank(component.name, component.sku, label);
+        Decimal qty = component.quantity == null ? 1 : component.quantity;
+        if (qty > 1) {
+            name += ' ×' + String.valueOf(qty.intValue());
+        }
+        appendUnique(parts, firstNonBlank(label, 'Option') + ' = ' + name);
+    }
+
+    static ConfigComponent firstSelectedKind(
+        ConfigResult result,
+        String kind,
+        Boolean preferGold
+    ) {
+        if (result == null || result.groups == null || String.isBlank(kind)) {
+            return null;
+        }
+        ConfigComponent gold = null;
+        ConfigComponent firstMatch = null;
+        for (ConfigGroup optionGroup : result.groups) {
+            if (optionGroup == null || optionGroup.components == null) {
+                continue;
+            }
+            for (ConfigComponent component : optionGroup.components) {
+                if (component == null || component.selected != true || !matchesKind(component, kind)) {
+                    continue;
+                }
+                if (preferGold == true && isGoldCpu(component)) {
+                    gold = component;
+                }
+                if (firstMatch == null) {
+                    firstMatch = component;
+                }
+            }
+        }
+        return gold != null ? gold : firstMatch;
+    }
+
+    static Boolean matchesKind(ConfigComponent component, String kind) {
+        if (kind == 'cpu') {
+            return isCpu(component);
+        }
+        if (kind == 'liquid') {
+            return isLiquidCooler(component);
+        }
+        if (kind == 'gpu') {
+            return isGpu(component);
+        }
+        return false;
+    }
+
+    static String kindLabel(String kind) {
+        if (kind == 'cpu') {
+            return 'CPU';
+        }
+        if (kind == 'liquid') {
+            return 'Cooling';
+        }
+        if (kind == 'gpu') {
+            return 'GPU';
+        }
+        return 'Option';
+    }
+
+    static ConfigAttribute socketAttribute(ConfigResult result) {
+        ConfigAttribute attr = findLoadedAttribute(result, 'Socket Configuration');
+        if (attr != null) {
+            return attr;
+        }
+        attr = findLoadedAttribute(result, 'Socket');
+        return attr != null ? attr : findLoadedAttribute(result, 'SocketConfiguration');
+    }
+
+    static void appendIndexedRuleSteps(ConfigResult result, List<String> steps) {
+        if (result == null || steps == null) {
+            return;
+        }
+        if (result.messages != null) {
+            for (ConfigMessage msg : result.messages) {
+                if (msg == null || String.isBlank(msg.text) || !isBlockingMessage(msg)) {
+                    continue;
+                }
+                if (isSolverLeftoverMessage(msg.text)) {
+                    continue;
+                }
+                String stripped = stripConstraintPrefix(msg.text);
+                if (!constraintAppliesToMix(result, stripped)) {
+                    continue;
+                }
+                RLM_ConstraintRuleIndex.Rule matched = RLM_ConstraintRuleIndex.matchText(stripped);
+                appendUnique(steps, matched != null ? matched.ruleText : stripped);
+            }
+        }
+        appendMixRule(steps, 'dualGold', isDualWithGold(result));
+        appendMixRule(
+            steps,
+            'dualWorkload',
+            isDualWithGeneral(result) || isSingleWithNonGeneral(result)
+        );
+        appendMixRule(steps, 'dualLiquid', isDualMissingLiquid(result));
+        appendMixRule(
+            steps,
+            'x16Lanes',
+            hasLaneDomainLeftover(result) || isDualGpuLaneLeak(result)
+        );
+    }
+
+    static void appendMixRule(List<String> steps, String matchKey, Boolean applies) {
+        if (applies != true) {
+            return;
+        }
+        RLM_ConstraintRuleIndex.Rule rule = RLM_ConstraintRuleIndex.byMatch(matchKey);
+        if (rule != null) {
+            appendUnique(steps, rule.ruleText);
+        }
+    }
+
+    static RLM_ConstraintRuleIndex.Rule primaryIndexedRule(ConfigResult result) {
+        if (result == null) {
+            return null;
+        }
+        if (result.messages != null) {
+            for (ConfigMessage msg : result.messages) {
+                if (msg == null || String.isBlank(msg.text) || !isBlockingMessage(msg)) {
+                    continue;
+                }
+                if (isSolverLeftoverMessage(msg.text)) {
+                    continue;
+                }
+                String stripped = stripConstraintPrefix(msg.text);
+                if (!constraintAppliesToMix(result, stripped)) {
+                    continue;
+                }
+                RLM_ConstraintRuleIndex.Rule matched = RLM_ConstraintRuleIndex.matchText(stripped);
+                if (matched != null) {
+                    return matched;
+                }
+            }
+        }
+        if (isDualWithGold(result)) {
+            return RLM_ConstraintRuleIndex.byMatch('dualGold');
+        }
+        if (isDualWithGeneral(result) || isSingleWithNonGeneral(result)) {
+            return RLM_ConstraintRuleIndex.byMatch('dualWorkload');
+        }
+        if (isDualMissingLiquid(result)) {
+            return RLM_ConstraintRuleIndex.byMatch('dualLiquid');
+        }
+        if (hasLaneDomainLeftover(result) || isDualGpuLaneLeak(result)) {
+            return RLM_ConstraintRuleIndex.byMatch('x16Lanes');
+        }
+        if (result.fixSteps != null) {
+            for (String step : result.fixSteps) {
+                RLM_ConstraintRuleIndex.Rule matched = RLM_ConstraintRuleIndex.matchText(step);
+                if (matched != null) {
+                    return matched;
+                }
+            }
+        }
+        return null;
+    }
+
+    static void addRuleFlipOptions(
+        List<String> options,
+        ConfigResult result,
+        RLM_ConstraintRuleIndex.Rule rule
+    ) {
+        if (options == null || rule == null || rule.flips == null) {
+            return;
+        }
+        for (String flip : rule.flips) {
+            if (String.isBlank(flip) || !flipApplies(result, flip)) {
+                continue;
+            }
+            if (flip == 'platinum') {
+                addPlatinumOptions(options, result);
+            } else if (flip == 'socketSingle') {
+                addAttributeValueOption(options, socketAttribute(result), 'Single');
+            } else if (flip == 'socketDual') {
+                addAttributeValueOption(options, socketAttribute(result), 'Dual');
+            } else if (flip == 'tierEntry') {
+                addAttributeValueOption(
+                    options,
+                    findLoadedAttribute(result, 'Performance Tier'),
+                    'Entry'
+                );
+            } else if (flip == 'workloadAiHpc') {
+                addWorkloadNonGeneralOptions(options, result);
+            } else if (flip == 'workloadGeneral') {
+                addAttributeValueOption(
+                    options, findLoadedAttribute(result, 'Workload'), 'General');
+            } else if (flip == 'raidNa') {
+                addAttributeValueOption(options, findLoadedAttribute(result, 'RAID'), 'N/A');
+            } else if (flip == 'raidCard') {
+                addNamedComponentOption(options, result, 'RAID 500');
+            } else if (flip == 'liquidQty2') {
+                appendUnique(options, 'Cooling quantity → 2');
+            } else if (flip == 'dimmLrdimm') {
+                addAttributeValueOption(
+                    options, findLoadedAttribute(result, 'DIMM Type'), 'LRDIMM');
+            } else if (flip == 'dimmRdimm') {
+                addAttributeValueOption(
+                    options, findLoadedAttribute(result, 'DIMM Type'), 'RDIMM');
+            } else if (flip == 'redundancyBasic') {
+                addAttributeValueOption(
+                    options, findLoadedAttribute(result, 'Redundancy'), 'Basic Uptime');
+            } else if (flip == 'frontStorage35') {
+                addAttributeValueOption(
+                    options,
+                    findLoadedAttribute(result, 'Front Storage'),
+                    '12x3.5 inch Drives'
+                );
+            }
+        }
+    }
+
+    static Boolean flipApplies(ConfigResult result, String flip) {
+        if (flip == 'socketSingle') {
+            return !equalsIgnore(socketValue(result), 'Single');
+        }
+        if (flip == 'socketDual') {
+            return !equalsIgnore(socketValue(result), 'Dual');
+        }
+        if (flip == 'workloadGeneral') {
+            return !equalsIgnore(workloadValue(result), 'General');
+        }
+        if (flip == 'workloadAiHpc') {
+            String workload = workloadValue(result);
+            return String.isBlank(workload)
+                || equalsIgnore(workload, 'General');
+        }
+        if (flip == 'tierEntry') {
+            return !equalsIgnore(
+                attributeValue(result, new List<String>{ 'PerformanceTier', 'Performance Tier' }),
+                'Entry'
+            );
+        }
+        if (flip == 'raidNa') {
+            return !equalsIgnore(
+                attributeValue(result, new List<String>{ 'RAID' }),
+                'N/A'
+            );
+        }
+        if (flip == 'liquidQty2') {
+            return selectedQty(result, 'liquid') != 2;
+        }
+        return true;
+    }
+
+    static void addPlatinumOptions(List<String> options, ConfigResult result) {
+        ConfigGroup optionGroup = findKindGroup(result, 'cpu');
+        if (optionGroup == null || optionGroup.components == null) {
+            return;
+        }
+        for (ConfigComponent component : optionGroup.components) {
+            if (component == null || component.hidden == true) {
+                continue;
+            }
+            if (component.disabled == true && component.selected != true) {
+                continue;
+            }
+            if (isGoldCpu(component)) {
+                continue;
+            }
+            if (!isCpu(component)) {
+                continue;
+            }
+            String name = firstNonBlank(component.name, component.sku);
+            if (String.isBlank(name)) {
+                continue;
+            }
+            appendUnique(options, 'Processor → ' + name + ' (Gold quantity 0)');
+        }
+    }
+
+    static void addWorkloadNonGeneralOptions(List<String> options, ConfigResult result) {
+        ConfigAttribute workload = findLoadedAttribute(result, 'Workload');
+        if (workload == null) {
+            appendUnique(options, 'Workload → AI');
+            appendUnique(options, 'Workload → High Performance Computing');
+            return;
+        }
+        if (workload.options == null || workload.options.isEmpty()) {
+            addAttributeValueOption(options, workload, 'AI');
+            addAttributeValueOption(options, workload, 'High Performance Computing');
+            return;
+        }
+        for (ConfigPicklistOption option : workload.options) {
+            if (option == null) {
+                continue;
+            }
+            String value = firstNonBlank(option.label, option.value);
+            if (String.isBlank(value) || equalsIgnore(value, 'General')
+                || equalsIgnore(value, workload.value)) {
+                continue;
+            }
+            addAttributeValueOption(options, workload, value);
+        }
+    }
+
+    static void addAttributeValueOption(
+        List<String> options,
+        ConfigAttribute attr,
+        String target
+    ) {
+        if (options == null || attr == null || String.isBlank(target)
+            || equalsIgnore(attr.value, target)) {
+            return;
+        }
+        String label = firstNonBlank(attr.label, attr.attributeName, 'Attribute');
+        appendUnique(options, label + ' → ' + target);
+    }
+
+    static void addNamedComponentOption(
+        List<String> options,
+        ConfigResult result,
+        String nameContains
+    ) {
+        if (result == null || result.groups == null || String.isBlank(nameContains)) {
+            return;
+        }
+        for (ConfigGroup optionGroup : result.groups) {
+            if (optionGroup == null || optionGroup.components == null) {
+                continue;
+            }
+            for (ConfigComponent component : optionGroup.components) {
+                if (component == null || component.hidden == true) {
+                    continue;
+                }
+                if (component.disabled == true && component.selected != true) {
+                    continue;
+                }
+                String name = firstNonBlank(component.name, component.sku);
+                if (String.isBlank(name) || !name.containsIgnoreCase(nameContains)) {
+                    continue;
+                }
+                if (component.selected == true) {
+                    continue;
+                }
+                appendUnique(
+                    options,
+                    firstNonBlank(optionGroup.name, 'Option') + ' → ' + name
+                );
+            }
+        }
+    }
+
+    static void addAttributeOtherOptions(List<String> options, ConfigAttribute attr) {
+        if (options == null || attr == null) {
+            return;
+        }
+        String label = firstNonBlank(attr.label, attr.attributeName, 'Attribute');
+        Boolean added = false;
+        if (attr.options != null) {
+            for (ConfigPicklistOption option : attr.options) {
+                if (option == null) {
+                    continue;
+                }
+                String value = firstNonBlank(option.label, option.value);
+                if (String.isBlank(value) || equalsIgnore(value, attr.value)) {
+                    continue;
+                }
+                appendUnique(options, label + ' → ' + value);
+                added = true;
+            }
+        }
+        if (added) {
+            return;
+        }
+        if (isSocketAttribute(attr) && equalsIgnore(attr.value, 'Dual')) {
+            appendUnique(options, label + ' → Single');
+        } else if (isSocketAttribute(attr) && equalsIgnore(attr.value, 'Single')) {
+            appendUnique(options, label + ' → Dual');
+        }
+    }
+
+    static Boolean isSocketAttribute(ConfigAttribute attr) {
+        if (attr == null) {
+            return false;
+        }
+        return equalsIgnore(attr.label, 'Socket Configuration')
+            || equalsIgnore(attr.label, 'Socket')
+            || equalsIgnore(attr.attributeName, 'SocketConfiguration')
+            || equalsIgnore(attr.attributeName, 'Socket Configuration')
+            || equalsIgnore(attr.attributeName, 'Socket');
+    }
+
+    static void addGroupComponentOptions(
+        List<String> options,
+        ConfigResult result,
+        String kind,
+        Boolean skipGold
+    ) {
+        ConfigGroup optionGroup = findKindGroup(result, kind);
+        if (optionGroup == null || optionGroup.components == null) {
+            return;
+        }
+        String label = firstNonBlank(optionGroup.name, kindLabel(kind));
+        for (ConfigComponent component : optionGroup.components) {
+            if (component == null || component.hidden == true) {
+                continue;
+            }
+            if (component.disabled == true && component.selected != true) {
+                continue;
+            }
+            if (skipGold == true && isGoldCpu(component)) {
+                continue;
+            }
+            String name = firstNonBlank(component.name, component.sku);
+            if (String.isBlank(name)) {
+                continue;
+            }
+            appendUnique(options, label + ' → ' + name);
+        }
+    }
+
+    static void addGroupSiblingOptions(List<String> options, ConfigGroup optionGroup) {
+        if (options == null || optionGroup == null || optionGroup.components == null) {
+            return;
+        }
+        String label = firstNonBlank(optionGroup.name, 'Option');
+        for (ConfigComponent component : optionGroup.components) {
+            if (component == null || component.hidden == true || component.selected == true) {
+                continue;
+            }
+            if (component.disabled == true) {
+                continue;
+            }
+            String name = firstNonBlank(component.name, component.sku);
+            if (String.isNotBlank(name)) {
+                appendUnique(options, label + ' → ' + name);
+            }
+        }
+    }
+
+    static void addQuantityOneOption(List<String> options, ConfigResult result, String kind) {
+        if (selectedQty(result, kind) < 2) {
+            return;
+        }
+        appendUnique(options, kindLabel(kind) + ' quantity → 1');
+    }
+
+    static ConfigGroup findKindGroup(ConfigResult result, String kind) {
+        if (result == null || result.groups == null || String.isBlank(kind)) {
+            return null;
+        }
+        ConfigGroup named = null;
+        ConfigGroup withKind = null;
+        for (ConfigGroup optionGroup : result.groups) {
+            if (optionGroup == null) {
+                continue;
+            }
+            if (equalsIgnore(optionGroup.name, kindLabel(kind))) {
+                named = optionGroup;
+            }
+            if (withKind == null && optionGroup.components != null) {
+                for (ConfigComponent component : optionGroup.components) {
+                    if (matchesKind(component, kind)) {
+                        withKind = optionGroup;
+                        break;
+                    }
+                }
+            }
+        }
+        return named != null ? named : withKind;
+    }
+
+    static List<ConfigAttribute> attributesMentioned(ConfigResult result, String text) {
+        List<ConfigAttribute> hits = new List<ConfigAttribute>();
+        if (result == null || result.attributes == null || String.isBlank(text)) {
+            return hits;
+        }
+        for (ConfigAttribute attr : result.attributes) {
+            if (attr != null && textMentions(text, firstNonBlank(attr.label, attr.attributeName))) {
+                hits.add(attr);
+            }
+        }
+        return hits;
+    }
+
+    static List<ConfigGroup> groupsMentioned(ConfigResult result, String text) {
+        List<ConfigGroup> hits = new List<ConfigGroup>();
+        if (result == null || result.groups == null || String.isBlank(text)) {
+            return hits;
+        }
+        for (ConfigGroup optionGroup : result.groups) {
+            if (optionGroup == null) {
+                continue;
+            }
+            if (textMentions(text, optionGroup.name)) {
+                hits.add(optionGroup);
+                continue;
+            }
+            if (optionGroup.components == null) {
+                continue;
+            }
+            for (ConfigComponent component : optionGroup.components) {
+                if (component != null && (textMentions(text, component.name)
+                    || textMentions(text, component.sku))) {
+                    hits.add(optionGroup);
+                    break;
+                }
+            }
+        }
+        return hits;
+    }
+
+    static List<ConfigComponent> selectedComponentsMentioned(ConfigResult result, String text) {
+        List<ConfigComponent> hits = new List<ConfigComponent>();
+        if (result == null || result.groups == null || String.isBlank(text)) {
+            return hits;
+        }
+        for (ConfigGroup optionGroup : result.groups) {
+            if (optionGroup == null || optionGroup.components == null) {
+                continue;
+            }
+            for (ConfigComponent component : optionGroup.components) {
+                if (component == null || component.selected != true) {
+                    continue;
+                }
+                if (textMentions(text, component.name) || textMentions(text, component.sku)
+                    || textMentions(text, optionGroup.name)) {
+                    hits.add(component);
+                }
+            }
+        }
+        return hits;
+    }
+
+    static String groupNameFor(ConfigResult result, ConfigComponent component) {
+        if (result == null || result.groups == null || component == null) {
+            return 'Option';
+        }
+        for (ConfigGroup optionGroup : result.groups) {
+            if (optionGroup == null || optionGroup.components == null) {
+                continue;
+            }
+            if (optionGroup.components.contains(component)) {
+                return firstNonBlank(optionGroup.name, 'Option');
+            }
+        }
+        return 'Option';
+    }
+
+    static Boolean textMentions(String text, String name) {
+        if (String.isBlank(text) || String.isBlank(name)) {
+            return false;
+        }
+        if (text.containsIgnoreCase(name)) {
+            return true;
+        }
+        for (String part : name.split('[ _]+')) {
+            if (part != null && part.length() >= 4 && text.containsIgnoreCase(part)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static List<String> orderPreferredOptions(
+        List<String> options,
+        Set<String> preferredChangeKeys,
+        Integer maxOptions
+    ) {
+        List<String> ordered = new List<String>();
+        if (options == null) {
+            return ordered;
+        }
+        List<String> preferred = new List<String>();
+        List<String> rest = new List<String>();
+        for (String option : options) {
+            if (optionPrefers(option, preferredChangeKeys)) {
+                preferred.add(option);
+            } else {
+                rest.add(option);
+            }
+        }
+        preferred.addAll(rest);
+        Integer maxCount = maxOptions == null || maxOptions < 1 ? 6 : maxOptions;
+        for (String option : preferred) {
+            if (ordered.size() >= maxCount) {
+                break;
+            }
+            ordered.add(option);
+        }
+        return ordered;
+    }
+
+    static Boolean optionPrefers(String option, Set<String> preferredChangeKeys) {
+        if (String.isBlank(option) || preferredChangeKeys == null || preferredChangeKeys.isEmpty()) {
+            return false;
+        }
+        String field = option;
+        Integer arrow = option.indexOf(' → ');
+        if (arrow > 0) {
+            field = option.substring(0, arrow);
+        }
+        for (String key : preferredChangeKeys) {
+            if (String.isBlank(key)) {
+                continue;
+            }
+            if (equalsIgnore(field, key) || field.containsIgnoreCase(key)
+                || key.containsIgnoreCase(field)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @TestVisible
@@ -1890,7 +2631,8 @@ public with sharing class RLM_RampConfiguratorAction {
         if (!hasLaneDomainLeftover(result) && !isDualGpuLaneLeak(result)) {
             return null;
         }
-        return 'Do not edit x16 Lanes — it is read-only. Dual with Performance Tier Standard, Performance, or Accelerated adds a GPU. Set Performance Tier to Entry, or set Socket back to Single and Workload back to General.';
+        RLM_ConstraintRuleIndex.Rule rule = RLM_ConstraintRuleIndex.byMatch('x16Lanes');
+        return rule == null ? null : rule.ruleText;
     }
 
     static List<String> platformFixSteps(String message) {
@@ -1973,6 +2715,12 @@ public with sharing class RLM_RampConfiguratorAction {
             return false;
         }
         return hasSelectedGoldCpu(result);
+    }
+
+    static Boolean isDualMissingLiquid(ConfigResult result) {
+        return equalsIgnore(socketValue(result), 'Dual')
+            && findKindGroup(result, 'liquid') != null
+            && selectedQty(result, 'liquid') < 2;
     }
 
     static Boolean isSingleWithNonGeneral(ConfigResult result) {
@@ -2131,13 +2879,8 @@ public with sharing class RLM_RampConfiguratorAction {
         if (String.isBlank(text) || !constraintAppliesToMix(result, text)) {
             return null;
         }
-        if (isGoldConstraintText(text)) {
-            return DUAL_GOLD_FIX;
-        }
-        if (isDualWorkloadConstraintText(text) && isSingleWithNonGeneral(result)) {
-            return SINGLE_WORKLOAD_FIX;
-        }
-        return text;
+        RLM_ConstraintRuleIndex.Rule rule = RLM_ConstraintRuleIndex.matchText(text);
+        return rule == null ? text : rule.ruleText;
     }
 
     static Boolean constraintAppliesToMix(ConfigResult result, String text) {

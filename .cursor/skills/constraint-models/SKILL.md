@@ -139,6 +139,9 @@ datasets/constraints/<vertical>/<Model>/     # e.g. qb/QuantumBitBundle, mfg/fue
 ├── ProductRelatedComponent.csv              # legacy Id -> composite key map
 └── blobs/
     └── ESDV_<Model>_V1.ffxblob              # THE MODEL. Plain text CML.
+# Server2 also ships rule-index.json — run-time constraint/require/Error
+# messages for Slackbot coach cards. Regenerate after a Server2 CML edit:
+#   python scripts/cml/extract_constraint_rules.py
 
 scripts/cml/<Model>.cml                      # reference copy, byte-identical to the blob
                                              # (optional — QuantumBitPCM ships without one)
@@ -333,6 +336,16 @@ cci task run manage_expression_sets -o operation activate_versions \
 
 `prepare_constraints` does this for you at steps 11-12; a standalone `import_cml` does
 not. See below.
+
+After a **Server2** CML edit, regenerate the run-time message index used by
+Slackbot constraint cards (not a Slack skill republish):
+
+```bash
+python scripts/cml/extract_constraint_rules.py
+```
+
+That rewrites `datasets/constraints/qb/Server2/rule-index.json` and the
+`RULES_JSON` constant in `RLM_ConstraintRuleIndex.cls`.
 
 ### How the flow handles it, and why step 11 looks redundant
 

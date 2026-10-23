@@ -82,8 +82,13 @@ global with sharing class RLM_MCP_ConfigureBundle {
         )
         global String configurationDisplay;
         @InvocableVariable(
+            label='Constraint Coach Display'
+            description='When needsAction is true, paste this card verbatim, ask the user to pick a number, and do not call configure until they reply. Never invent Dual/Gold.'
+        )
+        global String constraintCoachDisplay;
+        @InvocableVariable(
             label='Needs Action'
-            description='True when constraints still fail after save. Wait and configure again. Do not PDF, email, or submit.'
+            description='True when constraints still fail. Paste the Rule card verbatim. Do not reword Dual/Gold/lanes. Wait for a numbered pick, then configure once. Do not PDF, email, or invent Dual/Gold.'
         )
         global Boolean needsAction;
         @InvocableVariable(label='Needs Disambiguation')
@@ -131,6 +136,7 @@ global with sharing class RLM_MCP_ConfigureBundle {
         out.quoteLineItemId = raw.quoteLineItemId;
         out.productName = raw.productName;
         out.configurationDisplay = raw.configurationDisplay;
+        out.constraintCoachDisplay = raw.constraintCoachDisplay;
         out.needsAction = raw.needsAction;
         out.needsDisambiguation = raw.needsDisambiguation;
         out.candidateSummariesDisplay = raw.candidateSummariesDisplay;
