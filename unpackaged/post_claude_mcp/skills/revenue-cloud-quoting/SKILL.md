@@ -3,6 +3,7 @@ name: revenue-cloud-quoting
 description: >
   Route Salesforce Revenue Cloud quoting in Claude Desktop. After reconnect
   call getRevenueCloudQuotingCatalog. Inbound email: Gmail newest, then one
+  createRevenueCloudQuote. Drive transcript: search Drive now, then one
   createRevenueCloudQuote. Follow-up: updateQuoteLines with fromEmail.
   Same-mix: cloneRevenueCloudQuote per option; never Build Quote Options.
   Bundles: describe CRE, wait, configure; never invent Dual/Gold.
@@ -17,12 +18,14 @@ reads. **Gmail** and **Microsoft 365 / Outlook** connectors (when enabled on
 this chat) are for reading customer mail only. **Google Calendar** (when
 enabled on this chat) is for finding a meeting / call recap — do that as
 part of inbound quote, without being asked. Never create, update, or delete
-calendar events. Never send a calendar invite. **Google Drive** (when
-enabled on this chat) is for opening a Sheet, Doc, or PDF the email or
-calendar event links to — do that without being asked. A PDF uploaded in
-this chat is the same: read it, then quote. SObject All is for lookup and
-recap only. Never insert `Quote`, `QuoteLineItem`, `Order`, `OrderItem`, or
-`Asset` rows yourself. Never update `Asset` rows to change quantity. Never use
+calendar events.   Never send a calendar invite. **Google Drive** (when
+enabled on this chat) is for a named Doc / Gemini notes / Meet notes /
+call transcript they pointed at in Drive, and for a Sheet, Doc, or PDF
+the email or calendar event links to — search or open it without being
+asked. A PDF uploaded in this chat is the same: read it, then quote. SObject All is for lookup and
+recap only. Never insert `Quote`, `QuoteLineItem`, `Order`, `OrderItem`,
+`OpportunityLineItem`, or `Asset` rows yourself. Never update
+`Opportunity.SyncedQuoteId`. Never update `Asset` rows to change quantity. Never use
 SObject All to explain a price, rebuild a waterfall, recap installed
 base, or recap a bundle mix — child quote lines are not Lightning CRE.
 If describe/configure says CRE is loading, call that tool again immediately
@@ -36,8 +39,8 @@ SObject All for price or installed base. Never send mail to the customer.
 After reconnect, or when a tool parameter such as `startDate` is “unknown”,
 call **`getRevenueCloudQuotingCatalog` first**. If that tool is missing,
 stop and tell the user to reconnect MCP and re-upload this skill. Do **not**
-call the catalog on an inbound-email or calendar quote unless a quoting
-tool is missing.
+call the catalog on an inbound-email, calendar, or Drive-transcript
+quote unless a quoting tool is missing.
 
 | User intent | Tool |
 |---|---|
@@ -49,6 +52,7 @@ tool is missing.
 | Sender From: not a Contact on an existing Account | On the same `updateRevenueCloudQuoteLines` / add-product call, pass `fromEmail` = Gmail **From** mailbox + `fromName`. Recap the sender picker in `resultsDisplay`. If `needsAction`, wait. Then `addRevenueCloudAccountContact`. Quote Contact is not the sender. Never skip. Never invent email |
 | Add catalog products to an existing Draft quote | `addProductToRevenueCloudQuote` with `linesJson` for every new SKU in that call. New lines inherit the quote `StartDate`/`EndDate` (do not pass `termMonths` unless this SKU should differ). Recap `lineSummaryDisplay` + Open Quote. If `lineSummaryDisplay` has an **AE note**, say it in chat (never Gmail). If `needsAction` for a **bundle**, call `describeRevenueCloudBundleConfiguration` **in this turn** with the recap `quoteLineItemId` (do not find-quotes). Stock: one keep-current-mix wait then configure. Rule card: paste and wait for a number. Do **not** explain or preview after add. Q-Rack 750 / One-Time hardware bundle: quantity 1. If Salesforce returns fractional quantity and qty > 1, immediately add again at quantity 1 — do not stop the quote. **Ramped quote:** `applyRevenueCloudQuoteRamp` `editsJson` instead |
 | Which Draft quote / reconnect / several Acme deals | `findRevenueCloudOpenQuotes` with `opportunityName` — **skip** if `quoteId` or the just-created quote is already in this turn. Ask only if several rows |
+| Sync a named quote to its Opportunity (Start Sync) | `syncRevenueCloudQuoteToOpportunity` with that `quoteId` / name. `action=sync` (default) or `unsync`. Do **not** auto-run after create or clone. Never PATCH `Opportunity.SyncedQuoteId` or insert `OpportunityLineItem` with SObject All |
 | See bundle option groups / current picks / attributes | `describeRevenueCloudBundleConfiguration` (CRE current mix only). If `constraintCoachDisplay` is set, paste the Rule card and wait for a number — do not dump the mix. Stock defaults: one keep-current-mix line, then configure once. CRE_LOADING: retry immediately up to 3 times. Never invent Dual/Gold. Never recap child QLIs as CRE |
 | Save bundle picks the user chose from describe | `configureRevenueCloudBundle` (`attributePicksJson` for every attribute key). Runs Lightning Configure then PST. If a Rule card is set, paste it and wait — one configure after they pick a number. Recap added/removed/qty/attr from the engine |
 | Percent off | `applyRevenueCloudQuoteDiscount` (discount only) or `updateRevenueCloudQuoteLines` when also changing qty or term. **Ramped quote:** `applyRevenueCloudQuoteRamp` `editsJson` — year blanket omits `product`; named SKU overlays (including bundle children). Never `applyRevenueCloudQuoteDiscount` on a ramped quote |
@@ -77,6 +81,7 @@ tool is missing.
 | Next bill / TCV / usage | `getRevenueCloudBillingAndUsage` — TCV is quote GrandTotal, not ARR |
 | Build a quote from a customer email | Skip catalog. Gmail `in:inbox` newest (not a 30-day OR search). Open Drive Sheet/PDF now if present. Then **one** `createRevenueCloudQuote` (`opportunityName`, `quoteName`, `linesJson`, `contactEmail`; plus contact names/address if no Account). Recap only after it returns. If `alreadyExisted`, update — do not create again |
 | Quote from a meeting / call / calendar recap | Skip catalog. Search **Google Calendar** (or Microsoft 365 calendar if that is what is on). Open the event description and any Drive notes now — do not wait for “read the recap.” Then one `createRevenueCloudQuote` with `opportunityName`, `quoteName`, `linesJson`, `startDate` from the event, `contactEmail` from a customer attendee (plus contact names/address if no Account). If `alreadyExisted`, update — do not create again |
+| Quote from a named Drive Doc / Gemini notes / call transcript | Skip catalog. Search **Google Drive** now — do not start with Calendar or Gmail. Then one `createRevenueCloudQuote` (`opportunityName`, `quoteName`, `linesJson`, `contactEmail` if present). Catalog SKUs only. Vague notes: show extract and wait. Do **not** auto-sync. If `alreadyExisted`, update — do not create again |
 | Later email / reconnect on an existing quote | `findRevenueCloudOpenQuotes` with that `opportunityName`, then `updateRevenueCloudQuoteLines` with `fromEmail` = Gmail From — never a second quote |
 
 If they said **same products / current mix / just term and discount**, do
@@ -101,7 +106,7 @@ links, put those in the user-facing reply as markdown links:
 
 Do this after create, add-line, configure, discount, summary, explain,
 preview document, submit, create-order, activate, amend, prospect,
-find-open-quotes, compare, clone, and Build Quote Options. Echo markdown already
+find-open-quotes, compare, clone, sync-to-opportunity, and Build Quote Options. Echo markdown already
 present in `message`, `comparisonDisplay`, `resultsDisplay`,
 `summaryDisplay`, or `assetsDisplay`. Never paste a raw Salesforce Id as
 the thing to click. Also render `[Open Account](accountUrl)` /
@@ -194,6 +199,19 @@ Draft), plus `clonedQuoteName`, `termMonths`, and `discountPercentage`.
 
 Do not resend products. Do not Update Quote Lines unless clone said to.
 **Never wait / Pause. Never Build Quote Options.** If clone fails, stop.
+
+## Sync quote to opportunity
+
+Only when they say **sync**, **Start Sync**, or **push this quote to the
+opportunity**. Do **not** call this after create or clone.
+
+1. `syncRevenueCloudQuoteToOpportunity` with the `quoteId` already in this
+   turn (or the quote name they named). `action=sync` is the default.
+2. To Stop Sync: `action=unsync` on that same quote.
+3. Recap `resultsDisplay`. Bundles flatten to separate Opportunity
+   products; attributes do not copy. Do not invent Opportunity lines.
+4. Never PATCH `Opportunity.SyncedQuoteId` or insert `OpportunityLineItem`
+   with SObject All.
 
 ## Build Quote Options
 
@@ -313,13 +331,52 @@ event has no usable lines.
 Never create, update, or delete calendar events. Never send a calendar
 invite.
 
+## Inbound quote from Drive transcript
+
+When they ask to **build a quote from a named Drive Doc, Gemini notes,
+Meet notes, or call transcript in Drive** (“quote from my Infinitech
+call transcript”, “the Gemini notes in Drive”, a Doc title):
+
+1. Search **Google Drive** now. Do **not** start with Calendar or Gmail.
+   - Search by the file name or account they said. Do not dump Drive.
+   - Several matching files: ask which one. Do not guess.
+   - Drive off or missing: say so and ask them to enable **Google Drive**
+     on this chat. Do not invent lines.
+   - Slack (or any surface) with no Drive tools: ask them to paste the
+     notes or a Drive link this chat can open. Do not invent a file.
+2. **Read the Doc now.** Do not wait for “read the transcript.”
+   - Prefer a Google Doc of Gemini / Meet notes. Prefer a Sheet over a
+     Doc or PDF when both exist.
+   - Meet / Zoom **recording** links only: say you cannot transcribe
+     video. Do not invent lines from the title.
+   - Extract `accountName`, `contactEmail` if present, and `linesJson`
+     from **named catalog products only**. Do not invent SKUs, Dual/Gold,
+     or qty.
+   - Vague notes (“they want more licenses”) with no SKU or qty: show
+     what you extracted and wait.
+   - Do **not** treat our Quote Proposal PDF as an inbound transcript.
+3. Then follow **Inbound quote from email** steps 3–8 (extract, prospect,
+   confirm, one Create Quote):
+   - `opportunityName` / `quoteName` from the Doc title or account + a
+     stable deal name. Not `Meeting notes`.
+   - `startDate` from the notes if present (`yyyy-mm-dd`). Do not invent
+     a date.
+   - `contactEmail` from a customer named in the notes, not you.
+4. Same ask again: `alreadyExisted` or Find Open Quotes, then update —
+   never a second Draft.
+5. Do **not** call `syncRevenueCloudQuoteToOpportunity` after create.
+
+If they named **both** a Drive Doc and a calendar event: Drive for the
+lines; Calendar only for `startDate` / attendees when the Doc lacks them.
+
 ## Inbound quote from email
 
 If they say **update / revise / latest quantities** on an existing quote,
 or the newest mail is clearly a change to a deal already quoted, skip this
 section and follow **Follow-up email (qty revision)** below. If they named
 a **call / meeting / calendar recap**, use **Inbound quote from calendar**
-instead.
+instead. If they named a **Drive Doc / Gemini notes / call transcript in
+Drive** (no event), use **Inbound quote from Drive transcript**.
 
 When the user asks to **build a new quote** from email (“latest Acme email”,
 “the customer request in my inbox”, a named sender):
@@ -991,6 +1048,11 @@ What start date should I use?
   transcribed; say so. `startDate` from the event. `contactEmail` from a
   customer attendee, not you. Same create/reuse/amend rules as inbound
   email.
+- Inbound Drive transcript / Gemini notes: Google Drive for read only.
+  Search the named Doc now — do not start with Calendar or Gmail. Catalog
+  SKUs only. Vague notes: show extract and wait. Drive off: ask to enable
+  it, or paste the notes. Do not invent a file. Do not auto-sync. Same
+  create/reuse rules as inbound email.
 - Inbound email: Gmail/Outlook for read only. Never send mail to the
   customer. Drive Sheet or PDF (link or Drive-attached), or a file
   uploaded in this chat: open it immediately and quote those lines — do

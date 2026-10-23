@@ -41,7 +41,9 @@ Schedule previews then persists the standard empty group-ramp structure
 (Annual/Custom, trial, prorated stub) through Place Sales Transaction —
 not Ramp Builder. Apply Quote Ramp then adds a product across those
 segments, patches quantities, or applies `editsJson` (add / remove /
-qty / line discount on Trial, Year N, or the prorated stub). Get Quoting Catalog returns the
+qty / line discount on Trial, Year N, or the prorated stub). Sync Quote To Opportunity starts or stops the same
+`Opportunity.SyncedQuoteId` link as Lightning Start Sync / Stop Sync —
+only when they name the quote; never after create. Get Quoting Catalog returns the
 skill version and tool count so a stale Claude connector is obvious. Explain Quote Price reads Quote / QuoteLineItem /
 QuoteLineDetail (list, header discount, amendment slices, proration,
 amount due) so a rep can walk the price even when amendment Net Unit
@@ -187,8 +189,8 @@ link is not a recap — Claude will not transcribe video.
    - Salesforce **SObject All** (reads)
    - **Revenue Cloud Quoting** (mutations)
 7. Re-upload `skills/revenue-cloud-quoting.zip` if the skill is older than
-   catalog `2026-10-23.1` (hop rules: skip find-quotes after create, stock
-   one-wait, Rule card only, CRE_LOADING retry cap 3).
+   catalog `2026-10-23.3` (Drive-transcript hop plus
+   `syncRevenueCloudQuoteToOpportunity`).
 
 On Team/Enterprise, an Owner must enable Gmail, Google Drive, and Google
 Calendar for the org before Connect appears. Pro/Max can connect them on
@@ -275,6 +277,18 @@ again **reuses** the Draft. If Calendar is off, it should say so. A
 recording-only event should be called out as unreadable. A later meeting
 with new quantities is **one** Update Quote Lines, not a second quote.
 
+A **named Drive Doc** (Gemini / Meet notes, no calendar event) is Drive
+first, not Calendar. Product names in the Doc must match the catalog.
+Ask:
+
+> Build a quote from my Infinitech call transcript in Drive.
+
+Claude should search Google Drive, extract catalog SKUs only, then **one**
+Create Quote. Vague notes wait. It must not invent Dual/Gold or auto-sync.
+If Drive is off, it should ask to enable it. Slackbot without Drive tools
+should ask you to paste the notes or a Drive link — a workspace Google
+Drive app is not the same as Slackbot being able to open the file.
+
 Spoken **what-if** on that Draft is not a new quote. Ask:
 
 > Make it 36 months and 15% off.
@@ -302,7 +316,7 @@ Configure (`executeConfigurationRules=true`) so Dual/Gold/qty come from
 Constraint Rules Engine, then persist that graph through Place Sales
 Transaction. Recap added/removed/qty/attr from the engine — do not infer
 Dual vs Gold. Attribute values copy to every ramp year. Constraint
-messages still block year-copy when present. Catalog `2026-10-23.1`.
+messages still block year-copy when present. Catalog `2026-10-23.3`.
 Reconnect MCP after deploy.
 
 The **customer pack** and **close the deal** beats (still never send

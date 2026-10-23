@@ -38,7 +38,7 @@
             <apiSource>API_CATALOG</apiSource>
             <operation>RLM_MCP_CreateQuote</operation>
         </apiDefinition>
-        <descriptionOverride>Creates a Draft and the Opportunity if needed, or reuses the Draft. No account: pass contact names, email, and address here (creates Account+Contact). Do not call Create Prospect first. Pass opportunityName and linesJson.</descriptionOverride>
+        <descriptionOverride>Creates a Draft and the Opportunity if needed, or reuses the Draft. No account: pass contact names, email, and address here (creates Account+Contact). Do not call Create Prospect first. Pass opportunityName and linesJson. Named Drive/Gemini notes: extract catalog SKUs first. Never invent SKUs. Do not auto-sync.</descriptionOverride>
         <toolName>createRevenueCloudQuote</toolName>
         <toolTitle>Create Revenue Cloud Quote</toolTitle>
     </tools>
@@ -121,6 +121,16 @@
         <descriptionOverride>Lists Draft quotes. Skip if quoteId or the just-created quote is already in this turn. Pass opportunityName after reconnect. One match returns latestQuoteId. Do not create a quote.</descriptionOverride>
         <toolName>findRevenueCloudOpenQuotes</toolName>
         <toolTitle>Find Open Quotes</toolTitle>
+    </tools>
+    <tools>
+        <apiDefinition>
+            <apiIdentifier>aa:apex-RLM_MCP_SyncQuoteToOpportunity</apiIdentifier>
+            <apiSource>API_CATALOG</apiSource>
+            <operation>RLM_MCP_SyncQuoteToOpportunity</operation>
+        </apiDefinition>
+        <descriptionOverride>Start or stop quote-to-opportunity sync. action=sync (default) or unsync. Same as Lightning Start Sync / Stop Sync. Only when they name the quote. Never after create. Never insert OpportunityLineItem.</descriptionOverride>
+        <toolName>syncRevenueCloudQuoteToOpportunity</toolName>
+        <toolTitle>Sync Quote To Opportunity</toolTitle>
     </tools>
     <tools>
         <apiDefinition>
