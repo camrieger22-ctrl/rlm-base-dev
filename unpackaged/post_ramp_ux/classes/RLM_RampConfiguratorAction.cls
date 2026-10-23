@@ -344,6 +344,21 @@ public with sharing class RLM_RampConfiguratorAction {
             String persistError = persistSelectionPreferringSystem(
                 qId, lineId, selection, queryChildren(qId, lineId), true);
             ConfigResult cached = readConfigureCacheByLine(lineId);
+            if (cached != null && cached.success == true) {
+                applySelectionAttributeValues(cached, selection);
+                cached.groups = markSelectedFromChildren(
+                    cached.groups, queryChildren(qId, lineId));
+                if (persistError != null) {
+                    cached.success = false;
+                    cached.message = persistError;
+                } else {
+                    cached.success = true;
+                    cached.message = 'Bundle picks saved.';
+                }
+                cached = finish(cached);
+                writeConfigureCache(lineId, cached);
+                return cached;
+            }
             ConfigResult loaded = loadCatalogConfiguration(quoteId, quoteLineItemId);
             if (loaded != null && loaded.success == true) {
                 applySelectionAttributeValues(loaded, selection);
@@ -360,15 +375,6 @@ public with sharing class RLM_RampConfiguratorAction {
                 loaded = finish(loaded);
                 writeConfigureCache(lineId, loaded);
                 return loaded;
-            }
-            if (cached != null && cached.success == true) {
-                cached.groups = markSelectedFromChildren(
-                    cached.groups, queryChildren(qId, lineId));
-                if (persistError != null) {
-                    cached.success = false;
-                    cached.message = persistError;
-                }
-                return finish(cached);
             }
             if (persistError != null) {
                 out.message = persistError;
@@ -1750,8 +1756,8 @@ public with sharing class RLM_RampConfiguratorAction {
             result.fixHeadline =
                 'Configuration is still running. Nothing on the rack needs to change.';
             result.fixSteps = new List<String>{
-                'Call this tool again immediately with the same quote line.',
-                'Do not query QuoteLineItem children. Do not invent Dual, Gold, or Socket.'
+                'Call this tool again immediately with the same quote line (at most 3 times).',
+                'If it is still loading, say CRE is queued. Do not query QuoteLineItem children. Do not invent Dual, Gold, or Socket.'
             };
             return;
         }
@@ -3202,6 +3208,19 @@ public with sharing class RLM_RampConfiguratorAction {
         );
     }
 
+    public static void prefetchConfigurationForMcp(String quoteId, String quoteLineItemId) {
+        Id qId = toId(quoteId);
+        Id lineId = toId(quoteLineItemId);
+        if (lineId == null) {
+            return;
+        }
+        ConfigResult cached = readConfigureCacheByLine(lineId);
+        if (cached != null && cached.success == true) {
+            return;
+        }
+        requestConfigureViaCache(qId, lineId);
+    }
+
     static void requestConfigureViaCache(Id quoteId, Id lineId) {
         requestConfigureViaCache(quoteId, lineId, null);
     }
@@ -3457,19 +3476,8 @@ public with sharing class RLM_RampConfiguratorAction {
             );
             ConfigResult parsed = parseConfiguration(
                 response, quoteId, lineId, queryChildren(quoteId, lineId));
-            if (parsed != null && parsed.success == true) {
-                try {
-                    persistSelectionPreferringSystem(
-                        quoteId,
-                        lineId,
-                        selectionFromResult(parsed, null),
-                        queryChildren(quoteId, lineId),
-                        true
-                    );
-                } catch (Exception persistError) {
-                    // Cache the CRE mix even if Place Sales Transaction fails.
-                }
-            }
+            // Hosted MCP persist is persistMcpConfiguration after applyPicks.
+            // Do not PST the intermediate CRE graph here.
             RLM_CreCalloutCache__c row = new RLM_CreCalloutCache__c(
                 Id = cacheId,
                 Status__c = parsed != null && parsed.success == true ? 'Success' : 'Error',

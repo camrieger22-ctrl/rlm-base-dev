@@ -42,7 +42,7 @@ Schedule previews then persists the standard empty group-ramp structure
 not Ramp Builder. Apply Quote Ramp then adds a product across those
 segments, patches quantities, or applies `editsJson` (add / remove /
 qty / line discount on Trial, Year N, or the prorated stub). Get Quoting Catalog returns the
-skill version and tool list so a stale Claude connector is obvious. Explain Quote Price reads Quote / QuoteLineItem /
+skill version and tool count so a stale Claude connector is obvious. Explain Quote Price reads Quote / QuoteLineItem /
 QuoteLineDetail (list, header discount, amendment slices, proration,
 amount due) so a rep can walk the price even when amendment Net Unit
 Price is blank on the line. It does not call the Connect waterfall GET
@@ -126,8 +126,8 @@ then 30`). After the schedule exists, per-year add / remove / qty /
 discount is also one prompt (`add Q-Rack to Year 2 and Year 3, remove
 Database from Trial, and 20% off Database in Year 2`). Q-Rack on a ramp
 is a **bundle gate**, not a finished $3,980 parent: Claude must describe,
-stop on keep-or-drill (current picks then names — not a 22-value dump
-and not a 69-item list), then configure (constraints stay on). Per-year
+stop on a Rule card or one stock keep-current-mix line (not a 22-value
+dump), then configure (constraints stay on). Per-year
 discount is the same `editsJson` path: `Year 2 25% off
 all lines. Year 3 35% except QB-PowerSafe 1000D at 20%` — blanket then
 named exception, including nested bundle children. Do not open Ramp
@@ -187,7 +187,8 @@ link is not a recap — Claude will not transcribe video.
    - Salesforce **SObject All** (reads)
    - **Revenue Cloud Quoting** (mutations)
 7. Re-upload `skills/revenue-cloud-quoting.zip` if the skill is older than
-   the inbound-email playbook.
+   catalog `2026-10-23.1` (hop rules: skip find-quotes after create, stock
+   one-wait, Rule card only, CRE_LOADING retry cap 3).
 
 On Team/Enterprise, an Owner must enable Gmail, Google Drive, and Google
 Calendar for the org before Connect appears. Pro/Max can connect them on
@@ -294,16 +295,14 @@ On a ramped Draft (for example **Bryce Majors Ramp Trial Oct14**), ask:
 
 > Add Q-Rack to Year 2 and Year 3.
 
-Claude must **stop** on keep-or-drill (not a 22-value dump and not a
-69-item list): first wait is current values + **Keep all current
-attributes** + attribute **names**. Drill cards use **Keep current
-selection** then the other values (blanks have no keep chip). Then
-add-on **group names** the same way. Hosted MCP describe/configure call
-Lightning Configure (`executeConfigurationRules=true`) so Dual/Gold/qty
-come from Constraint Rules Engine, then persist that graph through Place
-Sales Transaction. Recap added/removed/qty/attr from the engine — do not
-infer Dual vs Gold. Attribute values copy to every ramp year. Constraint
-messages still block year-copy when present. Catalog `2026-10-20.25`.
+Claude must **stop** on a Rule card (paste it; wait for a number) or one
+stock keep-current-mix line — not a 22-value dump and not a two-step
+keep-or-drill essay. Hosted MCP describe/configure call Lightning
+Configure (`executeConfigurationRules=true`) so Dual/Gold/qty come from
+Constraint Rules Engine, then persist that graph through Place Sales
+Transaction. Recap added/removed/qty/attr from the engine — do not infer
+Dual vs Gold. Attribute values copy to every ramp year. Constraint
+messages still block year-copy when present. Catalog `2026-10-23.1`.
 Reconnect MCP after deploy.
 
 The **customer pack** and **close the deal** beats (still never send

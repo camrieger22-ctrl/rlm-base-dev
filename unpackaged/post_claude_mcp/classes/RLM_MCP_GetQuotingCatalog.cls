@@ -3,8 +3,8 @@
  * connector is obvious after reconnect.
  */
 global with sharing class RLM_MCP_GetQuotingCatalog {
-    public static final String SKILL_VERSION = '2026-10-20.25';
-    public static final String CATALOG_DATE = '2026-10-20';
+    public static final String SKILL_VERSION = '2026-10-23.1';
+    public static final String CATALOG_DATE = '2026-10-23';
 
     global class CatalogInput {
         @InvocableVariable(
@@ -31,7 +31,7 @@ global with sharing class RLM_MCP_GetQuotingCatalog {
 
     @InvocableMethod(
         label='Get Revenue Cloud Quoting Catalog'
-        description='Returns the quoting MCP skill version and tool names this org exposes. Call after reconnect or when a parameter is unknown. If this tool is missing, reconnect MCP and re-upload the skill.'
+        description='Returns the quoting MCP skill version and tool count. Call after reconnect or when a parameter is unknown. If this tool is missing, reconnect MCP and re-upload the skill.'
     )
     global static List<CatalogOutput> getCatalog(List<CatalogInput> inputs) {
         CatalogOutput out = new CatalogOutput();
@@ -42,7 +42,7 @@ global with sharing class RLM_MCP_GetQuotingCatalog {
         out.toolCount = tools.size();
         List<String> rows = new List<String>{
             'Revenue Cloud Quoting catalog ' + SKILL_VERSION + ' (' + CATALOG_DATE + ').',
-            String.valueOf(tools.size()) + ' tools: ' + String.join(tools, ', ') + '.',
+            String.valueOf(tools.size()) + ' tools.',
             'If this tool is missing, reconnect MCP and re-upload the revenue-cloud-quoting skill.'
         };
         out.summaryDisplay = String.join(rows, '\n');

@@ -199,7 +199,6 @@ public with sharing class RLM_MCP_BundleConfigService {
                 String persistRecap = recapEngineChanges(working, saved);
                 recap = joinRecaps(recap, persistRecap);
                 loaded = saved;
-                applyLiveConfigRules(String.valueOf(quote.Id), loaded);
                 out.isSuccess = true;
                 Set<String> pickKeys = confirmedAttributeKeys(input.attributePicksJson);
                 if (hasBlockingIssues(loaded, pickKeys)) {
@@ -238,9 +237,9 @@ public with sharing class RLM_MCP_BundleConfigService {
                 applyCoach(out, loaded);
                 if (String.isBlank(loaded.constraintCoachDisplay)) {
                     out.configurationDisplay +=
-                        '\n\nWait. Keep-or-drill picker — never dump values or SKUs on the overview. Step 1 of 2 — Attributes: bullet current values; Keep all current attributes, or pick which attributes to change (names only); drill only those; mark affects price. Step 2 of 2 — Add-on products: leaf groups only; Keep all catalog add-ons, or pick which groups to change (names only); drill only those. Drill cards: Keep current selection then other values; blanks have no keep chip; required blanks still get a card. Skip options hide/disable from configuration rules. Constraint messages are blocking; copy to other ramp years only after a clean engine save. Then one configureRevenueCloudBundle with quoteLineItemId '
+                        '\n\nWait. Stock defaults: keep the current mix and configure once with quoteLineItemId '
                         + String.valueOf(line.Id)
-                        + ', selectedProducts, and attributePicksJson. Do not PDF, email, or submit.';
+                        + '. If they named attributes to change, drill only those names. Send every attribute key. Do not PDF, email, or submit.';
                 }
             }
             return out;
@@ -516,7 +515,12 @@ public with sharing class RLM_MCP_BundleConfigService {
         }
         if (config != null && String.isNotBlank(config.constraintCoachDisplay)) {
             lines.add(config.constraintCoachDisplay);
-            lines.add('');
+            String coachFix = formatFixThis(config);
+            if (String.isNotBlank(coachFix)) {
+                lines.add('');
+                lines.add(coachFix);
+            }
+            return String.join(lines, '\n');
         }
         String fix = formatFixThis(config);
         if (String.isNotBlank(fix)) {
@@ -536,11 +540,8 @@ public with sharing class RLM_MCP_BundleConfigService {
         lines.add(title);
         if (hasSelectedComponents(config)) {
             lines.add(
-                'Checked items ([x]) are already chosen for this bundle. '
-                + 'Required options must stay selected. '
-                + 'Catalog defaults are the product’s starting mix; optional defaults can be turned off. '
-                + 'Already on this quote means a child line was saved. '
-                + 'Unchecked items are available to add. Explain this to the user; do not treat defaults as a prior custom configuration.'
+                'Current mix ([x]). Required options must stay selected. '
+                + 'Do not treat catalog defaults as a prior custom configuration.'
             );
         }
         if (config.messages != null) {
@@ -568,7 +569,28 @@ public with sharing class RLM_MCP_BundleConfigService {
         }
         if (config.groups != null) {
             for (RLM_RampConfiguratorAction.ConfigGroup optionGroup : config.groups) {
-                if (optionGroup == null) {
+                if (optionGroup == null || optionGroup.components == null) {
+                    continue;
+                }
+                List<String> selectedRows = new List<String>();
+                for (RLM_RampConfiguratorAction.ConfigComponent component : optionGroup.components) {
+                    if (component == null || component.hidden == true || component.selected != true) {
+                        continue;
+                    }
+                    String row = '- [x] ' + component.name;
+                    if (String.isNotBlank(component.sku)) {
+                        row += ' (' + component.sku + ')';
+                    }
+                    if (component.quantity != null && component.quantity != 1) {
+                        row += ', qty ' + String.valueOf(component.quantity);
+                    }
+                    String why = selectionReason(component);
+                    if (String.isNotBlank(why)) {
+                        row += ' — ' + why;
+                    }
+                    selectedRows.add(row);
+                }
+                if (selectedRows.isEmpty()) {
                     continue;
                 }
                 String header = '### ' + optionGroup.name;
@@ -576,33 +598,7 @@ public with sharing class RLM_MCP_BundleConfigService {
                     header += ' (' + optionGroup.rangeLabel + ')';
                 }
                 lines.add(header);
-                if (optionGroup.components == null) {
-                    continue;
-                }
-                for (RLM_RampConfiguratorAction.ConfigComponent component : optionGroup.components) {
-                    if (component == null) {
-                        continue;
-                    }
-                    if (component.hidden == true) {
-                        continue;
-                    }
-                    if (component.disabled == true && component.selected != true) {
-                        continue;
-                    }
-                    String mark = component.selected == true ? '[x]' : '[ ]';
-                    String row = '- ' + mark + ' ' + component.name;
-                    if (String.isNotBlank(component.sku)) {
-                        row += ' (' + component.sku + ')';
-                    }
-                    if (component.selected == true && component.quantity != null && component.quantity != 1) {
-                        row += ', qty ' + String.valueOf(component.quantity);
-                    }
-                    String why = selectionReason(component);
-                    if (String.isNotBlank(why)) {
-                        row += ' — ' + why;
-                    }
-                    lines.add(row);
-                }
+                lines.addAll(selectedRows);
             }
         }
         if (config.attributes != null && !config.attributes.isEmpty()) {
@@ -619,17 +615,6 @@ public with sharing class RLM_MCP_BundleConfigService {
                 }
                 if (attr.required == true) {
                     row += ' — required';
-                }
-                if (attr.options != null && !attr.options.isEmpty()) {
-                    List<String> optionLabels = new List<String>();
-                    for (RLM_RampConfiguratorAction.ConfigPicklistOption option : attr.options) {
-                        if (option != null && String.isNotBlank(option.label)) {
-                            optionLabels.add(option.label);
-                        }
-                    }
-                    if (!optionLabels.isEmpty()) {
-                        row += '. Options: ' + String.join(optionLabels, ', ');
-                    }
                 }
                 lines.add(row);
             }
@@ -1451,7 +1436,7 @@ public with sharing class RLM_MCP_BundleConfigService {
             ? fix
             : 'Lightning CRE is loading. Call this tool again immediately with quoteLineItemId '
                 + lineId
-                + '. Do not query QuoteLineItem children. Do not invent Dual, Gold, or Socket. Do not PDF or email.';
+                + ' (at most 3 times). If it is still loading, say CRE is queued. Do not query QuoteLineItem children. Do not invent Dual, Gold, or Socket. Do not PDF or email.';
     }
 
     static void applyFixError(

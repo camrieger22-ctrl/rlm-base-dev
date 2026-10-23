@@ -13,10 +13,13 @@ private class RLM_MCP_GetQuotingCatalogTest {
         System.assertEquals(1, results.size());
         System.assertEquals(true, results[0].isSuccess);
         System.assertEquals(RLM_MCP_GetQuotingCatalog.SKILL_VERSION, results[0].skillVersion);
-        System.assert(results[0].summaryDisplay.contains('getRevenueCloudQuotingCatalog'),
+        System.assert(results[0].summaryDisplay.contains(RLM_MCP_GetQuotingCatalog.SKILL_VERSION),
             results[0].summaryDisplay);
-        System.assert(results[0].summaryDisplay.contains('createRevenueCloudRampSchedule'),
-            results[0].summaryDisplay);
+        System.assertEquals(
+            false,
+            results[0].summaryDisplay.contains('createRevenueCloudRampSchedule'),
+            results[0].summaryDisplay
+        );
         System.assert(results[0].toolCount > 20, '' + results[0].toolCount);
     }
 }

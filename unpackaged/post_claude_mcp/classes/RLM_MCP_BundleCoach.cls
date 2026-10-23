@@ -71,14 +71,32 @@ public inherited sharing class RLM_MCP_BundleCoach {
                 open.add(parent);
             }
         }
+        prefetchOpenBundles(quoteId, parents);
         if (open.isEmpty()) {
             return out;
         }
         out.needsAction = true;
+        if (open.size() == 1) {
+            QuoteLineItem parent = open[0];
+            String name = parent.Product2 == null || String.isBlank(parent.Product2.Name)
+                ? 'Bundle' : parent.Product2.Name;
+            out.promptDisplay = String.join(
+                new List<String>{
+                    'AE note (chat only): ' + name
+                        + ' is a parent only. Instant Pricing is not a finished configuration.',
+                    'Call describeRevenueCloudBundleConfiguration now with quoteId and quoteLineItemId '
+                        + String.valueOf(parent.Id) + '.',
+                    'Stock defaults: recap current picks, then one configure that keeps the current mix.',
+                    'If they named changes, wait for those picks. If a Rule card is set, paste it and wait for a number.',
+                    'Never insert child QuoteLineItem rows. Never skip constraints.'
+                },
+                '\n'
+            );
+            return out;
+        }
         List<String> lines = new List<String>{
-            'AE note (chat only, never the customer email): A bundle was added as a parent only. Instant Pricing on the parent is not a finished configuration.',
-            'Call describeRevenueCloudBundleConfiguration now (pass quoteId and quoteLineItemId). Render the numbered picker from configurationDisplay. Wait. Then configureRevenueCloudBundle with those picks.',
-            'Never insert child QuoteLineItem rows. Never skip constraints. Required options stay selected. If several ramp years have this SKU, configure one line — the same mix is copied to the other years unless they ask for a different mix.',
+            'AE note (chat only): A bundle was added as a parent only. Instant Pricing is not a finished configuration.',
+            'Call describeRevenueCloudBundleConfiguration now. Stock defaults: keep the current mix and configure once. Named changes: wait. Never insert child QuoteLineItem rows.',
             'Unconfigured bundles:'
         };
         Integer n = 1;
@@ -96,8 +114,22 @@ public inherited sharing class RLM_MCP_BundleCoach {
             lines.add(row);
             n++;
         }
-        lines.add('Which bundle? Click a suggestion or reply with a number. Then wait for their component picks.');
+        lines.add('Which bundle? Reply with a number.');
         out.promptDisplay = String.join(lines, '\n');
         return out;
+    }
+
+    static void prefetchOpenBundles(Id quoteId, List<QuoteLineItem> open) {
+        if (Test.isRunningTest() || quoteId == null || open == null) {
+            return;
+        }
+        for (QuoteLineItem parent : open) {
+            if (parent != null && parent.Id != null) {
+                RLM_RampConfiguratorAction.prefetchConfigurationForMcp(
+                    String.valueOf(quoteId),
+                    String.valueOf(parent.Id)
+                );
+            }
+        }
     }
 }

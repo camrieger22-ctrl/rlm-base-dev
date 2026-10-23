@@ -1199,6 +1199,61 @@ private class RLM_RampConfiguratorActionTest {
     }
 
     @IsTest
+    static void persistMcpPrefersCachedCreGraph() {
+        QuoteLineItem qli = insertBundleLine();
+        qli = [SELECT Id, QuoteId FROM QuoteLineItem WHERE Id = :qli.Id];
+        RLM_RampConfiguratorAction.ConfigGroup creGroup =
+            new RLM_RampConfiguratorAction.ConfigGroup();
+        creGroup.name = 'CRE Cached Group';
+        creGroup.components = new List<RLM_RampConfiguratorAction.ConfigComponent>();
+        RLM_RampConfiguratorAction.ConfigResult seed =
+            new RLM_RampConfiguratorAction.ConfigResult();
+        seed.success = true;
+        seed.quoteLineItemId = String.valueOf(qli.Id);
+        seed.groups = new List<RLM_RampConfiguratorAction.ConfigGroup>{ creGroup };
+        seed.attributes = new List<RLM_RampConfiguratorAction.ConfigAttribute>();
+        seed.messages = new List<RLM_RampConfiguratorAction.ConfigMessage>();
+        insert new RLM_CreCalloutCache__c(
+            Key__c = String.valueOf(qli.Id),
+            Line_Id__c = String.valueOf(qli.Id),
+            Quote_Id__c = String.valueOf(qli.QuoteId),
+            Status__c = 'Success',
+            Result_Json__c = JSON.serialize(seed)
+        );
+        Test.startTest();
+        RLM_RampConfiguratorAction.ConfigResult saved =
+            RLM_RampConfiguratorAction.persistMcpConfiguration(
+                qli.QuoteId,
+                qli.Id,
+                '{"components":[],"attributes":[]}'
+            );
+        Test.stopTest();
+        System.assertEquals(true, saved.success, saved.message);
+        System.assertEquals('Bundle picks saved.', saved.message);
+        System.assertEquals(1, saved.groups.size());
+        System.assertEquals('CRE Cached Group', saved.groups[0].name);
+    }
+
+    @IsTest
+    static void prefetchQueuesConfigureForMcp() {
+        QuoteLineItem qli = insertBundleLine();
+        qli = [SELECT Id, QuoteId FROM QuoteLineItem WHERE Id = :qli.Id];
+        Test.setMock(HttpCalloutMock.class, new ConfigureMock(200, mockSuccessBody()));
+        Test.startTest();
+        RLM_RampConfiguratorAction.prefetchConfigurationForMcp(qli.QuoteId, qli.Id);
+        Test.stopTest();
+        List<RLM_CreCalloutCache__c> rows = Database.queryWithBinds(
+            'SELECT Status__c, Result_Json__c FROM RLM_CreCalloutCache__c '
+                + 'WHERE Line_Id__c = :lineKey',
+            new Map<String, Object>{ 'lineKey' => String.valueOf(qli.Id) },
+            AccessLevel.SYSTEM_MODE
+        );
+        System.assertEquals(1, rows.size(), 'prefetch should write one cache row');
+        System.assertEquals('Success', rows[0].Status__c, rows[0].Status__c);
+        System.assertNotEquals(null, rows[0].Result_Json__c);
+    }
+
+    @IsTest
     static void saveCatalogRejectsBlankSelection() {
         QuoteLineItem qli = insertBundleLine();
         RLM_RampConfiguratorAction.ConfigResult r =

@@ -169,6 +169,7 @@ private class RLM_MCP_BundleConfigTest {
         System.assertEquals(true, out.needsAction);
         System.assertNotEquals(null, out.quoteLineItemId);
         System.assert(out.errorMessage.contains('Call this tool again immediately'), out.errorMessage);
+        System.assert(out.errorMessage.contains('at most 3 times'), out.errorMessage);
         System.assert(out.errorMessage.contains('Do not query QuoteLineItem children'), out.errorMessage);
         System.assert(out.errorMessage.contains('Do not invent Dual'), out.errorMessage);
         System.assertEquals(1, fake.loadCalls);
@@ -574,24 +575,36 @@ private class RLM_MCP_BundleConfigTest {
         System.assert(out.configurationDisplay.contains('catalog default'));
         System.assert(out.configurationDisplay.contains('[x] QB Memory 32GB'));
         System.assert(out.configurationDisplay.contains('Pick 1 consumption product'));
-        System.assert(out.configurationDisplay.contains('Step 1 of 2'), out.configurationDisplay);
+        System.assert(out.configurationDisplay.contains('keep the current mix'), out.configurationDisplay);
+        System.assert(out.configurationDisplay.contains('configure once'), out.configurationDisplay);
+        System.assert(out.configurationDisplay.contains('quoteLineItemId'), out.configurationDisplay);
         System.assert(out.configurationDisplay.contains('Attributes'), out.configurationDisplay);
-        System.assert(out.configurationDisplay.contains('Keep all current attributes'), out.configurationDisplay);
-        System.assert(out.configurationDisplay.contains('which attributes to change'), out.configurationDisplay);
-        System.assert(out.configurationDisplay.contains('Keep current selection'), out.configurationDisplay);
+        System.assertEquals(
+            false,
+            out.configurationDisplay.contains('Step 1 of 2'),
+            out.configurationDisplay);
+        System.assertEquals(
+            false,
+            out.configurationDisplay.contains('Keep all current attributes'),
+            out.configurationDisplay);
+        System.assertEquals(
+            false,
+            out.configurationDisplay.contains('. Options:'),
+            out.configurationDisplay);
         System.assert(
             !out.configurationDisplay.contains('Keep General'),
             out.configurationDisplay);
-        System.assert(out.configurationDisplay.contains('Step 2 of 2'), out.configurationDisplay);
-        System.assert(out.configurationDisplay.contains('Add-on products'), out.configurationDisplay);
-        System.assert(out.configurationDisplay.contains('Keep all catalog add-ons'), out.configurationDisplay);
-        System.assert(out.configurationDisplay.contains('clean engine save'), out.configurationDisplay);
-        System.assert(
-            !out.configurationDisplay.contains('other values grouped under each attribute'),
+        System.assertEquals(
+            false,
+            out.configurationDisplay.contains('Step 2 of 2'),
             out.configurationDisplay);
-        System.assert(out.configurationDisplay.contains('attributePicksJson'));
-        System.assert(
-            !out.configurationDisplay.contains('one numbered list per attribute'),
+        System.assertEquals(
+            false,
+            out.configurationDisplay.contains('Keep all catalog add-ons'),
+            out.configurationDisplay);
+        System.assertEquals(
+            false,
+            out.configurationDisplay.contains('clean engine save'),
             out.configurationDisplay);
     }
 
@@ -613,10 +626,19 @@ private class RLM_MCP_BundleConfigTest {
 
         System.assertEquals(true, out.isSuccess, 'describe failed: ' + out.errorMessage);
         System.assertEquals(true, out.needsAction);
+        System.assert(out.configurationDisplay.startsWith('Constraint'), out.configurationDisplay);
         System.assert(out.configurationDisplay.contains('Performance Tier'), out.configurationDisplay);
         System.assert(out.configurationDisplay.contains('(not set)'), out.configurationDisplay);
-        System.assert(out.configurationDisplay.contains('affects price'), out.configurationDisplay);
-        System.assert(out.configurationDisplay.startsWith('Constraint'), out.configurationDisplay);
+        System.assertEquals(
+            false,
+            out.configurationDisplay.contains('affects price'),
+            out.configurationDisplay
+        );
+        System.assertEquals(
+            false,
+            out.configurationDisplay.contains('keep the current mix'),
+            out.configurationDisplay
+        );
         System.assert(out.constraintCoachDisplay.contains('Performance Tier still needs a value.'),
             out.constraintCoachDisplay);
         System.assert(out.constraintCoachDisplay.contains('I will not configure until you pick.'),

@@ -104,9 +104,10 @@ private class RLM_MCP_BundleCoachTest {
         System.assert(gate.promptDisplay.contains('quoteLineItemId ' + String.valueOf(rack.Id)));
         System.assert(gate.promptDisplay.contains('Q-Rack'));
         System.assert(gate.promptDisplay.contains('Never insert child'));
+        System.assertEquals(false, gate.promptDisplay.contains('Which bundle?'), gate.promptDisplay);
         String joined = RLM_MCP_BundleCoach.append('Added Q-Rack.', quote.Id);
         System.assert(joined.contains('Added Q-Rack.'));
-        System.assert(joined.contains('Wait'));
+        System.assert(joined.contains('wait'));
     }
 
     @IsTest
